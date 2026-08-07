@@ -252,11 +252,14 @@ class TestMacOSContainedCollection:
             assert tree_digests(secret_bearing_root) == before
         assert result.outcome.os_enforced
         assert "external-sandbox-profile" in result.outcome.layers
-        assert set(result.outcome.proofs) == {
-            "socket-denied",
-            "write-open-denied",
-            "exec-denied",
-        }
+        assert {"write-open-denied", "exec-denied"} <= set(result.outcome.proofs)
+        # The network proof is honestly platform-shaped: Linux seccomp denies
+        # socket() outright, while sandbox-exec's `(deny network*)` lets the
+        # fd be allocated and denies `connect`. Either is proof of no egress
+        # — egress needs connect/sendto, and prove_containment raises if a
+        # connection actually succeeds. Asserting the Linux label alone would
+        # fail a correctly contained macOS run.
+        assert set(result.outcome.proofs) & {"socket-denied", "connect-denied"}
         payload = json.dumps(result.envelope.model_dump(mode="json"))
         assert PLANTED_AWS_KEY_ID not in payload
 

@@ -142,7 +142,10 @@ class TestContainedInspectionLeakFreeOnDarwin:
             assert_no_canary_leak(str(refusal), context="refusal message")
             return
         assert result.outcome.os_enforced
-        assert "socket-denied" in result.outcome.proofs
+        # sandbox-exec denies `connect` rather than socket() creation, so the
+        # honest darwin proof is `connect-denied`; either label proves no
+        # egress (see TestMacOSContainedCollection for the full note).
+        assert set(result.outcome.proofs) & {"socket-denied", "connect-denied"}
         assert_no_canary_leak(
             result.envelope.model_dump_json(), context="serialized envelope"
         )

@@ -143,6 +143,13 @@ class TestSuiteCatchesViolations:
         import os
         from dataclasses import replace
 
+        # os.setxattr is Linux-only in CPython; macOS exposes xattrs through
+        # a different API that the witness reaches via os.listxattr when
+        # present. Where the syscall wrappers are absent there is nothing to
+        # simulate, so the probe is skipped rather than failed.
+        if not hasattr(os, "setxattr") or not hasattr(os, "removexattr"):
+            pytest.skip("os.setxattr/os.removexattr unavailable on this platform")
+
         target = next(p for p in system_root.rglob("*") if p.is_file())
         try:
             os.setxattr(target, "user.conformance-probe", b"x")
