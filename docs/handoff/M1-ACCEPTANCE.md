@@ -11,11 +11,11 @@
 
 ## 1. Instrument results (recorded, not claimed)
 
-Run on Linux x86_64, at the commit of this document. The suite was run under **Python 3.11, 3.12 and 3.13** — 384 passed, 4 skipped on each — because a version-specific failure (Finding F, §3.5) was passing locally on 3.13 while failing on the 3.11/3.12 legs CI actually runs.
+Run on Linux x86_64, at the commit of this document. The suite was run under **Python 3.11, 3.12 and 3.13** — 390 passed, 4 skipped on each — because a version-specific failure (Finding F, §3.5) was passing locally on 3.13 while failing on the 3.11/3.12 legs CI actually runs.
 
 | Instrument | Command | Result (local) | Result (CI, before this review) |
 | --- | --- | --- | --- |
-| Test suite | `python -m pytest` | **384 passed, 4 skipped** on py3.11/3.12/3.13 (skips are darwin-only, see §4) | **FAILED on all 4 legs** — see Finding F, §3.5 |
+| Test suite | `python -m pytest` | **390 passed, 4 skipped** on py3.11/3.12/3.13 (skips are darwin-only, see §4) | **FAILED on all 4 legs** — see Finding F, §3.5 |
 | Lint | `ruff check .` | **All checks passed** | passed |
 | G2 inventory check | `python scripts/check_inventory.py` | **OK** — 27 inventoried fields, 4 stored (all with registered deletion paths), **0 transmitted** | **never executed** (pytest step failed first) |
 | Adapter conformance | `python -m capability_exchange.conformance --adapter claude-code-local --self-check` | **CONFORMANT: every check passed** (5/5) | **never executed** (pytest step failed first) |
@@ -125,7 +125,19 @@ Fixed: every path value the shim needs is resolved to a plain `str` **before** t
 
 This is the finding with the widest blast radius, because it means the milestone's own completion signal was unverified. It also explains why the darwin-only assertions in §4 had never actually run: the macOS legs failed at the same point.
 
-### 3.6 R2 → Evidence Level mapping — **no unsoundness**
+### 3.6 Hostile file *names* — **one real defect found and closed (Finding G)**
+
+With the CI legs finally running, an existing hypothesis property test — `test_g1_any_relative_path_yields_a_valid_reference_token`, written precisely to assert this invariant — generated the example `-----BEGIN` and failed.
+
+`reference_token` guards a candidate name for length, space count and control characters, but **not** for the `-----BEGIN` key-block marker that `EvidenceItem`'s reference validator independently rejects. So a file named `-----BEGIN` (or any name containing it) produced a token the builder passed through and the schema then refused, raising `ValidationError` **mid-collection**. In the contained child that surfaces as `EXIT_COLLECTION_FAILED` — "collection aborted; partials discarded". One oddly-named file in the inspected scope disabled the entire deep adapter: the same availability weapon as Finding A, and a direct contradiction of `reference_token`'s own docstring promise that "a hostile file name must never be able to poison a reference and abort the inspection".
+
+Root cause is the shape worth naming: **a producer and a consumer of the same value each carried their own nearly-identical copy of the rule, and they drifted.** Fixed by making the rule single-sourced — the schema's predicate is now public (`reference_rejection_reason`) and `reference_token` consults it directly instead of restating it, so a producer fails closed on exactly what the consumer rejects. Pinned with a deterministic regression test over three marker-bearing names, and the property test's budget raised from 50 to 500 examples.
+
+Verified end-to-end: a tree containing files named `-----BEGIN` and `-----BEGIN RSA PRIVATE KEY-----` now collects all four files, produces all five probes, and leaks no marker into the envelope.
+
+Two notes on process. First, this bug was **latent in the shipped suite** — the property test existed and would have caught it on any run that happened to generate the example; at 50 examples over a 255-character text space it rarely did. Property-test budgets are themselves an acceptance parameter. Second, it was only observable because Finding F was fixed first: while CI was red at the pytest step, no amount of property testing was running there at all.
+
+### 3.7 R2 → Evidence Level mapping — **no unsoundness**
 
 Independently re-enumerated all 2048 state combinations × 2 supply modes = **4096 cases**. Every case returned exactly one `EvidenceLevel`. Zero cases reached `Verified` while containing a never-Verified state, while `user_supplied_material=True`, or without `observed`. Adding any degraded state never *raised* the level (monotonicity holds). `absent` and `not-assessed` alone both map to `Unknown`.
 
@@ -155,7 +167,7 @@ The distinction is deliberate and is the honest reading of HANDOFF Section 4: *"
 Grounds for the substantive verdict:
 
 - Every M1 acceptance criterion in HANDOFF Section 4 — G1's six containment properties, G2's foundation, R2 including the total Evidence Level mapping property test, and the conformance / zero-writes / no-mutating-entry-point clause — has at least one passing, cited test. None is asserted on inspection alone.
-- The adversarial pass found **six defects**: two genuine containment/boundary escapes (B, D), one **blind instrument** that concealed one of them (C), two correctness/availability defects (A, E), and one that the milestone's own completion signal was never green (F). All six are fixed, each with a test that failed before the fix and passes after. The suite went 374 → 384 tests.
+- The adversarial pass found **seven defects**: two genuine containment/boundary escapes (B, D), one **blind instrument** that concealed one of them (C), three correctness/availability defects (A, E, G), and one that the milestone's own completion signal had never been green (F). All seven are fixed, each with a test that failed before the fix and passes after. The suite went 374 → 390 tests, verified on Python 3.11, 3.12 and 3.13.
 - Three probe families found nothing: eleven novel path-escape variants, ten novel injection phrasings including filename injection, and 4096 exhaustively enumerated R2 mapping cases.
 
 Honest qualifications:
@@ -164,8 +176,10 @@ Honest qualifications:
 2. **The macOS enforcement half of G1(a) is not provable on Linux,** and because of Finding F it has never run anywhere. Until the `macos-14` legs are green, darwin containment rests on a shipped profile and a strategy that nothing has exercised.
 3. **Finding C is the most instructive result of this review.** A conformance suite that reports `zero-writes-proof: PASSED` over a tree that was in fact modified is worse than no proof: it converts an unknown into a false assurance. The suite's `TestSuiteCatchesViolations` class is what caught it, and that pattern — deliberately sabotaged subjects proving the instrument can fail — should be mandatory for every gate instrument added in M2–M6, not optional.
 4. **Two independent layers missed the same class of write** (metadata mutation). That is a correlated-failure signal: both reasoned about writes as "content changes acquired through `open`". Future gate work should enumerate the mutation surface from the syscall table rather than from an intuition about what a write is.
-5. Findings C and F share a shape worth naming: **an instrument that cannot fail, or never runs, reports the same thing as an instrument that passes.** Both were invisible to anyone reading only the green local output.
-6. The aarch64 seccomp table remains unexercised by any CI leg. Adding an arm64 Linux runner would convert a reasoned assertion into a proof.
-7. Nothing here speaks to M2–M6 gates, and per HANDOFF Section 4 the pilot's real-user automated adaptation still requires all six Fable gates green on the exact pilot build plus R6's red-team — none of which M1 provides.
+5. Findings C and F share a shape worth naming: **an instrument that cannot fail, or never runs, reports the same thing as an instrument that passes.** Both were invisible to anyone reading only the green local output. The macOS profile fix cherry-picked into this branch fixed a third instance (its test built its own copy of the sandbox arguments, so the profile could pass its own test while the real child died).
+6. Findings D and G share a different shape: **two places carrying near-duplicate copies of one rule, which then drifted** — the inventory key namespace, and the reference-validity rule split between producer and consumer. Both are now single-sourced.
+7. **Property-test budgets are an acceptance parameter.** Finding G was catchable by a test already in the suite; at 50 examples it rarely generated the failing input. Raised to 500 here, but M2+ should set budgets deliberately per property rather than by default.
+8. The aarch64 seccomp table remains unexercised by any CI leg. Adding an arm64 Linux runner would convert a reasoned assertion into a proof.
+9. Nothing here speaks to M2–M6 gates, and per HANDOFF Section 4 the pilot's real-user automated adaptation still requires all six Fable gates green on the exact pilot build plus R6's red-team — none of which M1 provides.
 
 **Recommendation:** hold M1 sign-off until the CI run on `main` is green on all four matrix legs; then treat M1 as complete on Linux with the darwin legs as the macOS evidence, and carry the six PARTIAL/residual items in §4 into the R7 unresolved-risk register with named owners (D7).

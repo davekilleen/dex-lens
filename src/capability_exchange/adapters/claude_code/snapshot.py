@@ -38,6 +38,7 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
 from capability_exchange.evidence import EvidenceItem, EvidenceState
+from capability_exchange.evidence.item import reference_rejection_reason
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -118,15 +119,24 @@ _TOKEN_UNSAFE = frozenset(range(0x00, 0x20)) | {0x7F, ord("\\")}
 def reference_token(relative_path: str) -> str:
     """A reference-safe token for a path: short, single-line, low word count.
 
-    A path with control characters, backslashes, excess length, or too many
-    spaces is replaced by a digest token — a hostile file name must never
-    be able to poison a reference and abort the inspection (G1: inspected
-    names are untrusted data too).
+    A path with control characters, backslashes, excess length, too many
+    spaces, **or anything the reference schema itself would reject** is
+    replaced by a digest token — a hostile file name must never be able to
+    poison a reference and abort the inspection (G1: inspected names are
+    untrusted data too).
+
+    The schema's own rule is consulted directly rather than re-stated here.
+    When the two were merely similar, a file named ``-----BEGIN`` produced a
+    token this function passed through and ``EvidenceItem`` then rejected,
+    raising mid-collection: one oddly-named file disabled the deep adapter.
+    A producer of references must fail closed on exactly what the consumer
+    rejects.
     """
     if (
         len(relative_path) <= 200
         and relative_path.count(" ") <= 3
         and not any(ord(char) in _TOKEN_UNSAFE for char in relative_path)
+        and reference_rejection_reason(relative_path) is None
     ):
         return relative_path
     digest = hashlib.sha256(relative_path.encode("utf-8", "surrogateescape")).hexdigest()

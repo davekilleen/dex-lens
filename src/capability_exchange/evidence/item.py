@@ -20,7 +20,7 @@ from pydantic import ConfigDict, field_validator
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.evidence.states import EvidenceState, coerce_state
 
-__all__ = ["REFERENCE_MAX_LENGTH", "EvidenceItem"]
+__all__ = ["REFERENCE_MAX_LENGTH", "EvidenceItem", "reference_rejection_reason"]
 
 #: A locator/digest fits comfortably in this bound; raw file content rarely does.
 REFERENCE_MAX_LENGTH = 512
@@ -37,8 +37,16 @@ _PAYLOAD_MARKERS = ("-----BEGIN",)
 _MAX_REFERENCE_WORDS = 8
 
 
-def _looks_like_raw_content(reference: str) -> str | None:
-    """Return a rejection reason if the reference looks like a payload."""
+def reference_rejection_reason(reference: str) -> str | None:
+    """Why this string may not be a reference, or ``None`` if it may.
+
+    Public so that producers of references (notably the adapter's
+    ``reference_token``) can apply **the same** rule this schema enforces
+    instead of a similar one. When the two drifted apart, a hostile file
+    name that the token builder passed through was rejected here mid-
+    collection, aborting the whole inspection — one oddly-named file could
+    disable the deep adapter.
+    """
     if len(reference) > REFERENCE_MAX_LENGTH:
         return (
             f"reference exceeds {REFERENCE_MAX_LENGTH} characters; "
@@ -109,7 +117,7 @@ class EvidenceItem(InventoriedModel):
     def _reject_raw_content(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("reference must be a non-empty locator or digest")
-        reason = _looks_like_raw_content(value)
+        reason = reference_rejection_reason(value)
         if reason is not None:
             raise ValueError(reason)
         return value
@@ -136,7 +144,7 @@ class EvidenceItem(InventoriedModel):
         reference = self.__dict__.get("reference")
         if not isinstance(reference, str) or not reference.strip():
             raise ValueError("reference must be a non-empty locator or digest")
-        reason = _looks_like_raw_content(reference)
+        reason = reference_rejection_reason(reference)
         if reason is not None:
             raise ValueError(reason)
 

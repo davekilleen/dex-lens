@@ -105,7 +105,35 @@ class TestMalformed:
             "read-bound-exceeded" in item.reference for item in exclusions.evidence
         )
 
-    @settings(max_examples=50, deadline=None)
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "-----BEGIN",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "notes-----BEGIN-key.md",
+        ],
+    )
+    def test_g1_key_marker_file_name_cannot_abort_the_inspection(self, name: str) -> None:
+        """Adversarial M1 finding: a file *name* carrying a key-block marker
+        must not be able to poison its own exclusion record.
+
+        `reference_token` guards length, spaces and control characters, but
+        not the `-----BEGIN` marker that `EvidenceItem` independently
+        rejects — so a file named `-----BEGIN` produced a token that failed
+        reference validation, raising mid-collection and aborting the whole
+        inspection. Same availability weapon as the dangling symlink: one
+        oddly-named file disables the deep adapter. Found by the property
+        test below; pinned here deterministically.
+        """
+        token = reference_token(name)
+        item = EvidenceItem(
+            state=EvidenceState.BLOCKED,
+            captured_at=datetime.now(UTC),
+            reference=f"excluded:hostile-name:{token}",
+        )
+        assert item.reference.startswith("excluded:hostile-name:")
+
+    @settings(max_examples=500, deadline=None)
     @given(name=st.text(min_size=1, max_size=255))
     def test_g1_any_relative_path_yields_a_valid_reference_token(
         self, name: str
