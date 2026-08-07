@@ -37,6 +37,7 @@ from capability_exchange.adapter import (
 from capability_exchange.adapters.claude_code.snapshot import (
     InspectionSnapshot,
     SnapshotEntry,
+    reference_token,
 )
 from capability_exchange.adapters.claude_code.version_detection import detect_installation
 from capability_exchange.evidence import EvidenceItem, EvidenceState
@@ -53,8 +54,16 @@ class _PendingItem:
 
 
 def _file_reference(entry: SnapshotEntry) -> str:
-    """A non-raw reference: relative path plus a digest prefix. Never content."""
-    return f"file:{entry.relative_path}#sha256:{entry.raw_digest[:16]}"
+    """A non-raw reference: path token plus a keyed digest. Never content.
+
+    Two G1/G2 rules meet here: the path goes through
+    :func:`~capability_exchange.adapters.claude_code.snapshot.reference_token`
+    so a hostile file name cannot poison the reference and abort diagnosis,
+    and the digest is the snapshot's per-inspection **keyed** digest — an
+    unkeyed content hash (e.g. the sha256 of a file that consists of one
+    secret) would be a verifiable derivation of that content.
+    """
+    return f"file:{reference_token(entry.relative_path)}#snap:{entry.keyed_digest}"
 
 
 def _observed(entry: SnapshotEntry, moment: datetime) -> _PendingItem:

@@ -48,7 +48,10 @@ def normalized_structure(envelope: AdapterResultEnvelope) -> list[tuple]:
                 probe.health.value,
                 probe.detail,
                 tuple(
-                    (item.state.value, re.sub(r"sha256:[0-9a-f]+", "sha256:MASKED", item.reference))
+                    (
+                        item.state.value,
+                        re.sub(r"(sha256|snap):[0-9a-f]+", r"\1:MASKED", item.reference),
+                    )
                     for item in probe.evidence
                 ),
             )

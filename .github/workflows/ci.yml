@@ -32,6 +32,13 @@ jobs:
       - name: Test (pytest)
         run: python -m pytest
 
+      - name: adapter-conformance-claude-code
+        # HANDOFF 5.4: the runnable Host Adapter conformance suite, run
+        # against the claude_code deep adapter under the host's real
+        # OS-enforced containment (seccomp on Linux, sandbox-exec on macOS).
+        # Exit 1 on any failed check.
+        run: python -m capability_exchange.conformance --adapter claude-code-local --self-check
+
       - name: g2-inventory-check
         # G2 field-level data boundary: schema-validates data_inventory.yaml,
         # fails the build on any persisted/transmitted field without an

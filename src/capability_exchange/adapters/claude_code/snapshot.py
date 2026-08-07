@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets as secrets_module
 import stat as stat_module
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -91,21 +92,42 @@ class SnapshotEntry:
 
     ``content`` holds the **redacted** bytes — raw secret bytes never enter
     the snapshot. ``raw_digest`` is the SHA-256 of the raw bytes as read,
-    kept in memory only, for mid-inspection change detection.
+    kept in memory only, for mid-inspection change detection: it is
+    **never** placed in any reference, envelope, or other serializable
+    structure, because an unkeyed hash of file content is a verifiable
+    derivation of that content (G2: derived representations are bounded the
+    same as raw ones). ``keyed_digest`` is the reference-safe form: a
+    per-inspection-keyed digest of the redacted content, unlinkable to the
+    content without the key, which dies with the inspection process.
     """
 
     canonical_path: str
     relative_path: str
     raw_byte_size: int
     raw_digest: str
+    keyed_digest: str
     content: bytes
     redaction_count: int
     mtime_ns: int
 
 
+#: Bytes that make a raw path unusable as a single-line reference token.
+_TOKEN_UNSAFE = frozenset(range(0x00, 0x20)) | {0x7F, ord("\\")}
+
+
 def reference_token(relative_path: str) -> str:
-    """A reference-safe token for a path: short, single-line, low word count."""
-    if len(relative_path) <= 200 and relative_path.count(" ") <= 3:
+    """A reference-safe token for a path: short, single-line, low word count.
+
+    A path with control characters, backslashes, excess length, or too many
+    spaces is replaced by a digest token — a hostile file name must never
+    be able to poison a reference and abort the inspection (G1: inspected
+    names are untrusted data too).
+    """
+    if (
+        len(relative_path) <= 200
+        and relative_path.count(" ") <= 3
+        and not any(ord(char) in _TOKEN_UNSAFE for char in relative_path)
+    ):
         return relative_path
     digest = hashlib.sha256(relative_path.encode("utf-8", "surrogateescape")).hexdigest()
     return f"sha256:{digest[:16]}"
@@ -129,12 +151,16 @@ def _exclusion_for(decision: PathDecision, taken_at: datetime) -> EvidenceItem:
     )
 
 
-def _digest_of_live_file(canonical_path: str, byte_bound: int) -> str | None:
-    """SHA-256 of a live file for the integrity recheck, or None if gone.
+def _live_identity(canonical_path: str, byte_bound: int) -> tuple[str, int] | None:
+    """(SHA-256, mtime_ns) of a live file for the integrity recheck.
 
-    Content read here feeds a digest comparison only — it never becomes
-    evidence. Ambiguity (non-ENOENT errors, symlink reappearing) raises
-    :class:`InspectionAbortedError`.
+    Returns ``None`` if the file is gone. Both the content digest and the
+    modification time are compared: digest equality alone has an ABA blind
+    spot — a file mutated and mutated back (or recheck-read at a moment its
+    bytes coincide with the capture, e.g. mid-truncate) would pass as
+    unchanged. Content read here feeds the comparison only — it never
+    becomes evidence. Ambiguity (non-ENOENT errors, symlink reappearing)
+    raises :class:`InspectionAbortedError`.
     """
     try:
         fd = os.open(canonical_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
@@ -147,6 +173,7 @@ def _digest_of_live_file(canonical_path: str, byte_bound: int) -> str | None:
             f"and discards partials"
         ) from exc
     try:
+        metadata = os.fstat(fd)
         hasher = hashlib.sha256()
         consumed = 0
         while True:
@@ -156,9 +183,9 @@ def _digest_of_live_file(canonical_path: str, byte_bound: int) -> str | None:
             consumed += len(chunk)
             if consumed > byte_bound:
                 # Larger than anything the snapshot could hold: changed.
-                return "oversized"
+                return ("oversized", metadata.st_mtime_ns)
             hasher.update(chunk)
-        return hasher.hexdigest()
+        return (hasher.hexdigest(), metadata.st_mtime_ns)
     except OSError as exc:
         raise InspectionAbortedError(
             f"integrity recheck failed mid-read ({type(exc).__name__}); "
@@ -229,15 +256,17 @@ class InspectionSnapshot:
         )
 
     def changed_paths_since_capture(self) -> frozenset[str]:
-        """Canonical paths whose live bytes no longer match the snapshot.
+        """Canonical paths whose live identity no longer matches the snapshot.
 
-        Digest comparison only; deletion counts as change. Any ambiguity
-        raises :class:`InspectionAbortedError` (fail closed).
+        Compares content digest **and** mtime — a mutation whose recheck
+        bytes coincide with the capture (ABA) is still a change. Deletion
+        counts as change. Any ambiguity raises
+        :class:`InspectionAbortedError` (fail closed).
         """
         changed: set[str] = set()
         for canonical_path, entry in self._entries.items():
-            live = _digest_of_live_file(canonical_path, self._bounds.max_file_bytes)
-            if live != entry.raw_digest:
+            live = _live_identity(canonical_path, self._bounds.max_file_bytes)
+            if live != (entry.raw_digest, entry.mtime_ns):
                 changed.add(canonical_path)
         return frozenset(changed)
 
@@ -257,6 +286,11 @@ def take_snapshot(
     """
     effective_bounds = bounds or CollectionBounds()
     moment = taken_at or datetime.now(UTC)
+    # Per-inspection reference key: keyed digests in references are
+    # unlinkable to file content without this key, which never leaves the
+    # inspection process (an unkeyed content hash would be a verifiable
+    # derivation of the content — G2 counts derivations as data).
+    reference_key = secrets_module.token_bytes(16)
     outcome = allowlist.survey()
 
     exclusions: list[EvidenceItem] = []
@@ -344,6 +378,9 @@ def take_snapshot(
             relative_path=relative_path,
             raw_byte_size=len(raw),
             raw_digest=hashlib.sha256(raw).hexdigest(),
+            keyed_digest=hashlib.blake2b(
+                redaction.content, key=reference_key, digest_size=8
+            ).hexdigest(),
             content=redaction.content,
             redaction_count=redaction.redaction_count,
             mtime_ns=metadata.st_mtime_ns,
