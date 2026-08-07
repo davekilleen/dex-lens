@@ -93,6 +93,39 @@ class TestEvaluate:
         assert decision.is_admitted
         assert decision.canonical_path == str((claude_root / "CLAUDE.md").resolve())
 
+    def test_dangling_symlink_is_absent_not_ambiguous(
+        self, claude_root: Path, tmp_path: Path
+    ) -> None:
+        """Adversarial M1 finding: a broken symlink must be an honest
+        `absent` exclusion, not runtime ambiguity.
+
+        `realpath(strict=True)` raises FileNotFoundError for a dangling
+        link, which was classified as ambiguous — and ambiguity aborts the
+        whole inspection. Broken symlinks are ordinary in real systems and
+        trivial for a hostile one to plant, so that classification hands any
+        inspected system a one-file kill switch for the deep adapter. ENOENT
+        is unambiguous: the target verifiably is not there.
+        """
+        link = claude_root / "dangling.md"
+        link.symlink_to(tmp_path / "never-existed")
+        decision = CanonicalAllowlist([claude_root]).evaluate(link)
+        assert decision.verdict is PathVerdict.ABSENT
+        assert not decision.ambiguous
+        assert decision.reason == "dangling-symlink"
+        assert decision.canonical_path is None
+
+    def test_symlink_loop_is_blocked_not_ambiguous(self, claude_root: Path) -> None:
+        """A self-referential symlink resolves to ELOOP — unambiguously
+        unresolvable, so an honest `blocked` exclusion rather than an
+        inspection-wide abort."""
+        link = claude_root / "loop.md"
+        link.symlink_to(link)
+        decision = CanonicalAllowlist([claude_root]).evaluate(link)
+        assert decision.verdict is PathVerdict.BLOCKED
+        assert not decision.ambiguous
+        assert decision.reason == "symlink-loop"
+        assert decision.canonical_path is None
+
     def test_hard_link_to_outside_bytes_blocked(self, claude_root: Path, tmp_path: Path) -> None:
         outside = tmp_path / "outside-data"
         outside.write_text("shared bytes")

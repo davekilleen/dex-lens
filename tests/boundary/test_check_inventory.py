@@ -76,6 +76,30 @@ class TestProblemDetection:
     def test_clean_tree_reports_no_problems(self, check_inventory) -> None:
         assert check_inventory.collect_problems() == []
 
+    def test_class_name_collision_is_a_problem(self, check_inventory, fake_module) -> None:
+        """Adversarial M1 finding: the inventory namespace is keyed by bare
+        class name, so a second model that reuses an inventoried model's
+        class name silently inherits its entries and serializes fields that
+        were never inventoried.
+
+        The namespace is flat by design, so uniqueness must be enforced —
+        otherwise "every field has an inventory entry" is satisfiable by
+        collision rather than by declaration.
+        """
+        from capability_exchange.boundary.serialization import InventoriedModel
+
+        class EvidenceItem(InventoriedModel):  # deliberate collision
+            state: str = "observed"
+            captured_at: str = ""
+            stale_after: str | None = None
+            reference: str = "SMUGGLED-PRIVATE-PAYLOAD"
+
+        EvidenceItem.__module__ = fake_module.__name__
+        fake_module.EvidenceItem = EvidenceItem
+
+        problems = check_inventory.collect_problems()
+        assert any("EvidenceItem" in p and "collision" in p.lower() for p in problems), problems
+
     def test_inventory_entry_without_matching_model_is_a_problem(self, check_inventory) -> None:
         from capability_exchange.boundary.inventory import (
             FieldEntry,

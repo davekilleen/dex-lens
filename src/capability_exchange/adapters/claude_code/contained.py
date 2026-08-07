@@ -93,6 +93,13 @@ _WRITE_OPEN_FLAGS = 0o1 | 0o2 | 0o100 | 0o1000 | 0o2000 | 0o20000000
 
 #: Per-arch syscall tables: denied outright, and open-family flag checks
 #: as (syscall_nr, index of the flags argument).
+#:
+#: Note on completeness: the open-flag checks gate write capability that is
+#: *acquired through open*, but several syscalls mutate a file by path (or
+#: through a read-only fd) and never open it for writing — notably the
+#: ``utime``/``utimensat`` and ``*xattr`` families. Timestamps and extended
+#: attributes are part of the person's system, so G1(a)'s "no file writes"
+#: covers them and they are denied outright here.
 _ARCH_TABLES: dict[str, dict[str, object]] = {
     "x86_64": {
         "audit_arch": 0xC000003E,
@@ -102,6 +109,9 @@ _ARCH_TABLES: dict[str, dict[str, object]] = {
             76, 77, 82, 83, 84, 85, 86, 87, 88,  # truncate..symlink
             90, 91, 92, 93, 94, 133, 161,  # chmod/chown family, mknod, chroot
             258, 259, 260, 263, 264, 265, 266, 268, 316,  # *at mutations
+            132, 235, 261, 280,  # utime, utimes, futimesat, utimensat
+            188, 189, 190, 197, 198, 199,  # *setxattr, *removexattr
+            165, 166, 285,  # mount, umount2, fallocate
             437, 425,  # openat2 (uninspectable), io_uring_setup
         ),
         "open_flag_checks": ((2, 1), (257, 2)),  # open, openat
@@ -114,6 +124,9 @@ _ARCH_TABLES: dict[str, dict[str, object]] = {
             33, 34, 35, 36, 37, 38, 276,  # mknodat..renameat, renameat2
             45, 46, 52, 53, 54, 55,  # truncate/ftruncate/chmod/chown family
             39, 40, 51,  # umount2, mount, chroot
+            88,  # utimensat (no legacy utime/utimes/futimesat on aarch64)
+            5, 6, 7, 14, 15, 16,  # *setxattr, *removexattr
+            47,  # fallocate
             437, 425,  # openat2 (uninspectable), io_uring_setup
         ),
         "open_flag_checks": ((56, 2),),  # openat

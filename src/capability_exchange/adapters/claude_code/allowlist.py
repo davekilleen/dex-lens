@@ -18,13 +18,19 @@ record. Mount-point and ignored-file policy are explicit:
   redaction, because skipping them would miss planted secrets (G1 hostile
   fixture 3).
 
-Fail closed: a path whose resolution is ambiguous (racy symlink, resolution
-error) is marked ``ambiguous`` — the snapshot layer aborts the whole
-inspection on it rather than best-effort reading (G1 fail-closed rule).
+Fail closed: a path whose resolution is ambiguous (racy symlink, unexpected
+resolution error) is marked ``ambiguous`` — the snapshot layer aborts the
+whole inspection on it rather than best-effort reading (G1 fail-closed
+rule). Ambiguity is reserved for genuinely uncertain outcomes: a dangling
+symlink (``absent``) and a symlink loop (``blocked``) are unambiguous
+answers and become honest per-path exclusions, because aborting on them
+would let any inspected system disable the deep adapter with one broken
+link — a downgrade the person did not choose.
 """
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 from collections.abc import Iterable
@@ -197,7 +203,18 @@ class CanonicalAllowlist:
             return refusal("not-found", verdict=PathVerdict.ABSENT)
         try:
             real = os.path.realpath(absolute, strict=True)
+        except FileNotFoundError:
+            # A dangling symlink: the name exists, the target verifiably does
+            # not. That is unambiguous absence, not runtime ambiguity — an
+            # honest `absent` exclusion. Treating it as ambiguous would abort
+            # the whole inspection, letting any inspected system disable the
+            # deep adapter with a single broken link.
+            return refusal("dangling-symlink", verdict=PathVerdict.ABSENT)
         except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                # A symlink loop is unambiguously unresolvable: honest
+                # `blocked` exclusion, not an inspection-wide abort.
+                return refusal("symlink-loop")
             return refusal(f"resolution-ambiguous:{type(exc).__name__}", ambiguous=True)
 
         root = self._root_containing(real)

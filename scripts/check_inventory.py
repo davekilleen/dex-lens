@@ -89,6 +89,21 @@ def collect_problems() -> list[str]:
         qualified = f"{cls.__module__}.{cls.__name__}"
         if issubclass(cls, InventoriedModel):
             if cls is not InventoriedModel:
+                # The inventory namespace is keyed by bare class name, so it
+                # must actually be unique: a second model reusing a name would
+                # silently inherit the first model's entries and serialize
+                # fields that were never inventoried. Collision is a build
+                # failure, not a shadowing.
+                clash = inventoried_models.get(cls.__name__)
+                if clash is not None:
+                    problems.append(
+                        f"{qualified}: inventory namespace collision with "
+                        f"{clash.__module__}.{clash.__name__} — the data "
+                        f"inventory is keyed by bare class name, so two models "
+                        f"named {cls.__name__!r} would share entries and one "
+                        f"could serialize uninventoried fields. Rename one."
+                    )
+                    continue
                 inventoried_models[cls.__name__] = cls
         elif qualified not in ALLOWED_PLAIN_MODELS:
             problems.append(

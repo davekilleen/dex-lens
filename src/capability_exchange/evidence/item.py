@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
+from typing import Self
 
 from pydantic import ConfigDict, field_validator
 
@@ -112,6 +113,32 @@ class EvidenceItem(InventoriedModel):
         if reason is not None:
             raise ValueError(reason)
         return value
+
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> EvidenceItem:
+        # model_construct skips validation by design; the non-raw-reference
+        # boundary must hold on that route too, or a raw payload could be
+        # smuggled into a reference and serialized (R2 hostile fixture).
+        item = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        item._assert_reference_is_non_raw()
+        return item
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; an update that swaps in a raw
+        # payload must refuse the same way.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_reference_is_non_raw()
+        return copied
+
+    def _assert_reference_is_non_raw(self) -> None:
+        reference = self.__dict__.get("reference")
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError("reference must be a non-empty locator or digest")
+        reason = _looks_like_raw_content(reference)
+        if reason is not None:
+            raise ValueError(reason)
 
     def age(self, *, now: datetime) -> timedelta:
         """Source age at ``now``. Negative means a claimed future capture."""

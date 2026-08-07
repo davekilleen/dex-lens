@@ -96,3 +96,31 @@ def test_g1_whole_escape_fixture_leak_free_and_unwritten(
     envelope = collect_from(escape_system.root)
     assert tree_digests(tmp_path) == before, "inspection must write nothing"
     assert_no_canary_leak(serialized(envelope), context="serialized envelope")
+
+
+def test_g1_broken_links_do_not_disable_the_adapter(
+    escape_system: SymlinkEscapeSystem,
+) -> None:
+    """Adversarial M1 fixture: unresolvable links degrade the finding, not
+    the inspection.
+
+    A dangling symlink and a symlink loop are trivial to plant and ordinary
+    in real systems. If either aborted the whole inspection, any inspected
+    system could deny itself the deep adapter with one `ln -s`. They must
+    become honest per-path exclusions while the rest of the scope is still
+    collected.
+    """
+    (escape_system.root / "broken-link.md").symlink_to(
+        escape_system.root / "never-existed.md"
+    )
+    loop = escape_system.root / "loop.md"
+    loop.symlink_to(loop)
+
+    envelope = collect_from(escape_system.root)
+    references = _exclusion_references(escape_system.root)
+    assert any("dangling-symlink" in ref for ref in references)
+    assert any("symlink-loop" in ref for ref in references)
+
+    _contract, snapshot = snapshot_of(escape_system.root)
+    assert snapshot.canonical_paths(), "the rest of the approved scope is still collected"
+    assert_no_canary_leak(serialized(envelope), context="serialized envelope")

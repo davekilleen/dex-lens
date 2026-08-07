@@ -178,6 +178,63 @@ class TestSeccompDeniesEvenBuggyCode:
         )
         assert completed.returncode == 0, completed.stderr.decode()
 
+    def test_confined_process_cannot_write_file_metadata(self, tmp_path: Path) -> None:
+        """G1(a) "no file writes" covers *metadata* writes too.
+
+        Adversarial M1 finding: the open-flag filter gates write capability
+        acquired through ``open``, but ``utimensat`` and the ``*xattr``
+        family take a path (or a read-only fd) and mutate a file without
+        ever opening it for writing. Both changed the inspected tree on disk
+        under confinement. Timestamps and extended attributes are part of
+        the person's system; a contained collector must not be able to
+        touch them even if its own code is buggy.
+        """
+        victim = tmp_path / "victim.txt"
+        victim.write_text("original\n")
+        probe = textwrap.dedent(
+            f"""
+            import os, sys
+            from capability_exchange.adapters.claude_code.contained import (
+                confine_this_process,
+            )
+            victim = {str(victim)!r}
+            before_mtime = os.stat(victim).st_mtime_ns
+            confine_this_process()
+            failures = []
+
+            def denied(label, fn):
+                try:
+                    fn()
+                except PermissionError:
+                    return
+                except OSError as exc:
+                    failures.append(f"{{label}}-errno-{{exc.errno}}")
+                    return
+                failures.append(label)
+
+            denied("utime-path", lambda: os.utime(victim, (1000000, 1000000)))
+            denied("utime-nofollow",
+                   lambda: os.utime(victim, (1000000, 1000000), follow_symlinks=False))
+            denied("utime-fd", lambda: os.utime(os.open(victim, os.O_RDONLY), (2, 2)))
+            denied("setxattr", lambda: os.setxattr(victim, "user.probe", b"escaped"))
+            denied("removexattr", lambda: os.removexattr(victim, "user.probe"))
+
+            if os.stat(victim).st_mtime_ns != before_mtime:
+                failures.append("MTIME-ACTUALLY-CHANGED")
+            if b"user.probe" in b"".join(os.listxattr(victim)):
+                failures.append("XATTR-ACTUALLY-SET")
+            if failures:
+                print("; ".join(failures), file=sys.stderr)
+                sys.exit(1)
+            sys.exit(0)
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, timeout=60, check=False
+        )
+        assert completed.returncode == 0, completed.stderr.decode()
+        assert victim.read_text() == "original\n"
+
 
 @macos_only
 class TestMacOSContainedCollection:

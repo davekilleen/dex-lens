@@ -82,16 +82,50 @@ def _failed(check_id: str, gate: str, detail: str) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
+def _xattr_identity(path: Path) -> tuple[tuple[str, str], ...]:
+    """Extended attributes as (name, sha256-of-value) pairs, sorted.
+
+    Included in the witness because an xattr write changes no content, size,
+    mode, or mtime: a content-and-stat-only witness would call the tree
+    byte-identical while the person's system had in fact been modified.
+    Filesystems and platforms without xattr support yield an empty tuple —
+    the same on both sides of the comparison, so nothing is masked.
+    """
+    listxattr = getattr(os, "listxattr", None)
+    getxattr = getattr(os, "getxattr", None)
+    if listxattr is None or getxattr is None:
+        return ()
+    try:
+        names = sorted(listxattr(path, follow_symlinks=False))
+    except OSError:
+        return ()
+    attributes: list[tuple[str, str]] = []
+    for name in names:
+        try:
+            value = getxattr(path, name, follow_symlinks=False)
+        except OSError:
+            attributes.append((name, "unreadable"))
+            continue
+        attributes.append((name, hashlib.sha256(value).hexdigest()))
+    return tuple(attributes)
+
+
 def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
     """A full recursive identity of ``root``: any write anywhere changes it.
 
-    Covers file content (SHA-256), size, mode, mtime_ns, directory entry
-    sets and modes, and symlink targets. Never follows symlinks — reading
-    through an escape link to build a witness would itself be an escape.
+    Covers file content (SHA-256), size, mode, mtime_ns, extended
+    attributes, directory entry sets and modes, and symlink targets. Never
+    follows symlinks — reading through an escape link to build a witness
+    would itself be an escape.
     """
     identity: dict[str, tuple[object, ...]] = {}
     root_str = str(root)
-    identity[root_str] = ("dir", root.stat().st_mode, tuple(sorted(os.listdir(root))))
+    identity[root_str] = (
+        "dir",
+        root.stat().st_mode,
+        tuple(sorted(os.listdir(root))),
+        _xattr_identity(root),
+    )
     for current_dir, dirnames, filenames in os.walk(root, followlinks=False):
         for name in sorted(dirnames):
             full = Path(current_dir) / name
@@ -103,6 +137,7 @@ def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
                 "dir",
                 metadata.st_mode,
                 tuple(sorted(os.listdir(full))),
+                _xattr_identity(full),
             )
         for name in sorted(filenames):
             full = Path(current_dir) / name
@@ -116,6 +151,7 @@ def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
                 metadata.st_size,
                 metadata.st_mtime_ns,
                 hashlib.sha256(full.read_bytes()).hexdigest(),
+                _xattr_identity(full),
             )
     return identity
 

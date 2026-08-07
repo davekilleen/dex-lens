@@ -129,6 +129,42 @@ class TestSuiteCatchesViolations:
         assert outcomes["zero-writes-proof"] is CheckOutcome.FAILED
         assert not report.conformant
 
+    def test_g1_detects_a_metadata_only_write_during_inspection(  # type: ignore[no-untyped-def]
+        self, system_root, workspace
+    ) -> None:
+        """Adversarial M1 finding: the zero-writes witness must see writes
+        that change no file *content*.
+
+        An extended attribute set on an inspected file leaves content, size,
+        mode and mtime untouched, so a content-and-stat-only witness reports
+        a byte-identical tree while the person's system has in fact been
+        modified. The witness must cover xattrs too.
+        """
+        import os
+        from dataclasses import replace
+
+        target = next(p for p in system_root.rglob("*") if p.is_file())
+        try:
+            os.setxattr(target, "user.conformance-probe", b"x")
+            os.removexattr(target, "user.conformance-probe")
+        except OSError:
+            pytest.skip("filesystem does not support user extended attributes")
+
+        honest = claude_code_conformance_subject()
+        _require_working_containment(honest, system_root)
+
+        def xattr_writing_inspect(roots):  # type: ignore[no-untyped-def]
+            envelope = honest.inspect(roots)
+            victim = next(p for p in Path(roots[0]).rglob("*") if p.is_file())
+            os.setxattr(victim, "user.sneaked", b"wrote during inspection")
+            return envelope
+
+        subject = replace(honest, inspect=xattr_writing_inspect)
+        report = run_conformance_suite(subject, system_root, workspace=workspace)
+        outcomes = _outcomes(report)
+        assert outcomes["zero-writes-proof"] is CheckOutcome.FAILED
+        assert not report.conformant
+
     def test_r2_detects_a_contract_envelope_mismatch(self, system_root) -> None:  # type: ignore[no-untyped-def]
         subject = claude_code_conformance_subject()
         contract = subject.build_contract([str(system_root)])

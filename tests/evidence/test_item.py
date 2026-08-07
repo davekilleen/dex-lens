@@ -170,6 +170,51 @@ class TestNonRawReference:
             make_item(reference="a" * size)
 
 
+class TestValidationBypassRoutes:
+    """Adversarial M1 finding: R2's non-raw-reference rule must hold on the
+    validation-skipping routes too.
+
+    ``model_construct`` and ``model_copy`` skip validators by design, so a
+    raw payload could be smuggled into a ``reference`` and serialized. The
+    codebase already closes exactly these routes on ``AdapterContract``;
+    the R2 boundary needs the same treatment.
+    """
+
+    def test_model_construct_rejects_a_raw_payload_reference(self) -> None:
+        # single-line, so the key-marker rule is what refuses it
+        with pytest.raises(ValueError, match="key/secret block markers"):
+            EvidenceItem.model_construct(
+                state=EvidenceState.OBSERVED,
+                captured_at=datetime.now(UTC),
+                reference="-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXk=",
+            )
+
+    def test_model_construct_rejects_a_multiline_payload_reference(self) -> None:
+        with pytest.raises(ValueError, match="line breaks or control characters"):
+            EvidenceItem.model_construct(
+                state=EvidenceState.OBSERVED,
+                captured_at=datetime.now(UTC),
+                reference="-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk=\n",
+            )
+
+    def test_model_construct_accepts_a_real_locator(self) -> None:
+        item = EvidenceItem.model_construct(
+            state=EvidenceState.OBSERVED,
+            captured_at=datetime.now(UTC),
+            reference="probe:settings-present",
+        )
+        assert item.reference == "probe:settings-present"
+
+    def test_model_copy_update_rejects_a_raw_payload_reference(self) -> None:
+        item = EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=datetime.now(UTC),
+            reference="probe:settings-present",
+        )
+        with pytest.raises(ValueError, match="line breaks or control characters"):
+            item.model_copy(update={"reference": "line one\nline two\nline three"})
+
+
 class TestImmutabilityAndClosedSchema:
     def test_items_are_frozen(self) -> None:
         item = make_item()
