@@ -7,8 +7,12 @@ non-conformant, never assumed conformant.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
+import functools
 import hashlib
 import os
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -38,6 +42,7 @@ __all__ = [
     "check_result_envelope_conformance",
     "check_snapshot_semantics",
     "tree_identity",
+    "xattr_identity",
 ]
 
 #: Tolerated clock skew when judging "captured in the past".
@@ -82,16 +87,132 @@ def _failed(check_id: str, gate: str, detail: str) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
+#: darwin ``listxattr``/``getxattr`` option bit: operate on the symlink
+#: itself rather than its target (the ``follow_symlinks=False`` of the
+#: Linux wrappers).
+_XATTR_NOFOLLOW = 0x0001
+
+#: Recorded in place of a value that exists but could not be read. Dropping
+#: the name instead would let a write hide behind an unreadable attribute;
+#: a stable sentinel compares equal across two captures unless readability
+#: itself changed, which is a change worth reporting.
+_XATTR_UNREADABLE = "<unreadable>"
+
+
+@functools.lru_cache(maxsize=1)
+def _darwin_libc() -> ctypes.CDLL | None:
+    """libc with the darwin xattr entry points typed, or ``None``.
+
+    CPython exposes ``os.listxattr``/``os.getxattr`` on Linux only, so on
+    macOS the witness reaches the same syscalls through libc directly.
+    Reading only: nothing here can set or remove an attribute, which keeps
+    the conformance instrument on the read-only side of boundary 1.
+    """
+    library = ctypes.util.find_library("c")
+    if library is None:  # pragma: no cover - darwin always has libc
+        return None
+    libc = ctypes.CDLL(library, use_errno=True)
+    libc.listxattr.restype = ctypes.c_ssize_t
+    libc.listxattr.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_size_t,
+        ctypes.c_int,
+    ]
+    libc.getxattr.restype = ctypes.c_ssize_t
+    libc.getxattr.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
+    return libc
+
+
+def _darwin_xattr_identity(path: Path) -> tuple[tuple[str, str], ...]:
+    libc = _darwin_libc()
+    if libc is None:  # pragma: no cover - darwin always has libc
+        return ()
+    encoded = os.fsencode(path)
+    length = libc.listxattr(encoded, None, 0, _XATTR_NOFOLLOW)
+    if length <= 0:  # no attributes, or the filesystem has no xattr support
+        return ()
+    names_buffer = ctypes.create_string_buffer(length)
+    length = libc.listxattr(encoded, names_buffer, length, _XATTR_NOFOLLOW)
+    if length <= 0:
+        return ()
+    identity: list[tuple[str, str]] = []
+    for raw_name in sorted(n for n in names_buffer.raw[:length].split(b"\0") if n):
+        name = raw_name.decode("utf-8", "surrogateescape")
+        size = libc.getxattr(encoded, raw_name, None, 0, 0, _XATTR_NOFOLLOW)
+        if size < 0:
+            identity.append((name, _XATTR_UNREADABLE))
+            continue
+        value = b""
+        if size:
+            value_buffer = ctypes.create_string_buffer(size)
+            size = libc.getxattr(encoded, raw_name, value_buffer, size, 0, _XATTR_NOFOLLOW)
+            if size < 0:
+                identity.append((name, _XATTR_UNREADABLE))
+                continue
+            value = value_buffer.raw[:size]
+        identity.append((name, hashlib.sha256(value).hexdigest()))
+    return tuple(identity)
+
+
+def _linux_xattr_identity(path: Path) -> tuple[tuple[str, str], ...]:
+    try:
+        names = sorted(os.listxattr(path, follow_symlinks=False))
+    except OSError:  # filesystem without xattr support, or a vanished path
+        return ()
+    identity: list[tuple[str, str]] = []
+    for name in names:
+        try:
+            value = os.getxattr(path, name, follow_symlinks=False)
+        except OSError:
+            identity.append((name, _XATTR_UNREADABLE))
+            continue
+        identity.append((name, hashlib.sha256(value).hexdigest()))
+    return tuple(identity)
+
+
+def xattr_identity(path: Path) -> tuple[tuple[str, str], ...]:
+    """Extended attributes as sorted ``(name, sha256-of-value)`` pairs.
+
+    Part of the witness because an xattr write changes no content, size,
+    mode or mtime: a content-and-stat-only witness would call the tree
+    byte-identical while the person's system had in fact been modified.
+    Implemented per platform — CPython's ``os.*xattr`` wrappers are
+    Linux-only, so macOS goes through libc — so that the guarantee is the
+    same on the pilot's platform as on CI's Linux legs rather than quietly
+    empty there. A filesystem with no xattr support yields ``()`` on both
+    sides of the comparison, which masks nothing.
+    """
+    if sys.platform == "darwin":
+        return _darwin_xattr_identity(path)
+    if hasattr(os, "listxattr") and hasattr(os, "getxattr"):
+        return _linux_xattr_identity(path)
+    return ()  # pragma: no cover - no xattr API on this platform
+
+
 def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
     """A full recursive identity of ``root``: any write anywhere changes it.
 
-    Covers file content (SHA-256), size, mode, mtime_ns, directory entry
-    sets and modes, and symlink targets. Never follows symlinks — reading
-    through an escape link to build a witness would itself be an escape.
+    Covers file content (SHA-256), size, mode, mtime_ns, extended
+    attributes, directory entry sets and modes, and symlink targets. Never
+    follows symlinks — reading through an escape link to build a witness
+    would itself be an escape.
     """
     identity: dict[str, tuple[object, ...]] = {}
     root_str = str(root)
-    identity[root_str] = ("dir", root.stat().st_mode, tuple(sorted(os.listdir(root))))
+    identity[root_str] = (
+        "dir",
+        root.stat().st_mode,
+        tuple(sorted(os.listdir(root))),
+        xattr_identity(root),
+    )
     for current_dir, dirnames, filenames in os.walk(root, followlinks=False):
         for name in sorted(dirnames):
             full = Path(current_dir) / name
@@ -103,6 +224,7 @@ def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
                 "dir",
                 metadata.st_mode,
                 tuple(sorted(os.listdir(full))),
+                xattr_identity(full),
             )
         for name in sorted(filenames):
             full = Path(current_dir) / name
@@ -116,6 +238,7 @@ def tree_identity(root: Path) -> dict[str, tuple[object, ...]]:
                 metadata.st_size,
                 metadata.st_mtime_ns,
                 hashlib.sha256(full.read_bytes()).hexdigest(),
+                xattr_identity(full),
             )
     return identity
 

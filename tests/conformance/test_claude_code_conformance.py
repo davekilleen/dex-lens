@@ -7,6 +7,10 @@ fallback) and R2 (result-envelope conformance).
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -101,6 +105,45 @@ class TestFullSuite:
         assert conformance_main(["--adapter", "made-up-host", "--self-check"]) == 2
 
 
+#: An extended-attribute name this platform will accept. Linux only permits
+#: the ``user.`` namespace from an unprivileged process; macOS has no
+#: namespace requirement.
+XATTR_PROBE_NAME = (
+    "dex.conformance-probe" if sys.platform == "darwin" else "user.dex-conformance-probe"
+)
+
+
+def set_extended_attribute(path: Path, name: str, value: bytes) -> None:
+    """Set one extended attribute on ``path``, however this platform allows.
+
+    ``os.setxattr`` is Linux-only in CPython, so a test written against it
+    raises ``AttributeError`` on macOS — the pilot's platform — and stops
+    exercising the witness exactly where it matters most. macOS goes
+    through libc instead (the same syscall ``/usr/bin/xattr -w`` uses, minus
+    the dependency on a system Python being installed). Raises ``OSError``
+    when the filesystem has no extended-attribute support, which callers
+    turn into an honest skip.
+
+    Test-side only: the conformance instrument itself never writes.
+    """
+    if sys.platform != "darwin":
+        os.setxattr(path, name, value)
+        return
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    libc.setxattr.restype = ctypes.c_int
+    libc.setxattr.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
+    if libc.setxattr(os.fsencode(path), name.encode(), value, len(value), 0, 0) != 0:
+        errno_value = ctypes.get_errno()
+        raise OSError(errno_value, os.strerror(errno_value), str(path))
+
+
 def _require_working_containment(subject, root: Path) -> None:  # type: ignore[no-untyped-def]
     try:
         subject.inspect([str(root)])
@@ -127,6 +170,44 @@ class TestSuiteCatchesViolations:
         report = run_conformance_suite(subject, system_root, workspace=workspace)
         outcomes = _outcomes(report)
         assert outcomes["zero-writes-proof"] is CheckOutcome.FAILED
+        assert not report.conformant
+
+    def test_g1_detects_a_metadata_only_write_during_inspection(  # type: ignore[no-untyped-def]
+        self, system_root, workspace
+    ) -> None:
+        """The zero-writes witness must see writes that change no content.
+
+        An extended attribute set on an inspected file leaves content, size,
+        mode and mtime untouched, so a content-and-stat-only witness reports
+        a byte-identical tree while the person's system has in fact been
+        modified. The witness covers xattrs on both platforms, so this runs
+        on both — a macOS skip here would leave the pilot's platform with an
+        unexercised witness.
+        """
+        from dataclasses import replace
+
+        # Doubles as the support probe and as a pre-existing attribute: the
+        # violation below rewrites the same name with a different value, so
+        # a witness that only noticed names appearing would still fail here.
+        target = next(p for p in system_root.rglob("*") if p.is_file())
+        try:
+            set_extended_attribute(target, XATTR_PROBE_NAME, b"before-inspection")
+        except OSError as exc:
+            pytest.skip(f"filesystem does not support extended attributes: {exc}")
+
+        honest = claude_code_conformance_subject()
+        _require_working_containment(honest, system_root)
+
+        def xattr_writing_inspect(roots):  # type: ignore[no-untyped-def]
+            envelope = honest.inspect(roots)
+            victim = next(p for p in Path(roots[0]).rglob("*") if p.is_file())
+            set_extended_attribute(victim, XATTR_PROBE_NAME, b"wrote during inspection")
+            return envelope
+
+        subject = replace(honest, inspect=xattr_writing_inspect)
+        report = run_conformance_suite(subject, system_root, workspace=workspace)
+        outcomes = _outcomes(report)
+        assert outcomes["zero-writes-proof"] is CheckOutcome.FAILED, format_report(report)
         assert not report.conformant
 
     def test_r2_detects_a_contract_envelope_mismatch(self, system_root) -> None:  # type: ignore[no-untyped-def]
