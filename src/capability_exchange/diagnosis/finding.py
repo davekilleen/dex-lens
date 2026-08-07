@@ -1,4 +1,4 @@
-"""Three-axis findings and the jobs-first Capability Map shapes (#351, #352).
+"""Three-axis findings (#351, #352).
 
 Every finding carries EXACTLY three independent axes (#351 amendment,
 authoritative):
@@ -20,18 +20,20 @@ nested models — to prove an aggregate is structurally unrepresentable, not
 merely absent.
 
 Alongside the axes, a finding links its R2 evidence items, keeps uncertainty
-visible as notes, states one practical implication, and recommends exactly
-one useful next move (a single bounded line: the field is singular by
-construction).
+visible as notes, states one practical implication, says why the capability
+matters to the assessed job, and recommends exactly one useful next move
+(a single bounded line: the field is singular by construction).
+
+The jobs-first Capability Map that nests these findings per confirmed job
+lives in :mod:`capability_exchange.capmap.model` (module M-D renderer side).
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import StrEnum
 from typing import final
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.foundations import FoundationCapability
@@ -44,10 +46,8 @@ from capability_exchange.evidence import (
 from capability_exchange.jobs.contract import validate_contract_text, validate_job_id
 
 __all__ = [
-    "CapabilityMap",
     "CapabilityState",
     "Finding",
-    "JobFindings",
     "SafetyBoundary",
 ]
 
@@ -120,8 +120,13 @@ class Finding(InventoriedModel):
     #: Uncertainty stays visible: one bounded line per source of doubt.
     uncertainty_notes: tuple[str, ...] = ()
 
-    #: Why this finding matters to the person's confirmed job.
+    #: What this finding means in practice (non-judgmental, per capability).
     practical_implication: str
+
+    #: Why this capability matters to THIS confirmed job — composed by the
+    #: engine from the capability's defined user job and the job's own
+    #: desired outcome, never generated.
+    why_it_matters: str
 
     #: Exactly one recommended next move (singular by construction).
     recommended_next_move: str
@@ -140,6 +145,11 @@ class Finding(InventoriedModel):
     @classmethod
     def _implication_text(cls, value: str) -> str:
         return validate_contract_text(value, "practical_implication")
+
+    @field_validator("why_it_matters")
+    @classmethod
+    def _why_it_matters_text(cls, value: str) -> str:
+        return validate_contract_text(value, "why_it_matters")
 
     @field_validator("recommended_next_move")
     @classmethod
@@ -174,82 +184,3 @@ class Finding(InventoriedModel):
         return self
 
 
-@final
-class JobFindings(InventoriedModel):
-    """One confirmed job's findings: all eight Foundation Capabilities.
-
-    The jobs-first Capability Map nests findings inside the job they are
-    scoped to (#352). Exactly one finding per Foundation Capability, each
-    naming this job — no capability silently missing, none doubled.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    #: The confirmed job these findings are scoped to.
-    job_id: str
-
-    #: Exactly one finding per Foundation Capability (validated).
-    findings: tuple[Finding, ...] = Field(min_length=1)
-
-    @field_validator("job_id")
-    @classmethod
-    def _kebab_job_id(cls, value: str) -> str:
-        return validate_job_id(value)
-
-    @model_validator(mode="after")
-    def _one_finding_per_capability_for_this_job(self) -> JobFindings:
-        capabilities = [finding.capability for finding in self.findings]
-        if set(capabilities) != set(FoundationCapability) or len(capabilities) != len(
-            set(capabilities)
-        ):
-            raise ValueError(
-                "a job's findings must cover exactly the eight Foundation "
-                "Capabilities, one finding each"
-            )
-        for finding in self.findings:
-            if finding.job_id != self.job_id:
-                raise ValueError(
-                    f"finding for {finding.capability.value!r} is scoped to job "
-                    f"{finding.job_id!r}, not {self.job_id!r}; a finding never "
-                    f"crosses between jobs"
-                )
-        return self
-
-
-@final
-class CapabilityMap(InventoriedModel):
-    """The jobs-first Capability Map: findings nested per confirmed job.
-
-    A private assessment of which relevant user jobs a system can fulfil,
-    with the Evidence Level shown for every finding. Organized around the
-    person's confirmed jobs — there is no system-level roll-up of any kind,
-    and no field in which one could be expressed.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    #: When the assessment ran (timezone-aware; naive is unverifiable).
-    assessed_at: datetime
-
-    #: One entry per confirmed job, canonically ordered by job id.
-    jobs: tuple[JobFindings, ...] = Field(min_length=1)
-
-    @field_validator("assessed_at")
-    @classmethod
-    def _require_aware_timestamp(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            raise ValueError(
-                "assessed_at must be timezone-aware; a naive timestamp is an "
-                "unverifiable assessment time (fail closed)"
-            )
-        return value
-
-    @field_validator("jobs")
-    @classmethod
-    def _unique_and_canonically_ordered(
-        cls, value: tuple[JobFindings, ...]
-    ) -> tuple[JobFindings, ...]:
-        ids = [job.job_id for job in value]
-        if len(set(ids)) != len(ids):
-            raise ValueError("jobs contain duplicate job ids")
-        return tuple(sorted(value, key=lambda job: job.job_id))

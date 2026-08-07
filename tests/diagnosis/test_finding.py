@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from tests.diagnosis.conftest import COLLECTED_AT, item
+from tests.diagnosis.conftest import item
 
 from capability_exchange.diagnosis import (
-    CapabilityMap,
     CapabilityState,
     Finding,
     FoundationCapability,
-    JobFindings,
     SafetyBoundary,
 )
 from capability_exchange.evidence import EvidenceItem, EvidenceLevel, EvidenceState
@@ -36,6 +34,7 @@ def finding(
         evidence=evidence,
         uncertainty_notes=uncertainty_notes,
         practical_implication="Proven recovery protects what already works",
+        why_it_matters="Recovery you can trust keeps this job's outcome safe to improve",
         recommended_next_move="Rehearse rolling one file back before the next change",
     )
 
@@ -171,51 +170,6 @@ class TestClosedSchema:
             )
 
 
-class TestJobFindingsShape:
-    def _eight(self, job_id: str = "weekly-report") -> tuple[Finding, ...]:
-        return tuple(
-            finding(capability=capability, job_id=job_id)
-            for capability in FoundationCapability
-        )
-
-    def test_exactly_one_finding_per_capability(self) -> None:
-        job = JobFindings(job_id="weekly-report", findings=self._eight())
-        assert len(job.findings) == 8
-
-    def test_a_missing_capability_is_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="eight Foundation"):
-            JobFindings(job_id="weekly-report", findings=self._eight()[:7])
-
-    def test_a_doubled_capability_is_rejected(self) -> None:
-        eight = self._eight()
-        with pytest.raises(ValidationError, match="eight Foundation"):
-            JobFindings(job_id="weekly-report", findings=(*eight[:7], eight[0]))
-
-    def test_a_finding_never_crosses_between_jobs(self) -> None:
-        eight = self._eight()
-        stray = finding(
-            capability=FoundationCapability.COMPOUNDING_CORRECTABILITY,
-            job_id="another-job",
-        )
-        with pytest.raises(ValidationError, match="crosses between jobs"):
-            JobFindings(job_id="weekly-report", findings=(*eight[:7], stray))
-
-    def test_capability_map_orders_jobs_canonically(self) -> None:
-        map_ = CapabilityMap(
-            assessed_at=COLLECTED_AT,
-            jobs=(
-                JobFindings(job_id="zeta-job", findings=self._eight("zeta-job")),
-                JobFindings(job_id="alpha-job", findings=self._eight("alpha-job")),
-            ),
-        )
-        assert [job.job_id for job in map_.jobs] == ["alpha-job", "zeta-job"]
-
-    def test_capability_map_rejects_duplicate_jobs(self) -> None:
-        job = JobFindings(job_id="weekly-report", findings=self._eight())
-        with pytest.raises(ValidationError, match="duplicate"):
-            CapabilityMap(assessed_at=COLLECTED_AT, jobs=(job, job))
-
-    def test_capability_map_rejects_naive_timestamp(self) -> None:
-        job = JobFindings(job_id="weekly-report", findings=self._eight())
-        with pytest.raises(ValidationError, match="timezone-aware"):
-            CapabilityMap(assessed_at=COLLECTED_AT.replace(tzinfo=None), jobs=(job,))
+# The jobs-first map shapes that nest these findings per confirmed job
+# (JobFindings, CapabilityMap) live in capability_exchange.capmap.model and
+# are covered by tests/capmap/test_model.py.

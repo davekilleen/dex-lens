@@ -661,6 +661,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral in-memory value; exists only for the diagnosis session"
 
+  Finding.why_it_matters:
+    description: "one line on why this capability matters to the assessed confirmed job"
+    collection: "composed deterministically from the capability's defined user job and the contract's desired outcome"
+    derivation: "fixed composition rule with bounded-length fallbacks; never generated"
+    display: "shown with the finding in the jobs-first Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
   Finding.recommended_next_move:
     description: "exactly one recommended next move for this finding (singular by construction)"
     collection: "authored in the Foundation Capability definitions, selected by capability state"
@@ -671,11 +681,11 @@ fields:
     deletion: not-stored
     audit: "ephemeral in-memory value; exists only for the diagnosis session"
 
-  JobFindings.job_id:
-    description: "the confirmed job whose findings are nested here (jobs-first Capability Map)"
-    collection: "copied from the confirmed Success Contract under assessment"
-    derivation: "none; validated kebab-case and matched against every nested finding"
-    display: "shown as the job heading in the jobs-first Capability Map"
+  JobFindings.contract:
+    description: "the confirmed Success Contract whose findings are nested here (nested SuccessContract entries apply)"
+    collection: "the confirmed contract the assessment consumed, embedded as-is"
+    derivation: "none; only the distinct confirmed-contract type validates here (R1), and every nested finding must match its job id"
+    display: "shown as the job heading and context in the jobs-first Capability Map"
     storage: none
     sharing: never
     deletion: not-stored

@@ -3,7 +3,8 @@ representable in any diagnosis schema or report shape (#351; M2 criterion).
 
 This is the schema test, not a code review: it walks every model field —
 including nested models, through tuples, unions, and optionals — across the
-whole diagnosis surface and proves that:
+whole diagnosis surface AND the jobs-first Capability Map (the M-D report
+shape in :mod:`capability_exchange.capmap.model`) and proves that:
 
 1. no field name could carry an aggregate (no score/rank/percentage/rating/
    grade/maturity/resemblance/aggregate/total-style name anywhere);
@@ -25,12 +26,10 @@ from enum import StrEnum
 import pytest
 from pydantic import BaseModel
 
+import capability_exchange.capmap as capmap_package
 import capability_exchange.diagnosis as diagnosis_package
-from capability_exchange.diagnosis import (
-    CapabilityMap,
-    CapabilityState,
-    SafetyBoundary,
-)
+from capability_exchange.capmap import CapabilityMap
+from capability_exchange.diagnosis import CapabilityState, SafetyBoundary
 from capability_exchange.evidence import EvidenceLevel
 
 #: Field names that could express an aggregate, collapsed axis, or ranking.
@@ -106,7 +105,14 @@ ALL_FIELDS = walk_model_fields(CapabilityMap)
 class TestAggregateIsUnrepresentable:
     def test_the_walk_reaches_the_whole_tree(self) -> None:
         walked_models = {key.split(".")[0] for key in ALL_FIELDS}
-        assert {"CapabilityMap", "JobFindings", "Finding", "EvidenceItem"} <= walked_models
+        assert {
+            "CapabilityMap",
+            "JobFindings",
+            "Finding",
+            "EvidenceItem",
+            "SuccessContract",
+            "JobBoundaries",
+        } <= walked_models
 
     @pytest.mark.parametrize("field_key", sorted(ALL_FIELDS))
     def test_no_field_name_could_carry_an_aggregate(self, field_key: str) -> None:
@@ -133,18 +139,26 @@ class TestAggregateIsUnrepresentable:
                 f"{model.__name__} would accept an attached aggregate at runtime"
             )
 
-    def test_every_diagnosis_module_model_is_covered_by_this_walk(self) -> None:
-        """No diagnosis model exists outside the walked report tree."""
+    def test_every_diagnosis_and_capmap_model_is_covered_by_this_walk(self) -> None:
+        """No diagnosis or Capability Map model exists outside the walked
+        report tree — the map is the report shape, and nothing escapes it."""
         package_models: set[type[BaseModel]] = set()
-        for module_name in ("finding", "engine", "foundations"):
-            module = importlib.import_module(
-                f"capability_exchange.diagnosis.{module_name}"
-            )
+        for module_name in (
+            "diagnosis.finding",
+            "diagnosis.engine",
+            "diagnosis.foundations",
+            "capmap.model",
+            "capmap.render",
+            "capmap.correct",
+        ):
+            module = importlib.import_module(f"capability_exchange.{module_name}")
             for value in vars(module).values():
                 if (
                     isinstance(value, type)
                     and issubclass(value, BaseModel)
-                    and value.__module__.startswith("capability_exchange.diagnosis")
+                    and value.__module__.startswith(
+                        ("capability_exchange.diagnosis", "capability_exchange.capmap")
+                    )
                 ):
                     package_models.add(value)
         assert package_models  # the walk below must have something to cover
@@ -157,8 +171,9 @@ class TestAggregateIsUnrepresentable:
             for member in axis_enum:
                 assert not any(char.isdigit() for char in member.value)
 
-    def test_package_exports_no_aggregate_named_symbol(self) -> None:
-        for symbol in diagnosis_package.__all__:
-            lowered = symbol.lower()
-            for token in FORBIDDEN_NAME_TOKENS:
-                assert token not in lowered
+    def test_packages_export_no_aggregate_named_symbol(self) -> None:
+        for package in (diagnosis_package, capmap_package):
+            for symbol in package.__all__:
+                lowered = symbol.lower()
+                for token in FORBIDDEN_NAME_TOKENS:
+                    assert token not in lowered

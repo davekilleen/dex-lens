@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from capability_exchange.adapter import (
     AdapterResultEnvelope,
@@ -46,10 +47,8 @@ from capability_exchange.adapter import (
     ProbeResult,
 )
 from capability_exchange.diagnosis.finding import (
-    CapabilityMap,
     CapabilityState,
     Finding,
-    JobFindings,
     SafetyBoundary,
 )
 from capability_exchange.diagnosis.foundations import (
@@ -63,7 +62,10 @@ from capability_exchange.evidence import (
     EvidenceState,
     evidence_level,
 )
-from capability_exchange.jobs.contract import SuccessContract
+from capability_exchange.jobs.contract import CONTRACT_TEXT_MAX_LENGTH, SuccessContract
+
+if TYPE_CHECKING:
+    from capability_exchange.capmap.model import CapabilityMap
 
 __all__ = ["DiagnosisInputError", "assess"]
 
@@ -112,6 +114,31 @@ def _effective_items(probe: ProbeResult, *, now: datetime) -> tuple[EvidenceItem
             item if effective is item.state else item.model_copy(update={"state": effective})
         )
     return tuple(items)
+
+
+def _why_it_matters(
+    definition: FoundationDefinition, contract: SuccessContract
+) -> str:
+    """Why this capability matters to THIS job. Deterministic composition.
+
+    Connects the capability's defined user job (#351 data, never generated)
+    to the confirmed contract's own desired outcome. When the connected
+    line would exceed the bounded-text limit, it falls back deterministically
+    to shorter forms rather than truncating silently.
+    """
+    connected = (
+        f"{definition.user_job} For this job, that bears directly on "
+        f"reaching: {contract.desired_outcome}"
+    )
+    if len(connected) <= CONTRACT_TEXT_MAX_LENGTH:
+        return connected
+    by_id = (
+        f"{definition.user_job} It bears directly on your confirmed job "
+        f"'{contract.job_id}'."
+    )
+    if len(by_id) <= CONTRACT_TEXT_MAX_LENGTH:
+        return by_id
+    return definition.user_job
 
 
 def _assess_one(
@@ -257,6 +284,7 @@ def _assess_one(
         evidence=linked,
         uncertainty_notes=tuple(sorted(set(notes))),
         practical_implication=definition.practical_implication,
+        why_it_matters=_why_it_matters(definition, contract),
         recommended_next_move=definition.next_moves[capability_state.value],
     )
 
@@ -313,6 +341,11 @@ def assess(
     Returns the jobs-first :class:`CapabilityMap`: per confirmed job, one
     three-axis finding for each of the eight Foundation Capabilities.
     """
+    # Imported at call time: the map model consumes Finding from this
+    # package (collector → map → renderer layering), so a module-level
+    # import here would be circular. By call time both modules are loaded.
+    from capability_exchange.capmap.model import CapabilityMap, JobFindings
+
     if not isinstance(envelope, AdapterResultEnvelope):
         raise DiagnosisInputError(
             "diagnosis assesses evidence from an adapter result envelope "
@@ -323,7 +356,7 @@ def assess(
 
     jobs = tuple(
         JobFindings(
-            job_id=contract.job_id,
+            contract=contract,
             findings=tuple(
                 _assess_one(
                     contract,

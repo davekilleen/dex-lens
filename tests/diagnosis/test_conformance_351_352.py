@@ -30,13 +30,12 @@ from tests.diagnosis.conftest import (
     presence_only_envelope,
 )
 
+from capability_exchange.capmap import CapabilityMap, JobFindings
 from capability_exchange.diagnosis import (
-    CapabilityMap,
     CapabilityState,
     DiagnosisInputError,
     Finding,
     FoundationCapability,
-    JobFindings,
     SafetyBoundary,
     assess,
     definition_for,
@@ -222,6 +221,7 @@ class TestR2Integration:
                 safety_boundary=SafetyBoundary.UNCLEAR,
                 evidence=(item(EvidenceState.INSUFFICIENT, "path:.claude/skills"),),
                 practical_implication="Recovery protects what already works",
+                why_it_matters="Trustworthy recovery keeps this job safe to improve",
                 recommended_next_move="Rehearse a rollback once",
             )
 
