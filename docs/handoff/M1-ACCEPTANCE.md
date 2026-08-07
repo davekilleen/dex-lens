@@ -11,14 +11,14 @@
 
 ## 1. Instrument results (recorded, not claimed)
 
-Run on Linux x86_64, Python 3.13.7, in-repo `.venv`, at commit of this document.
+Run on Linux x86_64, at the commit of this document. The suite was run under **Python 3.11, 3.12 and 3.13** — 384 passed, 4 skipped on each — because a version-specific failure (Finding F, §3.5) was passing locally on 3.13 while failing on the 3.11/3.12 legs CI actually runs.
 
-| Instrument | Command | Result |
-| --- | --- | --- |
-| Test suite | `python -m pytest` | **384 passed, 4 skipped** (skips are darwin-only, see §4) |
-| Lint | `ruff check .` | **All checks passed** |
-| G2 inventory check | `python scripts/check_inventory.py` | **OK** — 27 inventoried fields, 4 stored (all with registered deletion paths), **0 transmitted** |
-| Adapter conformance | `python -m capability_exchange.conformance --adapter claude-code-local --self-check` | **CONFORMANT: every check passed** (5/5) |
+| Instrument | Command | Result (local) | Result (CI, before this review) |
+| --- | --- | --- | --- |
+| Test suite | `python -m pytest` | **384 passed, 4 skipped** on py3.11/3.12/3.13 (skips are darwin-only, see §4) | **FAILED on all 4 legs** — see Finding F, §3.5 |
+| Lint | `ruff check .` | **All checks passed** | passed |
+| G2 inventory check | `python scripts/check_inventory.py` | **OK** — 27 inventoried fields, 4 stored (all with registered deletion paths), **0 transmitted** | **never executed** (pytest step failed first) |
+| Adapter conformance | `python -m capability_exchange.conformance --adapter claude-code-local --self-check` | **CONFORMANT: every check passed** (5/5) | **never executed** (pytest step failed first) |
 
 Conformance checks that passed: `contract-declaration-completeness` (G1), `zero-writes-proof` (G1), `result-envelope-conformance` (R2), `snapshot-semantics` (G1), `honest-fallback` (G1).
 
@@ -113,7 +113,19 @@ Test: `test_check_inventory.py::test_class_name_collision_is_a_problem`.
 **Finding E (R2 consistency, fixed) — `model_construct` bypassed the non-raw-reference validator,** letting raw key material be smuggled into an `EvidenceItem.reference` and serialized. The codebase already closes exactly these routes on `AdapterContract` (`model_construct` and `model_copy` overrides), so this was an inconsistency rather than an oversight in design. Fixed with the same pattern on `EvidenceItem`.
 Tests: `test_item.py::TestValidationBypassRoutes` (4).
 
-### 3.5 R2 → Evidence Level mapping — **no unsoundness**
+### 3.5 CI reality check — **M1 was not passing in CI at all (Finding F, fixed)**
+
+HANDOFF Section 4 is explicit: *"A milestone is done when its listed criteria pass in CI, not when its features demo."* So the CI state is itself an acceptance criterion, and it was red.
+
+`gh run list` showed the **pre-existing** `main` run (`31180012038`, commit `e333c99`) had **failed on all four matrix legs**, as had an earlier attempted fix branch. Every leg died in `Test (pytest)` before `adapter-conformance-claude-code` or `g2-inventory-check` ever ran — so on the evidence available in CI, **none of the three gate instruments had ever been observed green there**. A local green run had been standing in for a CI green run.
+
+Root cause: `test_allowlist.py::test_mount_point_crossing_blocked` patches `os.stat` globally and then called `str(path)` and `target.resolve()` *inside* the patched function. Both re-enter pathlib, which calls `os.stat`, which is the patch — unbounded recursion (`RecursionError`, plus `'PosixPath' object has no attribute '_str'` as pathlib's half-initialised internals surfaced). It passes on Python 3.13, whose pathlib internals differ, and fails on 3.11 and 3.12 — which is exactly the matrix CI runs and the local `.venv` (3.13) does not.
+
+Fixed: every path value the shim needs is resolved to a plain `str` **before** the patch is installed; the shim compares strings only and never touches pathlib; and it returns a genuine `os.stat_result` (built with a modified `st_dev`, preserving the `*_ns` fields) instead of a `__getattr__` attribute proxy. Reproduced the failure and verified the fix locally on **3.11, 3.12 and 3.13**: 384 passed, 4 skipped on each.
+
+This is the finding with the widest blast radius, because it means the milestone's own completion signal was unverified. It also explains why the darwin-only assertions in §4 had never actually run: the macOS legs failed at the same point.
+
+### 3.6 R2 → Evidence Level mapping — **no unsoundness**
 
 Independently re-enumerated all 2048 state combinations × 2 supply modes = **4096 cases**. Every case returned exactly one `EvidenceLevel`. Zero cases reached `Verified` while containing a never-Verified state, while `user_supplied_material=True`, or without `observed`. Adding any degraded state never *raised* the level (monotonicity holds). `absent` and `not-assessed` alone both map to `Unknown`.
 
@@ -136,20 +148,24 @@ Independently re-enumerated all 2048 state combinations × 2 supply modes = **40
 
 ## 5. Overall M1 verdict
 
-**M1 is MET on Linux, and PENDING the macOS matrix leg for the darwin half of G1(a).**
+**M1 is NOT YET DONE by its own definition — pending a green CI run. On the code and test evidence it is otherwise MET on Linux, with the darwin half of G1(a) provable only on the macOS matrix legs.**
 
-Grounds:
+The distinction is deliberate and is the honest reading of HANDOFF Section 4: *"A milestone is done when its listed criteria pass in CI."* Before this review, CI was red on every matrix leg and had never been observed green (Finding F). That has now been fixed and verified locally across all three Python versions, but **the verdict below should be upgraded only once the pushed run is actually green** — this document must not repeat the mistake it documents by substituting a local run for a CI run.
+
+Grounds for the substantive verdict:
 
 - Every M1 acceptance criterion in HANDOFF Section 4 — G1's six containment properties, G2's foundation, R2 including the total Evidence Level mapping property test, and the conformance / zero-writes / no-mutating-entry-point clause — has at least one passing, cited test. None is asserted on inspection alone.
-- The adversarial pass found **five defects**, of which **two were genuine containment or boundary escapes** (Findings B and D), one was a **blind instrument** that concealed Finding B (Finding C), and two were correctness/availability defects (A, E). All five are fixed, each with a test that failed before the fix and passes after. The suite went 374 → 384 tests.
+- The adversarial pass found **six defects**: two genuine containment/boundary escapes (B, D), one **blind instrument** that concealed one of them (C), two correctness/availability defects (A, E), and one that the milestone's own completion signal was never green (F). All six are fixed, each with a test that failed before the fix and passes after. The suite went 374 → 384 tests.
 - Three probe families found nothing: eleven novel path-escape variants, ten novel injection phrasings including filename injection, and 4096 exhaustively enumerated R2 mapping cases.
 
 Honest qualifications:
 
-1. **The macOS enforcement half of G1(a) is not provable on Linux.** M1 should not be declared complete until the `macos-14` CI legs are green. Until then, darwin containment rests on a shipped profile and a strategy that are exercised only by CI.
-2. **Finding C is the more instructive result of this review than Finding B.** A conformance suite that reports `zero-writes-proof: PASSED` over a tree that was modified is worse than no proof, because it converts an unknown into a false assurance. The suite's `TestSuiteCatchesViolations` class is what caught it, and that pattern — deliberately sabotaged subjects proving the instrument can fail — should be treated as mandatory for every gate instrument added in M2–M6, not optional.
-3. **Two independent layers missed the same class of write** (metadata mutation). That is a correlated-failure signal: both layers reasoned about writes as "content changes acquired through `open`". Future gate work should enumerate the mutation surface from the syscall table rather than from an intuition about what a write is.
-4. The aarch64 seccomp table remains unexercised by any CI leg. Adding an arm64 Linux runner would convert a reasoned assertion into a proof.
-5. Nothing here speaks to M2–M6 gates, and per HANDOFF Section 4 the pilot's real-user automated adaptation still requires all six Fable gates green on the exact pilot build plus R6's red-team — none of which M1 provides.
+1. **CI must be green before M1 is signed off.** Finding F means the three gate instruments (`pytest`, `adapter-conformance-claude-code`, `g2-inventory-check`) had never been observed passing in CI — the latter two never even executed, because the pytest step failed first. A local green run is not the criterion.
+2. **The macOS enforcement half of G1(a) is not provable on Linux,** and because of Finding F it has never run anywhere. Until the `macos-14` legs are green, darwin containment rests on a shipped profile and a strategy that nothing has exercised.
+3. **Finding C is the most instructive result of this review.** A conformance suite that reports `zero-writes-proof: PASSED` over a tree that was in fact modified is worse than no proof: it converts an unknown into a false assurance. The suite's `TestSuiteCatchesViolations` class is what caught it, and that pattern — deliberately sabotaged subjects proving the instrument can fail — should be mandatory for every gate instrument added in M2–M6, not optional.
+4. **Two independent layers missed the same class of write** (metadata mutation). That is a correlated-failure signal: both reasoned about writes as "content changes acquired through `open`". Future gate work should enumerate the mutation surface from the syscall table rather than from an intuition about what a write is.
+5. Findings C and F share a shape worth naming: **an instrument that cannot fail, or never runs, reports the same thing as an instrument that passes.** Both were invisible to anyone reading only the green local output.
+6. The aarch64 seccomp table remains unexercised by any CI leg. Adding an arm64 Linux runner would convert a reasoned assertion into a proof.
+7. Nothing here speaks to M2–M6 gates, and per HANDOFF Section 4 the pilot's real-user automated adaptation still requires all six Fable gates green on the exact pilot build plus R6's red-team — none of which M1 provides.
 
-**Recommendation:** treat M1 as complete on Linux, gate the milestone sign-off on the macOS matrix legs, and carry the six PARTIAL/residual items in §4 into the R7 unresolved-risk register with named owners (D7).
+**Recommendation:** hold M1 sign-off until the CI run on `main` is green on all four matrix legs; then treat M1 as complete on Linux with the darwin legs as the macOS evidence, and carry the six PARTIAL/residual items in §4 into the R7 unresolved-risk register with named owners (D7).

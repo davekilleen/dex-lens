@@ -165,23 +165,41 @@ class TestEvaluate:
     def test_mount_point_crossing_blocked(
         self, claude_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A file on a different device than its approved root is refused.
+
+        Simulated by patching ``os.stat``, which demands care: the patched
+        function must never call back into pathlib (``Path.resolve``,
+        ``str(Path)``), because those call ``os.stat`` themselves and the
+        shim would re-enter itself unboundedly. Every path value it needs is
+        therefore resolved to a plain ``str`` *before* the patch is
+        installed, and the shim compares strings only. It also returns a
+        genuine ``os.stat_result`` rather than an attribute-proxy object, so
+        callers that hand the result back to pathlib behave normally.
+        """
         allowlist = CanonicalAllowlist([claude_root])
         target = claude_root / "CLAUDE.md"
+        # Resolve BEFORE patching: no pathlib work may happen inside the shim.
+        target_real = str(target.resolve())
         real_stat = os.stat
 
-        class _ForeignDevice:
-            def __init__(self, inner: os.stat_result) -> None:
-                self._inner = inner
-
-            def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
-                if name == "st_dev":
-                    return self._inner.st_dev + 1
-                return getattr(self._inner, name)
+        def with_foreign_device(result: os.stat_result) -> os.stat_result:
+            fields = list(result)  # the 10 canonical stat fields; st_dev is [2]
+            fields[2] = result.st_dev + 1
+            return os.stat_result(
+                fields,
+                {
+                    "st_atime_ns": result.st_atime_ns,
+                    "st_mtime_ns": result.st_mtime_ns,
+                    "st_ctime_ns": result.st_ctime_ns,
+                },
+            )
 
         def foreign_device(path, *args, **kwargs):  # type: ignore[no-untyped-def]
             result = real_stat(path, *args, **kwargs)
-            if str(path) == str(target.resolve()):
-                return _ForeignDevice(result)
+            # os.fspath on a str is the identity; the allowlist stats real
+            # paths as str, so no pathlib conversion is triggered here.
+            if isinstance(path, str) and path == target_real:
+                return with_foreign_device(result)
             return result
 
         monkeypatch.setattr(os, "stat", foreign_device)
