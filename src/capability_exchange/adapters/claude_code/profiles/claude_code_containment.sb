@@ -1,0 +1,25 @@
+;; Dex Capability Exchange — Claude Code deep adapter containment profile
+;; (gates.md G1). Applied by MacOSStrategy via:
+;;   sandbox-exec -D PY=<python> -f claude_code_containment.sb <python> -m ...
+;;
+;; The inspection process may read, and nothing else:
+;;   - no network (deny network*): no egress from the inspection process;
+;;   - no file writes (deny file-write*): the target and everything else
+;;     stays byte-identical; results leave on the inherited stdout pipe;
+;;   - no process-exec except the Python interpreter itself (the sandbox
+;;     must exec it once to start): no shell spawning.
+;;
+;; The child process additionally proves these denials at runtime before
+;; any target read (contained.py prove_containment) and refuses to collect
+;; if any probe shows a capability — the profile and the proof fail closed
+;; together.
+
+(version 1)
+(allow default)
+
+(deny network*)
+(deny file-write*)
+
+(deny process-exec*)
+(allow process-exec (literal (param "PY")))
+(allow process-exec (literal (param "PYREAL")))
