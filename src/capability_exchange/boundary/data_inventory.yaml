@@ -580,3 +580,133 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral in-memory value; nothing transmits at this milestone (sharing never)"
+
+  Finding.capability:
+    description: "which of the eight Foundation Capabilities this finding assesses (closed vocabulary)"
+    collection: "assigned by the diagnosis engine from the closed FoundationCapability enum"
+    derivation: "none; the enum admits exactly the eight #351 capabilities"
+    display: "shown as the finding's subject in the jobs-first Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.job_id:
+    description: "the confirmed job this finding is scoped to; safe never means more than this job"
+    collection: "copied from the confirmed Success Contract under assessment"
+    derivation: "none; validated kebab-case"
+    display: "shown so every finding stays visibly scoped to one confirmed job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.capability_state:
+    description: "axis 1 of 3: Working / Partial / Not demonstrated / Unknown (closed vocabulary)"
+    collection: "derived by the diagnosis engine's deterministic rules"
+    derivation: "branches only on the closed R2 evidence states of the linked items"
+    display: "shown as one of the three independent axes; never aggregated"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.evidence_level:
+    description: "axis 2 of 3: Verified / Supported / Reported / Unknown"
+    collection: "derived through the total R2 state-combination mapping"
+    derivation: "schema validation rejects any level that disagrees with the mapping"
+    display: "shown for every finding in the Capability Map; never aggregated"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.safety_boundary:
+    description: "axis 3 of 3: Safe / Overbroad / Unclear, scoped to the assessed job"
+    collection: "derived by the diagnosis engine's deterministic boundary rules"
+    derivation: "safe requires claim-supporting evidence; fail closed to unclear"
+    display: "shown as one of the three independent axes; never aggregated"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.evidence:
+    description: "linked R2 evidence items the finding rests on (nested EvidenceItem entries apply)"
+    collection: "restated from the adapter result envelope's evidence under the approved scope"
+    derivation: "effective states applied; configuration presence restated insufficient without an observed outcome"
+    display: "shown so the person can inspect what the finding derives from"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.uncertainty_notes:
+    description: "bounded single-line notes keeping instrument failures and staleness visible"
+    collection: "authored by the diagnosis engine's deterministic note rules"
+    derivation: "one line per source of doubt; uncertainty is never dropped"
+    display: "shown with the finding; uncertainty remains visible"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.practical_implication:
+    description: "one line on why this finding matters to the person's confirmed job"
+    collection: "authored in the Foundation Capability definitions (data, not model output)"
+    derivation: "none; fixed non-judgmental text per capability"
+    display: "shown with the finding in the jobs-first Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  Finding.recommended_next_move:
+    description: "exactly one recommended next move for this finding (singular by construction)"
+    collection: "authored in the Foundation Capability definitions, selected by capability state"
+    derivation: "looked up from fixed per-state text; never generated"
+    display: "shown as the finding's single useful next move"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  JobFindings.job_id:
+    description: "the confirmed job whose findings are nested here (jobs-first Capability Map)"
+    collection: "copied from the confirmed Success Contract under assessment"
+    derivation: "none; validated kebab-case and matched against every nested finding"
+    display: "shown as the job heading in the jobs-first Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  JobFindings.findings:
+    description: "exactly one three-axis finding per Foundation Capability for this job (nested Finding entries apply)"
+    collection: "produced by the diagnosis engine for the eight capabilities"
+    derivation: "validation requires all eight capabilities exactly once, scoped to this job"
+    display: "shown nested inside the job in the jobs-first Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  CapabilityMap.assessed_at:
+    description: "timezone-aware timestamp of when the assessment ran"
+    collection: "recorded locally at assessment time (defaults to collection time)"
+    derivation: "none; naive timestamps are rejected at validation"
+    display: "shown so the person knows how current the Capability Map is"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  CapabilityMap.jobs:
+    description: "one JobFindings entry per confirmed job, canonically ordered (nested entries apply)"
+    collection: "assembled from the confirmed contracts the assessment consumed"
+    derivation: "sorted and uniqueness-checked at validation; no roll-up field exists"
+    display: "the jobs-first Capability Map shown privately to the person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
