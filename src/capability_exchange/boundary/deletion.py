@@ -1,0 +1,118 @@
+"""G2 deletion-path registry.
+
+Every inventory entry that declares storage names a deletion path id; this
+module maps each id to the function that removes the stored bytes. Deletion
+verifies its own result: a file that survives raises
+:class:`DeletionVerificationError` rather than reporting success it cannot
+prove (fail closed).
+
+Byte removal here means: overwrite the file contents with zeros, then unlink,
+then verify absence. On copy-on-write or journaling filesystems the overwrite
+is best-effort against old extents; the verified guarantee is that no live
+path serves the bytes afterwards.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+
+from capability_exchange.boundary.inventory import Inventory
+
+
+class DeletionError(Exception):
+    """Base class for deletion-path failures."""
+
+
+class UnknownDeletionPathError(DeletionError):
+    """The requested deletion path id is not registered. Fail closed."""
+
+
+class DeletionVerificationError(DeletionError):
+    """Deletion could not be verified: stored bytes may survive."""
+
+
+#: A deletion function removes every stored artifact for its field(s) under
+#: the given target directory and returns the paths it removed.
+DeletionFunction = Callable[[Path], list[Path]]
+
+_REGISTRY: dict[str, DeletionFunction] = {}
+
+
+def register_deletion_path(deletion_id: str, fn: DeletionFunction) -> None:
+    if deletion_id in _REGISTRY:
+        raise DeletionError(f"deletion path {deletion_id!r} registered twice")
+    _REGISTRY[deletion_id] = fn
+
+
+def registered_deletion_paths() -> dict[str, DeletionFunction]:
+    return dict(_REGISTRY)
+
+
+def run_deletion_path(deletion_id: str, target: Path) -> list[Path]:
+    """Invoke a registered deletion path and return the removed paths."""
+    fn = _REGISTRY.get(deletion_id)
+    if fn is None:
+        raise UnknownDeletionPathError(
+            f"no deletion function registered for {deletion_id!r}; "
+            f"refusing to claim deletion that cannot be performed"
+        )
+    return fn(target)
+
+
+def verify_deletion_coverage(inventory: Inventory) -> list[str]:
+    """Report inventory entries whose deletion path is not registered.
+
+    Used by tests and by ``scripts/check_inventory.py`` (the CI
+    g2-inventory-check step): every stored field must map to a registered
+    deletion function.
+    """
+    problems: list[str] = []
+    for key, entry in inventory.fields.items():
+        if entry.stores and entry.deletion not in _REGISTRY:
+            problems.append(
+                f"{key}: declares storage with deletion path {entry.deletion!r}, "
+                f"but no deletion function is registered under that id"
+            )
+    return problems
+
+
+def _remove_file_verified(path: Path) -> None:
+    """Overwrite with zeros, unlink, and verify the path is gone."""
+    try:
+        size = path.stat().st_size
+        with path.open("r+b") as handle:
+            handle.write(b"\0" * size)
+            handle.flush()
+    except OSError:
+        # Overwrite is belt-and-braces; unlink below is the verified step.
+        pass
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    if path.exists():
+        raise DeletionVerificationError(f"{path} still exists after deletion")
+
+
+#: Glob for crash-log files written by capability_exchange.boundary.crashlog.
+CRASH_LOG_GLOB = "crashlog-*.json"
+
+
+def delete_crash_logs(directory: Path) -> list[Path]:
+    """Deletion path ``delete-crash-logs``: remove all crash-log files.
+
+    Covers every stored ``CrashLogRecord`` field (the whole record lives in
+    one JSON file per crash). Missing directory or no files is a clean no-op;
+    a surviving file raises :class:`DeletionVerificationError`.
+    """
+    if not directory.is_dir():
+        return []
+    removed: list[Path] = []
+    for path in sorted(directory.glob(CRASH_LOG_GLOB)):
+        _remove_file_verified(path)
+        removed.append(path)
+    return removed
+
+
+register_deletion_path("delete-crash-logs", delete_crash_logs)

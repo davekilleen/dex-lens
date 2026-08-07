@@ -33,7 +33,9 @@ jobs:
         run: python -m pytest
 
       - name: g2-inventory-check
-        # Placeholder: a later agent wires the real G2 check here — the
-        # machine-readable data inventory must cover every persisted or
-        # transmitted field; any uninventoried field fails the build.
-        run: echo "G2 inventory check not yet wired (placeholder; fails open only at scaffold stage)"
+        # G2 field-level data boundary: schema-validates data_inventory.yaml,
+        # fails the build on any persisted/transmitted field without an
+        # inventory entry, on inventory drift, on any pydantic model outside
+        # the typed serialization boundary, and on any stored field without a
+        # registered deletion path.
+        run: python scripts/check_inventory.py

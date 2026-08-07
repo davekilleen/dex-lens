@@ -1,0 +1,70 @@
+# Dex Capability Exchange — G2 machine-readable data inventory.
+#
+# Every field the product persists or transmits has an entry here declaring
+# collection, derivation, display, storage, sharing, deletion, and audit.
+# A field without an entry is private: non-persistable and non-transmittable
+# by construction (the typed serialization boundary refuses it).
+#
+# Format: a strict YAML subset parsed by capability_exchange.boundary.inventory
+# (2-space indentation, "key: value" scalars, nested mappings, double-quoted
+# or bare strings, comments). Schema-validated by pydantic at import and by
+# scripts/check_inventory.py in CI (the g2-inventory-check step).
+#
+# M1 posture: diagnosis is ephemeral and telemetry-free. The only stored
+# artifact on this slice is the local crash log, which records structure
+# (exception type, code locations) and never values. No field declares any
+# sharing; the schema itself only admits "sharing: never" at M1 — widening
+# it is a G2 schema change that reopens gate review (see HANDOFF D8 for the
+# catalog-refresh decision that would introduce the first approved flow).
+
+inventory_version: 1
+
+fields:
+
+  CrashLogRecord.timestamp:
+    description: "UTC time the crash record was created (ISO 8601)"
+    collection: "generated locally at crash time from the system clock"
+    derivation: "none"
+    display: "shown when the person inspects their local crash logs"
+    storage:
+      location: "local crash-log directory chosen by the caller (JSON file)"
+      duration: "until the person deletes it; never rotated off-machine"
+    sharing: never
+    deletion: delete-crash-logs
+    audit: "the crash-log file itself is the only record; no other copy exists"
+
+  CrashLogRecord.exception_type:
+    description: "qualified type name of the exception (e.g. ValueError); never the message"
+    collection: "taken from the exception object's type at crash time"
+    derivation: "type name only; exception messages and args are discarded unread"
+    display: "shown when the person inspects their local crash logs"
+    storage:
+      location: "local crash-log directory chosen by the caller (JSON file)"
+      duration: "until the person deletes it; never rotated off-machine"
+    sharing: never
+    deletion: delete-crash-logs
+    audit: "the crash-log file itself is the only record; no other copy exists"
+
+  CrashLogRecord.frames:
+    description: "traceback frames as file basename, line number, and function name"
+    collection: "extracted from the traceback at crash time"
+    derivation: "basenames only (no absolute paths, no usernames); no locals, no values"
+    display: "shown when the person inspects their local crash logs"
+    storage:
+      location: "local crash-log directory chosen by the caller (JSON file)"
+      duration: "until the person deletes it; never rotated off-machine"
+    sharing: never
+    deletion: delete-crash-logs
+    audit: "the crash-log file itself is the only record; no other copy exists"
+
+  CrashLogRecord.product_version:
+    description: "capability_exchange package version that produced the crash record"
+    collection: "read from the installed package metadata at crash time"
+    derivation: "none"
+    display: "shown when the person inspects their local crash logs"
+    storage:
+      location: "local crash-log directory chosen by the caller (JSON file)"
+      duration: "until the person deletes it; never rotated off-machine"
+    sharing: never
+    deletion: delete-crash-logs
+    audit: "the crash-log file itself is the only record; no other copy exists"
