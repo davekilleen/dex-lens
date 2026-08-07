@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outward Dex — how the whole thing works</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@500&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+:root{
+  --bg:#0D0E12; --surface:#15161C; --elevated:#1C1D25; --hover:#21232C;
+  --accent:#FF4081; --accent-bg:#341624; --accent-border:#5F1F38;
+  --amber:#F59E0B; --amber-bg:rgba(245,158,11,.10); --amber-border:rgba(245,158,11,.32);
+  --green:#22c55e; --green-bg:rgba(34,197,94,.10); --green-border:rgba(34,197,94,.34);
+  --grey:#7D7D7D;
+  --text:#E4E5E7; --text2:#9B9DA6; --text3:#787B87;
+  --border:#24262E; --border-subtle:#1D1F25; --border-strong:#32343F;
+  --sans:'Inter',-apple-system,sans-serif; --display:'Space Grotesk',var(--sans); --mono:'Geist Mono',monospace;
+  --r:3px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(900px 520px at 82% -8%, rgba(255,64,129,.06), transparent 60%);
+  background-repeat:no-repeat;
+}
+.wrap{max-width:860px;margin:0 auto;padding:56px 24px 120px}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+h1{font-family:var(--display);font-weight:700;font-size:38px;line-height:1.12;letter-spacing:-.01em;margin-bottom:16px}
+h2{font-family:var(--display);font-weight:600;font-size:25px;letter-spacing:-.01em;margin:0 0 14px}
+h3{font-family:var(--display);font-weight:600;font-size:16px;margin:0 0 6px}
+p{color:var(--text2);font-size:15.5px;margin-bottom:14px}
+p strong,li strong{color:var(--text);font-weight:600}
+.lede{font-size:18px;color:var(--text);line-height:1.55;margin-bottom:8px}
+section{margin-top:56px;scroll-margin-top:20px}
+.section-label{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-bottom:18px;display:flex;align-items:center;gap:10px}
+.section-label::before{content:"";width:22px;height:1px;background:var(--accent);display:inline-block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px 24px;margin-bottom:16px}
+.card.tight{padding:16px 18px}
+ul{margin:0 0 8px;padding-left:0;list-style:none}
+li{color:var(--text2);font-size:15px;margin-bottom:10px;padding-left:24px;position:relative}
+li::before{content:"→";position:absolute;left:0;color:var(--accent);font-family:var(--mono)}
+li.check::before{content:"✓";color:var(--green)}
+li.warn::before{content:"!";color:var(--amber);font-weight:700}
+.status{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 8px}
+.pill{font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;padding:7px 12px;border-radius:var(--r);border:1px solid;display:inline-flex;align-items:center;gap:7px}
+.pill.green{background:var(--green-bg);border-color:var(--green-border);color:#7ee2a3}
+.pill.amber{background:var(--amber-bg);border-color:var(--amber-border);color:#f6c364}
+.pill.pink{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.pill.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+
+/* ladder */
+.ladder{display:flex;flex-direction:column;gap:10px}
+.rung{display:grid;grid-template-columns:92px 1fr;gap:16px;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.rung .tag{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);padding-top:3px}
+.rung.hot{border-color:var(--accent-border);background:linear-gradient(180deg,var(--accent-bg),var(--elevated) 70%)}
+.rung.hot .tag{color:var(--accent)}
+.rung p{margin:0;font-size:15px}
+
+/* acts */
+.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.act{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px}
+.act .n{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--accent)}
+.act h3{margin:8px 0 4px}
+.act p{margin:0;font-size:13.5px}
+
+/* journey */
+.journey{counter-reset:stage;display:flex;flex-direction:column}
+.stage{counter-increment:stage;display:grid;grid-template-columns:40px 1fr;gap:16px;padding:13px 0;position:relative}
+.stage::before{content:counter(stage);width:30px;height:30px;border-radius:50%;background:var(--accent-bg);border:1px solid var(--accent-border);color:var(--accent);font-family:var(--mono);font-size:13px;display:flex;align-items:center;justify-content:center}
+.stage:not(:last-child)::after{content:"";position:absolute;left:14px;top:46px;bottom:-2px;width:1px;background:var(--border)}
+.stage h3{margin:3px 0 2px}
+.stage p{margin:0;font-size:14px}
+.journey2{counter-reset:stage 6}
+.wall{border:1px dashed var(--amber-border);background:var(--amber-bg);border-radius:var(--r);padding:14px 18px;margin:14px 0;color:#f6c364;font-weight:600;font-size:14.5px}
+.wall span{display:block;font-weight:400;color:var(--text2);font-size:13.5px;margin-top:4px}
+
+/* gates + promises */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.gate{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.gate .gid{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--amber)}
+.gate h3{margin:6px 0 3px;font-size:14.5px}
+.gate p{margin:0;font-size:13.5px}
+.promise{border-left:2px solid var(--accent);background:var(--surface);padding:13px 16px;border-radius:0 var(--r) var(--r) 0}
+.promise h3{font-size:14px;margin:0 0 2px}
+.promise p{margin:0;font-size:13.5px}
+
+/* milestones */
+.miles{display:flex;flex-direction:column;gap:9px}
+.mile{display:grid;grid-template-columns:44px 1fr auto;gap:14px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 16px}
+.mile .mid{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:500}
+.mile p{margin:0;font-size:14px}
+@media(max-width:560px){.mile{grid-template-columns:44px 1fr}.mile .pill{grid-column:2}}
+.foot{margin-top:64px;border-top:1px solid var(--border);padding-top:18px;color:var(--text3);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="kicker">Dex Capability Exchange · explainer for Dave · 7 Aug 2026</div>
+<h1>Outward Dex — how the whole thing works</h1>
+<p class="lede">A house call for someone's personal AI system: look, don't touch, then help only where invited — and never require them to move to Dex.</p>
+
+<div class="status">
+  <span class="pill green dot">M1 built &amp; verified — CI green</span>
+  <span class="pill pink dot">M2 building now</span>
+  <span class="pill amber dot">all decisions resolved except gate sign-off</span>
+</div>
+
+<section>
+  <div class="section-label">In one breath</div>
+  <div class="card">
+    <p><strong>What it is:</strong> one command opens a private page on the person's own computer. Dex looks at the AI setup they already have, works out what jobs it's doing for them, and shows honestly what's working, what isn't, and what current Dex could add.</p>
+    <p><strong>What it never does:</strong> never requires switching to Dex, never uploads their stuff, never changes anything without an exact preview and a fresh yes — and every change can be undone.</p>
+    <p style="margin-bottom:0"><strong>Why it matters:</strong> it's how we look after people we can't identify — forks, ancient installs, home-grown systems — and a respectful front door for people who never installed Dex at all.</p>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Where it fits</div>
+  <h2>The "nobody gets left behind" ladder</h2>
+  <p>Born from the Michelle conversation: when someone shows up on an unknown Dex version, help depends on how much we can figure out.</p>
+  <div class="ladder">
+    <div class="rung"><span class="tag">Tier 1</span><p><strong>We know their version.</strong> Normal tracked upgrade. Easy.</p></div>
+    <div class="rung"><span class="tag">Tier 2</span><p><strong>We can guess it.</strong> Doctor fingerprints their files against every release ever shipped, they confirm the guess, we walk them to latest — snapshot first, rewind always possible.</p></div>
+    <div class="rung hot"><span class="tag">Tier 3</span><p><strong>We genuinely can't tell — or they never had Dex.</strong> Their system is its own thing now. Change the offer: <strong>"want us to look at what you've built and bring the good bits of Dex to you, piece by piece?"</strong> That offer is Outward Dex.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">How it works</div>
+  <h2>Four acts, kept strictly separate</h2>
+  <p>Finishing one act never quietly starts the next — each needs its own yes.</p>
+  <div class="acts">
+    <div class="act"><span class="n">ACT I</span><h3>Diagnose</h3><p>Read-only look, only in folders they approved. Nothing changes, nothing leaves the machine.</p></div>
+    <div class="act"><span class="n">ACT II</span><h3>Decide</h3><p>A map of their system organised around <em>their</em> jobs — what's solid, shaky, missing. They choose what to do.</p></div>
+    <div class="act"><span class="n">ACT III</span><h3>Adapt</h3><p>One change at a time: exact preview, receipt, undo. No proven undo → we refuse to automate.</p></div>
+    <div class="act"><span class="n">ACT IV</span><h3>Contribute</h3><p>Optional: share a great recipe back to Dex — sanitized, previewed, one card at a time. Never on by default.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">The experience</div>
+  <h2>The nine-stage journey</h2>
+  <div class="journey">
+    <div class="stage"><div><h3>Trusted doorway</h3><p>One command, private page opens. Nothing scanned yet.</p></div></div>
+    <div class="stage"><div><h3>Permission to look</h3><p>Plain-language screen: exactly which folders, what stays local, what we won't touch. No reading before yes.</p></div></div>
+    <div class="stage"><div><h3>Private look</h3><p>Only what was agreed, from a frozen snapshot. Secrets redacted on sight, never stored.</p></div></div>
+    <div class="stage"><div><h3>"Your system does these jobs — right?"</h3><p>Dex proposes; the person corrects, adds, removes. Only confirmed jobs go forward.</p></div></div>
+    <div class="stage"><div><h3>Diagnosis</h3><p>Per job: is the capability working, how do we know, is it within safe bounds? Three honest answers, never one mushy score.</p></div></div>
+    <div class="stage"><div><h3>The map</h3><p>Findings nested under their jobs, reasoning inspectable, one useful next move each.</p></div></div>
+  </div>
+  <div class="wall">⛔ The gate wall — nothing below this line touches a real person's system until all six safety gates are proven green.<span>Stages 1–6 are look-only. Stages 7–9 can change things, so they're locked behind the gates.</span></div>
+  <div class="journey journey2">
+    <div class="stage"><div><h3>One change, if invited</h3><p>Exact preview of the one change, its scope, its undo — then a fresh yes.</p></div></div>
+    <div class="stage"><div><h3>Receipt &amp; check</h3><p>Did it actually help? Receipt saved locally, undo available. Anything ambiguous stops the line.</p></div></div>
+    <div class="stage"><div><h3>Continue or contribute</h3><p>Stop, look at another job, or share a Capability Card back — individually previewed and approved.</p></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Always true</div>
+  <h2>Six standing promises</h2>
+  <div class="grid2">
+    <div class="promise"><h3>Their system stays theirs</h3><p>Migration is never required, hinted at, or scored.</p></div>
+    <div class="promise"><h3>Local by default</h3><p>Diagnosis runs offline; nothing leaves unless they explicitly share a card.</p></div>
+    <div class="promise"><h3>Nothing selected by default</h3><p>Sharing means inspecting, editing, approving that one thing.</p></div>
+    <div class="promise"><h3>One change at a time</h3><p>Previewed, bounded, receipted, undoable.</p></div>
+    <div class="promise"><h3>Honest about uncertainty</h3><p>"We couldn't check" is said plainly — never dressed as a pass.</p></div>
+    <div class="promise"><h3>No account needed</h3><p>Identity appears only if they contribute something back.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Safety</div>
+  <h2>The six gates</h2>
+  <p>An independent security critique hardened the plan; its gates are wired in as tests. The "change things" half cannot ship until every gate passes — and the M1 adversarial check already caught and fixed seven real defects, including two obscure file-write routes that slipped past both the sandbox and the write-detector.</p>
+  <div class="grid2">
+    <div class="gate"><span class="gid">G1</span><h3>The inspector is caged</h3><p>The file-reading part can't run commands, write, or reach the network — enforced by the OS and attacked by our own hostile test files.</p></div>
+    <div class="gate"><span class="gid">G2</span><h3>Every byte accounted for</h3><p>A ledger of all data we touch. Anything not in the ledger can't be saved or sent — by construction.</p></div>
+    <div class="gate"><span class="gid">G3</span><h3>Changes from a short menu only</h3><p>Automated changes come from a fixed reversible list. Messages, money, deletions, credentials: impossible to construct.</p></div>
+    <div class="gate"><span class="gid">G4</span><h3>Sharing is airtight</h3><p>Cards structurally can't contain secrets, personal files, or private paths. Withdrawal actually withdraws.</p></div>
+    <div class="gate"><span class="gid">G5</span><h3>No moving the goalposts</h3><p>Pilot success is defined and locked before any results are seen.</p></div>
+    <div class="gate"><span class="gid">G6</span><h3>High-stakes jobs stay manual</h3><p>Money, messages, credentials, health, legal: diagnosed, never auto-changed. Unsure → treated as high-stakes.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Build plan</div>
+  <h2>Six milestones</h2>
+  <div class="miles">
+    <div class="mile"><span class="mid">M1</span><p><strong>The caged inspector.</strong> Reading engine + hostile fixtures. 390 tests, 7 defects caught &amp; fixed by the adversarial pass.</p><span class="pill green dot">done · verified</span></div>
+    <div class="mile"><span class="mid">M2</span><p><strong>Understanding.</strong> Job mapping, diagnosis engine, high-impact-job classifier.</p><span class="pill pink dot">building</span></div>
+    <div class="mile"><span class="mid">M3</span><p><strong>The look-only journey.</strong> Stages 1–6 in the browser, fully offline-capable.</p><span class="pill amber">queued</span></div>
+    <div class="mile"><span class="mid">M4</span><p><strong>Safe changes.</strong> Preview, receipts, undo, crash-proofing. Exits only when all gates are green.</p><span class="pill amber">gate wall</span></div>
+    <div class="mile"><span class="mid">M5</span><p><strong>Giving back.</strong> Capability Cards, AI-led moderation with your one-click approval, release "menu" from Dex Core.</p><span class="pill amber">queued</span></div>
+    <div class="mile"><span class="mid">M6</span><p><strong>The pilot.</strong> Your existing pilot group, measured against pre-locked success criteria.</p><span class="pill amber">queued</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">Decisions</div>
+  <h2>Where your decisions landed</h2>
+  <div class="card tight">
+    <ul>
+      <li class="check"><strong>Release menu:</strong> approved — a generate-and-sign step joins Dex Core's release pipeline (issue #423); you hold the signing key.</li>
+      <li class="check"><strong>Card inbox:</strong> leaning HeyDex — built swappable (HeyDex endpoint vs GitHub inbox), final call at M5.</li>
+      <li class="check"><strong>Moderation:</strong> AI reviews and drafts the verdict, you give one-click final approval — keeps the human-review gate intact.</li>
+      <li class="check"><strong>Pilot &amp; consent:</strong> your existing pilot group; consent doc founder-reviewed, risk explicitly accepted.</li>
+      <li class="check"><strong>Privacy posture:</strong> fully local diagnosis, no cloud AI calls; only network traffic is fetching the release menu, prompt-first.</li>
+      <li class="warn"><strong>Still open:</strong> who independently signs off the gate evidence before the pilot (shouldn't be the builder — proposal: a fresh adversarial review session + your recorded sign-off).</li>
+    </ul>
+  </div>
+</section>
+
+<p class="foot">Sources: Wayfinder issues #347–#357, the Fable security critique, the implementation handoff pack (davekilleen/dex-capability-exchange · docs/handoff/), M1-ACCEPTANCE.md, and the D0 decision record on Dex #347. Private gallery copy — not public marketing.</p>
+
+</div>
+<!-- ===== Dex annotation layer (v2: also reports pins up to the gallery) — click ✎ then click anywhere ===== -->
+<style>
+  #annot-bar{position:fixed;right:16px;bottom:16px;z-index:99999;display:flex;gap:8px;align-items:center;background:#15161C;border:1px solid #32343F;border-radius:8px;padding:8px 10px;font-family:'Inter',-apple-system,sans-serif;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  #annot-bar button{font:500 12.5px 'Inter',sans-serif;color:#E4E5E7;background:#1C1D25;border:1px solid #32343F;border-radius:6px;padding:6px 11px;cursor:pointer}
+  #annot-bar button:hover{background:#21232C}
+  #annot-bar button.on{background:#341624;border-color:#5F1F38;color:#FF4081}
+  #annot-bar .count{font:600 11px 'Geist Mono',monospace;color:#9B9DA6;padding:0 4px}
+  body.annot-mode, body.annot-mode *{cursor:crosshair !important}
+  .annot-pin{position:absolute;z-index:99998;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:50%;background:#FF4081;color:#0D0E12;font:700 12px 'Geist Mono',monospace;display:grid;place-items:center;cursor:pointer;box-shadow:0 0 0 3px rgba(255,64,129,.25),0 4px 10px rgba(0,0,0,.4)}
+  .annot-pop{position:absolute;z-index:99999;width:240px;background:#1C1D25;border:1px solid #32343F;border-radius:8px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,.5);font-family:'Inter',sans-serif}
+  .annot-pop textarea{width:100%;height:62px;resize:vertical;background:#0D0E12;color:#E4E5E7;border:1px solid #32343F;border-radius:6px;padding:7px;font:13px 'Inter',sans-serif}
+  .annot-pop .ctx{font:10px 'Geist Mono',monospace;color:#787B87;margin-bottom:6px;word-break:break-word}
+  .annot-pop .row{display:flex;gap:6px;margin-top:7px}
+  .annot-pop button{flex:1;font:500 12px 'Inter';border-radius:6px;padding:6px;cursor:pointer;border:1px solid #32343F;background:#1C1D25;color:#E4E5E7}
+  .annot-pop button.save{background:#341624;border-color:#5F1F38;color:#FF4081}
+  #annot-toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:100000;background:#341624;border:1px solid #5F1F38;color:#FF4081;font:500 13px 'Inter';padding:9px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+</style>
+<div id="annot-bar">
+  <button id="annot-toggle">✎ Annotate</button>
+  <span class="count" id="annot-count">0 notes</span>
+  <button id="annot-copy">Copy for Claude</button>
+  <button id="annot-clear">Clear</button>
+</div>
+<div id="annot-toast"></div>
+<script>
+(function(){
+  var KEY='dex_annots_'+location.pathname, notes=[], mode=false;
+  try{notes=JSON.parse(localStorage.getItem(KEY))||[]}catch(e){notes=[]}
+  var bar=document.getElementById('annot-bar'),tg=document.getElementById('annot-toggle'),
+      cnt=document.getElementById('annot-count'),toast=document.getElementById('annot-toast');
+  var PAGE=location.pathname.split('/').pop()||'artifact';
+  function syncParent(){try{if(window.parent&&window.parent!==window)window.parent.postMessage({type:'dex-annot-sync',page:PAGE,notes:notes},'*')}catch(e){}}
+  function save(){localStorage.setItem(KEY,JSON.stringify(notes));render()}
+  function flash(m){toast.textContent=m;toast.style.opacity=1;setTimeout(function(){toast.style.opacity=0},1600)}
+  function ctxFor(el){
+    var bits=[];
+    var p=el.closest('section,.item,.rankcard,.skill,.bet,.insight,.pinnote,.grp-title,[data-screen]');
+    var head=p&&p.querySelector('h2,.name,h3,.q,.grp-title,.lab');
+    if(head)bits.push(head.textContent.trim().replace(/\s+/g,' ').slice(0,50));
+    var t=(el.textContent||'').trim().replace(/\s+/g,' ');
+    if(t&&t.length<=60)bits.push('“'+t+'”'); else if(t)bits.push('“'+t.slice(0,57)+'…”');
+    return bits.join(' › ')||el.tagName.toLowerCase();
+  }
+  function render(){
+    document.querySelectorAll('.annot-pin').forEach(function(n){n.remove()});
+    cnt.textContent=notes.length+(notes.length===1?' note':' notes');
+    notes.forEach(function(n,i){
+      var pin=document.createElement('div');pin.className='annot-pin';pin.textContent=i+1;
+      pin.style.left=n.x+'px';pin.style.top=n.y+'px';pin.title=n.text||'(empty)';
+      pin.onclick=function(ev){ev.stopPropagation();openPop(n.x,n.y,n)};
+      document.body.appendChild(pin);
+    });
+    syncParent();
+  }
+  function openPop(x,y,existing){
+    var old=document.querySelector('.annot-pop');if(old)old.remove();
+    var pop=document.createElement('div');pop.className='annot-pop';
+    pop.style.left=Math.min(x+14,window.scrollX+window.innerWidth-256)+'px';pop.style.top=(y+14)+'px';
+    pop.innerHTML='<div class="ctx">'+(existing?existing.ctx:'')+'</div><textarea placeholder="What should change here?"></textarea><div class="row"><button class="save">Save</button><button class="del">Delete</button></div>';
+    document.body.appendChild(pop);
+    var ta=pop.querySelector('textarea');ta.value=existing&&existing.text||'';ta.focus();
+    pop.querySelector('.save').onclick=function(){existing.text=ta.value.trim();pop.remove();save()};
+    pop.querySelector('.del').onclick=function(){notes=notes.filter(function(z){return z!==existing});pop.remove();save()};
+    pop.onclick=function(e){e.stopPropagation()};
+  }
+  tg.onclick=function(){mode=!mode;document.body.classList.toggle('annot-mode',mode);tg.classList.toggle('on',mode);flash(mode?'Click anywhere to drop a note':'Annotate off')};
+  document.addEventListener('click',function(e){
+    if(!mode)return;if(bar.contains(e.target)||e.target.closest('.annot-pop,.annot-pin'))return;
+    e.preventDefault();var n={x:e.pageX,y:e.pageY,ctx:ctxFor(e.target),text:''};notes.push(n);save();openPop(n.x,n.y,n);
+  },true);
+  document.getElementById('annot-clear').onclick=function(){if(notes.length&&confirm('Clear all '+notes.length+' notes?')){notes=[];save();flash('Cleared')}};
+  document.getElementById('annot-copy').onclick=function(){
+    if(!notes.length){flash('No notes yet');return}
+    var out='# Feedback on '+PAGE+'\n\n'+notes.map(function(n,i){return (i+1)+'. ['+n.ctx+']\n   '+(n.text||'(no comment)')}).join('\n\n');
+    navigator.clipboard.writeText(out).then(function(){flash('Copied '+notes.length+' notes — paste to Claude')},function(){var ta=document.createElement('textarea');ta.value=out;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();flash('Copied '+notes.length+' notes')});
+  };
+  render();
+})();
+</script>
+</body></html>
+
+</body>
+</html>
