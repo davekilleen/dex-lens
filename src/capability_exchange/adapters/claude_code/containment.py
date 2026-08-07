@@ -70,6 +70,41 @@ GUIDED_FALLBACK_MESSAGE = (
 _MACOS_PROFILE_PATH = Path(__file__).resolve().parent / "profiles" / "claude_code_containment.sb"
 
 
+def macos_profile_params(executable: str | None = None) -> list[str]:
+    """The ``-D`` parameters the shipped ``.sb`` profile expects.
+
+    The profile allows ``process-exec`` on an explicit, enumerated set of
+    interpreter binaries and nothing else. Three are needed, because a
+    python.org **framework** build (what the macOS CI leg installs) is not a
+    single binary: ``sys.executable`` is a launcher under ``bin/``, its
+    realpath is the versioned binary beside it, and the framework re-execs a
+    third — ``Resources/Python.app/Contents/MacOS/Python`` — during start-up.
+    Denying that third path makes the child die in ``posix_spawn`` before it
+    ever runs, which reads as a containment failure rather than what it is.
+
+    These stay three **literals** rather than a subpath over ``sys.prefix``:
+    a subpath would admit anything that later appears under the prefix, and
+    G1's guarantee is an enumerated exec set, not a trusted directory. No
+    shell is reachable through any of the three. A candidate that does not
+    exist on this host is still passed (the profile requires every parameter
+    it references to be defined); a literal naming a nonexistent path admits
+    nothing.
+    """
+    executable = executable or sys.executable
+    real = os.path.realpath(executable)
+    framework_app = (
+        Path(sys.base_prefix) / "Resources" / "Python.app" / "Contents" / "MacOS" / "Python"
+    )
+    return [
+        "-D",
+        f"PY={executable}",
+        "-D",
+        f"PYREAL={real}",
+        "-D",
+        f"PYAPP={framework_app if framework_app.is_file() else real}",
+    ]
+
+
 class ContainmentUnavailableError(Exception):
     """Containment cannot be established/proven: deep adapter disabled.
 
@@ -264,10 +299,7 @@ class MacOSStrategy(ContainmentStrategy):
         assert sandbox_exec is not None
         argv = [
             sandbox_exec,
-            "-D",
-            f"PY={sys.executable}",
-            "-D",
-            f"PYREAL={os.path.realpath(sys.executable)}",
+            *macos_profile_params(),
             "-f",
             str(_MACOS_PROFILE_PATH),
             sys.executable,

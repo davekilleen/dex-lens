@@ -20,6 +20,12 @@
 (deny network*)
 (deny file-write*)
 
+;; An enumerated exec set, never a subpath: PY is sys.executable, PYREAL its
+;; realpath, and PYAPP the framework launcher a python.org build re-execs
+;; during start-up (Resources/Python.app/Contents/MacOS/Python). A subpath
+;; over the install prefix would admit whatever later appears under it; three
+;; literals admit exactly three binaries, none of them a shell.
 (deny process-exec*)
 (allow process-exec (literal (param "PY")))
 (allow process-exec (literal (param "PYREAL")))
+(allow process-exec (literal (param "PYAPP")))
