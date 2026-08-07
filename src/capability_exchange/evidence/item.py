@@ -14,8 +14,9 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator
 
+from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.evidence.states import EvidenceState, coerce_state
 
 __all__ = ["REFERENCE_MAX_LENGTH", "EvidenceItem"]
@@ -58,12 +59,17 @@ def _looks_like_raw_content(reference: str) -> str | None:
     return None
 
 
-class EvidenceItem(BaseModel):
+class EvidenceItem(InventoriedModel):
     """One piece of evidence for a capability claim.
 
     Read-only data (frozen, closed schema): the diagnosis side never holds a
     write capability, and no field outside this schema is representable
     (G2 posture: uninventoried fields are unrepresentable, not filtered).
+
+    Lives inside the G2 typed serialization boundary: every field carries a
+    ``data_inventory.yaml`` entry declaring it ephemeral (``storage: none``,
+    ``sharing: never``) — evidence is processed in memory during diagnosis and
+    never persisted or transmitted at M1.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

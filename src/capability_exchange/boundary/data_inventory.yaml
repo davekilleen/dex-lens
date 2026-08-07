@@ -21,6 +21,46 @@ inventory_version: 1
 
 fields:
 
+  EvidenceItem.state:
+    description: "closed R2 evidence-state vocabulary value for one evidence item"
+    collection: "assigned locally by the adapter/diagnosis pipeline that produced the item"
+    derivation: "coerced through the closed R2 vocabulary; unknown input fails closed to not-assessed"
+    display: "shown as part of a finding's evidence during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  EvidenceItem.captured_at:
+    description: "timezone-aware timestamp of when the evidence was captured (source age)"
+    collection: "recorded locally at evidence-collection time"
+    derivation: "none; naive timestamps are rejected at validation (unverifiable source age)"
+    display: "shown as source age alongside the evidence state"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  EvidenceItem.stale_after:
+    description: "optional freshness threshold after which claim-supporting evidence degrades to stale"
+    collection: "assigned locally by the pipeline that produced the item"
+    derivation: "none"
+    display: "used to compute the effective (possibly stale) state shown for a finding"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  EvidenceItem.reference:
+    description: "non-raw reference to the evidence source: a locator or digest, never a payload"
+    collection: "assigned locally at evidence-collection time"
+    derivation: "validation rejects references shaped like raw file content, secrets, or prose"
+    display: "shown so the person can locate the evidence source themselves"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
   CrashLogRecord.timestamp:
     description: "UTC time the crash record was created (ISO 8601)"
     collection: "generated locally at crash time from the system clock"
