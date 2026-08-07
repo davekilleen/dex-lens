@@ -149,3 +149,80 @@ class TestObfuscationAttempts:
     )
     def test_obfuscated_phrasing_still_routes_high_impact(self, text: str) -> None:
         assert classify_text(text).high_impact, text
+
+
+class TestNovelEvasionsM2Review:
+    """Novel evasion phrasings written for the M2 adversarial review — none
+    appears in the labeled corpus verbatim. Twelve of these escaped the
+    shipped rules (classified benign); each is now also a corpus entry, so
+    the zero-false-negative corpus test pins them forever."""
+
+    @pytest.mark.parametrize(
+        ("text", "category"),
+        [
+            (
+                "Settle the outstanding invoice with the printer shop",
+                HighImpactCategory.MONEY_PURCHASING,
+            ),
+            ("Zero out the archive folder every quarter", HighImpactCategory.DELETION),
+            (
+                "Onboard a new teammate onto the shared drive",
+                HighImpactCategory.PERMISSIONS,
+            ),
+            ("Keep tabs on my sugar levels after meals", HighImpactCategory.HEALTH),
+            (
+                "Look over the lease before I put my name on it",
+                HighImpactCategory.LEGAL,
+            ),
+            (
+                "Pass along the roster of everyone in the pilot programme",
+                HighImpactCategory.THIRD_PARTY_CONFIDENTIAL_DATA,
+            ),
+            (
+                "Fire off a quick note to the vendor when stock runs low",
+                HighImpactCategory.SENDING_MESSAGES,
+            ),
+        ],
+    )
+    def test_novel_english_euphemism_routes_to_its_category(
+        self, text: str, category: HighImpactCategory
+    ) -> None:
+        result = classify_text(text)
+        assert result.high_impact, text
+        assert category in result.categories, text
+
+    @pytest.mark.parametrize(
+        ("text", "category"),
+        [
+            # Dutch — a language the shipped corpus lacked
+            (
+                "Verwijder oude bestanden en mappen van vorig jaar",
+                HighImpactCategory.DELETION,
+            ),
+            (
+                "Betaal de maandelijkse rekeningen automatisch",
+                HighImpactCategory.MONEY_PURCHASING,
+            ),
+            # Italian — also previously absent
+            ("Cancella i vecchi documenti del progetto", HighImpactCategory.DELETION),
+            (
+                "Inviare il resoconto settimanale ai clienti",
+                HighImpactCategory.SENDING_MESSAGES,
+            ),
+            # Portuguese — also previously absent
+            ("Apagar arquivos antigos do cliente", HighImpactCategory.DELETION),
+        ],
+    )
+    def test_novel_language_phrasing_routes_to_its_category(
+        self, text: str, category: HighImpactCategory
+    ) -> None:
+        result = classify_text(text)
+        assert result.high_impact, text
+        assert category in result.categories, text
+
+    def test_a_script_the_rules_cannot_read_fails_closed(self) -> None:
+        # Japanese normalizes to no ASCII words at all: unclassifiable, and
+        # unclassifiable is high-impact — never silently benign.
+        result = classify_text("毎週クライアントにレポートを送信する")
+        assert result.high_impact
+        assert result.basis.value in ("unclassifiable", "rule-match")

@@ -9,7 +9,9 @@ Design bias (gates.md G6 test strategy a): ZERO FALSE NEGATIVES on the
 labeled corpus; false positives are acceptable and are recorded, not gated.
 Rules therefore over-match on purpose: short stems, generous token gaps,
 euphemistic phrasings, and common non-English phrasings (Spanish, French,
-German) all route to high-impact.
+German, Italian, Dutch, Portuguese) all route to high-impact. Text in a
+script the rules cannot read at all (e.g. Japanese) normalizes to no words
+and fails closed as unclassifiable → high-impact.
 
 Matching semantics (implemented by the classifier):
 
@@ -76,6 +78,9 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "nudge",
         "share with the team",
         "share it with",
+        "fire off",
+        "pass along",
+        "shoot over",
         # Spanish
         "envi",  # enviar / envía / envío
         "mandar",
@@ -93,6 +98,15 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "nachricht",
         "antworten",
         "schreiben an",
+        # Italian
+        "invi",  # inviare / invia / invio (also catches English "invite")
+        "messagg",  # messaggio / messaggi
+        "spedi",  # spedire
+        # Dutch
+        "stuur",  # stuur / stuurt
+        "sturen",
+        "verstuur",
+        "bericht",
     ),
     HighImpactCategory.MONEY_PURCHASING: (
         # plain
@@ -131,6 +145,9 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "top up",
         "supplies run",
         "groceries",
+        "invoice",
+        "settle up",
+        "settle the",
         # Spanish
         "compr",  # comprar / compra
         "pagar",
@@ -143,6 +160,16 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "kauf",  # kaufen / einkaufen / verkaufen
         "bezahl",
         "bestell",  # bestellen
+        # Italian
+        "fattura",
+        "acquist",  # acquistare
+        # Dutch
+        "betaal",
+        "betal",  # betalen
+        "rekening",
+        "bestel",  # bestellen (Dutch spelling, single l)
+        # Portuguese
+        "fatura",
     ),
     HighImpactCategory.PERMISSIONS: (
         # plain
@@ -171,6 +198,8 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "loop in",
         "lock down",
         "let everyone",
+        "onboard",
+        "shared drive",
         # Spanish
         "permiso",
         "acceso",
@@ -183,6 +212,14 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "zugriff",
         "freigeb",  # freigeben
         "freigabe",
+        # Italian
+        "permess",  # permesso / permessi
+        "autoriz",  # autorizzazione / autorizar
+        # Dutch
+        "toegang",
+        "machtig",  # machtigen / machtiging
+        # Portuguese
+        "acesso",
     ),
     HighImpactCategory.DELETION: (
         # plain
@@ -211,6 +248,7 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "retire old",
         "empty the",
         "sweep out",
+        "zero out",
         # Spanish
         "borr",  # borrar / borra
         "elimin",  # eliminar (also English eliminate)
@@ -223,6 +261,17 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "losch",  # löschen (normalized)
         "aufraum",  # aufräumen (normalized)
         "entfern",  # entfernen
+        # Italian
+        "cancell",  # cancellare / cancella
+        "svuot",  # svuotare
+        # Dutch
+        "verwijder",  # verwijderen
+        "opruim",  # opruimen
+        "weggooi",  # weggooien
+        # Portuguese
+        "apag",  # apagar
+        "excluir",
+        "limpar",
     ),
     HighImpactCategory.CREDENTIALS: (
         # plain
@@ -261,6 +310,13 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "kennwort",
         "zugangsdaten",
         "schlussel",  # schlüssel (normalized)
+        # Italian
+        "credenzial",  # credenziali
+        # Dutch
+        "wachtwoord",
+        "inlog",  # inloggen / inloggegevens
+        # Portuguese
+        "senha",
     ),
     HighImpactCategory.HEALTH: (
         # plain
@@ -286,6 +342,10 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "refill",
         "check up",
         "checkup",
+        "sugar level",
+        "blood sugar",
+        "glucose",
+        "cholesterol",
         # Spanish
         "salud",
         "enfermedad",
@@ -299,6 +359,16 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "arzt",
         "krank",  # krankheit / krankenversicherung
         "rezept",
+        # Italian
+        "salute",
+        "farmac",  # farmacia
+        # Dutch
+        "gezondheid",
+        "medicijn",
+        "dokter",
+        # Portuguese
+        "saude",  # saúde (normalized)
+        "remedio",  # remédio (normalized)
     ),
     HighImpactCategory.LEGAL: (
         # plain
@@ -325,6 +395,7 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "redline",
         "paperwork for my case",
         "terms and conditions",
+        "lease",
         # Spanish
         "abogado",
         "juridic",  # jurídico / juridique (also French)
@@ -339,6 +410,13 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "rechtlich",
         "klage",
         "gericht",
+        # Italian
+        "avvocat",  # avvocato
+        # Dutch
+        "advocaat",
+        "juridis",  # juridisch
+        # Portuguese
+        "advogado",
     ),
     HighImpactCategory.FINANCIAL_DECISIONS: (
         # plain
@@ -383,6 +461,16 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "rente",
         "steuer",
         "borse",  # börse (normalized)
+        # Italian
+        "tasse",
+        "risparmi",  # risparmio / risparmiare
+        # Dutch
+        "belegg",  # beleggen
+        "spaar",  # sparen (Dutch stem)
+        "hypotheek",
+        # Portuguese
+        "impost",  # imposto / impostos
+        "poupanca",  # poupança (normalized)
     ),
     HighImpactCategory.THIRD_PARTY_CONFIDENTIAL_DATA: (
         # plain
@@ -407,6 +495,7 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "our customers",
         "people's details",
         "contact details of",
+        "roster",
         # Spanish
         "confidencial",
         "datos de client",
@@ -419,6 +508,15 @@ RULE_PHRASES: dict[HighImpactCategory, tuple[str, ...]] = {
         "vertraulich",
         "kundendaten",
         "personenbezogen",
+        # Italian
+        "riservat",  # riservato / riservati
+        "dati client",  # dati (dei) clienti — token gap covers "dei"
+        # Dutch
+        "vertrouwelijk",
+        "klantgegevens",
+        # Portuguese
+        "dados pesso",  # dados pessoais
+        "dados de client",
     ),
 }
 

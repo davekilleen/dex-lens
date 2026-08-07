@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, final
+from typing import Literal, Self, final
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -160,6 +160,33 @@ class SuccessContract(InventoriedModel):
     #: When the person explicitly confirmed this contract. Timezone-aware,
     #: required: a naive timestamp is an unverifiable confirmation record.
     confirmed_at: datetime
+
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> SuccessContract:
+        # model_construct skips validation by design; the lifecycle literal
+        # must hold on that route too, or a draft could be forged into (or
+        # out of) the confirmed lifecycle (R1 hostile route; mirrors
+        # InspectionJob's own guards).
+        contract = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        contract._assert_lifecycle_is_diagnosis()
+        return contract
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; a lifecycle swap refuses the
+        # same way.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_lifecycle_is_diagnosis()
+        return copied
+
+    def _assert_lifecycle_is_diagnosis(self) -> None:
+        if self.__dict__.get("lifecycle") != "diagnosis":
+            raise ValueError(
+                "a SuccessContract's lifecycle is 'diagnosis'; candidate jobs "
+                "live in the separate Inspection type until explicitly "
+                "confirmed (R1)"
+            )
 
     @field_validator("job_id")
     @classmethod

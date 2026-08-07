@@ -1,7 +1,11 @@
 """G6 labeled-corpus tests (gates.md G6 test strategy a).
 
 Gated: ZERO false negatives — every labeled high-impact entry routes to
-high-impact, and at least one of its labeled categories is detected.
+high-impact. A rule-match must additionally detect at least one of the
+entry's labeled categories; a fail-closed catch (unclassifiable input, e.g.
+a script the rules cannot read) counts, because what G6 gates is the
+routing — a high-impact job may never reach automated adaptation — and the
+fail-closed path withdraws automation without naming a category.
 
 Recorded, never gated: the false-positive rate over the genuinely-benign
 entries. It is printed honestly in the test output (`pytest -s` or on
@@ -74,10 +78,14 @@ class TestG6ZeroFalseNegatives:
             result = classify_job(entry.text)
             if not result.high_impact:
                 misses.append(f"{entry.entry_id}: not routed high-impact")
-            elif not (entry.categories & result.categories):
+            elif result.categories and not (entry.categories & result.categories):
                 found = sorted(c.value for c in result.categories)
                 wanted = sorted(c.value for c in entry.categories)
                 misses.append(f"{entry.entry_id}: wanted one of {wanted}, got {found}")
+            elif not result.categories and result.basis.value == "no-match":
+                # unreachable (no-match is never high-impact) but kept as a
+                # tripwire against a future basis/flag inconsistency
+                misses.append(f"{entry.entry_id}: high-impact with a no-match basis")
         assert not misses, "G6 false negatives (gated at zero):\n" + "\n".join(misses)
 
     def test_false_positive_rate_is_recorded_not_gated(

@@ -132,3 +132,22 @@ class TestNoAggregateScoreIsRepresentable:
             lowered = field_name.lower()
             for banned in ("score", "rank", "percent", "grade", "rating"):
                 assert banned not in lowered
+
+
+class TestValidationBypassRoutes:
+    """The ``diagnosis`` lifecycle literal must hold on the validation-skip
+    routes too (R1; mirrors InspectionJob's own guards)."""
+
+    def test_model_construct_cannot_forge_a_lifecycle(self) -> None:
+        values = dict(make_contract())
+        values["lifecycle"] = "inspection"
+        with pytest.raises(ValueError, match="lifecycle"):
+            SuccessContract.model_construct(**values)
+
+    def test_model_copy_cannot_swap_the_lifecycle(self) -> None:
+        with pytest.raises(ValueError, match="lifecycle"):
+            make_contract().model_copy(update={"lifecycle": "inspection"})
+
+    def test_model_construct_accepts_a_confirmed_contract(self) -> None:
+        rebuilt = SuccessContract.model_construct(**dict(make_contract()))
+        assert rebuilt.lifecycle == "diagnosis"

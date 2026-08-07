@@ -173,3 +173,49 @@ class TestClosedSchema:
 # The jobs-first map shapes that nest these findings per confirmed job
 # (JobFindings, CapabilityMap) live in capability_exchange.capmap.model and
 # are covered by tests/capmap/test_model.py.
+
+
+class TestValidationBypassRoutes:
+    """``model_construct`` and ``model_copy`` skip validators by design, so
+    the axis-honesty invariants must hold on those routes too — otherwise a
+    Working/Verified/Safe finding with zero evidence is representable and the
+    schema's 'unrepresentable' claim is code review, not structure (M2
+    adversarial review; same pattern as EvidenceItem/AdapterContract)."""
+
+    def _values(self, **overrides: object) -> dict[str, object]:
+        values: dict[str, object] = dict(finding())
+        values.update(overrides)
+        return values
+
+    def test_model_construct_rejects_a_dishonest_evidence_level(self) -> None:
+        with pytest.raises(ValueError, match="derived, never asserted"):
+            Finding.model_construct(
+                **self._values(evidence=(), evidence_level=EvidenceLevel.VERIFIED)
+            )
+
+    def test_model_construct_rejects_working_without_support(self) -> None:
+        with pytest.raises(ValueError, match="presence of nothing"):
+            Finding.model_construct(
+                **self._values(evidence=(), evidence_level=EvidenceLevel.UNKNOWN)
+            )
+
+    def test_model_construct_rejects_safe_without_support(self) -> None:
+        with pytest.raises(ValueError, match="never a blanket"):
+            Finding.model_construct(
+                **self._values(
+                    capability_state=CapabilityState.UNKNOWN,
+                    evidence=(),
+                    evidence_level=EvidenceLevel.UNKNOWN,
+                    safety_boundary=SafetyBoundary.SAFE,
+                )
+            )
+
+    def test_model_copy_cannot_swap_an_axis_off_the_mapping(self) -> None:
+        with pytest.raises(ValueError):
+            finding().model_copy(
+                update={"evidence_level": EvidenceLevel.UNKNOWN, "evidence": ()}
+            )
+
+    def test_model_construct_accepts_an_honest_finding(self) -> None:
+        built = Finding.model_construct(**self._values())
+        assert built.evidence_level is EvidenceLevel.VERIFIED

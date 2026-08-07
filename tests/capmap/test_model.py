@@ -134,3 +134,42 @@ class TestMapShape:
         }
         with pytest.raises(ValidationError):
             CapabilityMap.model_validate(payload)
+
+
+class TestValidationBypassRoutes:
+    """The map's R1 shape — confirmed contracts only, real findings only —
+    must hold on ``model_construct`` / ``model_copy`` too (M2 adversarial
+    review; same pattern as EvidenceItem/InspectionJob)."""
+
+    def _draft(self) -> InspectionJob:
+        return InspectionJob(
+            job_id="draft-job",
+            title="A draft",
+            situation="Draft situation",
+            desired_outcome="Draft outcome",
+            created_at=datetime(2026, 8, 7, tzinfo=UTC),
+        )
+
+    def test_job_findings_model_construct_rejects_an_inspection_draft(self) -> None:
+        real = one_job_map().jobs[0]
+        with pytest.raises(ValueError, match="confirmed"):
+            JobFindings.model_construct(contract=self._draft(), findings=real.findings)
+
+    def test_job_findings_model_copy_rejects_an_inspection_draft(self) -> None:
+        real = one_job_map().jobs[0]
+        with pytest.raises(ValueError, match="confirmed"):
+            real.model_copy(update={"contract": self._draft()})
+
+    def test_capability_map_model_construct_rejects_non_job_entries(self) -> None:
+        map_ = one_job_map()
+        with pytest.raises(ValueError, match="JobFindings"):
+            CapabilityMap.model_construct(
+                assessed_at=map_.assessed_at, jobs=({"looks": "like a job"},)
+            )
+
+    def test_model_construct_accepts_the_real_shape(self) -> None:
+        map_ = one_job_map()
+        rebuilt = CapabilityMap.model_construct(
+            assessed_at=map_.assessed_at, jobs=map_.jobs
+        )
+        assert rebuilt.jobs[0].job_id == map_.jobs[0].job_id

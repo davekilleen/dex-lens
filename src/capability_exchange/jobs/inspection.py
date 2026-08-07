@@ -446,6 +446,37 @@ class ConfirmedJobExport(InventoriedModel):
     #: is refused rather than silently sent.
     jobs: tuple[SuccessContract, ...] = Field(min_length=1)
 
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> ConfirmedJobExport:
+        # model_construct skips validation by design; "unrepresentable" (R1)
+        # must hold on that route too, or an Inspection-state job could be
+        # smuggled into a share payload that validation would have refused.
+        export = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        export._assert_jobs_are_confirmed_contracts()
+        return export
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; a jobs swap refuses the same way.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_jobs_are_confirmed_contracts()
+        return copied
+
+    def _assert_jobs_are_confirmed_contracts(self) -> None:
+        jobs = self.__dict__.get("jobs")
+        if (
+            not isinstance(jobs, tuple)
+            or not jobs
+            or any(type(job) is not SuccessContract for job in jobs)
+        ):
+            raise ValueError(
+                "a ConfirmedJobExport holds confirmed SuccessContract values "
+                "only; an Inspection-state job is unrepresentable in every "
+                "sharing, Card, export, and telemetry payload on every "
+                "construction route (R1)"
+            )
+
 
 def resolve_export_request(
     requested_job_ids: tuple[str, ...],

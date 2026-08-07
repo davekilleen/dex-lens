@@ -25,7 +25,7 @@ __all__ = ["CORPUS_PATH", "CorpusEntry", "CorpusError", "load_corpus"]
 CORPUS_PATH = Path(__file__).parent / "corpus" / "labeled_jobs.json"
 
 _PHRASINGS = frozenset({"plain", "euphemistic", "multilingual"})
-_LANGUAGES = frozenset({"en", "es", "fr", "de"})
+_LANGUAGES = frozenset({"en", "es", "fr", "de", "it", "nl", "pt", "ja"})
 
 
 class CorpusError(Exception):

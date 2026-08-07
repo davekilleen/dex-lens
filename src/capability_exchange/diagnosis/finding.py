@@ -31,7 +31,7 @@ lives in :mod:`capability_exchange.capmap.model` (module M-D renderer side).
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import final
+from typing import Self, final
 
 from pydantic import ConfigDict, field_validator, model_validator
 
@@ -158,6 +158,28 @@ class Finding(InventoriedModel):
 
     @model_validator(mode="after")
     def _axes_stay_honest(self) -> Finding:
+        self._assert_axes_honest()
+        return self
+
+    @classmethod
+    def model_construct(cls, _fields_set: set[str] | None = None, **values: object) -> Finding:
+        # model_construct skips validation by design; the axis-honesty
+        # invariants must hold on that route too, or a Working/Verified/Safe
+        # finding with no evidence would be representable — turning the
+        # schema's "unrepresentable" claim into code review (M2 adversarial
+        # review; same pattern as EvidenceItem and AdapterContract).
+        built = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        built._assert_axes_honest()
+        return built
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; an update that swaps an axis off
+        # the derived mapping must refuse the same way.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_axes_honest()
+        return copied
+
+    def _assert_axes_honest(self) -> None:
         derived = evidence_level(item.state for item in self.evidence)
         if self.evidence_level is not derived:
             raise ValueError(
@@ -175,12 +197,13 @@ class Finding(InventoriedModel):
                 f"one claim-supporting evidence item; presence of nothing "
                 f"demonstrates nothing"
             )
-        if self.safety_boundary is SafetyBoundary.SAFE and not has_support:
+        # Equality, not identity: on the validation-skip routes an axis may
+        # arrive as a plain string, and "safe" must not evade the check.
+        if self.safety_boundary == SafetyBoundary.SAFE and not has_support:
             raise ValueError(
                 "safety_boundary 'safe' requires claim-supporting evidence; safe is "
                 "scoped to the assessed job and available evidence, never a blanket "
                 "certification (fail closed to 'unclear')"
             )
-        return self
 
 

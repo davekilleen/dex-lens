@@ -382,3 +382,28 @@ class TestLocalOnlyStorage:
     def test_missing_record_load_is_refused(self, tmp_path: Path) -> None:
         with pytest.raises(JobStoreError):
             InspectionJobStore(tmp_path).load("never-saved")
+
+
+class TestShareExclusionBypassRoutes:
+    """R1 says an Inspection-state job is *unrepresentable* in a share
+    payload — that must hold on the validation-skip construction routes too
+    (M2 adversarial review: ``model_construct`` previously accepted one)."""
+
+    def test_export_model_construct_rejects_an_inspection_job(self) -> None:
+        with pytest.raises(ValueError, match="confirmed"):
+            ConfirmedJobExport.model_construct(jobs=(make_inspection_job(),))
+
+    def test_export_model_construct_rejects_a_mixed_tuple(self) -> None:
+        with pytest.raises(ValueError, match="confirmed"):
+            ConfirmedJobExport.model_construct(
+                jobs=(make_contract(), make_inspection_job())
+            )
+
+    def test_export_model_copy_rejects_an_inspection_swap(self) -> None:
+        export = ConfirmedJobExport(jobs=(make_contract(),))
+        with pytest.raises(ValueError, match="confirmed"):
+            export.model_copy(update={"jobs": (make_inspection_job(),)})
+
+    def test_export_model_construct_accepts_confirmed_contracts(self) -> None:
+        export = ConfirmedJobExport.model_construct(jobs=(make_contract(),))
+        assert export.jobs[0].lifecycle == "diagnosis"

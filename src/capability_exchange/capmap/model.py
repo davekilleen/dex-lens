@@ -33,7 +33,7 @@ is unrepresentable, not filtered.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import final
+from typing import Self, final
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -69,6 +69,38 @@ class JobFindings(InventoriedModel):
     def job_id(self) -> str:
         """The confirmed job's identity (from its Success Contract)."""
         return self.contract.job_id
+
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> JobFindings:
+        # model_construct skips validation by design; "a map entry for an
+        # unconfirmed job is unrepresentable" (R1) must hold on that route
+        # too, or an Inspection draft could impersonate a confirmed job.
+        entry = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        entry._assert_confirmed_shape()
+        return entry
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; a contract swap refuses too.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_confirmed_shape()
+        return copied
+
+    def _assert_confirmed_shape(self) -> None:
+        contract = self.__dict__.get("contract")
+        findings = self.__dict__.get("findings")
+        if type(contract) is not SuccessContract:
+            raise ValueError(
+                "a JobFindings entry embeds a confirmed SuccessContract only; "
+                "an Inspection-state draft is unrepresentable here on every "
+                "construction route (R1)"
+            )
+        if not isinstance(findings, tuple) or any(
+            type(finding) is not Finding for finding in findings
+        ):
+            raise ValueError("a JobFindings entry holds Finding values only")
+        self._one_finding_per_capability_for_this_job()
 
     @model_validator(mode="after")
     def _one_finding_per_capability_for_this_job(self) -> JobFindings:
@@ -126,6 +158,35 @@ class CapabilityMap(InventoriedModel):
         if len(set(ids)) != len(ids):
             raise ValueError("jobs contain duplicate job ids")
         return tuple(sorted(value, key=lambda job: job.job_id))
+
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> CapabilityMap:
+        # model_construct skips validation by design; the map's jobs-first
+        # shape must hold on that route too (R1: confirmed entries only).
+        built = super().model_construct(_fields_set, **values)  # type: ignore[arg-type]
+        built._assert_jobs_are_job_findings()
+        return built
+
+    def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
+        # model_copy also skips validation; a jobs swap refuses the same way.
+        copied = super().model_copy(update=update, deep=deep)  # type: ignore[arg-type]
+        copied._assert_jobs_are_job_findings()
+        return copied
+
+    def _assert_jobs_are_job_findings(self) -> None:
+        jobs = self.__dict__.get("jobs")
+        if (
+            not isinstance(jobs, tuple)
+            or not jobs
+            or any(type(entry) is not JobFindings for entry in jobs)
+        ):
+            raise ValueError(
+                "a CapabilityMap holds JobFindings entries only — one per "
+                "confirmed job; nothing else is representable on any "
+                "construction route (R1)"
+            )
 
     def job(self, job_id: str) -> JobFindings:
         """The entry for one confirmed job, or a refusal naming no contents."""
