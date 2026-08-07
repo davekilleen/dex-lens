@@ -12,6 +12,7 @@ uncontained collection.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from capability_exchange.adapters.claude_code.containment import (
     CollectionRequest,
     ContainmentUnavailableError,
     MacOSStrategy,
+    macos_profile_params,
 )
 
 darwin_only = pytest.mark.skipif(
@@ -45,22 +47,59 @@ PROFILE_PROBE_SOURCE = textwrap.dedent(
 
 
 def _sandbox_exec_argv(python_source: str) -> list[str]:
-    import os
-
+    # Same parameter set the adapter uses. Built from the shared helper rather
+    # than restated here: a drifted copy would let the profile pass its own
+    # test while the real inspection child dies in posix_spawn.
     sandbox_exec = shutil.which("sandbox-exec")
     assert sandbox_exec is not None
     return [
         sandbox_exec,
-        "-D",
-        f"PY={sys.executable}",
-        "-D",
-        f"PYREAL={os.path.realpath(sys.executable)}",
+        *macos_profile_params(),
         "-f",
         str(_MACOS_PROFILE_PATH),
         sys.executable,
         "-c",
         python_source,
     ]
+
+
+class TestProfileExecSetIsEnumerated:
+    """Runs on every platform: the profile is shipped data, not host state.
+
+    G1 allows exec of an enumerated interpreter set. These assertions are the
+    structural guard on that — a later "just allow the prefix" fix would turn
+    the exec allowance into a trusted directory and would fail here rather
+    than pass quietly on a green macOS leg.
+    """
+
+    def test_g1_profile_allows_exec_only_by_literal(self) -> None:
+        text = _MACOS_PROFILE_PATH.read_text()
+        allow_exec = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip().startswith("(allow process-exec")
+        ]
+        assert allow_exec, "profile must allow the interpreter itself"
+        for line in allow_exec:
+            assert "(literal (param " in line, f"non-literal exec allowance: {line}"
+            assert "subpath" not in line, f"subpath exec allowance widens G1: {line}"
+
+    def test_g1_every_referenced_param_is_supplied(self) -> None:
+        text = _MACOS_PROFILE_PATH.read_text()
+        referenced = set(re.findall(r'\(param "([A-Z]+)"\)', text))
+        supplied = {
+            arg.split("=", 1)[0] for arg in macos_profile_params() if not arg.startswith("-")
+        }
+        # sandbox-exec fails to compile the profile if any referenced
+        # parameter is undefined, which would surface as an opaque
+        # containment failure rather than a named one.
+        assert referenced <= supplied, f"undefined profile params: {referenced - supplied}"
+
+    def test_g1_params_name_only_interpreter_binaries(self) -> None:
+        values = [arg.split("=", 1)[1] for arg in macos_profile_params() if not arg.startswith("-")]
+        assert values, "no interpreter literals supplied"
+        for value in values:
+            assert "python" in Path(value).name.lower(), f"non-interpreter exec literal: {value}"
 
 
 @darwin_only
