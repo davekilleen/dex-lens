@@ -61,6 +61,196 @@ fields:
     deletion: not-stored
     audit: "ephemeral in-memory value; exists only for the diagnosis session"
 
+  AdapterContract.adapter_id:
+    description: "stable kebab-case identity of one Host Adapter (e.g. claude-code-macos)"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; validated as kebab-case"
+    display: "named on the inspection-permission screen so the person knows which adapter runs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.contract_version:
+    description: "semver version of the adapter contract declaration"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; validated as MAJOR.MINOR.PATCH"
+    display: "shown with the adapter identity for conformance and support"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.discoverable_roots:
+    description: "declared roots where evidence discovery may start"
+    collection: "authored with the adapter; instantiation may narrow to host-specific roots"
+    derivation: "validated as canonical absolute or home-anchored paths; never / or ~"
+    display: "shown verbatim on the inspection-permission screen before any read"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory declaration; exists only for the diagnosis session"
+
+  AdapterContract.read_scope:
+    description: "the explicit read scope; every entry falls under a declared root"
+    collection: "authored with the adapter; instantiation may narrow to host-specific scope"
+    derivation: "validated for coherence against roots and denied paths (no dead scope)"
+    display: "shown verbatim on the inspection-permission screen before any read"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory declaration; exists only for the diagnosis session"
+
+  AdapterContract.denied_paths:
+    description: "paths never read even inside scope (secrets, credentials, escapes)"
+    collection: "authored with the adapter; instantiation may add host-specific denials"
+    derivation: "validated as canonical paths; may be broader than the declared roots"
+    display: "shown on the inspection-permission screen as what will not be read"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory declaration; exists only for the diagnosis session"
+
+  AdapterContract.symlink_policy:
+    description: "closed symlink-handling vocabulary; escapes are always rejected"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; closed enum with no follow member"
+    display: "shown as part of the adapter's declared containment behavior"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.archive_policy:
+    description: "closed archive-handling vocabulary; extraction is unrepresentable"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; closed enum with no extracting member"
+    display: "shown as part of the adapter's declared containment behavior"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.evidence_probes:
+    description: "kebab-case ids of the evidence probes this adapter supports"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; validated as unique kebab-case ids"
+    display: "shown so the person can see exactly what the adapter can check"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.version_detection:
+    description: "closed vocabulary for how the host version is detected; no exec member"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "none; closed enum (file-marker, package-manifest, user-reported, unknown)"
+    display: "shown with the adapter's declared capabilities"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.mode:
+    description: "Diagnose-only vs Adapt-capable status; Diagnose-only by default"
+    collection: "authored with the adapter; part of its shipped contract declaration"
+    derivation: "Adapt-capable refuses without a mutation contract, which M1 cannot construct"
+    display: "shown so the person knows this adapter can only read"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static product declaration; carries no personal data"
+
+  AdapterContract.mutation_contract:
+    description: "forward-declared host-specific mutation contract reference; unconstructable in M1"
+    collection: "none in M1; the type refuses construction until M4 builds the real contract"
+    derivation: "none; always absent in M1"
+    display: "never displayed in M1"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "structurally always null in M1; M4 re-opens this entry when the type becomes real"
+
+  ProbeResult.probe_id:
+    description: "kebab-case id of the probe that produced this result"
+    collection: "assigned by the adapter from its contract's declared evidence probes"
+    derivation: "none; validated as kebab-case"
+    display: "shown as the instrument name in diagnosis output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  ProbeResult.health:
+    description: "closed instrument-health grammar: healthy, intentionally-off, broken, could-not-check"
+    collection: "assigned by the adapter when the probe runs"
+    derivation: "instrument health only; never conflated with Evidence Level (HANDOFF 3.2 item 2)"
+    display: "shown honestly per probe; failure is reported, never counted as success"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  ProbeResult.detail:
+    description: "one honest bounded line about the instrument state; required unless healthy"
+    collection: "written by the adapter when the probe runs"
+    derivation: "validated as a single bounded line; never a payload or file content"
+    display: "shown as the reason an instrument is off, broken, or unchecked"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  ProbeResult.evidence:
+    description: "R2 evidence items collected by this probe (nested EvidenceItem entries apply)"
+    collection: "collected by the adapter under the approved scope"
+    derivation: "each item is validated by the EvidenceItem schema (non-raw references only)"
+    display: "shown as a finding's evidence during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  AdapterResultEnvelope.adapter_id:
+    description: "identity of the adapter that produced this envelope"
+    collection: "copied from the adapter contract at collection time"
+    derivation: "none; validated as kebab-case"
+    display: "shown so the person knows which adapter collected the evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  AdapterResultEnvelope.contract_version:
+    description: "the contract version the collection ran under"
+    collection: "copied from the adapter contract at collection time"
+    derivation: "none; validated as MAJOR.MINOR.PATCH"
+    display: "shown for conformance and honest provenance of the collection"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  AdapterResultEnvelope.collected_at:
+    description: "timezone-aware timestamp of the collection run"
+    collection: "recorded locally when collection runs"
+    derivation: "none; naive timestamps are rejected at validation"
+    display: "shown as the collection time of the diagnosis evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  AdapterResultEnvelope.probes:
+    description: "per-probe results, canonically ordered by probe id (deterministic output)"
+    collection: "produced by the adapter's probes during the approved inspection"
+    derivation: "sorted and uniqueness-checked at validation; nested ProbeResult entries apply"
+    display: "rendered by the separate diagnosis renderer, never by the collector"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
   CrashLogRecord.timestamp:
     description: "UTC time the crash record was created (ISO 8601)"
     collection: "generated locally at crash time from the system clock"
