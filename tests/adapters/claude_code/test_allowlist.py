@@ -135,6 +135,10 @@ class TestEvaluate:
         allowlist = CanonicalAllowlist([claude_root])
         target = claude_root / "CLAUDE.md"
         real_stat = os.stat
+        # Resolve before patching: on py3.11/3.12 Path.resolve() calls os.stat,
+        # so resolving inside the patch recurses into itself (py3.13's pathlib
+        # uses realpath, which is why this only failed on the older matrix legs).
+        resolved_target = str(target.resolve())
 
         class _ForeignDevice:
             def __init__(self, inner: os.stat_result) -> None:
@@ -147,7 +151,7 @@ class TestEvaluate:
 
         def foreign_device(path, *args, **kwargs):  # type: ignore[no-untyped-def]
             result = real_stat(path, *args, **kwargs)
-            if str(path) == str(target.resolve()):
+            if str(path) == resolved_target:
                 return _ForeignDevice(result)
             return result
 
