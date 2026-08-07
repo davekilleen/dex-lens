@@ -298,3 +298,285 @@ fields:
     sharing: never
     deletion: delete-crash-logs
     audit: "the crash-log file itself is the only record; no other copy exists"
+
+  # ------------------------------------------------------------------
+  # M2 module M-C: Job Map / Success Contract engine (gates.md R1).
+  # Success Contracts and proposals are ephemeral at this milestone;
+  # the only stored artifact is the local Inspection-job record, which
+  # is local-only, sharing-never, and deletable to the byte via the
+  # registered delete-inspection-jobs path. Appended entries only.
+  # ------------------------------------------------------------------
+
+  JobBoundaries.privacy_limits:
+    description: "what may never be read, derived, or surfaced for one confirmed job"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  JobBoundaries.approval_limits:
+    description: "what always requires a fresh human approval for one confirmed job"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  JobBoundaries.autonomy_limits:
+    description: "what the system may never do on its own for one confirmed job"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.lifecycle:
+    description: "machine-readable lifecycle marker; the literal type admits only diagnosis"
+    collection: "fixed by the schema at explicit confirmation time"
+    derivation: "none; a Literal field with exactly one admissible value (R1)"
+    display: "distinguishes confirmed contracts from Inspection drafts in every surface"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.job_id:
+    description: "stable kebab-case identity of one confirmed job in the Job Map"
+    collection: "carried over from the Inspection draft or chosen by the person"
+    derivation: "none; validated as kebab-case"
+    display: "identifies the job across the Job Map and Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.situation:
+    description: "when and where this job arises, in the person's own terms"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.desired_outcome:
+    description: "what done means for this job, in the person's own terms"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.success_evidence:
+    description: "observable signals the person named as proof the outcome was reached"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; bounded single-line text validated at construction"
+    display: "shown so diagnosis assesses real examples against the person's own signals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.boundaries:
+    description: "the job's declared privacy, approval, and autonomy limits"
+    collection: "typed or approved by the person during Job Map confirmation"
+    derivation: "none; nested JobBoundaries values validated at construction"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.importance:
+    description: "how much this job matters to the person (closed vocabulary)"
+    collection: "chosen by the person during Job Map confirmation"
+    derivation: "none; closed enum rejects unknown values"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.cadence:
+    description: "how often the job recurs (closed vocabulary)"
+    collection: "chosen by the person during Job Map confirmation"
+    derivation: "none; closed enum rejects unknown values"
+    display: "shown as part of the confirmed Success Contract during diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  SuccessContract.confirmed_at:
+    description: "timezone-aware moment of the person's explicit confirmation"
+    collection: "recorded locally at the explicit confirmation call"
+    derivation: "none; naive timestamps are rejected at validation"
+    display: "shown so the person can see when they confirmed the contract"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  InspectionJob.lifecycle:
+    description: "machine-readable lifecycle marker; the literal type admits only inspection"
+    collection: "fixed by the schema when a candidate job is kept as a draft"
+    derivation: "corrupt or missing stored lifecycle metadata loads as inspection (R1 fail closed)"
+    display: "marks the job as a provisional draft on every local surface"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.job_id:
+    description: "stable kebab-case identity of one candidate job in Inspection"
+    collection: "derived from the deterministic proposal rule or chosen by the person"
+    derivation: "none; validated as kebab-case"
+    display: "identifies the draft during editing, discard, and confirmation"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.title:
+    description: "short suggestion-phrased name for the candidate job"
+    collection: "authored by the deterministic proposal rule or edited by the person"
+    derivation: "static rule text; never derived from inspected file content"
+    display: "shown when the person reviews, edits, or discards the draft"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.situation:
+    description: "draft situation text, editable until confirmed or discarded"
+    collection: "authored by the deterministic proposal rule or edited by the person"
+    derivation: "static rule text; never derived from inspected file content"
+    display: "shown when the person reviews, edits, or discards the draft"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.desired_outcome:
+    description: "draft desired-outcome text, editable until confirmed or discarded"
+    collection: "authored by the deterministic proposal rule or edited by the person"
+    derivation: "static rule text; never derived from inspected file content"
+    display: "shown when the person reviews, edits, or discards the draft"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.evidence_references:
+    description: "non-raw locators of the evidence the candidate derives from, never content"
+    collection: "carried over from the proposal's ephemeral evidence items"
+    derivation: "validation rejects references shaped like raw file content or secrets"
+    display: "shown so the person can see why the candidate was proposed"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  InspectionJob.created_at:
+    description: "timezone-aware moment the candidate entered Inspection"
+    collection: "recorded locally when the draft is created"
+    derivation: "none; naive timestamps are rejected at validation"
+    display: "shown so the person can see how old a draft is"
+    storage:
+      location: "local inspection-jobs directory (one JSON file per candidate job)"
+      duration: "until the person discards the job or confirms it as a Success Contract"
+    sharing: never
+    deletion: delete-inspection-jobs
+    audit: "the local record file is the only copy; type-level excluded from all sharing"
+
+  CandidateJobProposal.candidate_id:
+    description: "stable kebab-case identity of one proposed candidate job"
+    collection: "authored in the deterministic proposal ruleset"
+    derivation: "none; static rule data, never derived from inspected content"
+    display: "identifies the suggestion while the person decides to keep or drop it"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  CandidateJobProposal.title:
+    description: "short suggestion-phrased name for the proposed candidate job"
+    collection: "authored in the deterministic proposal ruleset"
+    derivation: "none; static rule data, never derived from inspected content"
+    display: "shown while the person decides to keep or drop the suggestion"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  CandidateJobProposal.draft_situation:
+    description: "draft situation text the person can edit if the suggestion is kept"
+    collection: "authored in the deterministic proposal ruleset"
+    derivation: "none; static rule data, never derived from inspected content"
+    display: "shown while the person decides to keep or drop the suggestion"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  CandidateJobProposal.draft_desired_outcome:
+    description: "draft desired-outcome text the person can edit if the suggestion is kept"
+    collection: "authored in the deterministic proposal ruleset"
+    derivation: "none; static rule data, never derived from inspected content"
+    display: "shown while the person decides to keep or drop the suggestion"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  CandidateJobProposal.rationale:
+    description: "why the candidate was proposed; must say inferred in words (R2)"
+    collection: "authored in the deterministic proposal ruleset"
+    derivation: "validation requires the inference to be marked in the text itself"
+    display: "shown so the suggestion is never presented as fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  CandidateJobProposal.evidence:
+    description: "R2 evidence items for the inference; every item carries state inferred"
+    collection: "built from the adapter result envelope's observed evidence references"
+    derivation: "state is always inferred; references reuse existing non-raw locators"
+    display: "shown so the person can see what the suggestion derives from"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; exists only for the session that proposed it"
+
+  ConfirmedJobExport.jobs:
+    description: "confirmed Success Contracts only; the sole job payload any sharing surface may hold"
+    collection: "assembled from confirmed contracts the person explicitly selected"
+    derivation: "Inspection-state jobs are unrepresentable in this field by type (R1)"
+    display: "previewed to the person before any future sharing decision"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in-memory value; nothing transmits at this milestone (sharing never)"
