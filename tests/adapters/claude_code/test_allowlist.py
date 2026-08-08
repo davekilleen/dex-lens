@@ -228,6 +228,18 @@ class TestMountTopology:
         with pytest.raises(AllowlistError, match="cannot be read"):
             CanonicalAllowlist([claude_root])
 
+    #: The three tests below exercise the mount-*table* layer, which
+    #: `_refresh_mount_topology` deliberately does not consult off Linux
+    #: (darwin has no unprivileged bind mount to defend against; the
+    #: dirent-inode cross-check in `survey` is the OS-independent backstop).
+    #: Redirecting MOUNTINFO_PATH is therefore a no-op on darwin, and these
+    #: assertions would fail not because the defence regressed but because
+    #: the mechanism under test does not exist there.
+    linux_mount_table = pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="the mountinfo layer is a Linux facility; darwin never reads it",
+    )
+
     @staticmethod
     def _kernel_reports_mount_at(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mount_point: Path
@@ -243,6 +255,7 @@ class TestMountTopology:
         )
         monkeypatch.setattr(allowlist_module, "MOUNTINFO_PATH", str(table))
 
+    @linux_mount_table
     def test_mount_inside_scope_blocked_although_device_matches(
         self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -267,6 +280,7 @@ class TestMountTopology:
         assert behind.reason == "mount-point-crossing"
         assert behind.canonical_path is None
 
+    @linux_mount_table
     def test_survey_prunes_a_mount_inside_scope_and_records_it(
         self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -282,6 +296,7 @@ class TestMountTopology:
             (d.relative_path, d.reason) for d in outcome.excluded
         }
 
+    @linux_mount_table
     def test_approved_root_that_is_itself_a_mount_point_still_readable(
         self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
