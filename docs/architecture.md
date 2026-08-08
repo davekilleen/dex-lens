@@ -140,19 +140,22 @@ The difference is worth stating rather than hiding behind one word:
 | | Linux | macOS |
 | --- | --- | --- |
 | Mechanism | seccomp BPF filter, installed by the child on itself | Seatbelt profile, applied by the parent via `sandbox-exec` |
-| No-egress rule | the `socket` syscall family denied (EPERM) | `(deny system-socket)` — socket(2) — plus `(deny network*)` for connect/bind |
-| Proof label | `socket-denied` | `socket-denied` |
+| No-egress rule | the `socket` syscall family denied (EPERM) | `(deny network*)` for connect/bind, with `(deny system-socket)` kept as the narrowest known socket-creation rule |
+| Proof label | `socket-denied` | `connect-denied` on GitHub macos-14; `socket-denied` would be accepted if a future host enforces the creation rule |
 | Extra layer | network namespace unshared where the kernel permits | — |
 
 `(deny network*)` alone would **not** be equivalent, and for a while it was all the
 profile had. `network-outbound`, `network-inbound` and `network-bind` are each checked
-after a socket already exists, so under them a buggy collector still gets a live fd and
-the strongest provable statement is "connect was refused" rather than "no socket exists".
-Seatbelt does express creation, as a separate operation named `system-socket` — Apple's
-own deny-default profiles for ordinary TCP clients (for example
-`com.apple.security.XPCAcmeService.sb`) have to allow it alongside `network-outbound` to
-get a socket at all. Denying it is what makes the macOS proof the same statement as the
-Linux one. `(deny network*)` is kept as an independent second layer.
+after a socket already exists, so under them a buggy collector may still get a live fd.
+Seatbelt has a separate operation named `system-socket` — Apple's own deny-default
+profiles for ordinary TCP clients (for example `com.apple.security.XPCAcmeService.sb`)
+have to allow it alongside `network-outbound` to get a socket at all. Denying it is
+therefore still the narrowest known expression of the intended stronger guarantee.
+However, CI on GitHub's macos-14 runners proved that this profile still permits Python
+to create AF_INET and AF_INET6 sockets. The enforced macOS guarantee today is
+"socket fd may exist, but outbound use is denied before egress"; the runtime proof and
+macOS egress test assert exactly that, and fail if connect ever succeeds or reaches a
+real listener.
 
 Two residual asymmetries stay stated rather than glossed:
 
