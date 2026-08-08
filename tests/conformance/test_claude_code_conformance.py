@@ -11,6 +11,7 @@ import ctypes
 import ctypes.util
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -142,6 +143,117 @@ def set_extended_attribute(path: Path, name: str, value: bytes) -> None:
     if libc.setxattr(os.fsencode(path), name.encode(), value, len(value), 0, 0) != 0:
         errno_value = ctypes.get_errno()
         raise OSError(errno_value, os.strerror(errno_value), str(path))
+
+
+def _honestly_refusing_subject():  # type: ignore[no-untyped-def]
+    """A subject whose whole inspection takes the adapter's real refusal path.
+
+    Not a stub: ``force_containment_unavailable`` drives the production
+    ``contained_inspection`` with a strategy that genuinely cannot be
+    established on this host, so the refusal, its typed error and its
+    fallback guidance are the real ones.
+    """
+    honest = claude_code_conformance_subject()
+    return replace(honest, inspect=honest.force_containment_unavailable)
+
+
+class _SilentRefusal(Exception):
+    """A refusal carrying no fallback guidance — dishonest, so it FAILS."""
+
+    fallback_guidance = ""
+
+
+class TestOsEnforcementIsRequiredOfTheGate:
+    """An honest refusal is correct product behavior and a useless gate.
+
+    G1 fail-closed says a host that cannot establish containment disables the
+    deep adapter — that is right, and the runner keeps reporting it that way.
+    But the CI step exists to prove containment *works*, and it reported
+    green on a run that proved only that the adapter declined to start. A
+    regression in the macOS sandbox profile, or a wheel built without it,
+    would have shipped behind a green check indefinitely.
+    """
+
+    def test_g1_refusal_is_conformant_but_not_proof_of_enforcement(
+        self, system_root, workspace
+    ) -> None:  # type: ignore[no-untyped-def]
+        report = run_conformance_suite(
+            _honestly_refusing_subject(), system_root, workspace=workspace
+        )
+        assert report.refused_honestly, "the subject must actually have refused"
+        assert report.conformant  # correct product behavior: nothing failed
+        assert not report.os_enforcement_established  # and precisely not a proven gate
+        assert not report.fully_passed
+
+    def test_g1_report_says_loudly_that_the_gate_is_unsatisfied(
+        self, system_root, workspace
+    ) -> None:  # type: ignore[no-untyped-def]
+        report = run_conformance_suite(
+            _honestly_refusing_subject(), system_root, workspace=workspace
+        )
+        tolerant = format_report(report)
+        strict = format_report(report, require_os_enforcement=True)
+        assert "CONTAINMENT UNAVAILABLE ON THIS HOST" in tolerant
+        assert "GATE NOT SATISFIED" not in tolerant
+        assert "GATE NOT SATISFIED" in strict
+
+    @staticmethod
+    def _with_refusing_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+        import capability_exchange.conformance.__main__ as cli
+
+        monkeypatch.setattr(
+            cli, "conformance_subject_for", lambda _adapter: _honestly_refusing_subject()
+        )
+
+    def test_g1_cli_exits_nonzero_on_refusal_when_enforcement_required(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._with_refusing_adapter(monkeypatch)
+        assert conformance_main(
+            ["--adapter", "claude-code-local", "--self-check", "--require-os-enforcement"]
+        ) == 3
+
+    def test_g1_cli_still_exits_zero_when_enforcement_not_required(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The honest-refusal path itself stays intact: a developer on a host
+        # without containment is not blocked — only a release gate is.
+        self._with_refusing_adapter(monkeypatch)
+        assert conformance_main(
+            ["--adapter", "claude-code-local", "--self-check", "--no-require-os-enforcement"]
+        ) == 0
+
+    @pytest.mark.parametrize(("ci_value", "expected"), [("true", 3), ("1", 3), (None, 0)])
+    def test_g1_cli_requires_enforcement_by_default_under_ci(
+        self, monkeypatch: pytest.MonkeyPatch, ci_value: str | None, expected: int
+    ) -> None:
+        self._with_refusing_adapter(monkeypatch)
+        if ci_value is None:
+            monkeypatch.delenv("CI", raising=False)
+        else:
+            monkeypatch.setenv("CI", ci_value)
+        assert conformance_main(["--adapter", "claude-code-local", "--self-check"]) == expected
+
+    def test_g1_a_failed_check_outranks_the_unproven_status(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Non-conformant (1) must never be reported as merely unproven (3).
+        import capability_exchange.conformance.__main__ as cli
+
+        def silently_refusing(_adapter):  # type: ignore[no-untyped-def]
+            def inspect(roots):  # type: ignore[no-untyped-def]
+                raise _SilentRefusal("containment unavailable, and no guidance offered")
+
+            return replace(
+                claude_code_conformance_subject(),
+                inspect=inspect,
+                refusal_error=_SilentRefusal,
+            )
+
+        monkeypatch.setattr(cli, "conformance_subject_for", silently_refusing)
+        assert conformance_main(
+            ["--adapter", "claude-code-local", "--self-check", "--require-os-enforcement"]
+        ) == 1
 
 
 def _require_working_containment(subject, root: Path) -> None:  # type: ignore[no-untyped-def]

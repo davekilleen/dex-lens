@@ -6,15 +6,38 @@ Runnable, not prose (HANDOFF 5.4)::
     python -m capability_exchange.conformance --adapter claude-code-local --self-check
 
 ``--self-check`` builds a benign synthetic system in a scratch workspace
-and runs the suite against it — the CI entry point. Exit status 0 means no
-check failed; an honest containment refusal is reported loudly and exits 0
-only because refusing is the mandated fail-closed behavior, while any
-FAILED check exits 1.
+and runs the suite against it — the CI entry point.
+
+Exit status:
+
+===  ==========================================================================
+0    every check that ran passed, and nothing was waived that the caller
+     required
+1    at least one check FAILED — the adapter is non-conformant
+2    usage error (unknown adapter, root that is not a directory)
+3    checks were waived because OS-enforced containment could not be
+     established, and ``--require-os-enforcement`` was in effect
+===  ==========================================================================
+
+Status 3 exists because the two situations it separates are genuinely
+different. An honest containment refusal is *correct product behavior*
+(G1 fail-closed: the deep adapter disables itself and diagnosis downgrades
+to guided/export-assisted evidence) and the refusal path is itself verified
+before the waiver is granted. It is *not* evidence of containment, so it
+must not satisfy a release gate: a run that proves only that the adapter
+declined to run would let a broken macOS sandbox profile — or a wheel that
+shipped without the profile at all — go green forever.
+
+``--require-os-enforcement`` therefore defaults **on** wherever ``CI`` is
+set in the environment, and CI passes it explicitly as well so the gate
+never depends on that inference. Developers on a host without containment
+get the tolerant default; use ``--no-require-os-enforcement`` to force it.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -56,6 +79,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="build a benign synthetic system in a scratch workspace and run against it",
     )
+    parser.add_argument(
+        "--require-os-enforcement",
+        action=argparse.BooleanOptionalAction,
+        default=bool(os.environ.get("CI")),
+        help=(
+            "treat checks waived for unavailable OS containment as a gate "
+            "failure (exit 3). An honest refusal remains correct product "
+            "behavior; it is simply not proof of containment. "
+            "Default: on when CI is set in the environment."
+        ),
+    )
     arguments = parser.parse_args(argv)
 
     try:
@@ -73,8 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     report = run_conformance_suite(subject, system_root, workspace=workspace / "scratch")
-    print(format_report(report))
-    return 0 if report.conformant else 1
+    print(format_report(report, require_os_enforcement=arguments.require_os_enforcement))
+    if not report.conformant:
+        return 1
+    if arguments.require_os_enforcement and not report.os_enforcement_established:
+        return 3
+    return 0
 
 
 if __name__ == "__main__":

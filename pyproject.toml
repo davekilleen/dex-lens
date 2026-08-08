@@ -18,14 +18,39 @@ dev = [
     "pytest",
     "hypothesis",
     "ruff",
+    # Also the build backend. Declared here so the packaging test can build a
+    # wheel in-process, offline, without build isolation.
+    "setuptools>=68",
 ]
+
+[tool.setuptools]
+# What ships is a declared, tested set — not whatever the implicit sweep of
+# the day happens to pick up. Recent setuptools defaults this to true and
+# would gather the data files below on its own; that is an accident of
+# version, and this package's runtime depends on those files being present.
+# Declared-and-checked beats inferred (HANDOFF 5.5).
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Non-Python files the package reads at runtime. Undeclared, the wheel builds
+# cleanly and *silently* omits them: `MacOSStrategy.availability()` then
+# returns False (no sandbox profile), the deep adapter refuses honestly, and
+# the conformance gate goes green having proved nothing. `pip install -e` —
+# what CI uses — reads them straight from the source tree and hides it.
+# tests/test_packaging.py builds a real wheel and asserts every non-Python
+# file under src/ is inside it.
+[tool.setuptools.package-data]
+"capability_exchange.boundary" = ["*.yaml"]
+"capability_exchange.adapters.claude_code" = ["profiles/*.sb"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# -rs: every skip prints its reason. A hostile fixture that could not run on a
+# host is an unproven gate (HANDOFF 5.1) and must be auditable in the run
+# output, never silent.
+addopts = "-q -rs"
 
 [tool.ruff]
 line-length = 100

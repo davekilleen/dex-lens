@@ -77,7 +77,28 @@ Walkthrough, stage by stage:
    scope, the adapter takes an immutable snapshot of exactly the approved, canonicalized
    real-path allowlist. All subsequent reads are served from the snapshot, never the live
    tree — a mutation-during-inspection fixture proves this. Symlinks are resolved; any
-   that escape the allowlist are rejected (hard-link and bind-mount variants included).
+   that escape the allowlist are rejected, as are the hard-link and bind-mount variants
+   of the same escape.
+
+   The bind-mount variant needed a check of its own. `mount --bind ~/.ssh
+   <approved-root>/subdir` within one filesystem keeps the approved root's `st_dev`,
+   gives the grafted directory an inode of its own, and is not a symlink — so the device
+   comparison passes, `os.path.ismount` returns False (it reports only a device change
+   or a filesystem root), and `realpath` does not unwind it. Detection therefore reads
+   the kernel's own mount table (`/proc/self/mountinfo` on Linux) and refuses every path
+   at or below any mount point found *inside* an approved root, regardless of device;
+   the survey additionally compares each directory entry's `readdir` inode against its
+   `stat` inode, which exposes a mount on any POSIX host with no `/proc` needed. A root
+   that is *itself* a mount point is not refused — that is the path the person named at
+   consent time. If the mount table cannot be read on Linux, no allowlist is built and
+   no read happens (fail closed).
+
+   Evidence, not assertion: `tests/fixtures/hostile/test_g1_bind_mount_escape.py` makes
+   a real bind mount inside a user namespace (`unshare -Umr`) and asserts the escape
+   reproduces the hole — same device, `ismount` False, `realpath` unchanged — *before*
+   asserting it is refused. Where the host forbids user namespaces it skips with a
+   visible reason and raises a warning rather than passing quietly: a containment
+   property that cannot be proven on a host is not a property that host has.
 
 2. **Contained collection.** The collector runs as an evidence collector, not an agent:
    no arbitrary shell, no hook installation, no file writes to the inspected system, no

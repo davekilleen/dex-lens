@@ -3,9 +3,12 @@
 Symlinks from an allowlisted directory to a fake ``~/.ssh`` and an
 out-of-scope home, plus the hard-link variant, must be refused with honest
 exclusion records — and not one byte behind them may reach the snapshot or
-the envelope. (The bind-mount variant needs privileges CI does not have;
-mount-point crossing is enforced by the allowlist and covered in
-``tests/adapters/claude_code/test_allowlist.py``.)
+the envelope.
+
+The third variant gates.md G1 fixture (2) requires — the bind mount — lives
+in ``test_g1_bind_mount_escape.py``: it needs a user namespace and a child
+process, because a bind mount is only constructible with ``CAP_SYS_ADMIN``
+and only visible inside the mount namespace that made it.
 """
 
 from __future__ import annotations

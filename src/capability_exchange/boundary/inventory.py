@@ -235,8 +235,12 @@ def load_inventory_text(text: str) -> Inventory:
 def load_packaged_inventory() -> Inventory:
     """Load and validate the packaged ``data_inventory.yaml``.
 
-    Note: the file ships inside the package directory; editable installs (the
-    supported M1 layout, used by CI) read it directly from the source tree.
+    The file ships inside the package directory and is declared in
+    ``[tool.setuptools.package-data]``, so a built wheel contains it —
+    ``tests/test_packaging.py`` builds a real wheel and asserts exactly that.
+    That test exists because an editable install (the M1 layout, and what CI
+    uses) reads this straight from the source tree and would hide its absence
+    from the artifact people actually install.
     """
     try:
         text = _PACKAGED_INVENTORY_PATH.read_text(encoding="utf-8")

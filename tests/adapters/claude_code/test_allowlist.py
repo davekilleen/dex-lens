@@ -4,14 +4,17 @@ refuse escapes, explicit mount/ignored policy, honest records."""
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
+from capability_exchange.adapters.claude_code import allowlist as allowlist_module
 from capability_exchange.adapters.claude_code.allowlist import (
     AllowlistError,
     CanonicalAllowlist,
     PathVerdict,
+    read_mount_points,
 )
 
 
@@ -162,19 +165,154 @@ class TestEvaluate:
         assert decision.verdict is PathVerdict.BLOCKED
         assert decision.reason == "special-file"
 
-    def test_mount_point_crossing_blocked(
+class TestMountTopology:
+    """Mount handling (G1 item d).
+
+    The real proof that a **bind mount** inside an approved root is refused
+    is the hostile fixture in
+    ``tests/fixtures/hostile/test_g1_bind_mount_escape.py``, which creates an
+    actual mount inside a user namespace. It is the only thing that can prove
+    it, because a bind mount is the one case that cannot be simulated without
+    making one: same ``st_dev``, own inode, ``realpath`` unchanged.
+
+    What is testable unprivileged, and tested here, is the layer that reads
+    the kernel's answer: the mountinfo parser against the live table, and the
+    allowlist's behaviour when the kernel reports a mount at a real,
+    same-device directory inside a real approved root. Only the *source* of
+    the mount table is redirected — the paths, devices and inodes involved
+    are entirely real, and the device comparison genuinely passes.
+    """
+
+    def test_mountinfo_parser_reads_the_live_kernel_table(self) -> None:
+        if sys.platform != "linux":
+            pytest.skip("/proc/self/mountinfo is a Linux facility")
+        points = read_mount_points()
+        assert "/" in points, "a parser that cannot find the root mount is broken"
+        assert "/proc" in points
+        assert all(point.startswith("/") for point in points)
+
+    def test_mountinfo_parser_unescapes_paths(self, tmp_path: Path) -> None:
+        table = tmp_path / "mountinfo"
+        table.write_text(
+            "23 28 0:22 / /a\\040space rw,relatime shared:2 - tmpfs tmpfs rw\n"
+            "24 28 0:23 / /tab\\011here rw - tmpfs tmpfs rw\n"
+        )
+        assert read_mount_points(str(table)) == {"/a space", "/tab\there"}
+
+    def test_mountinfo_parser_accepts_pseudo_filesystem_roots(self, tmp_path: Path) -> None:
+        # Real kernel output: nsfs (and friends) put a non-path in the root
+        # field. A parser strict enough to reject it would turn every
+        # inspection on a host running containers into a refusal.
+        table = tmp_path / "mountinfo"
+        table.write_text(
+            "923 29 0:4 net:[4026532534] /run/docker/netns/c5d9 rw shared:601 - nsfs nsfs rw\n"
+        )
+        assert read_mount_points(str(table)) == {"/run/docker/netns/c5d9"}
+
+    def test_unparseable_mount_table_refuses_rather_than_reads_empty(
+        self, tmp_path: Path
+    ) -> None:
+        table = tmp_path / "mountinfo"
+        table.write_text("this line is not mountinfo\n")
+        with pytest.raises(AllowlistError, match="unparseable mount table line"):
+            read_mount_points(str(table))
+
+    def test_unreadable_mount_table_refuses_to_build_an_allowlist(
+        self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Fail closed: with no mount table, a bind mount inside the approved
+        # root cannot be ruled out, so no allowlist exists and no read happens.
+        if sys.platform != "linux":
+            pytest.skip("the mount table is only required on Linux")
+        monkeypatch.setattr(allowlist_module, "MOUNTINFO_PATH", str(tmp_path / "absent"))
+        with pytest.raises(AllowlistError, match="cannot be read"):
+            CanonicalAllowlist([claude_root])
+
+    @staticmethod
+    def _kernel_reports_mount_at(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mount_point: Path
+    ) -> None:
+        """Point the mount-table reader at a real-format table naming a real,
+        same-device directory. The only fiction is the kernel's answer — the
+        very thing an unprivileged process cannot arrange for itself."""
+        table = tmp_path / "mountinfo"
+        escaped = str(mount_point).replace("\\", "\\134").replace(" ", "\\040")
+        table.write_text(
+            "23 28 0:22 / / rw,relatime shared:1 - ext4 /dev/root rw\n"
+            f"99 23 0:22 /home/someone/.ssh {escaped} ro,relatime - ext4 /dev/root ro\n"
+        )
+        monkeypatch.setattr(allowlist_module, "MOUNTINFO_PATH", str(table))
+
+    def test_mount_inside_scope_blocked_although_device_matches(
+        self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        grafted = claude_root / "vendor-cache"
+        grafted.mkdir()
+        (grafted / "id_ed25519").write_text("key bytes")
+        # The hole, stated as an assertion: nothing about this directory is
+        # distinguishable from an ordinary one by device or by ismount.
+        assert grafted.stat().st_dev == claude_root.stat().st_dev
+        assert not os.path.ismount(grafted)
+
+        self._kernel_reports_mount_at(monkeypatch, tmp_path, grafted)
+        allowlist = CanonicalAllowlist([claude_root])
+        assert allowlist.mount_points_inside_scope == (str(grafted),)
+
+        directory = allowlist.evaluate(grafted)
+        assert directory.verdict is PathVerdict.BLOCKED
+        assert directory.reason == "mount-point-crossing"
+
+        behind = allowlist.evaluate(grafted / "id_ed25519")
+        assert behind.verdict is PathVerdict.BLOCKED
+        assert behind.reason == "mount-point-crossing"
+        assert behind.canonical_path is None
+
+    def test_survey_prunes_a_mount_inside_scope_and_records_it(
+        self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        grafted = claude_root / "vendor-cache"
+        grafted.mkdir()
+        (grafted / "id_ed25519").write_text("key bytes")
+        self._kernel_reports_mount_at(monkeypatch, tmp_path, grafted)
+        outcome = CanonicalAllowlist([claude_root]).survey()
+        assert all(
+            "vendor-cache" not in (d.relative_path or "") for d in outcome.admitted_files
+        )
+        assert ("vendor-cache", "mount-point-crossing") in {
+            (d.relative_path, d.reason) for d in outcome.excluded
+        }
+
+    def test_approved_root_that_is_itself_a_mount_point_still_readable(
+        self, claude_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The root is the scope the person named at consent time, and it is
+        # what every device comparison is anchored to. Refusing it would make
+        # any project on its own volume uninspectable.
+        self._kernel_reports_mount_at(monkeypatch, tmp_path, claude_root)
+        allowlist = CanonicalAllowlist([claude_root])
+        assert allowlist.mount_points_inside_scope == ()
+        assert allowlist.evaluate(claude_root / "CLAUDE.md").is_admitted
+
+    def test_foreign_device_under_root_blocked(
         self, claude_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A file on a different device than its approved root is refused.
+        """White-box unit test of the ``st_dev`` branch only.
 
-        Simulated by patching ``os.stat``, which demands care: the patched
-        function must never call back into pathlib (``Path.resolve``,
-        ``str(Path)``), because those call ``os.stat`` themselves and the
-        shim would re-enter itself unboundedly. Every path value it needs is
-        therefore resolved to a plain ``str`` *before* the patch is
-        installed, and the shim compares strings only. It also returns a
-        genuine ``os.stat_result`` rather than an attribute-proxy object, so
-        callers that hand the result back to pathlib behave normally.
+        A genuinely foreign device under an approved root also requires a
+        mount to create, so the device is stubbed. This proves the branch
+        exists and fires; it proves **nothing** about bind mounts, which keep
+        the device identical — that is the hostile fixture's job. Kept
+        because the branch is load-bearing on macOS, where there is no mount
+        table to read.
+
+        Patching ``os.stat`` demands care: the patched function must never
+        call back into pathlib (``Path.resolve``, ``str(Path)``), because
+        those call ``os.stat`` themselves and the shim would re-enter itself
+        unboundedly. Every path value it needs is therefore resolved to a
+        plain ``str`` *before* the patch is installed, and the shim compares
+        strings only. It also returns a genuine ``os.stat_result`` rather
+        than an attribute-proxy object, so callers that hand the result back
+        to pathlib behave normally.
         """
         allowlist = CanonicalAllowlist([claude_root])
         target = claude_root / "CLAUDE.md"
