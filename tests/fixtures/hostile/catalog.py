@@ -10,7 +10,9 @@ re-opens the corresponding gate (HANDOFF 5.1, closing rule).
 The M1 (containment) slice of the catalog, per HANDOFF 5.1:
 
 1. symlinks from an allowlisted directory to a fake ``~/.ssh`` and an
-   out-of-scope home, plus a hard-link variant;
+   out-of-scope home, plus hard-link and bind-mount variants (the
+   bind-mount variant needs a user namespace and runs in a child process;
+   see :mod:`tests.fixtures.hostile.bind_mount_child`);
 2. a ``.gitignore``\\ d planted secret (ignored files are still inspected);
 3. realistic planted credentials (fake AWS key pair, API token, private-key
    block) that must surface only as redacted references;
@@ -38,12 +40,13 @@ from pathlib import Path
 
 #: Version of this corpus. Grows per milestone; a changed fixture set is a
 #: new version (the catalog is an R7 handoff artifact).
-CATALOG_VERSION = "1.0.0"
+CATALOG_VERSION = "1.1.0"
 
 #: Every fixture the M1 slice ships, by id. The manifest test asserts each
 #: id has a builder — the catalog is machine-checkable, not prose.
 FIXTURE_IDS: tuple[str, ...] = (
     "symlink-and-hardlink-escapes",
+    "bind-mount-escape",
     "gitignored-planted-secret",
     "realistic-planted-credentials",
     "prompt-injection-pair",
@@ -80,6 +83,9 @@ CANARY_SSH_KEY_BYTES = "fake-ssh-ed25519-canary-key-bytes-8842ac"
 CANARY_HOME_NOTE = "out-of-scope-home-canary-note-1f9b33aa"
 #: Bytes reachable only through the hard-link variant.
 CANARY_HARDLINK_BYTES = "hardlink-canary-outside-bytes-55aa02dd"
+#: Bytes reachable only through the bind-mount variant (fixture 1's third
+#: shape: a same-device mount grafted into the approved root).
+CANARY_BIND_MOUNT_BYTES = "bind-mount-canary-outside-bytes-91c4de70"
 #: A personal string that is deliberately NOT secret-shaped (redaction will
 #: not touch it) — the data boundary alone must keep it out of envelopes.
 CANARY_PERSONAL_STRING = "personal-canary-daves-weekly-review-4c1e88f0"
@@ -93,6 +99,7 @@ ALL_CANARIES: tuple[str, ...] = (
     CANARY_SSH_KEY_BYTES,
     CANARY_HOME_NOTE,
     CANARY_HARDLINK_BYTES,
+    CANARY_BIND_MOUNT_BYTES,
     CANARY_PERSONAL_STRING,
 )
 
@@ -217,6 +224,52 @@ def build_symlink_escape_system(base: Path) -> SymlinkEscapeSystem:
         ssh_key_link=ssh_key_link,
         home_link=home_link,
         hardlink_path=hardlink_path,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BindMountEscapeSystem:
+    """Fixture 1c: the layout a same-device bind-mount escape needs.
+
+    Building the layout is unprivileged; *making the mount* is not, so the
+    two are separate. ``mount_target`` is an ordinary, innocuous-looking
+    directory inside the approved root; the escape is
+    ``mount --bind fake_ssh_dir mount_target``, which leaves ``st_dev``
+    unchanged, gives ``mount_target`` an inode of its own, and is invisible
+    to ``realpath``.
+    """
+
+    root: Path
+    fake_home: Path
+    fake_ssh_dir: Path
+    fake_ssh_key: Path
+    mount_target: Path
+    decoy_file: Path
+
+
+def build_bind_mount_escape_system(base: Path) -> BindMountEscapeSystem:
+    """Fixture 1c (gates.md G1 fixture 2, HANDOFF 5.1): the bind-mount
+    variant of the symlink escape.
+
+    Everything lives under ``base`` so source and target share one device —
+    that is the point of the fixture: a cross-device mount was already
+    refused, a same-device one was not.
+    """
+    fake_home = base / "fake-home"
+    fake_ssh = fake_home / ".ssh"
+    key = _write(fake_ssh / "id_ed25519", CANARY_BIND_MOUNT_BYTES + "\n")
+    _write(fake_home / "private-note.md", CANARY_HOME_NOTE + "\n")
+
+    root = build_benign_system(base)
+    mount_target = root / "vendor-cache"
+    decoy = _write(mount_target / "index.md", "Innocuous cached notes.\n")
+    return BindMountEscapeSystem(
+        root=root,
+        fake_home=fake_home,
+        fake_ssh_dir=fake_ssh,
+        fake_ssh_key=key,
+        mount_target=mount_target,
+        decoy_file=decoy,
     )
 
 

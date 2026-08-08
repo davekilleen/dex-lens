@@ -15,6 +15,7 @@ from tests.fixtures.hostile import catalog
 
 BUILDER_BY_FIXTURE_ID = {
     "symlink-and-hardlink-escapes": catalog.build_symlink_escape_system,
+    "bind-mount-escape": catalog.build_bind_mount_escape_system,
     "gitignored-planted-secret": catalog.build_gitignored_secret_system,
     "realistic-planted-credentials": catalog.build_credentialed_system,
     "prompt-injection-pair": catalog.build_injection_pair,
