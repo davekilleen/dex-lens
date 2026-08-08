@@ -13,6 +13,9 @@ dependencies = [
     "pydantic>=2",
 ]
 
+[project.scripts]
+dex-lens = "capability_exchange.concierge.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",

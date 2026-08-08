@@ -18,15 +18,15 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 ## The two loose ends before M1/M2 can be called truly closed
 
-1. **macOS socket denial — RED, needs a decision.** Linux blocks socket
-   creation outright. The macOS attempt (`system-socket` in the sandbox
-   profile) was well-reasoned but the CI Mac runners disproved it — they
-   handed out sockets anyway. The strict test caught it rather than passing
-   quietly. Options: (a) try the untried narrower rule
-   (`system-socket` scoped per address family); (b) accept that macOS blocks
-   *connection* not *creation*, and record the asymmetry in the risk register
-   with an owner. macOS is the pilot platform, so this matters. **Dave's call
-   on which way.** Everything else on macOS (writes, shell, exec) is enforced.
+1. **macOS socket denial — honest asymmetry recorded, waiting on CI.** Linux
+   blocks socket creation outright. The macOS attempt (`system-socket` in the
+   sandbox profile) was well-reasoned but the GitHub macos-14 runners
+   disproved the stronger claim — they handed out AF_INET/AF_INET6 sockets
+   anyway. The enforced Mac guarantee is now stated as: a socket fd may exist,
+   but outbound use is denied at connect time before any egress. The test now
+   fails if connect succeeds or reaches the network, and the risk is recorded
+   in `docs/RISK-REGISTER.md` for Dave's explicit M1/M3 call. Everything else
+   on macOS (writes, shell, exec) is enforced.
 
 2. **The bind-mount fixture has never actually executed.** The fix is in and
    the defence reads the live mount table, but the test that *proves* it needs
