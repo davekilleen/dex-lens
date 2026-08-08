@@ -57,6 +57,22 @@ class ConformanceReport:
         return not self.failed
 
     @property
+    def os_enforcement_established(self) -> bool:
+        """True when no check had to be waived for missing containment.
+
+        :attr:`conformant` deliberately tolerates an honest refusal: under
+        G1's fail-closed rule, disabling the deep adapter on a host where
+        containment cannot be established *is* the correct product behavior.
+
+        It is not correct **gate** behavior. A CI step that reports green
+        having verified only that the adapter declined to run would ship a
+        broken macOS sandbox profile — or a wheel with no profile in it —
+        without a single red build. Anything gating a release must require
+        this property, not :attr:`conformant`.
+        """
+        return not self.refused_honestly
+
+    @property
     def fully_passed(self) -> bool:
         return all(r.outcome is CheckOutcome.PASSED for r in self.results)
 
@@ -174,8 +190,12 @@ def run_conformance_suite(
     )
 
 
-def format_report(report: ConformanceReport) -> str:
-    """Plain-text rendering: one line per check, no aggregate score."""
+def format_report(report: ConformanceReport, *, require_os_enforcement: bool = False) -> str:
+    """Plain-text rendering: one line per check, no aggregate score.
+
+    ``require_os_enforcement`` only changes what the closing verdict *says*
+    about an honest refusal — the check outcomes above it are untouched.
+    """
     lines = [
         f"Host Adapter conformance — {report.adapter_id}",
         f"system root: {report.system_root}",
@@ -200,6 +220,14 @@ def format_report(report: ConformanceReport) -> str:
             "honestly; deep inspection is disabled here and diagnosis falls "
             "back to guided/export-assisted evidence."
         )
+        if require_os_enforcement:
+            lines.append(
+                f"GATE NOT SATISFIED: OS enforcement was required, and "
+                f"{len(report.refused_honestly)} check(s) were waived because "
+                f"it could not be established. This run proved only that the "
+                f"adapter declined to run — it is not evidence of containment "
+                f"and must not pass a release gate (gates.md G1)."
+            )
     else:
         lines.append("CONFORMANT: every check passed.")
     return "\n".join(lines)

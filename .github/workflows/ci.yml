@@ -37,7 +37,17 @@ jobs:
         # against the claude_code deep adapter under the host's real
         # OS-enforced containment (seccomp on Linux, sandbox-exec on macOS).
         # Exit 1 on any failed check.
-        run: python -m capability_exchange.conformance --adapter claude-code-local --self-check
+        #
+        # --require-os-enforcement (exit 3) is what makes this a gate rather
+        # than a formality. Without it the step goes green on a host where
+        # containment could not be established, because an honest refusal is
+        # not a failed check — so a regression that broke the macOS sandbox,
+        # or a packaging change that dropped the .sb profile from the wheel,
+        # would ship silently green. Passed explicitly as well as being the
+        # default under CI, so the gate never rests on that inference.
+        run: >-
+          python -m capability_exchange.conformance
+          --adapter claude-code-local --self-check --require-os-enforcement
 
       - name: g2-inventory-check
         # G2 field-level data boundary: schema-validates data_inventory.yaml,
