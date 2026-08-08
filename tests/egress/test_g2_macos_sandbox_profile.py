@@ -12,6 +12,7 @@ uncontained collection.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -42,6 +43,30 @@ PROFILE_PROBE_SOURCE = textwrap.dedent(
     from capability_exchange.adapters.claude_code.contained import prove_containment
     proofs = prove_containment()
     print(";".join(proofs))
+    """
+)
+
+#: Socket *creation* per address family, reported as JSON. Kept separate from
+#: the proof probe because it distinguishes the two things the profile could
+#: be doing: `(deny network*)` alone still hands out a live fd and only
+#: refuses `connect`, while `(deny system-socket)` refuses socket(2) itself.
+#: G1 claims the latter, so it is asserted directly rather than inferred from
+#: the proof label.
+SOCKET_CREATION_PROBE_SOURCE = textwrap.dedent(
+    """
+    import json
+    import socket
+
+    outcome = {}
+    for family_name in ("AF_INET", "AF_INET6", "AF_UNIX"):
+        try:
+            sock = socket.socket(getattr(socket, family_name), socket.SOCK_STREAM)
+        except OSError as exc:
+            outcome[family_name] = f"denied:errno={exc.errno}"
+        else:
+            sock.close()
+            outcome[family_name] = "created"
+    print(json.dumps(outcome))
     """
 )
 
@@ -95,6 +120,19 @@ class TestProfileExecSetIsEnumerated:
         # containment failure rather than a named one.
         assert referenced <= supplied, f"undefined profile params: {referenced - supplied}"
 
+    def test_g1_profile_denies_socket_creation_not_only_connection(self) -> None:
+        """The no-egress denial names `system-socket`, the socket(2) operation.
+
+        `network*` covers network-outbound/-inbound/-bind, all of which are
+        checked after a socket already exists. Dropping the `system-socket`
+        line would silently downgrade the darwin guarantee from "cannot make
+        a socket" to "cannot connect one" — a change that must fail a test
+        rather than only change a proof label on the macOS leg.
+        """
+        text = _MACOS_PROFILE_PATH.read_text()
+        assert "(deny system-socket)" in text
+        assert "(deny network*)" in text, "the connect-time layer stays as well"
+
     def test_g1_params_name_only_interpreter_binaries(self) -> None:
         values = [arg.split("=", 1)[1] for arg in macos_profile_params() if not arg.startswith("-")]
         assert values, "no interpreter literals supplied"
@@ -107,6 +145,7 @@ class TestSandboxProfileDenials:
     def test_g2_profile_file_ships_with_the_adapter(self) -> None:
         assert _MACOS_PROFILE_PATH.is_file()
         text = _MACOS_PROFILE_PATH.read_text()
+        assert "(deny system-socket)" in text
         assert "(deny network*)" in text
         assert "(deny file-write*)" in text
         assert "(deny process-exec*)" in text
@@ -122,8 +161,32 @@ class TestSandboxProfileDenials:
         )
         assert completed.returncode == 0, completed.stderr.decode()
         proofs = set(completed.stdout.decode().strip().split(";"))
-        assert {"write-open-denied", "exec-denied"} <= proofs
-        assert proofs & {"socket-denied", "connect-denied"}
+        # The same three labels Linux produces: `socket-denied` and not
+        # `connect-denied`, because the profile denies system-socket.
+        assert {"socket-denied", "write-open-denied", "exec-denied"} <= proofs
+
+    def test_g2_no_address_family_yields_a_socket_under_the_profile(self) -> None:
+        """socket(2) is refused, so no fd exists to connect, send or leak on."""
+        if shutil.which("sandbox-exec") is None:
+            pytest.skip("sandbox-exec not present on this darwin host")
+        completed = subprocess.run(
+            _sandbox_exec_argv(SOCKET_CREATION_PROBE_SOURCE),
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr.decode()
+        outcome = json.loads(completed.stdout.decode())
+        # AF_UNIX is reported too: it carries no egress, but it is the family
+        # most likely to reveal a system-socket denial that is narrower than
+        # the profile claims, and having it in the failure text turns one CI
+        # run into a diagnosis instead of a retry.
+        for family_name in ("AF_INET", "AF_INET6"):
+            assert outcome[family_name].startswith("denied:"), (
+                f"the profile handed out an {family_name} socket; the darwin "
+                f"guarantee is socket creation denied, not merely connect "
+                f"denied (observed: {outcome})"
+            )
 
 
 @darwin_only

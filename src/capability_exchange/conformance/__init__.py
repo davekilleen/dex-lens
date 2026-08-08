@@ -9,8 +9,9 @@ R7 handoff artifact. The M1 checks:
   symlink/archive policy, probes, version detection, Diagnose-only vs
   Adapt-capable, all declared and coherent (G1);
 - **zero-writes proof** — a full recursive identity capture (content
-  digest, size, mode, mtime, directory entries, symlink targets) of the
-  inspected tree before and after an entire inspection (G1);
+  digest, size, mode, mtime, extended attributes, directory entries,
+  symlink targets) of the inspected tree before and after an entire
+  inspection (G1);
 - **snapshot semantics** — reads served from the consent-time capture,
   never live disk; un-captured paths refused (G1 item c);
 - **result-envelope conformance** — R2 states, source age, non-raw

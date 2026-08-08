@@ -3,7 +3,8 @@
 ;;   sandbox-exec -D PY=<python> -f claude_code_containment.sb <python> -m ...
 ;;
 ;; The inspection process may read, and nothing else:
-;;   - no network (deny network*): no egress from the inspection process;
+;;   - no network (deny system-socket, deny network*): the process cannot
+;;     create a socket at all, so there is no egress and no fd to connect;
 ;;   - no file writes (deny file-write*): the target and everything else
 ;;     stays byte-identical; results leave on the inherited stdout pipe;
 ;;   - no process-exec except the Python interpreter itself (the sandbox
@@ -17,6 +18,24 @@
 (version 1)
 (allow default)
 
+;; Socket *creation*, not merely connection. `network*` (network-outbound,
+;; network-inbound, network-bind) is checked at connect/sendto/bind time, so
+;; under it alone a buggy collector still gets a live fd from socket(2) and
+;; the strongest available proof is `connect-denied`. The socket(2) call
+;; itself is a separate Seatbelt operation — `system-socket` — which is why
+;; every deny-default Apple profile that does ordinary TCP has to allow both
+;; (e.g. com.apple.security.XPCAcmeService.sb, com.apple.securityuploadd.sb
+;; and webdav_agent.sb each pair `(allow network-outbound)` with
+;; `(allow system-socket)`; network-outbound alone is not enough to get a
+;; socket). Denying it makes darwin match the Linux seccomp filter, which
+;; denies the `socket` syscall outright: both platforms prove the same G1
+;; property with the same label, `socket-denied`.
+;;
+;; `network*` stays as a second, independent layer: if a future macOS
+;; stopped enforcing system-socket for a domain, connect would still be
+;; denied, and prove_containment still raises rather than collects if a
+;; connection ever actually succeeds.
+(deny system-socket)
 (deny network*)
 (deny file-write*)
 
