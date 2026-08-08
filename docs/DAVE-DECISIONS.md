@@ -57,7 +57,10 @@ explicitly rather than left blank.
 
 ## Later / smaller
 
-- **Should the repo be public or private during the build?** Currently private.
+- **Pick a license.** The repo is public with no license file, which legally
+  means all rights reserved. Fine for now; decide before inviting outside
+  contributors. Dex itself is open source — matching its license is the
+  obvious default.
 - **Schedule the Dex Core side of the catalogue work.** Dave approved this on
   Dex#347 already; it needs slotting into Core's release process, since it lives
   outside this codebase.
@@ -76,6 +79,7 @@ explicitly rather than left blank.
 | Catalogue generator + signing in Core | Approved | Dex#347, 2026-08-07 12:06 |
 | Does diagnosis phone out to a cloud AI? | No — fully local for now. Revisit before the job-proposal step ships | Chat, 2026-08-07 |
 | **Public name** | **Dex Lens** | Chat, 2026-08-07 |
+| Repo public or private during build | Public, renamed `dex-lens` | Chat, 2026-08-08 |
 
 ### On the name
 
