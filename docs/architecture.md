@@ -110,3 +110,36 @@ Fail-closed behavior on this slice: if containment cannot be proven for a host, 
 adapter is disabled for that host entirely; at runtime, any path-resolution ambiguity,
 snapshot failure, or detected escape aborts the inspection and discards partial
 collection — never best-effort live reads.
+
+### What each OS actually enforces for G1 no-egress
+
+Both supported platforms reach the same guarantee, through different kernel mechanisms.
+The difference is worth stating rather than hiding behind one word:
+
+| | Linux | macOS |
+| --- | --- | --- |
+| Mechanism | seccomp BPF filter, installed by the child on itself | Seatbelt profile, applied by the parent via `sandbox-exec` |
+| No-egress rule | the `socket` syscall family denied (EPERM) | `(deny system-socket)` — socket(2) — plus `(deny network*)` for connect/bind |
+| Proof label | `socket-denied` | `socket-denied` |
+| Extra layer | network namespace unshared where the kernel permits | — |
+
+`(deny network*)` alone would **not** be equivalent, and for a while it was all the
+profile had. `network-outbound`, `network-inbound` and `network-bind` are each checked
+after a socket already exists, so under them a buggy collector still gets a live fd and
+the strongest provable statement is "connect was refused" rather than "no socket exists".
+Seatbelt does express creation, as a separate operation named `system-socket` — Apple's
+own deny-default profiles for ordinary TCP clients (for example
+`com.apple.security.XPCAcmeService.sb`) have to allow it alongside `network-outbound` to
+get a socket at all. Denying it is what makes the macOS proof the same statement as the
+Linux one. `(deny network*)` is kept as an independent second layer.
+
+Two residual asymmetries stay stated rather than glossed:
+
+- Linux self-confines — the filter is installed by the process on itself and cannot be
+  lifted — while macOS depends on the parent having launched the child under
+  `sandbox-exec`. What closes that gap is the runtime proof: `prove_containment` runs
+  before any target read and the child refuses to collect if its probes do not show the
+  denial, so a child launched without the profile reads nothing.
+- macOS enforcement is exercised only on the darwin CI matrix leg; there is no darwin
+  host in local development, so a macOS containment regression is caught by CI or not at
+  all.
