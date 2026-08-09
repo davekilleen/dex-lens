@@ -9,6 +9,7 @@ CSRF token so the transport can enforce its own session policy.
 from __future__ import annotations
 
 import html
+import re
 from collections.abc import Iterable
 
 from capability_exchange.capmap.model import CapabilityMap
@@ -228,9 +229,7 @@ def _fallback_level(item: FallbackEvidence) -> str:
 def _fallback_reason(value: str) -> str:
     """Keep adapter guidance from introducing a forbidden positive label."""
 
-    return value.replace("Verified", "direct inspection").replace(
-        "verified", "direct inspection"
-    )
+    return re.sub("verified", "direct inspection", value, flags=re.IGNORECASE)
 
 
 def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
