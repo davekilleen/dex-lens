@@ -35,6 +35,11 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: M3 doorway + clean-wheel evidence
+        # Covers the shipped console entry point, loopback doorway lifecycle,
+        # and a non-editable install of the real wheel artifact.
+        run: python -m pytest -rs tests/concierge tests/test_packaging.py
+
       - name: Test (pytest)
         # -rs so a hostile fixture that skipped (e.g. bind-mount-escape where
         # user namespaces are unavailable) is visible in the log rather than
