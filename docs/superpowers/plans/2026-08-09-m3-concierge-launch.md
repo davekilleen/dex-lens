@@ -271,4 +271,3 @@ Mark M3 complete only if all M3 criteria are implemented and the relevant CI mat
 - [ ] **Step 8: Commit, push, and open a draft PR.**
 
 Do not merge or publish a release without Dave's explicit approval. Wait for all CI legs, review the final diff, and prepare announcement-safe wording tied to the verified claim boundary.
-

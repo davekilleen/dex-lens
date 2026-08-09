@@ -112,4 +112,3 @@ class TestDoorway:
         assert "local" in help_text
         assert "read-only" in help_text
         assert "alpha" in help_text
-
