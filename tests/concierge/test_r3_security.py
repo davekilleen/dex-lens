@@ -144,7 +144,10 @@ def test_session_expiry_automatically_discards_state(tmp_path: Path) -> None:
     state_dir = Path(session.tempdir.name)  # type: ignore[union-attr]
 
     deadline = time.monotonic() + 2
-    while not session.closed and time.monotonic() < deadline:
+    while (
+        (not session.closed or session.tempdir is not None)
+        and time.monotonic() < deadline
+    ):
         time.sleep(0.01)
 
     assert session.closed
