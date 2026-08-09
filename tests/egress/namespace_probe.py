@@ -196,6 +196,7 @@ def _start_capture(pcap: Path) -> tuple[subprocess.Popen[str], BinaryIO]:
                 "any",
                 "-nn",
                 "-U",
+                "--immediate-mode",
                 "-s",
                 "0",
                 "-Z",
