@@ -55,8 +55,9 @@ The plan has six milestones, M1–M6. Here's where each stands.
    not the same artifact as host packet capture. Until those proofs exist, call
    this a read-only source alpha, not a completed M3 release.
 
-   **Announcement gate:** HANDOFF D0 still requires Dave's recorded Fable-gate
-   and two-stage handoff sign-off on Dex issue #347 before public publication.
+   **Build authorization is recorded:** HANDOFF D0 was posted on Dex issue
+   #347 on 7 August against the signed pack hash
+   `de01cfb1794790a90e34010198063a8449631e32ec450b8f4368cc21ab7bf6f5`.
 
 ## Not started — later product milestones
 
