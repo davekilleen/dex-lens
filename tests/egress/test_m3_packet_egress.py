@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import pytest
 from tests.egress.namespace_probe import (
+    _capture_ready,
     _leak_markers,
     _packet_endpoints,
 )
@@ -100,6 +101,23 @@ def test_packet_parser_covers_ipv4_ipv6_and_fails_unknown_lines() -> None:
     )
     assert endpoints == [("127.0.0.1", "127.0.0.1"), ("::1", "::1")]
     assert unparsed == ["unparsed-packet"]
+
+
+def test_capture_readiness_requires_a_live_process_through_startup(monkeypatch) -> None:
+    class Process:
+        def __init__(self, states):
+            self.states = iter(states)
+
+        def poll(self):
+            return next(self.states)
+
+    times = iter((0.0, 0.6))
+    monkeypatch.setattr("tests.egress.namespace_probe.time.monotonic", lambda: next(times))
+    assert _capture_ready(Process((None, None))) is True
+
+    times = iter((0.0, 0.1))
+    monkeypatch.setattr("tests.egress.namespace_probe.time.monotonic", lambda: next(times))
+    assert _capture_ready(Process((1,))) is False
 
 
 def test_encoded_and_partial_canary_forms_are_detected() -> None:

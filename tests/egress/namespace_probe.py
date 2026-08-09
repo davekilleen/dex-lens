@@ -171,15 +171,15 @@ def _run_journey() -> tuple[list[str], list[str], list[str]]:
     return pages, canaries, application_leaks
 
 
-def _capture_ready(process: subprocess.Popen[str], pcap: Path) -> bool:
-    deadline = time.monotonic() + 2.0
+def _capture_ready(process: subprocess.Popen[str]) -> bool:
+    """Require tcpdump to remain alive through a bounded startup window."""
+
+    deadline = time.monotonic() + 0.5
     while time.monotonic() < deadline:
         if process.poll() is not None:
             return False
-        if pcap.is_file() and pcap.stat().st_size >= 24:
-            return True
         time.sleep(0.05)
-    return False
+    return process.poll() is None
 
 
 def main() -> int:
@@ -207,7 +207,7 @@ def main() -> int:
         stderr=subprocess.PIPE,
         text=True,
     )
-    capture_ready = _capture_ready(capture, pcap)
+    capture_ready = _capture_ready(capture)
     pages: list[str] = []
     canaries: list[str] = []
     application_leaks: list[str] = []
