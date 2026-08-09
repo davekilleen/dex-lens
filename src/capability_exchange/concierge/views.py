@@ -225,27 +225,81 @@ def _fallback_level(item: FallbackEvidence) -> str:
     return "Unknown"
 
 
+def _fallback_reason(value: str) -> str:
+    """Keep adapter guidance from introducing a forbidden positive label."""
+
+    return value.replace("Verified", "direct inspection").replace(
+        "verified", "direct inspection"
+    )
+
+
 def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
-    """Render guided/export-assisted evidence with honest capped labels."""
+    """Render bounded guided/export-assisted input with honest capped labels."""
 
     evidence = "".join(
         f"<li><strong>{_escape(item.label)} — {_escape(_fallback_level(item))}</strong>: "
-        f"{_escape(item.detail)}</li>"
+        f"{_escape(_fallback_reason(item.detail))}</li>"
         for item in fallback.evidence
     )
     if not evidence:
         evidence = "<li>Unknown — no direct evidence was collected.</li>"
     mode = "guided" if fallback.mode is FallbackMode.GUIDED else "export-assisted"
+    guided_selected = " selected" if fallback.mode is FallbackMode.GUIDED else ""
+    export_selected = (
+        " selected" if fallback.mode is FallbackMode.EXPORT_ASSISTED else ""
+    )
     body = f"""
       <h1>{_escape(mode.title())} evidence</h1>
       <div class="panel">
         <p>Evidence mode: {_escape(fallback.mode.value)}</p>
-        <p>{_escape(fallback.reason)}</p>
+        <p>{_escape(_fallback_reason(fallback.reason))}</p>
         <p>This path does not claim direct inspection. Evidence is labelled
-        Supported, Reported, or Unknown according to what you supplied.</p>
-        <p>The guided/export-assisted diagnosis flow is not included in this
-        source alpha, so this session cannot continue to a Capability Map.</p>
+        Supported, Reported, or Unknown according to what you supply. References
+        are locators or digests only, never raw file content.</p>
+        <h2>Choose the fallback mode</h2>
+        <form method="post" action="/fallback/mode">
+          {_csrf(csrf_token)}
+          <label>Mode<select name="mode">
+            <option value="guided"{guided_selected}>
+              Guided questions
+            </option>
+            <option value="export-assisted"{export_selected}>
+              Export-assisted
+            </option>
+          </select></label>
+          <div class="actions"><button type="submit">Use this mode</button></div>
+        </form>
+        <h2>Evidence supplied so far</h2>
         <ul>{evidence}</ul>
+        <h2>Add one bounded claim</h2>
+        <form method="post" action="/fallback/evidence">
+          {_csrf(csrf_token)}
+          <label>Label<input name="label" required></label>
+          <label>Level<select name="level">
+            <option value="supported">Supported — supplied export or material</option>
+            <option value="reported">Reported — your account</option>
+            <option value="unknown">Unknown — not enough to claim</option>
+          </select></label>
+          <label>Reference (locator or digest; no raw content)
+            <input name="reference"></label>
+          <label>Probe id (optional, e.g. recent-activity)
+            <input name="probe_id"></label>
+          <label>Bounded detail<textarea name="detail" required></textarea></label>
+          <div class="actions"><button type="submit">Add evidence</button></div>
+        </form>
+        <h2>Import bounded lines</h2>
+        <p class="muted">One per line: label|level|reference|detail. Use a locator
+        or digest in the reference column, never pasted file contents.</p>
+        <form method="post" action="/fallback/import">
+          {_csrf(csrf_token)}
+          <textarea name="evidence" required></textarea>
+          <input type="hidden" name="mode" value="{_escape(fallback.mode.value)}">
+          <div class="actions"><button type="submit">Import evidence</button></div>
+        </form>
+        <form method="post" action="/fallback/continue">
+          {_csrf(csrf_token)}
+          <div class="actions"><button type="submit">Continue to Job Map</button></div>
+        </form>
         <form method="post" action="/close">
           {_csrf(csrf_token)}
           <button class="secondary" type="submit">Close and leave</button>

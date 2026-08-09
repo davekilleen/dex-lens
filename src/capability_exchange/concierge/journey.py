@@ -17,11 +17,17 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from capability_exchange.adapter import AdapterContract, AdapterResultEnvelope
+from capability_exchange.adapter import (
+    AdapterContract,
+    AdapterResultEnvelope,
+    InstrumentHealth,
+    ProbeResult,
+)
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map
 from capability_exchange.diagnosis import assess
-from capability_exchange.evidence import EvidenceLevel
+from capability_exchange.evidence import EvidenceItem, EvidenceLevel, EvidenceState
+from capability_exchange.evidence.item import reference_rejection_reason
 from capability_exchange.jobs import (
     CandidateJobProposal,
     InspectionJob,
@@ -33,6 +39,7 @@ from capability_exchange.jobs import (
     propose_candidate_jobs,
     to_inspection_job,
 )
+from capability_exchange.jobs.contract import validate_job_id
 from capability_exchange.jobs.inspection import delete_inspection_jobs
 
 __all__ = [
@@ -44,12 +51,20 @@ __all__ = [
     "InspectionPermission",
     "FallbackEvidence",
     "FallbackMode",
+    "FALLBACK_MAX_EVIDENCE",
     "JobDraftFields",
     "PermissionMetadata",
     "SuccessContractFields",
     "JourneyError",
     "JourneyStateError",
 ]
+
+
+# Fallback evidence is session-only, but still needs a product bound.  These
+# limits stop the guided/import path becoming an unbounded raw-data channel.
+FALLBACK_TEXT_MAX_LENGTH = 512
+FALLBACK_IMPORT_LINE_MAX_LENGTH = 2048
+FALLBACK_MAX_EVIDENCE = 32
 
 
 class JourneyError(Exception):
@@ -107,6 +122,18 @@ def _text(value: str, field: str) -> str:
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError(f"{field} cannot contain control characters")
     return value
+
+
+def _bounded_text(value: str, field: str, *, limit: int = FALLBACK_TEXT_MAX_LENGTH) -> str:
+    """Validate one bounded fallback value without accepting a payload."""
+
+    validated = _text(value, field)
+    if len(validated) > limit:
+        raise ValueError(
+            f"{field} exceeds {limit} characters; fallback input is bounded "
+            "and never a raw payload"
+        )
+    return validated
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,10 +327,21 @@ class FallbackEvidence:
     label: str
     level: EvidenceLevel | str
     detail: str
+    # A locator/digest supplied by the person.  It is deliberately optional
+    # for backwards-compatible in-memory construction; the continuation path
+    # creates a synthetic ``fallback:<label>`` locator when it is omitted.
+    reference: str | None = None
+    # Optional probe vocabulary lets supplied material ground a matching
+    # Foundation Capability rule without ever claiming direct observation.
+    probe_id: str | None = None
 
     def __post_init__(self) -> None:
-        _text(self.label, "label")
-        _text(self.detail, "detail")
+        _bounded_text(self.label, "label")
+        detail = _bounded_text(self.detail, "detail")
+        if "-----BEGIN" in detail:
+            raise ValueError(
+                "detail contains key/secret block markers; raw content is not evidence"
+            )
         level = EvidenceLevel(self.level)
         # Guided/export-assisted material is never direct inspection.  A
         # caller attempting to claim Verified is downgraded to Unknown rather
@@ -311,6 +349,14 @@ class FallbackEvidence:
         if level is EvidenceLevel.VERIFIED:
             level = EvidenceLevel.UNKNOWN
         object.__setattr__(self, "level", level)
+        if self.reference is not None:
+            if not isinstance(self.reference, str) or not self.reference.strip():
+                raise ValueError("reference must be a non-empty locator or digest")
+            reason = reference_rejection_reason(self.reference)
+            if reason is not None:
+                raise ValueError(reason)
+        if self.probe_id is not None:
+            object.__setattr__(self, "probe_id", validate_job_id(self.probe_id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,8 +369,12 @@ class CollectionFallback:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", FallbackMode(self.mode))
-        _text(self.reason, "reason")
+        _bounded_text(self.reason, "reason")
         object.__setattr__(self, "evidence", tuple(self.evidence))
+        if len(self.evidence) > FALLBACK_MAX_EVIDENCE:
+            raise ValueError(
+                f"fallback evidence is limited to {FALLBACK_MAX_EVIDENCE} items"
+            )
 
 
 CollectionResult: TypeAlias = AdapterResultEnvelope | CollectionFallback
@@ -629,6 +679,179 @@ class ConciergeJourney:
         self._confirmed[job_id] = contract
         self._selected.discard(job_id)
         return contract
+
+    @property
+    def fallback_evidence(self) -> tuple[FallbackEvidence, ...]:
+        """The bounded person-supplied fallback claims for this session."""
+
+        return () if self.fallback is None else self.fallback.evidence
+
+    def set_fallback_mode(self, mode: FallbackMode | str) -> FallbackMode:
+        """Choose guided or export-assisted material while at the fallback."""
+
+        self._require(ConciergeStage.FALLBACK)
+        if self.fallback is None:
+            raise JourneyStateError("fallback evidence is not available")
+        selected = FallbackMode(mode)
+        self.fallback = CollectionFallback(
+            mode=selected,
+            reason=self.fallback.reason,
+            evidence=self.fallback.evidence,
+        )
+        return selected
+
+    def add_fallback_evidence(self, evidence: FallbackEvidence) -> FallbackEvidence:
+        """Add one bounded claim without treating it as direct inspection."""
+
+        self._require(ConciergeStage.FALLBACK)
+        if self.fallback is None:
+            raise JourneyStateError("fallback evidence is not available")
+        if not isinstance(evidence, FallbackEvidence):
+            raise TypeError("fallback evidence must be a FallbackEvidence record")
+        if len(self.fallback.evidence) >= FALLBACK_MAX_EVIDENCE:
+            raise ValueError(
+                f"fallback evidence is limited to {FALLBACK_MAX_EVIDENCE} items"
+            )
+        self.fallback = CollectionFallback(
+            mode=self.fallback.mode,
+            reason=self.fallback.reason,
+            evidence=(*self.fallback.evidence, evidence),
+        )
+        return evidence
+
+    def import_fallback_evidence(
+        self,
+        text: str | Iterable[FallbackEvidence],
+        *,
+        mode: FallbackMode | str | None = None,
+    ) -> tuple[FallbackEvidence, ...]:
+        """Import bounded non-raw evidence lines.
+
+        The deliberately small format is one item per line:
+        ``label|level|reference|detail``.  References are validated by the
+        same R2 non-raw rule used by ``EvidenceItem``; no imported payload is
+        retained or written to the inspected root.
+        """
+
+        self._require(ConciergeStage.FALLBACK)
+        if self.fallback is None:
+            raise JourneyStateError("fallback evidence is not available")
+        parsed: list[FallbackEvidence] = []
+        if isinstance(text, str):
+            if len(text) > FALLBACK_MAX_EVIDENCE * FALLBACK_IMPORT_LINE_MAX_LENGTH:
+                raise ValueError("fallback import exceeds the bounded input size")
+            lines = tuple(line.strip() for line in text.splitlines() if line.strip())
+            if len(lines) > FALLBACK_MAX_EVIDENCE:
+                raise ValueError(
+                    f"fallback import is limited to {FALLBACK_MAX_EVIDENCE} items"
+                )
+            for line in lines:
+                if len(line) > FALLBACK_IMPORT_LINE_MAX_LENGTH:
+                    raise ValueError("fallback import line exceeds the bounded input size")
+                parts = [part.strip() for part in line.split("|")]
+                if len(parts) != 4:
+                    raise ValueError(
+                        "each fallback import line must be "
+                        "label|level|reference|detail"
+                    )
+                label, level, reference, detail = parts
+                parsed.append(
+                    FallbackEvidence(
+                        label=label,
+                        level=level,
+                        reference=reference,
+                        detail=detail,
+                    )
+                )
+        else:
+            for item in text:
+                if len(parsed) >= FALLBACK_MAX_EVIDENCE:
+                    raise ValueError(
+                        f"fallback import is limited to {FALLBACK_MAX_EVIDENCE} items"
+                    )
+                if not isinstance(item, FallbackEvidence):
+                    raise TypeError(
+                        "fallback import items must be FallbackEvidence records"
+                    )
+                parsed.append(item)
+        combined = (*self.fallback.evidence, *parsed)
+        if len(combined) > FALLBACK_MAX_EVIDENCE:
+            raise ValueError(
+                f"fallback evidence is limited to {FALLBACK_MAX_EVIDENCE} items"
+            )
+        self.fallback = CollectionFallback(
+            mode=self.fallback.mode if mode is None else FallbackMode(mode),
+            reason=self.fallback.reason,
+            evidence=combined,
+        )
+        return tuple(parsed)
+
+    @staticmethod
+    def _fallback_state(level: EvidenceLevel) -> EvidenceState:
+        """Map fallback labels to non-direct R2 states, fail closed."""
+
+        if level is EvidenceLevel.SUPPORTED:
+            return EvidenceState.INFERRED
+        if level is EvidenceLevel.REPORTED:
+            return EvidenceState.USER_REPORTED
+        return EvidenceState.NOT_ASSESSED
+
+    def _fallback_envelope(self) -> AdapterResultEnvelope:
+        """Build an ephemeral envelope without manufacturing observations."""
+
+        if self.fallback is None:
+            raise JourneyStateError("fallback evidence is not available")
+        grouped: dict[str, list[EvidenceItem]] = {}
+        for index, item in enumerate(self.fallback.evidence, start=1):
+            probe_id = item.probe_id or _slug(item.label)
+            # A synthetic locator is a pointer to the in-memory fallback claim,
+            # never a copy of its detail or any inspected file content.
+            reference = item.reference or f"fallback:{probe_id}:{index}"
+            grouped.setdefault(probe_id, []).append(
+                EvidenceItem(
+                    state=self._fallback_state(item.level),
+                    captured_at=self.now(),
+                    reference=reference,
+                )
+            )
+        if not grouped:
+            grouped["fallback-evidence"] = []
+        probes = tuple(
+            ProbeResult(
+                probe_id=probe_id,
+                health=(
+                    InstrumentHealth.HEALTHY
+                    if evidence
+                    else InstrumentHealth.COULD_NOT_CHECK
+                ),
+                detail=(
+                    "Evidence supplied through the guided/export-assisted path."
+                    if evidence
+                    else "No person-supplied evidence was provided."
+                ),
+                evidence=tuple(evidence),
+            )
+            for probe_id, evidence in sorted(grouped.items())
+        )
+        return AdapterResultEnvelope(
+            adapter_id=self.permission.adapter_id,
+            contract_version=self.permission.adapter_version,
+            collected_at=self.now(),
+            probes=probes,
+        )
+
+    def continue_fallback(self) -> AdapterResultEnvelope:
+        """Enter the editable Job Map using only supplied fallback material."""
+
+        self._require(ConciergeStage.FALLBACK)
+        self.envelope = self._fallback_envelope()
+        self.proposals = ()
+        self.stage = ConciergeStage.JOB_MAP
+        return self.envelope
+
+    # Friendly integration aliases: transport layers can use either explicit
+    # ``continue_fallback`` or the stage-oriented name.
+    enter_fallback_job_map = continue_fallback
 
     def diagnose(self) -> CapabilityMap:
         """Run diagnosis only after every selected draft is confirmed."""

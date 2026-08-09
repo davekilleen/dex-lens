@@ -34,6 +34,7 @@ from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
     ContractFields,
+    FallbackEvidence,
     FallbackMode,
     JobDraftFields,
     JourneyError,
@@ -44,6 +45,7 @@ from capability_exchange.concierge.security import (
     ensure_loopback_bind_address,
 )
 from capability_exchange.concierge.views import render_journey
+from capability_exchange.evidence import EvidenceLevel, EvidenceState
 from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
 
 __all__ = ["ConciergeServer", "ConciergeSession", "new_session"]
@@ -315,12 +317,40 @@ class ConciergeSession:
             # guard protects callers that provide a compatible implementation.
             result = CollectionResult(envelope=result)
         if result.fallback:
+            fallback_evidence: list[FallbackEvidence] = []
+            for probe in result.envelope.probes:
+                for item in probe.evidence:
+                    # A fallback envelope is never allowed to smuggle a
+                    # direct observation into the person-facing path.  Only
+                    # the two non-direct claim states retain a positive label;
+                    # every other state is visibly Unknown.
+                    level = (
+                        EvidenceLevel.SUPPORTED
+                        if item.state is EvidenceState.INFERRED
+                        else EvidenceLevel.REPORTED
+                        if item.state is EvidenceState.USER_REPORTED
+                        else EvidenceLevel.UNKNOWN
+                    )
+                    fallback_evidence.append(
+                        FallbackEvidence(
+                            label=probe.probe_id,
+                            level=level,
+                            detail=probe.detail or "No direct evidence was collected.",
+                            reference=item.reference,
+                            probe_id=probe.probe_id,
+                        )
+                    )
+            reason = result.message or (
+                "The contained adapter is unavailable on this host. No direct "
+                "inspection result was published."
+            )
+            # Adapter refusal text is guidance, not a payload.  Keep enough of
+            # it to explain the fallback while respecting the session bound.
+            reason = " ".join(reason.split())[:512].rstrip()
             return CollectionFallback(
                 mode=FallbackMode.GUIDED,
-                reason=(
-                    "The contained adapter is unavailable on this host. No direct "
-                    "inspection result was published."
-                ),
+                reason=reason,
+                evidence=tuple(fallback_evidence),
             )
         return result.envelope
 
@@ -380,6 +410,37 @@ class ConciergeSession:
                     cadence=_required(form, "cadence"),
                 ),
             )
+            self._sync_journey()
+
+    def set_fallback_mode(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.set_fallback_mode(_required(form, "mode"))
+            self._sync_journey()
+
+    def add_fallback_evidence(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.add_fallback_evidence(
+                FallbackEvidence(
+                    label=_required(form, "label"),
+                    level=_required(form, "level"),
+                    detail=_required(form, "detail"),
+                    reference=_optional(form, "reference"),
+                    probe_id=_optional(form, "probe_id"),
+                )
+            )
+            self._sync_journey()
+
+    def import_fallback_evidence(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.import_fallback_evidence(
+                _required(form, "evidence"),
+                mode=_optional(form, "mode"),
+            )
+            self._sync_journey()
+
+    def continue_fallback(self) -> None:
+        with self._state_lock:
+            self.journey.continue_fallback()
             self._sync_journey()
 
     def diagnose(self) -> None:
@@ -498,6 +559,20 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/confirm-jobs":
             self._confirm_jobs(form)
+            return
+        if parsed.path == "/fallback/mode":
+            self._journey_action(self.server.session.set_fallback_mode, form)
+            return
+        if parsed.path == "/fallback/evidence":
+            self._journey_action(self.server.session.add_fallback_evidence, form)
+            return
+        if parsed.path == "/fallback/import":
+            self._journey_action(self.server.session.import_fallback_evidence, form)
+            return
+        if parsed.path == "/fallback/continue":
+            self._journey_action(
+                lambda ignored: self.server.session.continue_fallback(), form
+            )
             return
         if parsed.path == "/jobs/add":
             self._journey_action(self.server.session.add_job, form)
