@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -106,19 +107,21 @@ def test_packet_parser_covers_ipv4_ipv6_and_fails_unknown_lines() -> None:
 
 def test_capture_readiness_requires_a_live_process_through_startup(monkeypatch) -> None:
     class Process:
-        def __init__(self, states):
-            self.states = iter(states)
+        def __init__(self, stderr: str, returncode=None):
+            self.stderr = io.StringIO(stderr)
+            self.returncode = returncode
 
         def poll(self):
-            return next(self.states)
+            return self.returncode
 
-    times = iter((0.0, 0.6))
-    monkeypatch.setattr("tests.egress.namespace_probe.time.monotonic", lambda: next(times))
-    assert _capture_ready(Process((None, None))) is True
+    def ready_streams(reads, _writes, _errors, _timeout):
+        return reads, [], []
 
-    times = iter((0.0, 0.1))
-    monkeypatch.setattr("tests.egress.namespace_probe.time.monotonic", lambda: next(times))
-    assert _capture_ready(Process((1,))) is False
+    monkeypatch.setattr(namespace_probe, "select", ready_streams, raising=False)
+
+    assert _capture_ready(Process("tcpdump: listening on any\n")) is True
+    assert _capture_ready(Process("tcpdump: permission denied\n")) is False
+    assert _capture_ready(Process("", returncode=1)) is False
 
 
 def test_parent_opens_capture_stream_before_tcpdump_drops_privileges(

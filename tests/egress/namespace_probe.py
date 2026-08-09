@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from select import select
 from typing import BinaryIO
 from urllib.parse import quote, quote_plus, urlencode
 
@@ -173,14 +174,28 @@ def _run_journey() -> tuple[list[str], list[str], list[str]]:
 
 
 def _capture_ready(process: subprocess.Popen[str]) -> bool:
-    """Require tcpdump to remain alive through a bounded startup window."""
+    """Wait for tcpdump's explicit interface-listening readiness signal."""
 
-    deadline = time.monotonic() + 0.5
+    if process.stderr is None:
+        return False
+    deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
             return False
-        time.sleep(0.05)
-    return process.poll() is None
+        readable, _, _ = select(
+            [process.stderr],
+            [],
+            [],
+            min(0.1, max(0.0, deadline - time.monotonic())),
+        )
+        if not readable:
+            continue
+        line = process.stderr.readline()
+        if not line:
+            return False
+        if "listening on" in line.lower():
+            return True
+    return False
 
 
 def _start_capture(pcap: Path) -> tuple[subprocess.Popen[str], BinaryIO]:
