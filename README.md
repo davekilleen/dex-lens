@@ -71,9 +71,11 @@ Built and tested so far: the versioned Host Adapter contract, a contained
 Claude Code deep adapter (macOS is the first target), the evidence-state
 vocabulary, the field-level data boundary, the Job Map with its
 propose-then-confirm flow, the high-impact job taxonomy, and the diagnosis
-engine with jobs-first Capability Map rendering. In progress: the complete
-security and end-to-end evidence for the local browser concierge. After that:
-the adaptation transaction layer, the contribution flow, and a small pilot.
+engine with jobs-first Capability Map rendering. The source alpha now includes
+the complete loopback-only browser concierge, editable job confirmation,
+session security and cancellation, and end-to-end read-only evidence. Next on
+the roadmap: the adaptation transaction layer, the contribution flow, and a
+small pilot.
 
 The current alpha does **not** claim that every M3 safety gate is closed. In
 particular, the macOS sandbox can prove network use is denied but cannot prove
