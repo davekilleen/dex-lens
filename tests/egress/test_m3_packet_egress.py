@@ -124,6 +124,18 @@ def test_capture_readiness_requires_a_live_process_through_startup(monkeypatch) 
     assert _capture_ready(Process("", returncode=1)) is False
 
 
+def test_tcpdump_statistics_are_reduced_to_safe_counts() -> None:
+    capture_statistics = getattr(namespace_probe, "_capture_statistics", None)
+    assert capture_statistics is not None, "tcpdump counters must be captured"
+    assert capture_statistics(
+        "2 packets captured\n4 packets received by filter\n1 packet dropped by kernel\n"
+    ) == {
+        "capture_packets_captured": 2,
+        "capture_packets_received": 4,
+        "capture_packets_dropped": 1,
+    }
+
+
 def test_parent_opens_capture_stream_before_tcpdump_drops_privileges(
     tmp_path: Path, monkeypatch
 ) -> None:

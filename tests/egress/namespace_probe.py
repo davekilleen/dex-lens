@@ -198,6 +198,20 @@ def _capture_ready(process: subprocess.Popen[str]) -> bool:
     return False
 
 
+def _capture_statistics(stderr: str) -> dict[str, int]:
+    """Reduce tcpdump's shutdown report to non-sensitive integer counters."""
+
+    patterns = {
+        "capture_packets_captured": r"(?m)^(\d+) packets? captured$",
+        "capture_packets_received": r"(?m)^(\d+) packets? received by filter$",
+        "capture_packets_dropped": r"(?m)^(\d+) packets? dropped by kernel$",
+    }
+    return {
+        key: int(match.group(1)) if (match := re.search(pattern, stderr)) else -1
+        for key, pattern in patterns.items()
+    }
+
+
 def _start_capture(pcap: Path) -> tuple[subprocess.Popen[str], BinaryIO]:
     """Open the pcap as root before tcpdump drops its filesystem privileges."""
 
@@ -309,6 +323,7 @@ def main() -> int:
         "journey_error": journey_error,
         "pages_checked": len(pages),
         "packet_count": len(packet_lines),
+        "pcap_size_bytes": len(packet_bytes),
         "non_loopback_packets": non_loopback,
         "unparsed_packets": unparsed,
         "dns_packets": ["dns-packet"] * len(dns_lines),
@@ -319,6 +334,7 @@ def main() -> int:
         "capture_clean_exit": capture_clean_exit,
         "capture_timed_out": capture_timed_out,
         "capture_reported_error": "error" in capture_stderr.lower(),
+        **_capture_statistics(capture_stderr),
     }
     artifact.write_text(json.dumps(evidence, sort_keys=True, indent=2))
     return 0 if not journey_error and capture_clean_exit else 1
