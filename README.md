@@ -73,16 +73,16 @@ vocabulary, the field-level data boundary, the Job Map with its
 propose-then-confirm flow, the high-impact job taxonomy, and the diagnosis
 engine with jobs-first Capability Map rendering. The source alpha now includes
 the complete loopback-only browser concierge, editable job confirmation,
-session security and cancellation, and end-to-end read-only evidence. Next on
-the roadmap: the adaptation transaction layer, the contribution flow, and a
-small pilot.
+session security and cancellation, end-to-end read-only evidence, and a guided
+fallback that accepts only bounded user-entered or export-assisted evidence
+when operating-system containment is unavailable. Next on the roadmap: the
+adaptation transaction layer, the contribution flow, and a small pilot.
 
 The current alpha does **not** claim that every M3 safety gate is closed. In
-particular, it does not yet include guided/export-assisted diagnosis when a
-host cannot establish containment; the macOS sandbox can prove network use is
-denied but cannot prove socket creation itself is denied; and the bind-mount
-hostile fixture still needs a CI host able to execute it. Those limits are
-recorded rather than smoothed over.
+particular, the macOS sandbox can prove network use is denied but cannot prove
+socket creation itself is denied; and the bind-mount hostile fixture still
+needs an isolated CI host with the privilege required to execute it. Those
+limits are recorded rather than smoothed over.
 
 ## Try the source alpha
 

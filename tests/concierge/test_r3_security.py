@@ -217,6 +217,11 @@ def test_security_headers_and_hostile_deep_link_terminate() -> None:
         assert headers["referrer-policy"] == "no-referrer"
         assert headers["cache-control"] == "no-store"
         assert "default-src 'none'" in headers["content-security-policy"]
+        status, headers, _ = running.request("/session")
+        assert status == 200
+        # A real browser otherwise serializes native same-origin form POSTs
+        # with ``Origin: null``, which the exact-origin CSRF gate must reject.
+        assert headers["referrer-policy"] == "same-origin"
         status, _, _ = running.request(f"/anything?token={running.session.bootstrap_token}")
         assert status == 403
         assert running.session.closed

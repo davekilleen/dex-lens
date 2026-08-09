@@ -613,7 +613,10 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
                 "HttpOnly; SameSite=Strict; Path=/"
             ),
         )
-        self._security_headers()
+        # The one-use bearer is still present in this request URL, so never
+        # allow it to become a referrer.  The token-free session page uses
+        # ``same-origin`` so Chromium gives native POSTs a concrete Origin.
+        self._security_headers(referrer_policy="no-referrer")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -687,9 +690,9 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         self.server.session.terminate_and_wait()
         self._forbidden(message)
 
-    def _security_headers(self) -> None:
+    def _security_headers(self, *, referrer_policy: str = "same-origin") -> None:
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Referrer-Policy", referrer_policy)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header(
             "Content-Security-Policy",

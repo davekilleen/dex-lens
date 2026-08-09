@@ -14,11 +14,12 @@ The plan has six milestones, M1–M6. Here's where each stands.
   `Inspection` state, the high-impact job taxonomy, the diagnosis engine, and
   the jobs-first Capability Map rendering).
 
-940 tests pass on Linux; the full suite is green there.
+The full test suite passes on Linux and across the supported GitHub Actions
+matrix.
 
 ## The two loose ends before M1/M2 can be called truly closed
 
-1. **macOS socket denial — honest asymmetry recorded, waiting on CI.** Linux
+1. **macOS socket denial — honest asymmetry recorded and CI-verified.** Linux
    blocks socket creation outright. The macOS attempt (`system-socket` in the
    sandbox profile) was well-reasoned but the GitHub macos-14 runners
    disproved the stronger claim — they handed out AF_INET/AF_INET6 sockets
@@ -30,9 +31,9 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 2. **The bind-mount fixture has never actually executed.** The fix is in and
    the defence reads the live mount table, but the test that *proves* it needs
-   a privilege the VPS and possibly the GitHub runners don't grant. If it
-   skips on CI too, we need a privileged container leg or a `sudo mount` step,
-   or the G1 bind-mount gate stays formally unproven.
+   `CAP_SYS_ADMIN`, which this VPS and the standard hosted runner do not grant.
+   Closing G1 honestly requires a dedicated, isolated Linux runner with that
+   narrow privilege; the skip remains loud until one is available.
 
 ## Implemented and CI-verified in draft PR #4
 
@@ -45,15 +46,16 @@ The plan has six milestones, M1–M6. Here's where each stands.
    checks, and completion with external connections refused are covered by
    tests on the branch.
 
-   **Not formally closed yet:** the source alpha does not yet implement the
-   guided/export-assisted diagnosis path for a host where containment is
-   unavailable. The full Ubuntu/macOS Python 3.11/3.12 CI matrix is green.
-   The binding M3 bar still asks for an interfaces-disabled plus packet/DNS
-   capture run. The current Linux proof
-   combines OS-enforced socket denial in the collection child with a parent
-   process test that refuses every non-loopback connection; it is strong but
-   not the same artifact as host packet capture. Until those proofs exist, call
-   this a read-only source alpha, not a completed M3 release.
+   The guided/export-assisted diagnosis path is implemented for hosts where
+   containment is unavailable. It accepts only bounded Supported, Reported, or
+   Unknown evidence, then reuses the same editable Job Map, confirmation, and
+   Capability Map journey without writing to the inspected root.
+
+   **Not formally closed yet:** the binding M3 bar also asks for an
+   interfaces-disabled packet/DNS/proxy capture run. A dedicated Linux CI gate
+   for that proof is being added to the draft PR. Until that gate is green and
+   the host-level bind-mount proof has run, call this a read-only source alpha,
+   not a completed M3 release.
 
    **Build authorization is recorded:** HANDOFF D0 was posted on Dex issue
    #347 on 7 August against the signed pack hash
