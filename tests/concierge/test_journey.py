@@ -7,6 +7,7 @@ having to recreate Job Map or diagnosis rules in request handlers.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -124,6 +125,23 @@ class TestPermissionAndStages:
         journey.approve()
         assert calls == ["read"]
         assert journey.stage is ConciergeStage.JOB_MAP
+
+    def test_job_store_must_be_outside_every_approved_root(
+        self, tmp_path: Path
+    ) -> None:
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        permission = replace(_permission(), approved_roots=(str(approved),))
+
+        with pytest.raises(ValueError, match="outside the approved read scope"):
+            ConciergeJourney(
+                permission=permission,
+                collector=_envelope,
+                job_store=approved / "inspection-jobs",
+                now=lambda: NOW,
+            )
+
+        assert tuple(approved.iterdir()) == ()
 
     def test_permission_view_is_unscanned_local_and_escaped(self) -> None:
         metadata = PermissionMetadata(

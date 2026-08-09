@@ -417,10 +417,11 @@ class ConciergeJourney:
         now: Callable[[], datetime] = _utc_now,
     ) -> None:
         self.now = now
+        self.permission = self._resolve_permission(permission, adapter)
         if isinstance(job_store, Path):
             job_store = InspectionJobStore(job_store)
+        self._require_job_store_outside_scope(job_store, self.permission)
         self.job_store = job_store
-        self.permission = self._resolve_permission(permission, adapter)
         self._collector = self._resolve_collector(collector, adapter)
 
         self.stage = ConciergeStage.PERMISSION
@@ -431,6 +432,21 @@ class ConciergeJourney:
         self._selected: set[str] = set()
         self.capability_map: CapabilityMap | None = None
         self.capability_map_markdown = ""
+
+    @staticmethod
+    def _require_job_store_outside_scope(
+        job_store: InspectionJobStore,
+        permission: PermissionMetadata,
+    ) -> None:
+        """Keep every draft byte outside the roots promised read-only."""
+
+        store = job_store.directory.expanduser().resolve(strict=False)
+        for raw_root in permission.approved_roots:
+            root = Path(raw_root).expanduser().resolve(strict=False)
+            if store == root or store.is_relative_to(root):
+                raise ValueError(
+                    "inspection job storage must be outside the approved read scope"
+                )
 
     @staticmethod
     def _resolve_permission(
