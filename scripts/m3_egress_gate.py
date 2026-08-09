@@ -96,6 +96,10 @@ def _write_summary(
     )
 
 
+def _print_sanitized_evidence(evidence: dict[str, Any] | None) -> None:
+    print(f"m3-egress-evidence: {json.dumps(_sanitize_evidence(evidence), sort_keys=True)}")
+
+
 def main() -> int:
     isolated = os.environ.get("M3_EGRESS_NETWORK_ISOLATED") == "1"
     destination = _output_directory()
@@ -124,6 +128,7 @@ def main() -> int:
             return 1
         evidence = run.evidence
         if evidence is None or run.returncode != 0:
+            _print_sanitized_evidence(evidence)
             _write_summary(
                 destination,
                 status="failed",
@@ -135,6 +140,7 @@ def main() -> int:
         try:
             assert_evidence(evidence)
         except RuntimeError as exc:
+            _print_sanitized_evidence(evidence)
             _write_summary(
                 destination,
                 status="failed",
@@ -146,6 +152,7 @@ def main() -> int:
 
         pcap = artifact.with_suffix(".pcap")
         if not pcap.is_file() or pcap.stat().st_size == 0:
+            _print_sanitized_evidence(evidence)
             _write_summary(
                 destination,
                 status="failed",

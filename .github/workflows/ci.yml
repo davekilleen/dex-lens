@@ -78,7 +78,7 @@ jobs:
 
       - name: M3 full journey OS egress evidence
         run: |
-          mkdir -p m3-egress-artifact
+          install -d -m 0777 m3-egress-artifact
           docker run --rm \
             --network none \
             --cap-drop=ALL \

@@ -116,6 +116,7 @@ def test_container_gate_excludes_credentials_and_minimizes_runtime() -> None:
     workflow = Path(".github/workflows/ci.yml").read_text()
     assert ".git" in ignored
     for required in (
+        "install -d -m 0777 m3-egress-artifact",
         "--network none",
         "--cap-drop=ALL",
         "--read-only",
