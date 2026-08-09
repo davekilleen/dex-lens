@@ -51,11 +51,16 @@ matrix.
    Unknown evidence, then reuses the same editable Job Map, confirmation, and
    Capability Map journey without writing to the inspected root.
 
-   **Not formally closed yet:** the binding M3 bar also asks for an
-   interfaces-disabled packet/DNS/proxy capture run. A dedicated Linux CI gate
-   for that proof is being added to the draft PR. Until that gate is green and
-   the host-level bind-mount proof has run, call this a read-only source alpha,
-   not a completed M3 release.
+   The binding interfaces-disabled packet/DNS/proxy proof is now green in a
+   dedicated Linux CI gate. It runs the full seven-page journey in a Docker
+   `--network none` namespace, captures the loopback traffic, and fails on DNS,
+   proxy use, non-loopback packets, unparsed packets, or canary leakage.
+
+   **Not formally closed yet:** the host-level bind-mount proof above still
+   needs its dedicated isolated Linux runner, and macOS provides connect-time
+   denial rather than socket-object denial. Until those boundaries are closed
+   or explicitly accepted, call this a read-only source alpha, not a completed
+   M3 release.
 
    **Build authorization is recorded:** HANDOFF D0 was posted on Dex issue
    #347 on 7 August against the signed pack hash
