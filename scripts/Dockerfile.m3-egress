@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y iproute2 tcpdump \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/dex-lens
+COPY . .
+RUN python -m pip install --no-cache-dir ".[dev]"
+
+ENTRYPOINT ["python", "scripts/m3_egress_gate.py"]
