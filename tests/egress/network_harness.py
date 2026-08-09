@@ -4,7 +4,7 @@ The normal pytest suite exercises the concierge in-process.  This module adds
 the missing wire-level proof: a child is launched in a fresh Linux network
 namespace (or a Docker ``--network none`` equivalent) with only loopback
 enabled, while ``tcpdump`` records the complete journey.  The formal gate runs
-this module in a disposable privileged container; an ordinary developer run
+this module in a disposable, capability-minimized container; a developer run
 has an explicit, visible capability result rather than
 pretending that a monkeypatch is packet capture.
 """
@@ -55,6 +55,11 @@ def _raw_capture_available() -> bool:
 def capability_probe() -> NamespaceCapability:
     """Check every privilege/tool the formal gate actually relies on."""
 
+    if sys.flags.optimize:
+        return NamespaceCapability(
+            False,
+            "Python optimization is enabled; safety assertions would be removable",
+        )
     if sys.platform != "linux":
         return NamespaceCapability(
             False,
@@ -129,7 +134,8 @@ def run_namespace_journey(artifact: Path, *, timeout: float = 120.0) -> Namespac
     python = sys.executable
     command = [python, "-m", "tests.egress.namespace_probe", "--artifact", str(artifact)]
     if not os.environ.get("M3_EGRESS_NETWORK_ISOLATED") == "1":
-        assert capability.unshare is not None
+        if capability.unshare is None:
+            raise RuntimeError("unshare disappeared after the capability probe")
         command = [
             capability.unshare,
             "--net",
@@ -162,16 +168,26 @@ def run_namespace_journey(artifact: Path, *, timeout: float = 120.0) -> Namespac
 def assert_evidence(evidence: dict[str, Any]) -> None:
     """Validate the machine-readable namespace/pcap/DNS/proxy proof."""
 
-    assert evidence.get("interfaces") == ["lo"], evidence
-    assert evidence.get("loopback_enabled") is True, evidence
-    assert evidence.get("journey_complete") is True, evidence
-    assert evidence.get("pages_checked", 0) >= 5, evidence
-    assert evidence.get("proxy_requests") == [], evidence
-    assert evidence.get("dns_packets") == [], evidence
-    assert evidence.get("non_loopback_packets") == [], evidence
-    assert evidence.get("canary_leaks") == [], evidence
-    assert evidence.get("derivation_leaks") == [], evidence
-    assert evidence.get("packet_count", 0) > 0, evidence
+    requirements = {
+        "only loopback is present": evidence.get("interfaces") == ["lo"],
+        "loopback is enabled": evidence.get("loopback_enabled") is True,
+        "journey completed": evidence.get("journey_complete") is True,
+        "at least five pages were checked": evidence.get("pages_checked", 0) >= 5,
+        "proxy accepted no request": evidence.get("proxy_requests") == [],
+        "no DNS packet was captured": evidence.get("dns_packets") == [],
+        "no non-loopback packet was captured": evidence.get("non_loopback_packets") == [],
+        "every captured packet was parsed": evidence.get("unparsed_packets") == [],
+        "application payload has no canary": evidence.get("application_canary_leaks") == [],
+        "pcap has no contiguous canary": evidence.get("pcap_canary_leaks") == [],
+        "capture became ready": evidence.get("capture_ready") is True,
+        "capture exited cleanly": evidence.get("capture_clean_exit") is True,
+        "capture did not time out": evidence.get("capture_timed_out") is False,
+        "capture reported no error": evidence.get("capture_reported_error") is False,
+        "at least one packet was captured": evidence.get("packet_count", 0) > 0,
+    }
+    failed = [name for name, passed in requirements.items() if not passed]
+    if failed:
+        raise RuntimeError(f"egress evidence failed: {', '.join(failed)}")
 
 
 def canary_needles(canaries: list[str]) -> list[str]:

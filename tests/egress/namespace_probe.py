@@ -1,16 +1,13 @@
-"""Child process for :mod:`tests.egress.network_harness`.
-
-This process is intentionally tiny and only runs under ``unshare --net``.
-It enables loopback, records packets with tcpdump, drives the complete local
-concierge journey, and writes a no-secret evidence summary.
-"""
+"""Produce sanitized packet/DNS/proxy evidence inside an isolated network."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import socketserver
@@ -20,12 +17,12 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, quote_plus, urlencode
 
 from tests.adapters.claude_code.fixture_helpers import tree_digests
 from tests.concierge.test_local_server import RunningServer
 from tests.egress.harness import EGRESS_CANARIES, build_canary_system
-from tests.fixtures.hostile.catalog import assert_no_canary_leak, derivations_of
+from tests.fixtures.hostile.catalog import derivations_of
 
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 
@@ -33,19 +30,30 @@ from capability_exchange.adapters.claude_code.containment import contained_inspe
 class _Proxy(socketserver.BaseRequestHandler):
     requests: list[str] = []
 
-    def handle(self) -> None:  # pragma: no cover - only called on a failed egress
-        # Keep only a count marker: a failed proxy route must not copy a
-        # private request into the evidence artifact that CI uploads.
-        self.requests.append(f"request-received:{len(self.request.recv(4096))}")
+    def handle(self) -> None:  # pragma: no cover - only runs on failed egress
+        # An accepted-but-empty or stalled connection is still attempted
+        # egress.  Record only a marker, never request bytes.
+        self.requests.append("connection-accepted")
+        self.request.settimeout(0.2)
+        try:
+            self.request.recv(4096)
+        except (OSError, TimeoutError):
+            return
 
 
 def _tcpdump_lines(pcap: Path, expression: str | None = None) -> list[str]:
     command = [shutil.which("tcpdump") or "tcpdump", "-nn", "-r", str(pcap)]
     if expression:
-        command.append(expression)
-    result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=20)
+        command.extend(shlex.split(expression))
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
     if result.returncode not in (0, 1):
-        raise RuntimeError(result.stderr.strip() or "tcpdump could not read the capture")
+        raise RuntimeError("tcpdump could not read the capture")
     return [
         line
         for line in result.stdout.splitlines()
@@ -53,78 +61,125 @@ def _tcpdump_lines(pcap: Path, expression: str | None = None) -> list[str]:
     ]
 
 
-def _packet_endpoints(lines: list[str]) -> list[tuple[str, str]]:
+def _host(endpoint: str) -> str:
+    value = endpoint.rstrip(" ,:")
+    address, separator, port = value.rpartition(".")
+    return address if separator and port.isdigit() else value
+
+
+def _packet_endpoints(
+    lines: list[str],
+) -> tuple[list[tuple[str, str]], list[str]]:
     endpoints: list[tuple[str, str]] = []
-    # tcpdump -nn's IPv4 form is stable: ``IP 127.0.0.1.123 > 127.0.0.1.456``.
-    pattern = re.compile(r"\bIP\s+([^ ]+)\s+>\s+([^ ]+)")
+    unparsed: list[str] = []
+    # Supports both IPv4 and IPv6; ``-i any`` may prefix interface/direction.
+    pattern = re.compile(r"\b(IP6?)\s+([^ ]+)\s+>\s+([^ ]+)")
     for line in lines:
         match = pattern.search(line)
-        if match:
-            source = match.group(1).rsplit(".", 1)[0]
-            destination = match.group(2).rsplit(".", 1)[0]
-            endpoints.append((source, destination))
-    return endpoints
+        if match is None:
+            unparsed.append("unparsed-packet")
+            continue
+        endpoints.append((_host(match.group(2)), _host(match.group(3))))
+    return endpoints, unparsed
+
+
+def _forbidden_forms(canary: str) -> tuple[bytes, ...]:
+    def encoded_forms(value: str) -> set[bytes]:
+        raw = value.encode()
+        return {
+            raw,
+            quote(value, safe="").encode(),
+            quote_plus(value, safe="").encode(),
+            base64.b64encode(raw),
+            base64.urlsafe_b64encode(raw),
+            json.dumps(value)[1:-1].encode(),
+        }
+
+    forms = encoded_forms(canary)
+    forms.update(item.encode() for item in derivations_of(canary))
+    for start in range(max(0, len(canary) - 11)):
+        forms.update(encoded_forms(canary[start : start + 12]))
+    return tuple(forms)
+
+
+def _leak_markers(blob: bytes, canaries: list[str]) -> list[str]:
+    """Return stable markers without putting a canary in the evidence file."""
+
+    return [
+        f"canary-{index}"
+        for index, canary in enumerate(canaries, start=1)
+        if any(form and form in blob for form in _forbidden_forms(canary))
+    ]
 
 
 def _run_journey() -> tuple[list[str], list[str], list[str]]:
     run_canary = f"m3-unique-canary-{uuid.uuid4().hex}"
     pages: list[str] = []
-    base = Path(tempfile.mkdtemp(prefix="dex-m3-fixture-"))
-    root = build_canary_system(base)
-    # The unique marker is intentionally in a collected basename and is
-    # therefore covered by both raw and derivation checks.
-    (root / "CLAUDE.md").write_text(f"{run_canary}\n")
-    canaries = [*EGRESS_CANARIES, run_canary]
-    before = tree_digests(root)
+    with tempfile.TemporaryDirectory(prefix="dex-m3-fixture-") as base_dir:
+        root = build_canary_system(Path(base_dir))
+        (root / "CLAUDE.md").write_text(f"{run_canary}\n")
+        canaries = [*EGRESS_CANARIES, run_canary]
+        before = tree_digests(root)
 
-    def collect(cancel_event: threading.Event):
-        return contained_inspection([str(root)], cancel_event=cancel_event).envelope
+        def collect(cancel_event: threading.Event):
+            return contained_inspection(
+                [str(root)], cancel_event=cancel_event
+            ).envelope
 
-    with RunningServer(collect, approved_root=root) as running:
-        pages.append(running.bootstrap())
-        status, _, body = running.post("/approve")
-        if status != 200:
-            raise AssertionError(f"approval failed: {status}")
-        pages.append(body)
-        running.wait_for_collection()
-        status, _, body = running.request("GET", "/session")
-        if status != 200:
-            raise AssertionError(f"session failed: {status}")
-        pages.append(body)
-        for job_id in running.session.journey.job_ids:
-            status, _, body = running.post(
-                "/jobs/confirm",
-                body=urlencode(
-                    {
-                        "job_id": job_id,
-                        "success_evidence": "the confirmed outcome is available",
-                        "privacy_limits": "stay inside the approved root",
-                        "approval_limits": "ask before external action",
-                        "autonomy_limits": "do not change files",
-                        "importance": "medium",
-                        "cadence": "weekly",
-                    }
-                ),
-            )
+        with RunningServer(collect, approved_root=root) as running:
+            pages.append(running.bootstrap())
+            status, _, body = running.post("/approve")
             if status != 200:
-                raise AssertionError(f"confirmation failed: {status}")
+                raise RuntimeError("approval failed")
             pages.append(body)
-        status, _, body = running.post("/diagnose")
-        if status != 200:
-            raise AssertionError(f"diagnosis failed: {status}")
-        pages.append(body)
+            running.wait_for_collection()
+            status, _, body = running.request("GET", "/session")
+            if status != 200:
+                raise RuntimeError("session failed")
+            pages.append(body)
+            for job_id in running.session.journey.job_ids:
+                status, _, body = running.post(
+                    "/jobs/confirm",
+                    body=urlencode(
+                        {
+                            "job_id": job_id,
+                            "success_evidence": "the confirmed outcome is available",
+                            "privacy_limits": "stay inside the approved root",
+                            "approval_limits": "ask before external action",
+                            "autonomy_limits": "do not change files",
+                            "importance": "medium",
+                            "cadence": "weekly",
+                        }
+                    ),
+                )
+                if status != 200:
+                    raise RuntimeError("confirmation failed")
+                pages.append(body)
+            status, _, body = running.post("/diagnose")
+            if status != 200:
+                raise RuntimeError("diagnosis failed")
+            pages.append(body)
 
-    assert tree_digests(root) == before
+        if tree_digests(root) != before:
+            raise RuntimeError("inspected root changed during the journey")
+
     joined = "\n".join(pages)
-    assert_no_canary_leak(joined, canaries, context="captured M3 pages")
+    application_leaks = _leak_markers(joined.encode(), canaries)
     forbidden = ("https://", "<script", "<iframe", "<img", "fetch(", "websocket", "analytics")
-    lowered = joined.lower()
-    assert not [item for item in forbidden if item in lowered]
-    return pages, canaries
+    if any(item in joined.lower() for item in forbidden):
+        raise RuntimeError("forbidden browser transport primitive rendered")
+    return pages, canaries, application_leaks
 
 
-def canary_derivations(canaries: list[str]) -> list[str]:
-    return [derived for canary in canaries for derived in derivations_of(canary)]
+def _capture_ready(process: subprocess.Popen[str], pcap: Path) -> bool:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        if pcap.is_file() and pcap.stat().st_size >= 24:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def main() -> int:
@@ -133,9 +188,8 @@ def main() -> int:
     args = parser.parse_args()
     artifact = args.artifact
     pcap = artifact.with_suffix(".pcap")
-    # A fresh network namespace starts with every interface down.  Enable
-    # only loopback; no host/external interface is imported into this child.
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
+    _Proxy.requests = []
     proxy = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _Proxy)
     proxy.daemon_threads = True
     proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -148,49 +202,58 @@ def main() -> int:
     )
     tcpdump = shutil.which("tcpdump") or "tcpdump"
     capture = subprocess.Popen(
-        [tcpdump, "-i", "lo", "-nn", "-U", "-w", str(pcap)],
+        [tcpdump, "-i", "any", "-nn", "-U", "-s", "0", "-w", str(pcap)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    time.sleep(0.25)
-    try:
-        pages, canaries = _run_journey()
-        journey_error = ""
-    except BaseException as exc:  # evidence records failure without leaking fixture bytes
-        pages, canaries = [], []
-        journey_error = type(exc).__name__
-    finally:
-        capture.send_signal(signal.SIGINT)
+    capture_ready = _capture_ready(capture, pcap)
+    pages: list[str] = []
+    canaries: list[str] = []
+    application_leaks: list[str] = []
+    journey_error = ""
+    if capture_ready:
         try:
-            _, capture_stderr = capture.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            capture.kill()
-            _, capture_stderr = capture.communicate()
-        proxy.shutdown()
-        proxy.server_close()
-        proxy_thread.join(timeout=2)
+            pages, canaries, application_leaks = _run_journey()
+        except BaseException as exc:  # emit only the failure class
+            journey_error = type(exc).__name__
+    else:
+        journey_error = "CaptureUnavailable"
+
+    capture_timed_out = False
+    if capture.poll() is None:
+        capture.send_signal(signal.SIGINT)
+    try:
+        _, capture_stderr = capture.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        capture_timed_out = True
+        capture.kill()
+        _, capture_stderr = capture.communicate()
+    capture_clean_exit = capture.returncode == 0 and not capture_timed_out
+    proxy.shutdown()
+    proxy.server_close()
+    proxy_thread.join(timeout=2)
 
     interfaces = [
         line.split(":", 2)[1].strip().split("@", 1)[0]
-        for line in subprocess.check_output(["ip", "-o", "link", "show"], text=True).splitlines()
+        for line in subprocess.check_output(
+            ["ip", "-o", "link", "show"], text=True
+        ).splitlines()
         if ":" in line
     ]
-    packet_lines = _tcpdump_lines(pcap) if pcap.exists() else []
-    dns_lines = _tcpdump_lines(pcap, "udp port 53") if pcap.exists() else []
-    packet_bytes = pcap.read_bytes() if pcap.exists() else b""
-    needles = canary_derivations(canaries)
-    canary_leaks = [needle for needle in canaries if needle.encode() in packet_bytes]
-    derivation_leaks = [
-        needle
-        for needle in needles
-        if needle.encode() in packet_bytes and needle not in canary_leaks
-    ]
-    endpoints = _packet_endpoints(packet_lines)
+    packet_lines = _tcpdump_lines(pcap) if pcap.is_file() else []
+    dns_lines = (
+        _tcpdump_lines(pcap, "(udp or tcp) and port 53")
+        if pcap.is_file()
+        else []
+    )
+    packet_bytes = pcap.read_bytes() if pcap.is_file() else b""
+    endpoints, unparsed = _packet_endpoints(packet_lines)
+    loopbacks = {"127.0.0.1", "::1"}
     non_loopback = [
-        f"{source}>{destination}"
+        "non-loopback-packet"
         for source, destination in endpoints
-        if source != "127.0.0.1" or destination != "127.0.0.1"
+        if source not in loopbacks or destination not in loopbacks
     ]
     evidence = {
         "interfaces": interfaces,
@@ -205,14 +268,18 @@ def main() -> int:
         "pages_checked": len(pages),
         "packet_count": len(packet_lines),
         "non_loopback_packets": non_loopback,
-        "dns_packets": dns_lines,
+        "unparsed_packets": unparsed,
+        "dns_packets": ["dns-packet"] * len(dns_lines),
         "proxy_requests": _Proxy.requests,
-        "canary_leaks": canary_leaks,
-        "derivation_leaks": derivation_leaks,
-        "tcpdump_stderr": capture_stderr[-200:],
+        "application_canary_leaks": application_leaks,
+        "pcap_canary_leaks": _leak_markers(packet_bytes, canaries),
+        "capture_ready": capture_ready,
+        "capture_clean_exit": capture_clean_exit,
+        "capture_timed_out": capture_timed_out,
+        "capture_reported_error": "error" in capture_stderr.lower(),
     }
     artifact.write_text(json.dumps(evidence, sort_keys=True, indent=2))
-    return 0 if not journey_error else 1
+    return 0 if not journey_error and capture_clean_exit else 1
 
 
 if __name__ == "__main__":
