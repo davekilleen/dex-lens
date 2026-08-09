@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import quote, quote_plus, urlencode
 
 from tests.adapters.claude_code.fixture_helpers import tree_digests
@@ -182,6 +183,24 @@ def _capture_ready(process: subprocess.Popen[str]) -> bool:
     return process.poll() is None
 
 
+def _start_capture(pcap: Path) -> tuple[subprocess.Popen[str], BinaryIO]:
+    """Open the pcap as root before tcpdump drops its filesystem privileges."""
+
+    stream = pcap.open("wb")
+    tcpdump = shutil.which("tcpdump") or "tcpdump"
+    try:
+        process = subprocess.Popen(
+            [tcpdump, "-i", "any", "-nn", "-U", "-s", "0", "-w", "-"],
+            stdout=stream,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except BaseException:
+        stream.close()
+        raise
+    return process, stream
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", type=Path, required=True)
@@ -200,13 +219,7 @@ def main() -> int:
         ALL_PROXY=f"http://127.0.0.1:{proxy.server_address[1]}",
         NO_PROXY="127.0.0.1,localhost",
     )
-    tcpdump = shutil.which("tcpdump") or "tcpdump"
-    capture = subprocess.Popen(
-        [tcpdump, "-i", "any", "-nn", "-U", "-s", "0", "-w", str(pcap)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    capture, capture_stream = _start_capture(pcap)
     capture_ready = _capture_ready(capture)
     pages: list[str] = []
     canaries: list[str] = []
@@ -229,6 +242,7 @@ def main() -> int:
         capture_timed_out = True
         capture.kill()
         _, capture_stderr = capture.communicate()
+    capture_stream.close()
     capture_clean_exit = capture.returncode == 0 and not capture_timed_out
     proxy.shutdown()
     proxy.server_close()

@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
+import tests.egress.namespace_probe as namespace_probe
 from tests.egress.namespace_probe import (
     _capture_ready,
     _leak_markers,
@@ -118,6 +119,32 @@ def test_capture_readiness_requires_a_live_process_through_startup(monkeypatch) 
     times = iter((0.0, 0.1))
     monkeypatch.setattr("tests.egress.namespace_probe.time.monotonic", lambda: next(times))
     assert _capture_ready(Process((1,))) is False
+
+
+def test_parent_opens_capture_stream_before_tcpdump_drops_privileges(
+    tmp_path: Path, monkeypatch
+) -> None:
+    start_capture = getattr(namespace_probe, "_start_capture", None)
+    assert start_capture is not None, "capture stream must be opened by the parent"
+
+    observed = {}
+    process = object()
+
+    def popen(command, **kwargs):
+        observed["command"] = command
+        observed["stdout"] = kwargs["stdout"]
+        return process
+
+    monkeypatch.setattr(namespace_probe.subprocess, "Popen", popen)
+    pcap = tmp_path / "journey.pcap"
+    capture, stream = start_capture(pcap)
+    try:
+        assert capture is process
+        assert observed["command"][-2:] == ["-w", "-"]
+        assert observed["stdout"] is stream
+        assert pcap.is_file()
+    finally:
+        stream.close()
 
 
 def test_encoded_and_partial_canary_forms_are_detected() -> None:
