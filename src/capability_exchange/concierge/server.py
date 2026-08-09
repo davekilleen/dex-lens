@@ -22,26 +22,27 @@ from urllib.parse import parse_qs, urlparse
 
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
-from capability_exchange.capmap.render import render_capability_map
+from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
     CollectionResult,
 )
+from capability_exchange.concierge.journey import (
+    CollectionFallback,
+    ConciergeJourney,
+    ContractFields,
+    FallbackMode,
+    JobDraftFields,
+    JourneyError,
+    PermissionMetadata,
+)
 from capability_exchange.concierge.security import (
     SessionSecurity,
     ensure_loopback_bind_address,
 )
-from capability_exchange.diagnosis import assess
-from capability_exchange.jobs import (
-    CandidateJobProposal,
-    JobBoundaries,
-    JobCadence,
-    JobImportance,
-    SuccessContract,
-    propose_candidate_jobs,
-    to_inspection_job,
-)
+from capability_exchange.concierge.views import render_journey
+from capability_exchange.jobs import CandidateJobProposal, SuccessContract
 
 __all__ = ["ConciergeServer", "ConciergeSession", "new_session"]
 
@@ -58,7 +59,7 @@ class ConciergeSession:
     """One private local browser session."""
 
     approved_roots: tuple[Path, ...]
-    collector: Callable[[], AdapterResultEnvelope]
+    collector: Callable[..., AdapterResultEnvelope]
     now: Callable[[], datetime] = _utc_now
     bootstrap_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
@@ -73,10 +74,29 @@ class ConciergeSession:
     tempdir: tempfile.TemporaryDirectory[str] | None = None
     fallback: bool = False
     fallback_message: str = ""
+    journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _collection: CollectionController | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.tempdir is None:
+            self.tempdir = tempfile.TemporaryDirectory()
+        contract = claude_code_contract(tuple(str(root) for root in self.approved_roots))
+        permission = PermissionMetadata.from_contract(
+            contract,
+            approved_roots=self.approved_roots,
+            next_action=(
+                "Run one contained, read-only collection and review inferred job drafts"
+            ),
+            no_catalog=True,
+            offline_capable=True,
+        )
+        self.journey = ConciergeJourney(
+            permission=permission,
+            collector=self._collect_for_journey,
+            job_store=Path(self.tempdir.name) / "inspection-jobs",
+            now=self.now,
+        )
         self._security = SessionSecurity(
             bootstrap_token=self.bootstrap_token,
             session_token=self.session_token,
@@ -104,6 +124,7 @@ class ConciergeSession:
         """Erase all ephemeral session state after a terminal failure."""
 
         self.closed = True
+        self.journey.close()
         self.bootstrap_token = ""
         self.session_token = ""
         self.csrf_token = ""
@@ -124,6 +145,11 @@ class ConciergeSession:
         """Run the first read-only collection after explicit approval."""
         if self.closed or self.expired():
             raise ValueError("session is closed or expired")
+        self.journey.approve()
+        self._sync_journey()
+
+    def _collect_for_journey(self) -> AdapterResultEnvelope | CollectionFallback:
+        """Collect through R3 control and translate an honest fallback."""
         controller = CollectionController(self.approved_roots)
         self._collection = controller
         try:
@@ -145,47 +171,67 @@ class ConciergeSession:
             # CollectionController always wraps envelopes, but retaining this
             # guard protects callers that provide a compatible implementation.
             result = CollectionResult(envelope=result)
-        self.envelope = result.envelope
-        self.fallback = result.fallback
-        self.fallback_message = result.message
-        self.proposals = () if result.fallback else propose_candidate_jobs(self.envelope)
+        if result.fallback:
+            return CollectionFallback(mode=FallbackMode.GUIDED, reason=result.message)
+        return result.envelope
+
+    def _sync_journey(self) -> None:
+        self.envelope = self.journey.envelope
+        self.proposals = self.journey.proposals
+        self.contracts = self.journey.contracts
+        self.capability_map_markdown = self.journey.capability_map_markdown
+        self.fallback = self.journey.fallback is not None
+        self.fallback_message = (
+            "" if self.journey.fallback is None else self.journey.fallback.reason
+        )
 
     def confirm_jobs(self, job_ids: tuple[str, ...]) -> None:
-        """Confirm selected proposed jobs, then produce the read-only map."""
-        if self.envelope is None:
-            raise ValueError("collection must run before jobs can be confirmed")
-        by_id = {proposal.candidate_id: proposal for proposal in self.proposals}
-        if not job_ids:
-            raise ValueError("confirm at least one proposed job before diagnosis")
-        unknown = tuple(job_id for job_id in job_ids if job_id not in by_id)
-        if unknown:
-            raise ValueError("requested job id was not proposed in this session")
-
-        confirmed: list[SuccessContract] = []
-        for job_id in sorted(set(job_ids)):
-            draft = to_inspection_job(by_id[job_id], created_at=self.now())
-            confirmed.append(
-                SuccessContract(
-                    job_id=draft.job_id,
-                    situation=draft.situation,
-                    desired_outcome=draft.desired_outcome,
-                    success_evidence=(
-                        "the person confirmed this is the outcome to inspect",
-                    ),
-                    boundaries=JobBoundaries(
-                        privacy_limits=("stay inside the approved read-only scope",),
-                        approval_limits=("ask before any adaptation or contribution",),
-                        autonomy_limits=("do not change files or contact services",),
-                    ),
-                    importance=JobImportance.MEDIUM,
-                    cadence=JobCadence.IRREGULAR,
-                    confirmed_at=self.now(),
-                )
-            )
-        self.contracts = tuple(confirmed)
-        self.capability_map_markdown = render_capability_map(
-            assess(self.contracts, self.envelope, assessed_at=self.now())
+        """Refuse the obsolete checkbox shortcut; full fields are required."""
+        raise ValueError(
+            "each selected job needs a full Success Contract before diagnosis"
         )
+
+    def add_job(self, form: dict[str, list[str]]) -> None:
+        self.journey.add_job(
+            JobDraftFields(
+                job_id=_optional(form, "job_id"),
+                title=_required(form, "title"),
+                situation=_required(form, "situation"),
+                desired_outcome=_required(form, "desired_outcome"),
+            )
+        )
+        self._sync_journey()
+
+    def edit_job(self, form: dict[str, list[str]]) -> None:
+        self.journey.edit_job(
+            _required(form, "job_id"),
+            title=_required(form, "title"),
+            situation=_required(form, "situation"),
+            desired_outcome=_required(form, "desired_outcome"),
+        )
+        self._sync_journey()
+
+    def discard_job(self, form: dict[str, list[str]]) -> None:
+        self.journey.discard_job(_required(form, "job_id"))
+        self._sync_journey()
+
+    def confirm_job(self, form: dict[str, list[str]]) -> None:
+        self.journey.confirm_job(
+            _required(form, "job_id"),
+            ContractFields(
+                success_evidence=_form_lines(form, "success_evidence"),
+                privacy_limits=_form_lines(form, "privacy_limits"),
+                approval_limits=_form_lines(form, "approval_limits"),
+                autonomy_limits=_form_lines(form, "autonomy_limits"),
+                importance=_required(form, "importance"),
+                cadence=_required(form, "cadence"),
+            ),
+        )
+        self._sync_journey()
+
+    def diagnose(self) -> None:
+        self.journey.diagnose()
+        self._sync_journey()
 
     def _revalidate_scope(self) -> None:
         missing = tuple(path for path in self.approved_roots if not path.exists())
@@ -197,7 +243,7 @@ class ConciergeSession:
 def new_session(
     *,
     approved_roots: tuple[Path, ...],
-    collector: Callable[[], AdapterResultEnvelope],
+    collector: Callable[..., AdapterResultEnvelope],
     now: Callable[[], datetime] = _utc_now,
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
@@ -283,6 +329,25 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/confirm-jobs":
             self._confirm_jobs(form)
             return
+        if parsed.path == "/jobs/add":
+            self._journey_action(self.server.session.add_job, form)
+            return
+        if parsed.path == "/jobs/edit":
+            self._journey_action(self.server.session.edit_job, form)
+            return
+        if parsed.path == "/jobs/discard":
+            self._journey_action(self.server.session.discard_job, form)
+            return
+        if parsed.path == "/jobs/confirm":
+            self._journey_action(self.server.session.confirm_job, form)
+            return
+        if parsed.path == "/diagnose":
+            self._journey_action(lambda ignored: self.server.session.diagnose(), form)
+            return
+        if parsed.path == "/close":
+            self.server.session.terminate()
+            self._send_page(_render_session(self.server.session))
+            return
         self._not_found()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -320,6 +385,18 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         try:
             self.server.session.confirm_jobs(job_ids)
         except ValueError as exc:
+            self._bad_request(str(exc))
+            return
+        self._send_page(_render_session(self.server.session))
+
+    def _journey_action(
+        self,
+        action: Callable[[dict[str, list[str]]], None],
+        form: dict[str, list[str]],
+    ) -> None:
+        try:
+            action(form)
+        except (JourneyError, TypeError, ValueError) as exc:
             self._bad_request(str(exc))
             return
         self._send_page(_render_session(self.server.session))
@@ -461,71 +538,24 @@ def _page(title: str, main: str, session: ConciergeSession | None = None) -> str
 
 
 def _render_session(session: ConciergeSession) -> str:
-    if session.fallback:
-        return _page(
-            "Guided evidence only",
-            f"<h1>Guided evidence only</h1>"
-            f"<div class=\"panel\"><p>{html.escape(session.fallback_message)}</p>"
-            "<p>No direct inspection ran, so this session contains no Verified claims. "
-            "You can continue with guided or export-assisted evidence.</p></div>",
-            session,
-        )
-    if session.capability_map_markdown:
-        return _page(
-            "Capability Map",
-            f"<h1>Capability Map</h1><pre>{html.escape(session.capability_map_markdown)}</pre>",
-            session,
-        )
-    if session.envelope is not None:
-        proposals = "\n".join(
-            (
-                f"<label><input type=\"checkbox\" name=\"job_id\" "
-                f"value=\"{html.escape(proposal.candidate_id)}\" checked> "
-                f"{html.escape(proposal.title)}</label>"
-            )
-            for proposal in session.proposals
-        )
-        if not proposals:
-            proposals = "<p>No candidate jobs were inferred from the approved scope.</p>"
-        return _page(
-            "Confirm your Job Map",
-            f"""
-            <h1>Confirm your Job Map</h1>
-            <div class="panel">
-              <p>These are inferred suggestions. Keep only the jobs you want diagnosed.</p>
-              <form method="post" action="/confirm-jobs">
-                <input type="hidden" name="csrf_token" value="{html.escape(session.csrf_token)}">
-                {proposals}
-                <div class="actions">
-                  <button type="submit">Confirm selected jobs</button>
-                  <button class="secondary" formaction="/cancel">Cancel</button>
-                </div>
-              </form>
-            </div>
-            """,
-            session,
-        )
-    roots = "".join(f"<li>{html.escape(str(root))}</li>" for root in session.approved_roots)
-    return _page(
-        "Inspection permission",
-        f"""
-        <h1>Inspection permission</h1>
-        <div class="panel">
-          <p>Nothing has been scanned yet.</p>
-          <p>Dex Lens will inspect only these approved folders, read-only:</p>
-          <ul>{roots}</ul>
-          <p>It stays local, uses no analytics, and does not adapt or contribute anything.</p>
-          <form method="post" action="/approve">
-            <input type="hidden" name="csrf_token" value="{html.escape(session.csrf_token)}">
-            <div class="actions">
-              <button type="submit">Approve read-only inspection</button>
-              <button class="secondary" formaction="/decline">Decline and leave</button>
-            </div>
-          </form>
-        </div>
-        """,
-        session,
-    )
+    return render_journey(session.journey, session.csrf_token)
+
+
+def _required(form: dict[str, list[str]], name: str) -> str:
+    value = next(iter(form.get(name, ())), "").strip()
+    if not value:
+        raise ValueError(f"{name.replace('_', ' ')} is required")
+    return value
+
+
+def _optional(form: dict[str, list[str]], name: str) -> str | None:
+    value = next(iter(form.get(name, ())), "").strip()
+    return value or None
+
+
+def _form_lines(form: dict[str, list[str]], name: str) -> tuple[str, ...]:
+    value = next(iter(form.get(name, ())), "")
+    return tuple(line.strip() for line in value.splitlines() if line.strip())
 
 
 def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:

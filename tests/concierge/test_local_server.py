@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import http.client
+import inspect
 import tempfile
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlencode
+
+from tests.adapters.claude_code.fixture_helpers import tree_digests
 
 from capability_exchange.adapter import (
     AdapterResultEnvelope,
     InstrumentHealth,
     ProbeResult,
 )
+from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.concierge.server import ConciergeServer, new_session
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
@@ -50,14 +55,23 @@ def envelope() -> AdapterResultEnvelope:
 
 
 class RunningServer(AbstractContextManager["RunningServer"]):
-    def __init__(self, collector: Callable[[], AdapterResultEnvelope]) -> None:
+    def __init__(
+        self,
+        collector: Callable[..., AdapterResultEnvelope],
+        *,
+        approved_root: Path | None = None,
+    ) -> None:
         self.calls = 0
         self.tempdir = tempfile.TemporaryDirectory()
-        self.approved_root = Path(self.tempdir.name) / "approved"
-        self.approved_root.mkdir()
+        self.approved_root = approved_root or Path(self.tempdir.name) / "approved"
+        self.approved_root.mkdir(parents=True, exist_ok=True)
 
-        def counted_collector() -> AdapterResultEnvelope:
+        def counted_collector(
+            cancel_event: threading.Event | None = None,
+        ) -> AdapterResultEnvelope:
             self.calls += 1
+            if inspect.signature(collector).parameters:
+                return collector(cancel_event)
             return collector()
 
         self.session = new_session(
@@ -217,8 +231,89 @@ class TestStagesOneToSix:
                 "/confirm-jobs",
                 body="job_id=instruction-guided-work&job_id=recurring-skill-workflows",
             )
+            assert status == 400
+            assert "full Success Contract" in body
+            assert "Capability Map" not in body
+
+    def test_full_success_contract_confirmation_precedes_diagnosis(self) -> None:
+        with RunningServer(envelope) as running:
+            running.bootstrap()
+            status, _, body = running.post("/approve")
+            assert status == 200
+            assert 'action="/jobs/confirm"' in body
+            assert 'action="/diagnose"' not in body
+            assert "Capability Map" not in body
+
+            status, _, body = running.post(
+                "/jobs/confirm",
+                body=urlencode(
+                    {
+                        "job_id": "instruction-guided-work",
+                        "success_evidence": "instruction-guided output is ready",
+                        "privacy_limits": "stay in the approved scope",
+                        "approval_limits": "ask before any external action",
+                        "autonomy_limits": "do not change files",
+                        "importance": "medium",
+                        "cadence": "weekly",
+                    }
+                ),
+            )
+            assert status == 200
+            assert "Capability Map" not in body
+            assert 'action="/diagnose"' not in body
+            assert "instruction-guided-work" not in running.session.journey.job_ids
+
+            status, _, body = running.post(
+                "/jobs/discard",
+                body=urlencode({"job_id": "recurring-skill-workflows"}),
+            )
+            assert status == 200
+            assert "recurring-skill-workflows" not in running.session.journey.job_ids
+            assert 'action="/diagnose"' in body
+
+            status, _, body = running.post("/diagnose")
             assert status == 200
             assert "Capability Map" in body
             assert "Your job: instruction-guided-work" in body
-            assert "62%" not in body
             assert "overall score" not in body.lower()
+
+    def test_real_contained_full_journey_writes_nothing_to_approved_root(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "claude-system"
+        root.mkdir()
+        (root / "CLAUDE.md").write_text(
+            "Use the saved instructions for the weekly review.", encoding="utf-8"
+        )
+        before = tree_digests(root)
+
+        def collect(cancel_event: threading.Event) -> AdapterResultEnvelope:
+            return contained_inspection(
+                [str(root)], cancel_event=cancel_event
+            ).envelope
+
+        with RunningServer(collect, approved_root=root) as running:
+            running.bootstrap()
+            status, _, body = running.post("/approve")
+            assert status == 200
+            assert "instruction-guided-work" in body
+            status, _, _ = running.post(
+                "/jobs/confirm",
+                body=urlencode(
+                    {
+                        "job_id": "instruction-guided-work",
+                        "success_evidence": "weekly review follows the instructions",
+                        "privacy_limits": "stay inside the approved root",
+                        "approval_limits": "ask before external action",
+                        "autonomy_limits": "do not change files",
+                        "importance": "medium",
+                        "cadence": "weekly",
+                    }
+                ),
+            )
+            assert status == 200
+            status, _, body = running.post("/diagnose")
+            assert status == 200
+            assert "Capability Map" in body
+
+        assert tree_digests(root) == before

@@ -1,6 +1,6 @@
 # Dex Lens — build status and what's outstanding
 
-Last updated: 2026-08-08. Plain-language companion to `docs/handoff/HANDOFF.md`
+Last updated: 2026-08-09. Plain-language companion to `docs/handoff/HANDOFF.md`
 (the binding plan) and `docs/handoff/sources/gates.md` (the testable gates).
 
 The plan has six milestones, M1–M6. Here's where each stands.
@@ -14,7 +14,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
   `Inspection` state, the high-impact job taxonomy, the diagnosis engine, and
   the jobs-first Capability Map rendering).
 
-887 tests pass on Linux; the full suite is green there.
+925 tests pass on Linux; the full suite is green there.
 
 ## The two loose ends before M1/M2 can be called truly closed
 
@@ -34,13 +34,26 @@ The plan has six milestones, M1–M6. Here's where each stands.
    skips on CI too, we need a privileged container leg or a `sudo mount` step,
    or the G1 bind-mount gate stays formally unproven.
 
-## Not started — the remaining product
+## Implemented on the M3 launch branch — awaiting PR/CI proof
 
-3. **M3 — the local browser concierge.** The one trusted command that opens a
-   private, loopback-only page and walks the person through stages 1–6
-   (permission → collection → confirm jobs → diagnosis → Capability Map). This
-   is the first thing a real person would actually *see and use*. Includes the
-   session-security hardening (R3) and the offline guarantee.
+3. **M3 — the local browser concierge.** The source alpha now has the trusted
+   `dex-lens` doorway; fail-closed loopback session security; cancellable,
+   scope-revalidated collection; honest guided fallback; editable/addable/
+   discardable Job Map drafts; full Success Contract confirmation; diagnosis;
+   and jobs-first Capability Map rendering. The clean wheel/entry point, a real
+   contained end-to-end journey with zero inspected-root writes, canary-leak
+   checks, and completion with external connections refused are covered by
+   tests on the branch.
+
+   **Not formally closed yet:** the integrated branch still needs the full
+   Ubuntu/macOS Python 3.11/3.12 CI matrix, and the binding M3 bar asks for an
+   interfaces-disabled plus packet/DNS capture run. The current Linux proof
+   combines OS-enforced socket denial in the collection child with a parent
+   process test that refuses every non-loopback connection; it is strong but
+   not the same artifact as host packet capture. Until those proofs exist, call
+   this a read-only source alpha, not a completed M3 release.
+
+## Not started — later product milestones
 
 4. **M4 — the adaptation engine.** The transactional "make one change, with
    exact preview, proven undo, and a receipt" layer, gated behind all six
@@ -57,7 +70,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 ## Rough shape of remaining effort
 
-M3 is the biggest single lift and the most valuable (first usable surface).
+M3 is the first usable surface and is now in integration review.
 M4 is the most safety-critical. M5 and M6 depend on decisions in
 `DAVE-DECISIONS.md` (moderation host, pilot recruits, consent review) more
 than on code. The two M1 loose ends are small but one needs Dave's call.

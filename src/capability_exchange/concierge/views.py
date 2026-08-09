@@ -100,7 +100,8 @@ def render_permission(metadata: PermissionMetadata, csrf_token: str) -> str:
     body = f"""
       <h1>Inspection permission</h1>
       <div class="panel">
-        <p><strong>Nothing has been read yet.</strong> This screen is shown before
+        <p><strong>Nothing has been scanned yet. Nothing has been read yet.</strong>
+        This screen is shown before
         the adapter can inspect anything.</p>
         <h2>Adapter</h2>
         <p>{_escape(metadata.adapter_id)} · version {_escape(metadata.adapter_version)}</p>
@@ -177,9 +178,18 @@ def _job_form(job: InspectionJob, csrf_token: str) -> str:
 def render_job_map(jobs: Iterable[InspectionJob], csrf_token: str) -> str:
     """Render editable inferred/manual drafts with full confirmation fields."""
 
-    rendered = "".join(_job_form(job, csrf_token) for job in jobs)
+    drafts = tuple(jobs)
+    rendered = "".join(_job_form(job, csrf_token) for job in drafts)
     if not rendered:
         rendered = '<p class="muted">No draft jobs remain. Add a job or leave this session.</p>'
+    diagnose = ""
+    if not drafts:
+        diagnose = f"""
+          <form method="post" action="/diagnose">
+            {_csrf(csrf_token)}
+            <button type="submit">Run read-only diagnosis</button>
+          </form>
+        """
     body = f"""
       <h1>Confirm your Job Map</h1>
       <p>These are suggestions for you to review. Edit, add, discard, or confirm
@@ -201,6 +211,7 @@ def render_job_map(jobs: Iterable[InspectionJob], csrf_token: str) -> str:
         {_csrf(csrf_token)}
         <button class="secondary" type="submit">Close and delete local drafts</button>
       </form>
+      {diagnose}
     """
     return _document("Confirm your Job Map", body)
 
