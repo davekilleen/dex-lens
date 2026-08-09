@@ -140,6 +140,7 @@ def test_parent_opens_capture_stream_before_tcpdump_drops_privileges(
     capture, stream = start_capture(pcap)
     try:
         assert capture is process
+        assert observed["command"][-4:-2] == ["-Z", "root"]
         assert observed["command"][-2:] == ["-w", "-"]
         assert observed["stdout"] is stream
         assert pcap.is_file()

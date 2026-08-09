@@ -190,7 +190,19 @@ def _start_capture(pcap: Path) -> tuple[subprocess.Popen[str], BinaryIO]:
     tcpdump = shutil.which("tcpdump") or "tcpdump"
     try:
         process = subprocess.Popen(
-            [tcpdump, "-i", "any", "-nn", "-U", "-s", "0", "-w", "-"],
+            [
+                tcpdump,
+                "-i",
+                "any",
+                "-nn",
+                "-U",
+                "-s",
+                "0",
+                "-Z",
+                "root",
+                "-w",
+                "-",
+            ],
             stdout=stream,
             stderr=subprocess.PIPE,
             text=True,
