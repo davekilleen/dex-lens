@@ -759,7 +759,7 @@ class ConciergeJourney:
                     FallbackEvidence(
                         label=label,
                         level=level,
-                        reference=reference,
+                        reference=reference or None,
                         detail=detail,
                     )
                 )

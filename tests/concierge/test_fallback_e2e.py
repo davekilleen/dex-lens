@@ -142,6 +142,18 @@ def test_fallback_rejects_raw_or_unbounded_import_without_losing_previous_items(
     assert len(journey.fallback.evidence) == 1  # type: ignore[union-attr]
 
 
+def test_unknown_import_may_omit_a_source_reference(tmp_path: Path) -> None:
+    journey = ConciergeJourney(
+        permission=_permission(),
+        collector=_fallback,
+        job_store=InspectionJobStore(tmp_path / "jobs"),
+        now=lambda: NOW,
+    )
+    journey.approve()
+    imported = journey.import_fallback_evidence("missing|unknown||not supplied")
+    assert imported[0].level is EvidenceLevel.UNKNOWN
+
+
 def test_http_fallback_reaches_capability_map_without_root_write_or_verified_label(
     tmp_path: Path,
 ) -> None:
