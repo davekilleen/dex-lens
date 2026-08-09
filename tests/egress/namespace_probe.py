@@ -44,7 +44,14 @@ class _Proxy(socketserver.BaseRequestHandler):
 
 
 def _tcpdump_lines(pcap: Path, expression: str | None = None) -> list[str]:
-    command = [shutil.which("tcpdump") or "tcpdump", "-nn", "-r", str(pcap)]
+    command = [
+        shutil.which("tcpdump") or "tcpdump",
+        "-Z",
+        "root",
+        "-nn",
+        "-r",
+        str(pcap),
+    ]
     if expression:
         command.extend(shlex.split(expression))
     result = subprocess.run(
@@ -54,7 +61,7 @@ def _tcpdump_lines(pcap: Path, expression: str | None = None) -> list[str]:
         check=False,
         timeout=20,
     )
-    if result.returncode not in (0, 1):
+    if result.returncode != 0:
         raise RuntimeError("tcpdump could not read the capture")
     return [
         line

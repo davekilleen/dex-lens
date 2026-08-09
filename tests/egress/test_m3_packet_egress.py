@@ -18,6 +18,7 @@ from tests.egress.namespace_probe import (
     _capture_ready,
     _leak_markers,
     _packet_endpoints,
+    _tcpdump_lines,
 )
 from tests.egress.network_harness import (
     assert_evidence,
@@ -103,6 +104,24 @@ def test_packet_parser_covers_ipv4_ipv6_and_fails_unknown_lines() -> None:
     )
     assert endpoints == [("127.0.0.1", "127.0.0.1"), ("::1", "::1")]
     assert unparsed == ["unparsed-packet"]
+
+
+def test_tcpdump_readback_uses_the_minimized_container_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    observed = {}
+
+    class Result:
+        returncode = 0
+        stdout = "lo In IP 127.0.0.1.123 > 127.0.0.1.456: Flags [S]\n"
+
+    def run(command, **_kwargs):
+        observed["command"] = command
+        return Result()
+
+    monkeypatch.setattr(namespace_probe.subprocess, "run", run)
+    assert _tcpdump_lines(tmp_path / "journey.pcap") == Result.stdout.splitlines()
+    assert ["-Z", "root"] == observed["command"][1:3]
 
 
 def test_capture_readiness_requires_a_live_process_through_startup(monkeypatch) -> None:
