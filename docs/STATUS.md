@@ -34,7 +34,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
    skips on CI too, we need a privileged container leg or a `sudo mount` step,
    or the G1 bind-mount gate stays formally unproven.
 
-## Implemented on the M3 launch branch — awaiting PR/CI proof
+## Implemented and CI-verified in draft PR #4
 
 3. **M3 — the local browser concierge.** The source alpha now has the trusted
    `dex-lens` doorway; fail-closed loopback session security; cancellable,
@@ -47,9 +47,9 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
    **Not formally closed yet:** the source alpha does not yet implement the
    guided/export-assisted diagnosis path for a host where containment is
-   unavailable. The integrated branch also still needs the full Ubuntu/macOS
-   Python 3.11/3.12 CI matrix, and the binding M3 bar asks for an
-   interfaces-disabled plus packet/DNS capture run. The current Linux proof
+   unavailable. The full Ubuntu/macOS Python 3.11/3.12 CI matrix is green.
+   The binding M3 bar still asks for an interfaces-disabled plus packet/DNS
+   capture run. The current Linux proof
    combines OS-enforced socket denial in the collection child with a parent
    process test that refuses every non-loopback connection; it is strong but
    not the same artifact as host packet capture. Until those proofs exist, call
@@ -75,7 +75,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 ## Rough shape of remaining effort
 
-M3 is the first usable surface and is now in integration review.
+M3 is the first usable surface and is now in draft PR review.
 M4 is the most safety-critical. M5 and M6 depend on decisions in
 `DAVE-DECISIONS.md` (moderation host, pilot recruits, consent review) more
 than on code. The two M1 loose ends are small but one needs Dave's call.
