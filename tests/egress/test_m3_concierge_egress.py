@@ -42,6 +42,10 @@ def test_full_read_only_journey_has_only_loopback_parent_traffic_and_no_leak(
         status, _, body = running.post("/approve")
         assert status == 200
         pages.append(body)
+        running.wait_for_collection()
+        status, _, body = running.request("GET", "/session")
+        assert status == 200
+        pages.append(body)
         for job_id in running.session.journey.job_ids:
             status, _, body = running.post(
                 "/jobs/confirm",

@@ -184,6 +184,23 @@ class TestJobMapPersistence:
         journey.discard_job(manual.job_id)
         assert manual.job_id not in journey.job_ids
 
+    def test_manual_id_collision_refuses_without_overwriting(self, tmp_path: Path) -> None:
+        journey = _journey(tmp_path)
+        journey.approve()
+        original = journey.job_store.load("instruction-guided-work")
+
+        with pytest.raises(JourneyStateError, match="already exists"):
+            journey.add_job(
+                JobDraftFields(
+                    job_id="instruction-guided-work",
+                    title="Replacement",
+                    situation="A conflicting request",
+                    desired_outcome="The old draft would be lost",
+                )
+            )
+
+        assert journey.job_store.load("instruction-guided-work") == original
+
     def test_job_map_view_has_csrf_on_local_forms_and_escapes_text(self, tmp_path: Path) -> None:
         journey = _journey(tmp_path)
         journey.approve()

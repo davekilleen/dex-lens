@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import tempfile
 import threading
+import time
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,7 +17,11 @@ from capability_exchange.concierge.security import (
     SessionSecurity,
     ensure_loopback_bind_address,
 )
-from capability_exchange.concierge.server import ConciergeServer, new_session
+from capability_exchange.concierge.server import (
+    ConciergeServer,
+    ConciergeSession,
+    new_session,
+)
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 
@@ -126,6 +131,80 @@ def test_security_failures_terminate_and_discard() -> None:
     assert security.bootstrap_token == ""
     assert security.session_token == ""
     assert security.csrf_token == ""
+
+
+def test_session_expiry_automatically_discards_state(tmp_path: Path) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+    session = ConciergeSession(
+        approved_roots=(root,),
+        collector=_envelope,
+        expires_at=datetime.now(UTC) + timedelta(milliseconds=40),
+    )
+    state_dir = Path(session.tempdir.name)  # type: ignore[union-attr]
+
+    deadline = time.monotonic() + 2
+    while not session.closed and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert session.closed
+    assert session.tempdir is None
+    assert not state_dir.exists()
+
+
+def test_session_state_is_allocated_outside_even_a_temp_root() -> None:
+    approved = Path(tempfile.gettempdir()).resolve()
+    session = new_session(approved_roots=(approved,), collector=_envelope)
+    try:
+        state_dir = Path(session.tempdir.name).resolve()  # type: ignore[union-attr]
+        assert not state_dir.is_relative_to(approved)
+    finally:
+        session.terminate()
+
+
+def test_replaced_root_is_refused_before_the_first_read(tmp_path: Path) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+    calls = 0
+
+    def collector() -> AdapterResultEnvelope:
+        nonlocal calls
+        calls += 1
+        return _envelope()
+
+    session = new_session(approved_roots=(root,), collector=collector)
+    root.rename(tmp_path / "old-scope")
+    root.mkdir()
+
+    with pytest.raises(ValueError, match="scope"):
+        session.approve_scope_and_collect()
+
+    assert session.closed
+    assert calls == 0
+
+
+def test_root_replaced_after_approval_transition_is_still_never_read(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+    calls = 0
+
+    def collector() -> AdapterResultEnvelope:
+        nonlocal calls
+        calls += 1
+        return _envelope()
+
+    session = new_session(approved_roots=(root,), collector=collector)
+    session._begin_collection()
+    root.rename(tmp_path / "consented-scope")
+    root.mkdir()
+
+    with pytest.raises(ValueError, match="scope"):
+        session._finish_collection()
+
+    assert session.closed
+    assert calls == 0
 
 
 def test_security_headers_and_hostile_deep_link_terminate() -> None:

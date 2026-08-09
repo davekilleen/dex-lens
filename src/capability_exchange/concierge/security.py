@@ -1,4 +1,4 @@
-"""Fail-closed security primitives for the local browser concierge.
+"""Fail-closed security helpers for the local browser concierge.
 
 The concierge is deliberately a tiny HTTP server, but a browser can still
 reach it from a hostile local page.  This module keeps the security decisions

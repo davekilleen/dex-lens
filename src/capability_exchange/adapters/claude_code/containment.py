@@ -64,9 +64,9 @@ __all__ = [
 #: The honest fallback reported whenever the deep adapter disables itself.
 GUIDED_FALLBACK_MESSAGE = (
     "OS-level containment could not be established on this host, so the "
-    "deep adapter is disabled here and nothing was read. Diagnosis is still "
-    "available through guided, export-assisted evidence collection — "
-    "honestly marked Supported/Reported/Unknown, never Verified."
+    "deep adapter is disabled here and nothing was read. This source alpha "
+    "cannot diagnose on this host; its future guided, export-assisted path "
+    "will label evidence Supported/Reported/Unknown, never Verified."
 )
 
 _MACOS_PROFILE_PATH = Path(__file__).resolve().parent / "profiles" / "claude_code_containment.sb"
@@ -228,23 +228,47 @@ def _launch_contained_child(
             # ``Popen.communicate`` otherwise tries to flush the closed pipe
             # when collecting output after a cancellation/timeout.
             process.stdin = None
+            output: list[tuple[bytes, bytes]] = []
+            output_error: list[BaseException] = []
+
+            def drain_output() -> None:
+                try:
+                    output.append(process.communicate())
+                except BaseException as exc:
+                    output_error.append(exc)
+
+            drainer = threading.Thread(
+                target=drain_output,
+                name="dex-lens-contained-output",
+                daemon=True,
+            )
+            drainer.start()
             deadline = time.monotonic() + request.timeout_seconds
-            while process.poll() is None:
+            while drainer.is_alive():
+                drainer.join(timeout=0.05)
+                if not drainer.is_alive():
+                    break
                 if cancel_event.wait(0.05):
                     process.kill()
-                    process.communicate()
+                    drainer.join(timeout=5)
                     raise CollectionFailedError(
                         "contained collection cancelled and child was killed; "
                         "partial collection died with the child process"
                     )
                 if time.monotonic() >= deadline:
                     process.kill()
-                    process.communicate()
+                    drainer.join(timeout=5)
                     raise CollectionFailedError(
                         "contained collection timed out and was killed; partial "
                         "collection died with the child process"
                     )
-            stdout, stderr = process.communicate()
+            if output_error:
+                raise output_error[0]
+            if not output:
+                raise CollectionFailedError(
+                    "contained collection ended without readable output"
+                )
+            stdout, stderr = output[0]
             completed = subprocess.CompletedProcess(
                 argv, process.returncode, stdout, stderr
             )

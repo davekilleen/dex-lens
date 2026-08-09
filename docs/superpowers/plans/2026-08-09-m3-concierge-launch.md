@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the stdlib-only loopback transport small. Move journey state and rendering into focused modules, reuse the existing `InspectionJobStore` and diagnosis engine, and isolate request-security/cancellation machinery from product flow. Three workers build non-overlapping slices in separate Treehouse worktrees; the coordinator integrates them in `server.py`, runs adversarial review, and owns the final release evidence.
 
-**Tech Stack:** Python 3.11+, stdlib HTTP server and subprocess/threading primitives, Pydantic domain models, pytest + Hypothesis, Ruff, GitHub Actions on Ubuntu and macOS.
+**Tech Stack:** Python 3.11+, stdlib HTTP server and subprocess/threading helpers, Pydantic domain models, pytest + Hypothesis, Ruff, GitHub Actions on Ubuntu and macOS.
 
 ---
 

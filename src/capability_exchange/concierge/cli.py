@@ -39,19 +39,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     session = session_for_roots(roots)
-    server = start_server(session)
-    url = f"http://127.0.0.1:{server.server_port}/?token={session.bootstrap_token}"
-    print(url, flush=True)
-    if not args.no_open:
-        webbrowser.open(url)
+    server = None
     exit_code = 0
     try:
+        server = start_server(session)
+        url = f"http://127.0.0.1:{server.server_port}/?token={session.bootstrap_token}"
+        print(url, flush=True)
+        if not args.no_open:
+            webbrowser.open(url)
         server.serve_forever()
     except KeyboardInterrupt:
         exit_code = 130
     finally:
         session.terminate()
-        server.server_close()
+        wait_for_stop = getattr(session, "wait_for_collection_stop", None)
+        if callable(wait_for_stop):
+            wait_for_stop()
+        if server is not None:
+            server.server_close()
     return exit_code
 
 

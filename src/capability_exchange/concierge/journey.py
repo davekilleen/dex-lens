@@ -467,22 +467,29 @@ class ConciergeJourney:
         explicit transition can move a journey beyond the unscanned screen.
         """
 
-        self._require(ConciergeStage.PERMISSION)
-        self.stage = ConciergeStage.COLLECTING
+        self.begin_collection()
         try:
             result = self._collector()
         except Exception:
-            # Collection failures are not diagnosis failures and must not leak
-            # a partial result.  The fallback tells the person what happened
-            # without exposing exception text or pretending to have inspected.
-            self.envelope = None
-            self.proposals = ()
-            self.fallback = CollectionFallback(
-                mode=FallbackMode.GUIDED,
-                reason="The deep adapter could not complete a contained read.",
-            )
-            self.stage = ConciergeStage.FALLBACK
-            return self.fallback
+            # A collector that can safely continue without direct evidence
+            # returns an explicit CollectionFallback. Exceptions are terminal:
+            # cancellation, scope drift, or an unexpected adapter failure must
+            # never be turned into a resumable state by this layer.
+            self.close()
+            raise
+
+        return self.complete_collection(result)
+
+    def begin_collection(self) -> None:
+        """Enter collection synchronously before work moves off-thread."""
+
+        self._require(ConciergeStage.PERMISSION)
+        self.stage = ConciergeStage.COLLECTING
+
+    def complete_collection(self, result: CollectionResult) -> CollectionResult:
+        """Publish one completed result while the session owns its state lock."""
+
+        self._require(ConciergeStage.COLLECTING)
 
         if isinstance(result, CollectionFallback):
             self.envelope = None
@@ -517,6 +524,8 @@ class ConciergeJourney:
             fields = JobDraftFields(**kwargs)
         job_id = fields.job_id or _slug(fields.title)
         existing = set(self.job_store.job_ids()) | set(self._confirmed)
+        if fields.job_id is not None and job_id in existing:
+            raise JourneyStateError("a job with that id already exists in this session")
         if fields.job_id is None:
             suffix = 1
             candidate = job_id
@@ -651,15 +660,19 @@ class ConciergeJourney:
         # The registered deletion path applies the same verified unlink
         # discipline as the underlying store.  Confirmed drafts are already
         # gone; unconfirmed drafts are removed here at every exit.
-        delete_inspection_jobs(self.job_store.directory)
-        self.envelope = None
-        self.fallback = None
-        self.proposals = ()
-        self._confirmed.clear()
-        self._selected.clear()
-        self.capability_map = None
-        self.capability_map_markdown = ""
-        self.stage = ConciergeStage.CLOSED
+        try:
+            delete_inspection_jobs(self.job_store.directory)
+        finally:
+            # Terminal in-memory state is unconditional even when byte-level
+            # deletion reports an incident to the owning session.
+            self.envelope = None
+            self.fallback = None
+            self.proposals = ()
+            self._confirmed.clear()
+            self._selected.clear()
+            self.capability_map = None
+            self.capability_map_markdown = ""
+            self.stage = ConciergeStage.CLOSED
 
     def decline(self) -> None:
         """Alias used by the permission screen's leave action."""

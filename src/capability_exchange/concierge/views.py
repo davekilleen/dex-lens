@@ -27,6 +27,7 @@ from capability_exchange.jobs import InspectionJob
 __all__ = [
     "render_capability_map",
     "render_capability_map_view",
+    "render_collecting",
     "render_fallback",
     "render_fallback_view",
     "render_job_map",
@@ -166,9 +167,6 @@ def _job_form(job: InspectionJob, csrf_token: str) -> str:
             <option value="weekly" selected>Weekly</option><option value="monthly">Monthly</option>
             <option value="irregular">Irregular</option>
           </select></label>
-          <label>Confirmation time (optional)
-            <input name="confirmed_at" type="datetime-local">
-          </label>
           <div class="actions"><button type="submit">Confirm this job</button></div>
         </form>
       </div>
@@ -245,6 +243,8 @@ def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
         <p>{_escape(fallback.reason)}</p>
         <p>This path does not claim direct inspection. Evidence is labelled
         Supported, Reported, or Unknown according to what you supplied.</p>
+        <p>The guided/export-assisted diagnosis flow is not included in this
+        source alpha, so this session cannot continue to a Capability Map.</p>
         <ul>{evidence}</ul>
         <form method="post" action="/close">
           {_csrf(csrf_token)}
@@ -253,6 +253,29 @@ def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
       </div>
     """
     return _document(f"{mode.title()} evidence", body)
+
+
+def render_collecting(csrf_token: str) -> str:
+    """Keep cancellation available while the contained child is reading."""
+
+    body = f"""
+      <h1>Read-only inspection in progress</h1>
+      <div class="panel">
+        <p>Dex Lens is reading only the approved scope in its contained process.
+        You can stop it now; stopping kills the contained collection and discards
+        every partial result.</p>
+        <div class="actions">
+          <form method="get" action="/session">
+            <button class="secondary" type="submit">Check progress</button>
+          </form>
+          <form method="post" action="/cancel">
+            {_csrf(csrf_token)}
+            <button type="submit">Cancel inspection</button>
+          </form>
+        </div>
+      </div>
+    """
+    return _document("Inspection in progress", body)
 
 
 def render_capability_map(capability_map: CapabilityMap, csrf_token: str) -> str:
@@ -275,12 +298,13 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
 
     if journey.stage is ConciergeStage.PERMISSION:
         return render_permission(journey.permission, csrf_token=csrf_token)
+    if journey.stage is ConciergeStage.COLLECTING:
+        return render_collecting(csrf_token=csrf_token)
     if journey.stage is ConciergeStage.FALLBACK and journey.fallback is not None:
         return render_fallback(journey.fallback, csrf_token=csrf_token)
     if journey.stage is ConciergeStage.CAPABILITY_MAP and journey.capability_map is not None:
         return render_capability_map(journey.capability_map, csrf_token=csrf_token)
     if journey.stage in {
-        ConciergeStage.COLLECTING,
         ConciergeStage.JOB_MAP,
         ConciergeStage.DIAGNOSIS,
     }:

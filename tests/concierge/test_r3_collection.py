@@ -67,6 +67,59 @@ def test_scope_snapshot_rejects_changes_before_publication(tmp_path: Path) -> No
         controller.result()
 
 
+def test_empty_scope_override_never_reuses_the_original_roots(tmp_path: Path) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+    controller = CollectionController((root,))
+
+    with pytest.raises(ValueError, match="empty"):
+        controller.collect(lambda: _envelope(), approved_roots=())
+
+
+def test_scope_shrink_stops_the_next_read_batch(tmp_path: Path) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+    live_roots = [root]
+    controller = CollectionController(
+        (root,), scope_provider=lambda: tuple(live_roots)
+    )
+    started = threading.Event()
+    stopped = threading.Event()
+    reads: list[int] = []
+    failures: list[BaseException] = []
+
+    def collector(cancel_event: threading.Event) -> AdapterResultEnvelope:
+        started.set()
+        try:
+            while not cancel_event.wait(0.005):
+                reads.append(len(reads))
+        finally:
+            stopped.set()
+        raise CollectionCancelled("scope shrink stopped reads")
+
+    def run() -> None:
+        try:
+            controller.collect(collector)
+        except BaseException as exc:
+            failures.append(exc)
+
+    owner = threading.Thread(target=run)
+    owner.start()
+    assert started.wait(timeout=2)
+    live_roots.clear()
+    owner.join(timeout=2)
+
+    assert not owner.is_alive()
+    assert stopped.is_set()
+    reads_at_stop = len(reads)
+    time.sleep(0.03)
+    assert len(reads) == reads_at_stop
+    assert failures
+    assert isinstance(failures[0], (CollectionCancelled, ValueError))
+    with pytest.raises((CollectionCancelled, ValueError)):
+        controller.result()
+
+
 def test_cancellation_discards_partial_result_and_marks_cancelled(tmp_path: Path) -> None:
     root = tmp_path / "scope"
     root.mkdir()

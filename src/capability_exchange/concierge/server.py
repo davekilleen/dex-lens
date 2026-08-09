@@ -23,10 +23,12 @@ from urllib.parse import parse_qs, urlparse
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
+from capability_exchange.boundary.deletion import DeletionError
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
     CollectionResult,
+    ScopeSnapshot,
 )
 from capability_exchange.concierge.journey import (
     CollectionFallback,
@@ -42,16 +44,57 @@ from capability_exchange.concierge.security import (
     ensure_loopback_bind_address,
 )
 from capability_exchange.concierge.views import render_journey
-from capability_exchange.jobs import CandidateJobProposal, SuccessContract
+from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
 
 __all__ = ["ConciergeServer", "ConciergeSession", "new_session"]
 
 SESSION_COOKIE = "dex_lens_session"
 SESSION_TTL = timedelta(minutes=30)
+MAX_FORM_BYTES = 64 * 1024
+MAX_FORM_FIELDS = 64
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _require_tempdir_outside_scope(
+    tempdir: Path, approved_roots: tuple[Path, ...]
+) -> None:
+    resolved_tempdir = tempdir.resolve(strict=True)
+    for root in approved_roots:
+        resolved_root = root.resolve(strict=True)
+        if resolved_tempdir == resolved_root or resolved_tempdir.is_relative_to(
+            resolved_root
+        ):
+            raise ValueError("session state directory overlaps the approved read scope")
+
+
+def _private_tempdir_outside(
+    approved_roots: tuple[Path, ...],
+) -> tempfile.TemporaryDirectory[str]:
+    """Create private session state where it cannot mutate inspected scope."""
+
+    candidates = (Path(tempfile.gettempdir()), Path("/var/tmp"), Path("/dev/shm"))
+    attempted: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved in attempted or not resolved.is_dir():
+            continue
+        attempted.add(resolved)
+        try:
+            tempdir = tempfile.TemporaryDirectory(prefix="dex-lens-", dir=resolved)
+            _require_tempdir_outside_scope(Path(tempdir.name), approved_roots)
+        except (OSError, ValueError):
+            if "tempdir" in locals():
+                tempdir.cleanup()
+                del tempdir
+            continue
+        return tempdir
+    raise ValueError("no private session directory exists outside the approved scope")
 
 
 @dataclass
@@ -74,13 +117,22 @@ class ConciergeSession:
     tempdir: tempfile.TemporaryDirectory[str] | None = None
     fallback: bool = False
     fallback_message: str = ""
+    cleanup_error: str = ""
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
+    _consent_scope: ScopeSnapshot = field(init=False, repr=False)
     _collection: CollectionController | None = field(default=None, init=False, repr=False)
+    _collection_thread: threading.Thread | None = field(default=None, init=False, repr=False)
+    _expiry_timer: threading.Timer | None = field(default=None, init=False, repr=False)
+    _state_lock: threading.RLock = field(
+        default_factory=threading.RLock, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
+        self._consent_scope = ScopeSnapshot.capture(self.approved_roots)
         if self.tempdir is None:
-            self.tempdir = tempfile.TemporaryDirectory()
+            self.tempdir = _private_tempdir_outside(self.approved_roots)
+        _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
         contract = claude_code_contract(tuple(str(root) for root in self.approved_roots))
         permission = PermissionMetadata.from_contract(
             contract,
@@ -107,6 +159,10 @@ class ConciergeSession:
             closed=self.closed,
             on_terminate=self._discard,
         )
+        delay = max(0.0, (self.expires_at - self.now()).total_seconds())
+        self._expiry_timer = threading.Timer(delay, self.terminate_and_wait)
+        self._expiry_timer.daemon = True
+        self._expiry_timer.start()
 
     @property
     def security(self) -> SessionSecurity:
@@ -120,59 +176,152 @@ class ConciergeSession:
     def terminate(self) -> None:
         self._security.terminate()
 
+    def wait_for_collection_stop(self, timeout: float = 1.0) -> bool:
+        thread = self._collection_thread
+        if thread is None or thread is threading.current_thread():
+            return True
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
+
+    def terminate_and_wait(self) -> bool:
+        """Close state, then prove the process-backed collector has stopped."""
+
+        self.terminate()
+        return self.wait_for_collection_stop()
+
     def _discard(self) -> None:
         """Erase all ephemeral session state after a terminal failure."""
 
-        self.closed = True
-        self.journey.close()
-        self.bootstrap_token = ""
-        self.session_token = ""
-        self.csrf_token = ""
-        self.envelope = None
-        self.proposals = ()
-        self.contracts = ()
-        self.capability_map_markdown = ""
-        self.fallback = False
-        self.fallback_message = ""
-        collection = self._collection
-        if collection is not None:
-            collection.cancel()
-        if self.tempdir is not None:
-            self.tempdir.cleanup()
-            self.tempdir = None
+        with self._state_lock:
+            self.closed = True
+            collection = self._collection
+            if collection is not None:
+                collection.cancel()
+            try:
+                self.journey.close()
+            except DeletionError:
+                self.cleanup_error = (
+                    "local draft deletion could not be verified; session is closed"
+                )
+            self.bootstrap_token = ""
+            self.session_token = ""
+            self.csrf_token = ""
+            self.envelope = None
+            self.proposals = ()
+            self.contracts = ()
+            self.capability_map_markdown = ""
+            self.fallback = False
+            self.fallback_message = ""
+            if self.tempdir is not None:
+                try:
+                    self.tempdir.cleanup()
+                except OSError:
+                    self.cleanup_error = (
+                        "local session cleanup could not be verified; session is closed"
+                    )
+                self.tempdir = None
+            timer = self._expiry_timer
+            if timer is not None:
+                timer.cancel()
+                self._expiry_timer = None
 
     def approve_scope_and_collect(self) -> None:
         """Run the first read-only collection after explicit approval."""
-        if self.closed or self.expired():
-            raise ValueError("session is closed or expired")
-        self.journey.approve()
-        self._sync_journey()
+        self._begin_collection()
+        self._finish_collection()
+
+    def start_scope_collection(self) -> threading.Thread:
+        """Start collection off-thread so the browser keeps a cancel control."""
+
+        self._begin_collection()
+        thread = threading.Thread(
+            target=self._finish_collection_in_background,
+            name="dex-lens-session-collection",
+            daemon=True,
+        )
+        with self._state_lock:
+            self._collection_thread = thread
+            thread.start()
+        return thread
+
+    def _begin_collection(self) -> None:
+        with self._state_lock:
+            if self.closed or self.expired():
+                raise ValueError("session is closed or expired")
+            try:
+                self._consent_scope.revalidate(self.approved_roots)
+            except ValueError:
+                self.terminate()
+                raise
+            self.journey.begin_collection()
+
+    def _finish_collection_in_background(self) -> None:
+        try:
+            self._finish_collection()
+        except Exception:
+            # The terminal state is rendered on the next request; no partial
+            # exception or adapter detail is published from the worker.
+            return
+
+    def _finish_collection(self) -> None:
+        try:
+            result = self._collect_for_journey()
+            with self._state_lock:
+                controller = self._collection
+                if controller is not None:
+                    controller.revalidate_scope()
+                if (
+                    self.closed
+                    or self.expired()
+                    or controller is None
+                    or controller.cancelled
+                ):
+                    raise ValueError(
+                        "collection cancelled; partial data was discarded"
+                    )
+                self.journey.complete_collection(result)
+                self._sync_journey()
+        except Exception as exc:
+            self.terminate()
+            if isinstance(exc, ValueError):
+                raise
+            raise ValueError("contained collection failed; session was closed") from exc
 
     def _collect_for_journey(self) -> AdapterResultEnvelope | CollectionFallback:
         """Collect through R3 control and translate an honest fallback."""
-        controller = CollectionController(self.approved_roots)
-        self._collection = controller
+        with self._state_lock:
+            if self.closed or self.expired():
+                raise ValueError("session is closed or expired")
+            controller = CollectionController(
+                self.approved_roots,
+                scope_provider=lambda: self.approved_roots,
+                scope_snapshot=self._consent_scope,
+            )
+            self._collection = controller
         try:
             result = controller.collect(self.collector)
             # The controller snapshots the roots at collection start.  Check
             # the live session set once more so a scope shrink/replacement
             # racing the collector cannot publish a result for stale scope.
-            controller.revalidate_scope(self.approved_roots)
+            controller.revalidate_scope()
         except CollectionCancelled as exc:
             self.terminate()
             raise ValueError("collection cancelled; partial data was discarded") from exc
         except ValueError:
             self.terminate()
             raise
-        if self.closed or controller.cancelled:
-            self.terminate()
-            raise ValueError("collection cancelled; partial data was discarded")
         if not isinstance(result, CollectionResult):
             # CollectionController always wraps envelopes, but retaining this
             # guard protects callers that provide a compatible implementation.
             result = CollectionResult(envelope=result)
         if result.fallback:
-            return CollectionFallback(mode=FallbackMode.GUIDED, reason=result.message)
+            return CollectionFallback(
+                mode=FallbackMode.GUIDED,
+                reason=(
+                    "The contained adapter is unavailable on this host. No direct "
+                    "inspection result was published."
+                ),
+            )
         return result.envelope
 
     def _sync_journey(self) -> None:
@@ -192,46 +341,51 @@ class ConciergeSession:
         )
 
     def add_job(self, form: dict[str, list[str]]) -> None:
-        self.journey.add_job(
-            JobDraftFields(
-                job_id=_optional(form, "job_id"),
+        with self._state_lock:
+            self.journey.add_job(
+                JobDraftFields(
+                    job_id=_optional(form, "job_id"),
+                    title=_required(form, "title"),
+                    situation=_required(form, "situation"),
+                    desired_outcome=_required(form, "desired_outcome"),
+                )
+            )
+            self._sync_journey()
+
+    def edit_job(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.edit_job(
+                _required(form, "job_id"),
                 title=_required(form, "title"),
                 situation=_required(form, "situation"),
                 desired_outcome=_required(form, "desired_outcome"),
             )
-        )
-        self._sync_journey()
-
-    def edit_job(self, form: dict[str, list[str]]) -> None:
-        self.journey.edit_job(
-            _required(form, "job_id"),
-            title=_required(form, "title"),
-            situation=_required(form, "situation"),
-            desired_outcome=_required(form, "desired_outcome"),
-        )
-        self._sync_journey()
+            self._sync_journey()
 
     def discard_job(self, form: dict[str, list[str]]) -> None:
-        self.journey.discard_job(_required(form, "job_id"))
-        self._sync_journey()
+        with self._state_lock:
+            self.journey.discard_job(_required(form, "job_id"))
+            self._sync_journey()
 
     def confirm_job(self, form: dict[str, list[str]]) -> None:
-        self.journey.confirm_job(
-            _required(form, "job_id"),
-            ContractFields(
-                success_evidence=_form_lines(form, "success_evidence"),
-                privacy_limits=_form_lines(form, "privacy_limits"),
-                approval_limits=_form_lines(form, "approval_limits"),
-                autonomy_limits=_form_lines(form, "autonomy_limits"),
-                importance=_required(form, "importance"),
-                cadence=_required(form, "cadence"),
-            ),
-        )
-        self._sync_journey()
+        with self._state_lock:
+            self.journey.confirm_job(
+                _required(form, "job_id"),
+                ContractFields(
+                    success_evidence=_form_lines(form, "success_evidence"),
+                    privacy_limits=_form_lines(form, "privacy_limits"),
+                    approval_limits=_form_lines(form, "approval_limits"),
+                    autonomy_limits=_form_lines(form, "autonomy_limits"),
+                    importance=_required(form, "importance"),
+                    cadence=_required(form, "cadence"),
+                ),
+            )
+            self._sync_journey()
 
     def diagnose(self) -> None:
-        self.journey.diagnose()
-        self._sync_journey()
+        with self._state_lock:
+            self.journey.diagnose()
+            self._sync_journey()
 
     def _revalidate_scope(self) -> None:
         missing = tuple(path for path in self.approved_roots if not path.exists())
@@ -269,6 +423,10 @@ class ConciergeServer(ThreadingHTTPServer):
 class _ConciergeHandler(BaseHTTPRequestHandler):
     server: ConciergeServer
 
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(5.0)
+
     def do_GET(self) -> None:
         if self._hostile_upgrade():
             return
@@ -302,16 +460,23 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if not self._valid_session_cookie():
             self._forbidden("session is not valid")
             return
+        if self.headers.get("Transfer-Encoding"):
+            self._security_failure("streamed request bodies are not supported")
+            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             self._security_failure("invalid request length")
             return
-        if length < 0:
+        if length < 0 or length > MAX_FORM_BYTES:
             self._security_failure("invalid request length")
             return
-        raw_body = self.rfile.read(length).decode("utf-8", "replace")
-        form = parse_qs(raw_body)
+        try:
+            raw_body = self.rfile.read(length).decode("utf-8", "replace")
+            form = parse_qs(raw_body, max_num_fields=MAX_FORM_FIELDS)
+        except (OSError, ValueError):
+            self._security_failure("request body is invalid or too large")
+            return
         if not self._valid_origin_and_csrf(form):
             self._forbidden("request failed session security checks")
             return
@@ -323,8 +488,13 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             self._approve()
             return
         if parsed.path in {"/decline", "/cancel"}:
-            self.server.session.terminate()
-            self._send_page(_page("Session closed", "<p>No inspection was started.</p>"))
+            stopped = self.server.session.terminate_and_wait()
+            message = (
+                "<p>No inspection is running.</p>"
+                if stopped
+                else "<p>Session closed; collection stop could not be proven.</p>"
+            )
+            self._send_page(_page("Session closed", message))
             return
         if parsed.path == "/confirm-jobs":
             self._confirm_jobs(form)
@@ -345,7 +515,7 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             self._journey_action(lambda ignored: self.server.session.diagnose(), form)
             return
         if parsed.path == "/close":
-            self.server.session.terminate()
+            self.server.session.terminate_and_wait()
             self._send_page(_render_session(self.server.session))
             return
         self._not_found()
@@ -374,10 +544,13 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
 
     def _approve(self) -> None:
         try:
-            self.server.session.approve_scope_and_collect()
-        except ValueError as exc:
+            thread = self.server.session.start_scope_collection()
+        except (JourneyError, ValueError) as exc:
             self._bad_request(str(exc))
             return
+        # Immediate synthetic/small collections preserve the one-click flow;
+        # larger real collections return the cancellable progress page.
+        thread.join(timeout=0.05)
         self._send_page(_render_session(self.server.session))
 
     def _confirm_jobs(self, form: dict[str, list[str]]) -> None:
@@ -396,7 +569,13 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
     ) -> None:
         try:
             action(form)
-        except (JourneyError, TypeError, ValueError) as exc:
+        except DeletionError:
+            self.server.session.terminate_and_wait()
+            self._bad_request(
+                "local draft deletion could not be verified; session was closed"
+            )
+            return
+        except (JobStoreError, JourneyError, TypeError, ValueError) as exc:
             self._bad_request(str(exc))
             return
         self._send_page(_render_session(self.server.session))
@@ -430,7 +609,7 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         return False
 
     def _security_failure(self, message: str) -> None:
-        self.server.session.terminate()
+        self.server.session.terminate_and_wait()
         self._forbidden(message)
 
     def _security_headers(self) -> None:
@@ -538,7 +717,8 @@ def _page(title: str, main: str, session: ConciergeSession | None = None) -> str
 
 
 def _render_session(session: ConciergeSession) -> str:
-    return render_journey(session.journey, session.csrf_token)
+    with session._state_lock:
+        return render_journey(session.journey, session.csrf_token)
 
 
 def _required(form: dict[str, list[str]], name: str) -> str:

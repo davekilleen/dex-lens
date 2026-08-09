@@ -84,10 +84,18 @@ class ScopeSnapshot:
     def approved_roots(self) -> tuple[Path, ...]:
         return tuple(identity.resolved for identity in self.roots)
 
+    @property
+    def requested_roots(self) -> tuple[Path, ...]:
+        return tuple(identity.requested for identity in self.roots)
+
     def revalidate(self, approved_roots: Iterable[Path] | None = None) -> None:
         """Refuse if a root disappeared, was replaced, or the approved set changed."""
 
-        current_raw = tuple(approved_roots) if approved_roots is not None else self.approved_roots
+        current_raw = (
+            tuple(approved_roots)
+            if approved_roots is not None
+            else self.requested_roots
+        )
         if len(current_raw) != len(self.roots):
             raise ValueError("approved scope changed before result publication")
         current: list[_ScopeIdentity] = []
@@ -123,8 +131,17 @@ class CollectionResult:
 class CollectionController:
     """Run one collector with cancellation and a publication barrier."""
 
-    def __init__(self, approved_roots: Iterable[Path], *, timeout_seconds: float = 30.0) -> None:
+    def __init__(
+        self,
+        approved_roots: Iterable[Path],
+        *,
+        scope_provider: Callable[[], Iterable[Path]] | None = None,
+        scope_snapshot: ScopeSnapshot | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> None:
         self.approved_roots = tuple(Path(root) for root in approved_roots)
+        self.scope_provider = scope_provider
+        self._consent_snapshot = scope_snapshot
         self.timeout_seconds = timeout_seconds
         self.cancel_event = threading.Event()
         self._lock = threading.RLock()
@@ -149,15 +166,23 @@ class CollectionController:
                 return self._result
             if self.cancelled or self.cancel_event.is_set():
                 raise CollectionCancelled("collection cancelled before it started")
-            roots = tuple(Path(root) for root in (approved_roots or self.approved_roots))
-            self._snapshot = ScopeSnapshot.capture(roots)
+            roots = self._current_roots(approved_roots)
+            if self._consent_snapshot is not None:
+                self._consent_snapshot.revalidate(roots)
+                self._snapshot = self._consent_snapshot
+            else:
+                self._snapshot = ScopeSnapshot.capture(roots)
             snapshot = self._snapshot
             self._collecting = True
 
         try:
             if self.cancel_event.is_set():
                 raise CollectionCancelled("collection cancelled before it started")
-            value = self._run_collector(collector)
+            value = self._run_collector(
+                collector,
+                snapshot=snapshot,
+                monitor_live_scope=approved_roots is None,
+            )
             if self.cancel_event.is_set() or self.cancelled:
                 raise CollectionCancelled("collection cancelled while in flight")
             snapshot.revalidate(roots)
@@ -187,6 +212,8 @@ class CollectionController:
         except BaseException as exc:
             with self._lock:
                 self._error = exc
+            if isinstance(exc, ValueError):
+                raise
             if self.cancel_event.is_set() or self.cancelled:
                 raise CollectionCancelled(
                     "collection cancelled; partial result discarded"
@@ -220,7 +247,11 @@ class CollectionController:
         return collector()
 
     def _run_collector(
-        self, collector: Callable[..., AdapterResultEnvelope | CollectionResult]
+        self,
+        collector: Callable[..., AdapterResultEnvelope | CollectionResult],
+        *,
+        snapshot: ScopeSnapshot,
+        monitor_live_scope: bool,
     ) -> AdapterResultEnvelope | CollectionResult:
         """Run the adapter in a bounded worker so cancellation is responsive."""
 
@@ -239,17 +270,47 @@ class CollectionController:
         while worker.is_alive():
             worker.join(timeout=0.05)
             if self.cancel_event.is_set():
-                worker.join(timeout=0.5)
+                self._require_worker_stopped(worker)
                 raise CollectionCancelled("collection cancelled while in flight")
+            if monitor_live_scope:
+                try:
+                    snapshot.revalidate(self._current_roots(None))
+                except ValueError as exc:
+                    self.cancel_event.set()
+                    self._require_worker_stopped(worker)
+                    raise ValueError(
+                        "approved scope changed during collection; reads were stopped"
+                    ) from exc
             if time.monotonic() >= deadline:
                 self.cancel_event.set()
-                worker.join(timeout=0.5)
+                self._require_worker_stopped(worker)
                 raise CollectionCancelled("collection timed out; partial result discarded")
         if failure:
             raise failure[0]
         if not value:
             raise RuntimeError("collection worker ended without a result")
         return value[0]
+
+    @staticmethod
+    def _require_worker_stopped(worker: threading.Thread) -> None:
+        """Refuse publication unless cooperative/process cancellation completed."""
+
+        worker.join(timeout=0.5)
+        if worker.is_alive():
+            raise CollectionCancelled(
+                "collection stop could not be proven; session must terminate as an incident"
+            )
+
+    def _current_roots(
+        self, approved_roots: Iterable[Path] | None
+    ) -> tuple[Path, ...]:
+        if approved_roots is not None:
+            source = approved_roots
+        elif self.scope_provider is not None:
+            source = self.scope_provider()
+        else:
+            source = self.approved_roots
+        return tuple(Path(root) for root in source)
 
     def cancel(self) -> None:
         """Request cancellation and make publication impossible immediately."""
@@ -265,7 +326,7 @@ class CollectionController:
 
         with self._lock:
             snapshot = self._snapshot
-            roots = tuple(Path(root) for root in (approved_roots or self.approved_roots))
+            roots = self._current_roots(approved_roots)
         if snapshot is None:
             raise ValueError("collection has not started")
         snapshot.revalidate(roots)
@@ -274,12 +335,12 @@ class CollectionController:
         """Return the published result or the terminal collection error."""
 
         with self._lock:
+            if self._error is not None:
+                raise self._error
             if self.cancelled or self.cancel_event.is_set():
                 raise CollectionCancelled("collection cancelled; partial result discarded")
             if self._result is not None:
                 return self._result
-            if self._error is not None:
-                raise self._error
         raise ValueError("collection has not published a result")
 
 

@@ -72,6 +72,36 @@ class TestDoorway:
 
         assert opened == ["http://127.0.0.1:41234/?token=one-time-token"]
 
+    def test_browser_open_failure_still_closes_server_and_session(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session, server = install_fakes(monkeypatch)
+
+        def fail_to_open(url: str) -> bool:
+            raise RuntimeError("browser backend unavailable")
+
+        monkeypatch.setattr(cli.webbrowser, "open", fail_to_open)
+        with pytest.raises(RuntimeError, match="browser backend unavailable"):
+            cli.main([str(tmp_path)])
+
+        assert session.terminated
+        assert server.closed
+
+    def test_server_setup_failure_still_terminates_session(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session = FakeSession()
+        monkeypatch.setattr(cli, "session_for_roots", lambda roots: session)
+
+        def fail_to_bind(built: FakeSession) -> FakeServer:
+            raise OSError("loopback bind unavailable")
+
+        monkeypatch.setattr(cli, "start_server", fail_to_bind)
+        with pytest.raises(OSError, match="loopback bind unavailable"):
+            cli.main(["--no-open", str(tmp_path)])
+
+        assert session.terminated
+
     @pytest.mark.parametrize("kind", ["missing", "file"])
     def test_non_directory_root_is_refused_before_server_start(
         self,

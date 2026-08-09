@@ -78,10 +78,11 @@ the roadmap: the adaptation transaction layer, the contribution flow, and a
 small pilot.
 
 The current alpha does **not** claim that every M3 safety gate is closed. In
-particular, the macOS sandbox can prove network use is denied but cannot prove
-socket creation itself is denied, and the bind-mount hostile fixture still
-needs a CI host able to execute it. Those limits are recorded rather than
-smoothed over.
+particular, it does not yet include guided/export-assisted diagnosis when a
+host cannot establish containment; the macOS sandbox can prove network use is
+denied but cannot prove socket creation itself is denied; and the bind-mount
+hostile fixture still needs a CI host able to execute it. Those limits are
+recorded rather than smoothed over.
 
 ## Try the source alpha
 

@@ -14,7 +14,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
   `Inspection` state, the high-impact job taxonomy, the diagnosis engine, and
   the jobs-first Capability Map rendering).
 
-925 tests pass on Linux; the full suite is green there.
+940 tests pass on Linux; the full suite is green there.
 
 ## The two loose ends before M1/M2 can be called truly closed
 
@@ -38,20 +38,25 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 3. **M3 — the local browser concierge.** The source alpha now has the trusted
    `dex-lens` doorway; fail-closed loopback session security; cancellable,
-   scope-revalidated collection; honest guided fallback; editable/addable/
+   scope-revalidated collection; honest contained-host refusal; editable/addable/
    discardable Job Map drafts; full Success Contract confirmation; diagnosis;
    and jobs-first Capability Map rendering. The clean wheel/entry point, a real
    contained end-to-end journey with zero inspected-root writes, canary-leak
    checks, and completion with external connections refused are covered by
    tests on the branch.
 
-   **Not formally closed yet:** the integrated branch still needs the full
-   Ubuntu/macOS Python 3.11/3.12 CI matrix, and the binding M3 bar asks for an
+   **Not formally closed yet:** the source alpha does not yet implement the
+   guided/export-assisted diagnosis path for a host where containment is
+   unavailable. The integrated branch also still needs the full Ubuntu/macOS
+   Python 3.11/3.12 CI matrix, and the binding M3 bar asks for an
    interfaces-disabled plus packet/DNS capture run. The current Linux proof
    combines OS-enforced socket denial in the collection child with a parent
    process test that refuses every non-loopback connection; it is strong but
    not the same artifact as host packet capture. Until those proofs exist, call
    this a read-only source alpha, not a completed M3 release.
+
+   **Announcement gate:** HANDOFF D0 still requires Dave's recorded Fable-gate
+   and two-stage handoff sign-off on Dex issue #347 before public publication.
 
 ## Not started — later product milestones
 
