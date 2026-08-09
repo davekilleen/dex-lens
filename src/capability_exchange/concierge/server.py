@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import secrets
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,15 @@ from urllib.parse import parse_qs, urlparse
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.capmap.render import render_capability_map
+from capability_exchange.concierge.collection import (
+    CollectionCancelled,
+    CollectionController,
+    CollectionResult,
+)
+from capability_exchange.concierge.security import (
+    SessionSecurity,
+    ensure_loopback_bind_address,
+)
 from capability_exchange.diagnosis import assess
 from capability_exchange.jobs import (
     CandidateJobProposal,
@@ -61,21 +71,84 @@ class ConciergeSession:
     contracts: tuple[SuccessContract, ...] = ()
     capability_map_markdown: str = ""
     tempdir: tempfile.TemporaryDirectory[str] | None = None
+    fallback: bool = False
+    fallback_message: str = ""
+    _security: SessionSecurity = field(init=False, repr=False)
+    _collection: CollectionController | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._security = SessionSecurity(
+            bootstrap_token=self.bootstrap_token,
+            session_token=self.session_token,
+            csrf_token=self.csrf_token,
+            expires_at=self.expires_at,
+            now=self.now,
+            bootstrap_used=self.bootstrap_used,
+            closed=self.closed,
+            on_terminate=self._discard,
+        )
+
+    @property
+    def security(self) -> SessionSecurity:
+        """The shared, lock-protected session security state."""
+
+        return self._security
 
     def expired(self) -> bool:
-        return self.now() >= self.expires_at
+        return self._security.expired()
 
     def terminate(self) -> None:
+        self._security.terminate()
+
+    def _discard(self) -> None:
+        """Erase all ephemeral session state after a terminal failure."""
+
         self.closed = True
+        self.bootstrap_token = ""
+        self.session_token = ""
+        self.csrf_token = ""
+        self.envelope = None
+        self.proposals = ()
+        self.contracts = ()
+        self.capability_map_markdown = ""
+        self.fallback = False
+        self.fallback_message = ""
+        collection = self._collection
+        if collection is not None:
+            collection.cancel()
         if self.tempdir is not None:
             self.tempdir.cleanup()
             self.tempdir = None
 
     def approve_scope_and_collect(self) -> None:
         """Run the first read-only collection after explicit approval."""
-        self._revalidate_scope()
-        self.envelope = self.collector()
-        self.proposals = propose_candidate_jobs(self.envelope)
+        if self.closed or self.expired():
+            raise ValueError("session is closed or expired")
+        controller = CollectionController(self.approved_roots)
+        self._collection = controller
+        try:
+            result = controller.collect(self.collector)
+            # The controller snapshots the roots at collection start.  Check
+            # the live session set once more so a scope shrink/replacement
+            # racing the collector cannot publish a result for stale scope.
+            controller.revalidate_scope(self.approved_roots)
+        except CollectionCancelled as exc:
+            self.terminate()
+            raise ValueError("collection cancelled; partial data was discarded") from exc
+        except ValueError:
+            self.terminate()
+            raise
+        if self.closed or controller.cancelled:
+            self.terminate()
+            raise ValueError("collection cancelled; partial data was discarded")
+        if not isinstance(result, CollectionResult):
+            # CollectionController always wraps envelopes, but retaining this
+            # guard protects callers that provide a compatible implementation.
+            result = CollectionResult(envelope=result)
+        self.envelope = result.envelope
+        self.fallback = result.fallback
+        self.fallback_message = result.message
+        self.proposals = () if result.fallback else propose_candidate_jobs(self.envelope)
 
     def confirm_jobs(self, job_ids: tuple[str, ...]) -> None:
         """Confirm selected proposed jobs, then produce the read-only map."""
@@ -142,6 +215,7 @@ class ConciergeServer(ThreadingHTTPServer):
     allow_reuse_address = False
 
     def __init__(self, server_address: tuple[str, int], session: ConciergeSession) -> None:
+        ensure_loopback_bind_address(server_address)
         super().__init__(server_address, _ConciergeHandler)
         self.session = session
 
@@ -150,35 +224,55 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
     server: ConciergeServer
 
     def do_GET(self) -> None:
+        if self._hostile_upgrade():
+            return
         if not self._trusted_host():
             self._forbidden("host is not trusted")
             return
         parsed = urlparse(self.path)
         if parsed.path == "/":
-            self._bootstrap(parse_qs(parsed.query).get("token", [""])[0])
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            values = query.get("token", [])
+            self._bootstrap(values[0] if set(query) == {"token"} and len(values) == 1 else "")
+            return
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if "token" in query:
+            self._security_failure("bootstrap tokens are valid only at the doorway")
+            return
+        if not self._valid_session_cookie():
+            self._forbidden("session is not valid")
             return
         if parsed.path == "/session":
-            if not self._valid_session_cookie():
-                self._forbidden("session is not valid")
-                return
             self._send_page(_render_session(self.server.session))
             return
         self._not_found()
 
     def do_POST(self) -> None:
+        if self._hostile_upgrade():
+            return
         if not self._trusted_host():
             self._forbidden("host is not trusted")
             return
         if not self._valid_session_cookie():
             self._forbidden("session is not valid")
             return
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._security_failure("invalid request length")
+            return
+        if length < 0:
+            self._security_failure("invalid request length")
+            return
         raw_body = self.rfile.read(length).decode("utf-8", "replace")
         form = parse_qs(raw_body)
         if not self._valid_origin_and_csrf(form):
             self._forbidden("request failed session security checks")
             return
         parsed = urlparse(self.path)
+        if "token" in parse_qs(parsed.query, keep_blank_values=True):
+            self._security_failure("bootstrap tokens are valid only at the doorway")
+            return
         if parsed.path == "/approve":
             self._approve()
             return
@@ -196,12 +290,7 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
 
     def _bootstrap(self, token: str) -> None:
         session = self.server.session
-        if session.expired() or session.closed:
-            self._forbidden("session expired")
-            return
-        if session.bootstrap_used or not secrets.compare_digest(
-            token, session.bootstrap_token
-        ):
+        if not session.security.consume_bootstrap(token):
             self._forbidden("bootstrap token expired or already used")
             return
         session.bootstrap_used = True
@@ -214,6 +303,7 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
                 "HttpOnly; SameSite=Strict; Path=/"
             ),
         )
+        self._security_headers()
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -234,35 +324,54 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             return
         self._send_page(_render_session(self.server.session))
 
-    def _trusted_host(self) -> bool:
-        host = self.headers.get("Host", "")
-        return host == f"127.0.0.1:{self.server.server_port}"
-
     def _valid_session_cookie(self) -> bool:
-        session = self.server.session
-        if session.expired() or session.closed:
-            return False
-        cookie = self.headers.get("Cookie", "")
-        expected = f"{SESSION_COOKIE}={session.session_token}"
-        return any(part.strip() == expected for part in cookie.split(";"))
+        return self.server.session.security.validate_cookie(self.headers.get("Cookie", ""))
 
     def _valid_origin_and_csrf(self, form: dict[str, list[str]]) -> bool:
         origin = self.headers.get("Origin", "")
-        expected_origin = f"http://127.0.0.1:{self.server.server_port}"
         csrf = self.headers.get("X-CSRF-Token", "") or next(
             iter(form.get("csrf_token", ())), ""
         )
-        return origin == expected_origin and secrets.compare_digest(
-            csrf, self.server.session.csrf_token
+        return self.server.session.security.validate_origin_csrf(
+            origin, csrf, self.server.server_port
+        )
+
+    def _trusted_host(self) -> bool:
+        return self.server.session.security.validate_host(
+            self.headers.get("Host", ""), self.server.server_port
+        )
+
+    def _hostile_upgrade(self) -> bool:
+        upgrade = self.headers.get("Upgrade", "").strip().lower()
+        connection = {
+            token.strip().lower()
+            for token in self.headers.get("Connection", "").split(",")
+        }
+        if upgrade == "websocket" or "upgrade" in connection:
+            self._security_failure("WebSocket upgrades are not supported")
+            return True
+        return False
+
+    def _security_failure(self, message: str) -> None:
+        self.server.session.terminate()
+        self._forbidden(message)
+
+    def _security_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'none'; connect-src 'none'; img-src 'none'; "
+            "object-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+            "base-uri 'none'; frame-ancestors 'none'",
         )
 
     def _send_page(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         payload = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; base-uri 'none'")
+        self._security_headers()
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -352,6 +461,15 @@ def _page(title: str, main: str, session: ConciergeSession | None = None) -> str
 
 
 def _render_session(session: ConciergeSession) -> str:
+    if session.fallback:
+        return _page(
+            "Guided evidence only",
+            f"<h1>Guided evidence only</h1>"
+            f"<div class=\"panel\"><p>{html.escape(session.fallback_message)}</p>"
+            "<p>No direct inspection ran, so this session contains no Verified claims. "
+            "You can continue with guided or export-assisted evidence.</p></div>",
+            session,
+        )
     if session.capability_map_markdown:
         return _page(
             "Capability Map",
@@ -413,8 +531,10 @@ def _render_session(session: ConciergeSession) -> str:
 def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:
     """Build the real CLI session for approved roots."""
 
-    def collect() -> AdapterResultEnvelope:
-        result = contained_inspection([str(root) for root in roots])
+    def collect(cancel_event: threading.Event | None = None) -> AdapterResultEnvelope:
+        result = contained_inspection(
+            [str(root) for root in roots], cancel_event=cancel_event
+        )
         return result.envelope
 
     return new_session(approved_roots=roots, collector=collect)

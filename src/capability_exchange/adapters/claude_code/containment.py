@@ -32,6 +32,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -168,7 +170,11 @@ class ContainmentStrategy(ABC):
         """(available, honest reason when not)."""
 
     @abstractmethod
-    def collect_contained(self, request: CollectionRequest) -> ContainedCollection:
+    def collect_contained(
+        self,
+        request: CollectionRequest,
+        cancel_event: threading.Event | None = None,
+    ) -> ContainedCollection:
         """Collect under containment, or refuse honestly (fail closed)."""
 
 
@@ -185,18 +191,63 @@ def _child_environment() -> dict[str, str]:
 
 
 def _launch_contained_child(
-    argv: list[str], request: CollectionRequest, *, layer_reason: str, os_enforced: bool
+    argv: list[str],
+    request: CollectionRequest,
+    *,
+    layer_reason: str,
+    os_enforced: bool,
+    cancel_event: threading.Event | None = None,
 ) -> ContainedCollection:
     """Launch the child (never via a shell), enforce exits, parse the result."""
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-            argv,
-            input=json.dumps(request.as_payload()).encode("utf-8"),
-            capture_output=True,
-            timeout=request.timeout_seconds,
-            env=_child_environment(),
-            check=False,
-        )
+        payload = json.dumps(request.as_payload()).encode("utf-8")
+        if cancel_event is None:
+            completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+                argv,
+                input=payload,
+                capture_output=True,
+                timeout=request.timeout_seconds,
+                env=_child_environment(),
+                check=False,
+            )
+        else:
+            # ``subprocess.run`` cannot be interrupted by the browser's
+            # cancellation request. Keep the child handle so cancellation
+            # kills the contained process and stops reads, not just the later
+            # result publication.
+            process = subprocess.Popen(  # noqa: S603 - fixed argv, shell=False
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=_child_environment(),
+            )
+            assert process.stdin is not None
+            process.stdin.write(payload)
+            process.stdin.close()
+            # ``Popen.communicate`` otherwise tries to flush the closed pipe
+            # when collecting output after a cancellation/timeout.
+            process.stdin = None
+            deadline = time.monotonic() + request.timeout_seconds
+            while process.poll() is None:
+                if cancel_event.wait(0.05):
+                    process.kill()
+                    process.communicate()
+                    raise CollectionFailedError(
+                        "contained collection cancelled and child was killed; "
+                        "partial collection died with the child process"
+                    )
+                if time.monotonic() >= deadline:
+                    process.kill()
+                    process.communicate()
+                    raise CollectionFailedError(
+                        "contained collection timed out and was killed; partial "
+                        "collection died with the child process"
+                    )
+            stdout, stderr = process.communicate()
+            completed = subprocess.CompletedProcess(
+                argv, process.returncode, stdout, stderr
+            )
     except subprocess.TimeoutExpired as exc:
         raise CollectionFailedError(
             "contained collection timed out and was killed; partial "
@@ -263,7 +314,11 @@ class LinuxStrategy(ContainmentStrategy):
             return (False, f"no seccomp syscall table for {platform.machine()!r}")
         return (True, "")
 
-    def collect_contained(self, request: CollectionRequest) -> ContainedCollection:
+    def collect_contained(
+        self,
+        request: CollectionRequest,
+        cancel_event: threading.Event | None = None,
+    ) -> ContainedCollection:
         available, reason = self.availability()
         if not available:
             raise ContainmentUnavailableError(reason)
@@ -273,6 +328,7 @@ class LinuxStrategy(ContainmentStrategy):
             request,
             layer_reason="child self-confined before any target read; probes proved denial",
             os_enforced=True,
+            cancel_event=cancel_event,
         )
 
 
@@ -291,7 +347,11 @@ class MacOSStrategy(ContainmentStrategy):
             return (False, f"containment profile missing at {_MACOS_PROFILE_PATH}")
         return (True, "")
 
-    def collect_contained(self, request: CollectionRequest) -> ContainedCollection:
+    def collect_contained(
+        self,
+        request: CollectionRequest,
+        cancel_event: threading.Event | None = None,
+    ) -> ContainedCollection:
         available, reason = self.availability()
         if not available:
             raise ContainmentUnavailableError(reason)
@@ -314,6 +374,7 @@ class MacOSStrategy(ContainmentStrategy):
             request,
             layer_reason="sandbox-exec profile denies network, writes, and non-interpreter exec",
             os_enforced=True,
+            cancel_event=cancel_event,
         )
 
 
@@ -333,10 +394,16 @@ class TestStrategy(ContainmentStrategy):
             )
         return (True, "")
 
-    def collect_contained(self, request: CollectionRequest) -> ContainedCollection:
+    def collect_contained(
+        self,
+        request: CollectionRequest,
+        cancel_event: threading.Event | None = None,
+    ) -> ContainedCollection:
         available, reason = self.availability()
         if not available:
             raise ContainmentUnavailableError(reason)
+        if cancel_event is not None and cancel_event.is_set():
+            raise CollectionFailedError("contained collection cancelled before it started")
         from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
         from capability_exchange.adapters.claude_code.collector import EvidenceCollector
         from capability_exchange.adapters.claude_code.snapshot import take_snapshot
@@ -383,6 +450,7 @@ def contained_inspection(
     *,
     strategy: ContainmentStrategy | None = None,
     bounds: CollectionBounds | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> ContainedCollection:
     """One full contained inspection of the approved roots.
 
@@ -396,4 +464,4 @@ def contained_inspection(
         approved_roots=tuple(approved_roots),
         bounds=bounds or CollectionBounds(),
     )
-    return chosen.collect_contained(request)
+    return chosen.collect_contained(request, cancel_event=cancel_event)
