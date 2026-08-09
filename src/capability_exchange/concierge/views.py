@@ -1,0 +1,284 @@
+"""Local-only HTML views for the M3 read-only concierge journey.
+
+The views are intentionally boring HTML: no scripts, external resources,
+browser storage, network APIs, sockets, or analytics.  Dynamic values are
+escaped at the final rendering boundary and every form carries the supplied
+CSRF token so the transport can enforce its own session policy.
+"""
+
+from __future__ import annotations
+
+import html
+from collections.abc import Iterable
+
+from capability_exchange.capmap.model import CapabilityMap
+from capability_exchange.capmap.render import render_capability_map as render_map_markdown
+from capability_exchange.concierge.journey import (
+    CollectionFallback,
+    ConciergeJourney,
+    ConciergeStage,
+    FallbackEvidence,
+    FallbackMode,
+    PermissionMetadata,
+)
+from capability_exchange.evidence import EvidenceLevel
+from capability_exchange.jobs import InspectionJob
+
+__all__ = [
+    "render_capability_map",
+    "render_capability_map_view",
+    "render_fallback",
+    "render_fallback_view",
+    "render_job_map",
+    "render_job_map_view",
+    "render_journey",
+    "render_permission",
+    "render_permission_view",
+]
+
+
+def _escape(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _document(title: str, body: str) -> str:
+    """Wrap trusted static markup and escaped dynamic content in one document."""
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_escape(title)} - Dex Lens</title>
+  <style>
+    :root {{ color-scheme: light; --ink: #161616; --muted: #5f6468;
+      --line: #d9dddf; --paper: #fbfcfc; --accent: #0f766e; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: var(--paper); color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }}
+    main {{ width: min(920px, calc(100vw - 32px)); margin: 48px auto; }}
+    h1 {{ font-size: 2rem; line-height: 1.15; margin: 0 0 16px; }}
+    h2 {{ font-size: 1.25rem; margin: 28px 0 12px; }}
+    p, li {{ color: var(--muted); line-height: 1.55; }}
+    .panel {{ border: 1px solid var(--line); border-radius: 8px; padding: 20px;
+      margin: 16px 0; background: #fff; }}
+    .actions {{ display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }}
+    button {{ border: 1px solid #0b4f4a; background: var(--accent); color: white;
+      border-radius: 6px; padding: 10px 14px; font: inherit; cursor: pointer; }}
+    button.secondary {{ background: white; color: #0b4f4a; }}
+    label {{ display: block; margin: 12px 0; color: var(--ink); }}
+    input, textarea, select {{ display: block; width: 100%; margin-top: 5px;
+      border: 1px solid var(--line); border-radius: 4px; padding: 8px; font: inherit; }}
+    textarea {{ min-height: 70px; }}
+    code, pre {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
+    .muted {{ color: var(--muted); }}
+  </style>
+</head>
+<body><main>{body}</main></body>
+</html>"""
+
+
+def _csrf(csrf_token: str) -> str:
+    return f'<input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">'
+
+
+def _list(values: Iterable[object], *, empty: str = "None declared") -> str:
+    items = "".join(f"<li>{_escape(value)}</li>" for value in values)
+    return f"<ul>{items or f'<li>{_escape(empty)}</li>'}</ul>"
+
+
+def render_permission(metadata: PermissionMetadata, csrf_token: str) -> str:
+    """Render the unscanned permission screen with the complete boundary."""
+
+    local = "Yes — evidence stays on this device" if metadata.local_only else "No"
+    offline = "Yes" if metadata.offline_capable else "No"
+    catalog = (
+        "No catalog is available or required"
+        if metadata.no_catalog
+        else "A verified catalog is available"
+    )
+    body = f"""
+      <h1>Inspection permission</h1>
+      <div class="panel">
+        <p><strong>Nothing has been read yet.</strong> This screen is shown before
+        the adapter can inspect anything.</p>
+        <h2>Adapter</h2>
+        <p>{_escape(metadata.adapter_id)} · version {_escape(metadata.adapter_version)}</p>
+        <h2>Exact approved roots</h2>
+        {_list(metadata.approved_roots)}
+        <h2>Exact approved artifacts</h2>
+        {_list(metadata.approved_artifacts)}
+        <h2>Explicit exclusions — never read</h2>
+        {_list(metadata.exclusions)}
+        <h2>Data boundary</h2>
+        <ul>
+          <li>Local only: {_escape(local)}</li>
+          <li>Works without a network connection: {_escape(offline)}</li>
+          <li>Catalog: {_escape(catalog)}</li>
+        </ul>
+        <p><strong>Next action:</strong> {_escape(metadata.next_action)}</p>
+        <form method="post" action="/approve">
+          {_csrf(csrf_token)}
+          <div class="actions">
+            <button type="submit">Approve read-only inspection</button>
+            <button class="secondary" type="submit" formaction="/decline">Decline and leave</button>
+          </div>
+        </form>
+      </div>
+    """
+    return _document("Inspection permission", body)
+
+
+def _job_form(job: InspectionJob, csrf_token: str) -> str:
+    job_id = _escape(job.job_id)
+    return f"""
+      <div class="panel">
+        <form method="post" action="/jobs/edit">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="job_id" value="{job_id}">
+          <label>Title<input name="title" value="{_escape(job.title)}"></label>
+          <label>Situation<textarea name="situation">{_escape(job.situation)}</textarea></label>
+          <label>Desired outcome<textarea
+            name="desired_outcome">{_escape(job.desired_outcome)}</textarea>
+          </label>
+          <div class="actions"><button type="submit">Save draft</button></div>
+        </form>
+        <form method="post" action="/jobs/discard">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="job_id" value="{job_id}">
+          <button class="secondary" type="submit">Discard this draft</button>
+        </form>
+        <form method="post" action="/jobs/confirm">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="job_id" value="{job_id}">
+          <h3>Confirm this job as a Success Contract</h3>
+          <label>Success evidence<textarea name="success_evidence" required></textarea></label>
+          <label>Privacy limits<textarea name="privacy_limits"></textarea></label>
+          <label>Approval limits<textarea name="approval_limits"></textarea></label>
+          <label>Autonomy limits<textarea name="autonomy_limits"></textarea></label>
+          <label>Importance<select name="importance">
+            <option value="low">Low</option><option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select></label>
+          <label>Cadence<select name="cadence">
+            <option value="on-demand">On demand</option><option value="daily">Daily</option>
+            <option value="weekly" selected>Weekly</option><option value="monthly">Monthly</option>
+            <option value="irregular">Irregular</option>
+          </select></label>
+          <label>Confirmation time (optional)
+            <input name="confirmed_at" type="datetime-local">
+          </label>
+          <div class="actions"><button type="submit">Confirm this job</button></div>
+        </form>
+      </div>
+    """
+
+
+def render_job_map(jobs: Iterable[InspectionJob], csrf_token: str) -> str:
+    """Render editable inferred/manual drafts with full confirmation fields."""
+
+    rendered = "".join(_job_form(job, csrf_token) for job in jobs)
+    if not rendered:
+        rendered = '<p class="muted">No draft jobs remain. Add a job or leave this session.</p>'
+    body = f"""
+      <h1>Confirm your Job Map</h1>
+      <p>These are suggestions for you to review. Edit, add, discard, or confirm
+      each job. Diagnosis stays unavailable until every selected job has a full
+      Success Contract.</p>
+      {rendered}
+      <div class="panel">
+        <h2>Add a job yourself</h2>
+        <form method="post" action="/jobs/add">
+          {_csrf(csrf_token)}
+          <label>Job id (optional)<input name="job_id"></label>
+          <label>Title<input name="title" required></label>
+          <label>Situation<textarea name="situation" required></textarea></label>
+          <label>Desired outcome<textarea name="desired_outcome" required></textarea></label>
+          <div class="actions"><button type="submit">Add draft job</button></div>
+        </form>
+      </div>
+      <form method="post" action="/close">
+        {_csrf(csrf_token)}
+        <button class="secondary" type="submit">Close and delete local drafts</button>
+      </form>
+    """
+    return _document("Confirm your Job Map", body)
+
+
+def _fallback_level(item: FallbackEvidence) -> str:
+    level = item.level
+    if level is EvidenceLevel.SUPPORTED:
+        return "Supported"
+    if level is EvidenceLevel.REPORTED:
+        return "Reported"
+    # Unknown is the only safe display for anything else, including attempted
+    # direct-inspection claims in a fallback result.
+    return "Unknown"
+
+
+def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
+    """Render guided/export-assisted evidence with honest capped labels."""
+
+    evidence = "".join(
+        f"<li><strong>{_escape(item.label)} — {_escape(_fallback_level(item))}</strong>: "
+        f"{_escape(item.detail)}</li>"
+        for item in fallback.evidence
+    )
+    if not evidence:
+        evidence = "<li>Unknown — no direct evidence was collected.</li>"
+    mode = "guided" if fallback.mode is FallbackMode.GUIDED else "export-assisted"
+    body = f"""
+      <h1>{_escape(mode.title())} evidence</h1>
+      <div class="panel">
+        <p>Evidence mode: {_escape(fallback.mode.value)}</p>
+        <p>{_escape(fallback.reason)}</p>
+        <p>This path does not claim direct inspection. Evidence is labelled
+        Supported, Reported, or Unknown according to what you supplied.</p>
+        <ul>{evidence}</ul>
+        <form method="post" action="/close">
+          {_csrf(csrf_token)}
+          <button class="secondary" type="submit">Close and leave</button>
+        </form>
+      </div>
+    """
+    return _document(f"{mode.title()} evidence", body)
+
+
+def render_capability_map(capability_map: CapabilityMap, csrf_token: str) -> str:
+    """Render the existing jobs-first map inside a safe local page."""
+
+    markdown = render_map_markdown(capability_map)
+    body = f"""
+      <h1>Capability Map</h1>
+      <pre>{_escape(markdown)}</pre>
+      <form method="post" action="/close">
+        {_csrf(csrf_token)}
+        <button class="secondary" type="submit">Close and clear this session</button>
+      </form>
+    """
+    return _document("Capability Map", body)
+
+
+def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Dispatch a page from explicit journey state for server integration."""
+
+    if journey.stage is ConciergeStage.PERMISSION:
+        return render_permission(journey.permission, csrf_token=csrf_token)
+    if journey.stage is ConciergeStage.FALLBACK and journey.fallback is not None:
+        return render_fallback(journey.fallback, csrf_token=csrf_token)
+    if journey.stage is ConciergeStage.CAPABILITY_MAP and journey.capability_map is not None:
+        return render_capability_map(journey.capability_map, csrf_token=csrf_token)
+    if journey.stage in {
+        ConciergeStage.COLLECTING,
+        ConciergeStage.JOB_MAP,
+        ConciergeStage.DIAGNOSIS,
+    }:
+        return render_job_map(journey.inspection_jobs, csrf_token=csrf_token)
+    return _document("Session closed", "<h1>Session closed</h1><p>No inspection is running.</p>")
+
+
+# Explicit aliases for transport code that uses ``*_view`` naming.
+render_permission_view = render_permission
+render_job_map_view = render_job_map
+render_fallback_view = render_fallback
+render_capability_map_view = render_capability_map
