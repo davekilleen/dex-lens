@@ -1,0 +1,64 @@
+{
+  "version": "m6-pilot-synthetic-v1",
+  "strata": [
+    {
+      "id": "non-dex",
+      "label": "Non-Dex system",
+      "minimum": 4,
+      "maximum": 5,
+      "description": "Participants whose repeated job is not primarily served by Dex."
+    },
+    {
+      "id": "dex-customized",
+      "label": "Dex or customized system",
+      "minimum": 2,
+      "maximum": 3,
+      "description": "Participants using Dex or a materially customized personal system."
+    }
+  ],
+  "exclusions": [
+    "no confirmed Success Contract",
+    "unable to provide informed consent",
+    "high-impact job where the declared observable signal cannot be measured safely"
+  ],
+  "evidence_consent": {
+    "owner": "pilot data owner",
+    "trigger": "before any participant system is touched",
+    "actions": ["explain scope", "record exact protocol hash", "record evidence sources"],
+    "evidence": ["immutable consent record", "protocol version and hash"],
+    "exit_criteria": ["participant can withdraw", "no collection before recorded consent"]
+  },
+  "withdrawal": {
+    "owner": "pilot data owner",
+    "trigger": "participant requests withdrawal",
+    "actions": ["stop collection", "delete controlled copies", "verify byte absence"],
+    "evidence": ["withdrawal record", "deletion manifest"],
+    "exit_criteria": ["all controlled copies absent"]
+  },
+  "deletion": {
+    "owner": "pilot data owner",
+    "trigger": "withdrawal or deletion request",
+    "actions": ["run registered deletion paths", "verify receipts, caches, and browser data"],
+    "evidence": ["byte-level absence check"],
+    "exit_criteria": ["deletion is verified or escalated as an incident"]
+  },
+  "adverse_event_reporting": {
+    "owner": "pilot incident owner",
+    "trigger": "privacy, consent, ownership, recovery, or control failure",
+    "actions": ["stop affected path", "record event", "trigger incident review"],
+    "evidence": ["adverse-event record", "hard-stop receipt"],
+    "exit_criteria": ["review clears the path explicitly"]
+  },
+  "incident_response": {
+    "owner": "pilot incident owner",
+    "trigger": "simulated Recovery failed or observed severe failure",
+    "actions": ["contain", "restore or verify ownership", "decide whether pilot definition changes"],
+    "evidence": ["incident record", "review decision"],
+    "exit_criteria": ["no automated continuation while unresolved"]
+  },
+  "red_team_result_ids": [],
+  "red_team_complete": false,
+  "synthetic_only": true,
+  "participant_evidence": "absent: this protocol file contains no observed participant evidence",
+  "independent_signoff": "absent: legal/ethics and independent gate signoff remain external decisions"
+}

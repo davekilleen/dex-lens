@@ -2134,3 +2134,1942 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral inbound catalog bytes"
+  ParticipantMeasurement.participant_id:
+    description: "M6 pilot ParticipantMeasurement participant_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.contract_id:
+    description: "M6 pilot ParticipantMeasurement contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.baseline_value:
+    description: "M6 pilot ParticipantMeasurement baseline_value metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.follow_up_value:
+    description: "M6 pilot ParticipantMeasurement follow_up_value metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.baseline_state:
+    description: "M6 pilot ParticipantMeasurement baseline_state metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.follow_up_state:
+    description: "M6 pilot ParticipantMeasurement follow_up_state metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.baseline_objective_signal:
+    description: "M6 pilot ParticipantMeasurement baseline_objective_signal metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.follow_up_objective_signal:
+    description: "M6 pilot ParticipantMeasurement follow_up_objective_signal metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.self_report_only:
+    description: "M6 pilot ParticipantMeasurement self_report_only metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.meaningful_improvement:
+    description: "M6 pilot ParticipantMeasurement meaningful_improvement metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.dropout:
+    description: "M6 pilot ParticipantMeasurement dropout metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.missing_follow_up:
+    description: "M6 pilot ParticipantMeasurement missing_follow_up metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.severe_failure:
+    description: "M6 pilot ParticipantMeasurement severe_failure metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.severe_failure_type:
+    description: "M6 pilot ParticipantMeasurement severe_failure_type metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.card_contribution_count:
+    description: "M6 pilot ParticipantMeasurement card_contribution_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.evidence_limits:
+    description: "M6 pilot ParticipantMeasurement evidence_limits metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.baseline_captured_at:
+    description: "M6 pilot ParticipantMeasurement baseline_captured_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantMeasurement.follow_up_captured_at:
+    description: "M6 pilot ParticipantMeasurement follow_up_captured_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.participant_id:
+    description: "M6 pilot ParticipantResult participant_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.contract_id:
+    description: "M6 pilot ParticipantResult contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.improved:
+    description: "M6 pilot ParticipantResult improved metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.counted_as_success:
+    description: "M6 pilot ParticipantResult counted_as_success metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.evidence_limited:
+    description: "M6 pilot ParticipantResult evidence_limited metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.dropout:
+    description: "M6 pilot ParticipantResult dropout metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.missing_follow_up:
+    description: "M6 pilot ParticipantResult missing_follow_up metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.severe_failure:
+    description: "M6 pilot ParticipantResult severe_failure metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.severe_failure_type:
+    description: "M6 pilot ParticipantResult severe_failure_type metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.card_contribution_count:
+    description: "M6 pilot ParticipantResult card_contribution_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantResult.evidence_limits:
+    description: "M6 pilot ParticipantResult evidence_limits metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.contract_id:
+    description: "M6 pilot PilotAnalysisReport contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.plan_hash:
+    description: "M6 pilot PilotAnalysisReport plan_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.enrolled_count:
+    description: "M6 pilot PilotAnalysisReport enrolled_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.improved_count:
+    description: "M6 pilot PilotAnalysisReport improved_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.improvement_threshold_count:
+    description: "M6 pilot PilotAnalysisReport improvement_threshold_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.verdict:
+    description: "M6 pilot PilotAnalysisReport verdict metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.trust_floor_stop:
+    description: "M6 pilot PilotAnalysisReport trust_floor_stop metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.review_required:
+    description: "M6 pilot PilotAnalysisReport review_required metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.participant_results:
+    description: "M6 pilot PilotAnalysisReport participant_results metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.evidence_limits:
+    description: "M6 pilot PilotAnalysisReport evidence_limits metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.card_learning_count:
+    description: "M6 pilot PilotAnalysisReport card_learning_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.formative_only:
+    description: "M6 pilot PilotAnalysisReport formative_only metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.artifact_id:
+    description: "M6 pilot R7Artifact artifact_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.path:
+    description: "M6 pilot R7Artifact path metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.content_hash:
+    description: "M6 pilot R7Artifact content_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.present:
+    description: "M6 pilot R7Artifact present metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.parseable:
+    description: "M6 pilot R7Artifact parseable metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.synthetic_only:
+    description: "M6 pilot R7Artifact synthetic_only metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Artifact.observed:
+    description: "M6 pilot R7Artifact observed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Risk.risk_id:
+    description: "M6 pilot R7Risk risk_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Risk.description:
+    description: "M6 pilot R7Risk description metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Risk.owner:
+    description: "M6 pilot R7Risk owner metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Risk.status:
+    description: "M6 pilot R7Risk status metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Signoff.reviewer:
+    description: "M6 pilot R7Signoff reviewer metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Signoff.role:
+    description: "M6 pilot R7Signoff role metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Signoff.independent:
+    description: "M6 pilot R7Signoff independent metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Signoff.manifest_hash:
+    description: "M6 pilot R7Signoff manifest_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Signoff.signed_at:
+    description: "M6 pilot R7Signoff signed_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.manifest_version:
+    description: "M6 pilot R7Manifest manifest_version metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.artifacts:
+    description: "M6 pilot R7Manifest artifacts metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.risks:
+    description: "M6 pilot R7Manifest risks metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.observed_pilot_evidence:
+    description: "M6 pilot R7Manifest observed_pilot_evidence metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.observed_evidence_status:
+    description: "M6 pilot R7Manifest observed_evidence_status metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.assumptions:
+    description: "M6 pilot R7Manifest assumptions metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.non_goals:
+    description: "M6 pilot R7Manifest non_goals metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.critique_responses:
+    description: "M6 pilot R7Manifest critique_responses metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.tabletop_results:
+    description: "M6 pilot R7Manifest tabletop_results metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.content_hash:
+    description: "M6 pilot R7Manifest content_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  R7Manifest.independent_signoff:
+    description: "M6 pilot R7Manifest independent_signoff metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.complete:
+    description: "M6 pilot CompletenessReport complete metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.issues:
+    description: "M6 pilot CompletenessReport issues metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.verified_artifacts:
+    description: "M6 pilot CompletenessReport verified_artifacts metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.manifest_hash:
+    description: "M6 pilot CompletenessReport manifest_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.observed_real_pilot_evidence:
+    description: "M6 pilot CompletenessReport observed_real_pilot_evidence metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.named_risk_owners:
+    description: "M6 pilot CompletenessReport named_risk_owners metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  CompletenessReport.independent_signoff:
+    description: "M6 pilot CompletenessReport independent_signoff metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.runbook_id:
+    description: "M6 pilot TabletopResult runbook_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.scenario:
+    description: "M6 pilot TabletopResult scenario metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.executed_at:
+    description: "M6 pilot TabletopResult executed_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.passed:
+    description: "M6 pilot TabletopResult passed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.trigger_observed:
+    description: "M6 pilot TabletopResult trigger_observed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.actions_evidenced:
+    description: "M6 pilot TabletopResult actions_evidenced metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.exit_criteria_met:
+    description: "M6 pilot TabletopResult exit_criteria_met metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.deletion_verified:
+    description: "M6 pilot TabletopResult deletion_verified metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.stop_triggered:
+    description: "M6 pilot TabletopResult stop_triggered metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  TabletopResult.notes:
+    description: "M6 pilot TabletopResult notes metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.runbook_id:
+    description: "M6 pilot Runbook runbook_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.trigger:
+    description: "M6 pilot Runbook trigger metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.owner:
+    description: "M6 pilot Runbook owner metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.actions:
+    description: "M6 pilot Runbook actions metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.evidence:
+    description: "M6 pilot Runbook evidence metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.exit_criteria:
+    description: "M6 pilot Runbook exit_criteria metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  Runbook.tabletop_result:
+    description: "M6 pilot Runbook tabletop_result metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.participant_id:
+    description: "M6 pilot EnrollmentRecord participant_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.protocol_version:
+    description: "M6 pilot EnrollmentRecord protocol_version metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.protocol_hash:
+    description: "M6 pilot EnrollmentRecord protocol_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.contract_id:
+    description: "M6 pilot EnrollmentRecord contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.stratum_id:
+    description: "M6 pilot EnrollmentRecord stratum_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.enrolled_at:
+    description: "M6 pilot EnrollmentRecord enrolled_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EnrollmentRecord.consent:
+    description: "M6 pilot EnrollmentRecord consent metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.state:
+    description: "M6 pilot MeasurementEvidence state metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.captured_at:
+    description: "M6 pilot MeasurementEvidence captured_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.reference:
+    description: "M6 pilot MeasurementEvidence reference metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.value:
+    description: "M6 pilot MeasurementEvidence value metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.objective_signal_observed:
+    description: "M6 pilot MeasurementEvidence objective_signal_observed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.self_report_only:
+    description: "M6 pilot MeasurementEvidence self_report_only metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.missing:
+    description: "M6 pilot MeasurementEvidence missing metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.improved:
+    description: "M6 pilot MeasurementEvidence improved metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementEvidence.notes:
+    description: "M6 pilot MeasurementEvidence notes metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.participant_id:
+    description: "M6 pilot EvidenceRecord participant_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.contract_id:
+    description: "M6 pilot EvidenceRecord contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.baseline:
+    description: "M6 pilot EvidenceRecord baseline metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.follow_up:
+    description: "M6 pilot EvidenceRecord follow_up metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.dropout:
+    description: "M6 pilot EvidenceRecord dropout metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.severe_failure:
+    description: "M6 pilot EvidenceRecord severe_failure metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.severe_failure_type:
+    description: "M6 pilot EvidenceRecord severe_failure_type metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.card_contribution_count:
+    description: "M6 pilot EvidenceRecord card_contribution_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  EvidenceRecord.evidence_limits:
+    description: "M6 pilot EvidenceRecord evidence_limits metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.contract_id:
+    description: "M6 pilot LearningOutput contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.verdict:
+    description: "M6 pilot LearningOutput verdict metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.enrolled_count:
+    description: "M6 pilot LearningOutput enrolled_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.improved_count:
+    description: "M6 pilot LearningOutput improved_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.threshold_count:
+    description: "M6 pilot LearningOutput threshold_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.evidence_limit_codes:
+    description: "M6 pilot LearningOutput evidence_limit_codes metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.card_learning_count:
+    description: "M6 pilot LearningOutput card_learning_count metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.formative_only:
+    description: "M6 pilot LearningOutput formative_only metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.raw_private_evidence_included:
+    description: "M6 pilot LearningOutput raw_private_evidence_included metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.canary_scan_passed:
+    description: "M6 pilot LearningOutput canary_scan_passed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementWindow.start:
+    description: "M6 pilot MeasurementWindow start metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementWindow.end:
+    description: "M6 pilot MeasurementWindow end metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.contract_id:
+    description: "M6 pilot MeasurementPlan contract_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.baseline_window:
+    description: "M6 pilot MeasurementPlan baseline_window metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.follow_up_window:
+    description: "M6 pilot MeasurementPlan follow_up_window metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.meaningful_improvement_threshold:
+    description: "M6 pilot MeasurementPlan meaningful_improvement_threshold metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.objective_signal:
+    description: "M6 pilot MeasurementPlan objective_signal metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.objective_signal_required:
+    description: "M6 pilot MeasurementPlan objective_signal_required metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.missing_data_treatment:
+    description: "M6 pilot MeasurementPlan missing_data_treatment metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.dropout_treatment:
+    description: "M6 pilot MeasurementPlan dropout_treatment metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.regression_definition:
+    description: "M6 pilot MeasurementPlan regression_definition metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.near_miss_definition:
+    description: "M6 pilot MeasurementPlan near_miss_definition metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.severe_failure_definition:
+    description: "M6 pilot MeasurementPlan severe_failure_definition metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.strict_majority_thresholds:
+    description: "M6 pilot MeasurementPlan strict_majority_thresholds metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.created_at:
+    description: "M6 pilot MeasurementPlan created_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.locked_at:
+    description: "M6 pilot MeasurementPlan locked_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.first_data_collection_at:
+    description: "M6 pilot MeasurementPlan first_data_collection_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  MeasurementPlan.content_hash:
+    description: "M6 pilot MeasurementPlan content_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolStratum.stratum_id:
+    description: "M6 pilot ProtocolStratum stratum_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolStratum.label:
+    description: "M6 pilot ProtocolStratum label metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolStratum.minimum:
+    description: "M6 pilot ProtocolStratum minimum metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolStratum.maximum:
+    description: "M6 pilot ProtocolStratum maximum metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolStratum.description:
+    description: "M6 pilot ProtocolStratum description metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolClause.owner:
+    description: "M6 pilot ProtocolClause owner metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolClause.trigger:
+    description: "M6 pilot ProtocolClause trigger metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolClause.actions:
+    description: "M6 pilot ProtocolClause actions metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolClause.evidence:
+    description: "M6 pilot ProtocolClause evidence metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ProtocolClause.exit_criteria:
+    description: "M6 pilot ProtocolClause exit_criteria metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.participant_id:
+    description: "M6 pilot ConsentRecord participant_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.protocol_version:
+    description: "M6 pilot ConsentRecord protocol_version metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.protocol_hash:
+    description: "M6 pilot ConsentRecord protocol_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.stratum_id:
+    description: "M6 pilot ConsentRecord stratum_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.evidence_scope:
+    description: "M6 pilot ConsentRecord evidence_scope metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.consented_at:
+    description: "M6 pilot ConsentRecord consented_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.status:
+    description: "M6 pilot ConsentRecord status metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.withdrawal_requested_at:
+    description: "M6 pilot ConsentRecord withdrawal_requested_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotConsentRecord.deletion_confirmed_at:
+    description: "M6 pilot ConsentRecord deletion_confirmed_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.protocol_version:
+    description: "M6 pilot PilotProtocol protocol_version metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.strata:
+    description: "M6 pilot PilotProtocol strata metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.exclusions:
+    description: "M6 pilot PilotProtocol exclusions metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.evidence_consent:
+    description: "M6 pilot PilotProtocol evidence_consent metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.withdrawal:
+    description: "M6 pilot PilotProtocol withdrawal metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.deletion:
+    description: "M6 pilot PilotProtocol deletion metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.adverse_event_reporting:
+    description: "M6 pilot PilotProtocol adverse_event_reporting metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.incident_response:
+    description: "M6 pilot PilotProtocol incident_response metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.red_team_result_ids:
+    description: "M6 pilot PilotProtocol red_team_result_ids metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.red_team_complete:
+    description: "M6 pilot PilotProtocol red_team_complete metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.created_at:
+    description: "M6 pilot PilotProtocol created_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.content_hash:
+    description: "M6 pilot PilotProtocol content_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.gate:
+    description: "M6 pilot RedTeamCase gate metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.test_id:
+    description: "M6 pilot RedTeamCase test_id metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.outcome:
+    description: "M6 pilot RedTeamCase outcome metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.commit:
+    description: "M6 pilot RedTeamCase commit metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.evidence_hash:
+    description: "M6 pilot RedTeamCase evidence_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.observed_at:
+    description: "M6 pilot RedTeamCase observed_at metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamCase.notes:
+    description: "M6 pilot RedTeamCase notes metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.required_gates:
+    description: "M6 pilot RedTeamReport required_gates metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.cases:
+    description: "M6 pilot RedTeamReport cases metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.synthetic_system:
+    description: "M6 pilot RedTeamReport synthetic_system metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.commit:
+    description: "M6 pilot RedTeamReport commit metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.content_hash:
+    description: "M6 pilot RedTeamReport content_hash metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.pilot_start_allowed:
+    description: "M6 pilot RedTeamReport pilot_start_allowed metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.guided_downgrade_available:
+    description: "M6 pilot RedTeamReport guided_downgrade_available metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  RedTeamReport.explanation:
+    description: "M6 pilot RedTeamReport explanation metadata"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotProtocol.synthetic_only:
+    description: "whether this protocol artifact is synthetic-only and cannot evidence a real pilot"
+    collection: "declared in the pilot protocol artifact"
+    derivation: "none"
+    display: "shown in the R7 completeness review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral protocol metadata"
+
+  PilotProtocol.participant_evidence:
+    description: "explicit participant-evidence status marker; absent is honest and fail-closed"
+    collection: "declared in the pilot protocol artifact"
+    derivation: "none; no participant content is accepted here"
+    display: "shown in the R7 completeness review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral protocol metadata"
+
+  PilotProtocol.independent_signoff:
+    description: "explicit independent-signoff status marker; absent until external review"
+    collection: "declared in the pilot protocol artifact"
+    derivation: "none; verifier requires an external hash-bound signoff record"
+    display: "shown in the R7 completeness review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral protocol metadata"

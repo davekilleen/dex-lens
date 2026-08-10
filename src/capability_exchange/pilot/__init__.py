@@ -1,0 +1,140 @@
+"""M6 pilot protocol, measurement, analysis, drills, and R7 evidence tools.
+
+The pilot package is deliberately fail-closed.  It models process evidence and
+synthetic fixtures, but it cannot manufacture participant evidence or an
+independent sign-off.  A report therefore remains incomplete until those
+external facts are recorded explicitly.
+"""
+
+from capability_exchange.pilot.analysis import (
+    AnalysisError,
+    AnalysisReport,
+    ParticipantMeasurement,
+    ParticipantOutcome,
+    ParticipantResult,
+    PilotAnalysisReport,
+    PilotVerdict,
+    analyze_pilot,
+    strict_majority_threshold,
+)
+from capability_exchange.pilot.completeness import (
+    CompletenessReport,
+    R7Artifact,
+    R7CompletenessVerifier,
+    R7Manifest,
+    R7ManifestVerifier,
+    R7Risk,
+    R7Signoff,
+    verify_r7_manifest,
+)
+from capability_exchange.pilot.drills import (
+    DrillExecutor,
+    Runbook,
+    TabletopResult,
+    required_runbooks,
+)
+from capability_exchange.pilot.enrollment import (
+    ConsentRequiredError,
+    EnrollmentError,
+    EnrollmentGate,
+    EnrollmentRecord,
+    InvalidCohortError,
+    ProtocolHashMismatchError,
+    ProtocolVersionMismatchError,
+    SuccessContractRequiredError,
+    enroll_participant,
+)
+from capability_exchange.pilot.evidence import (
+    EvidenceRecord,
+    EvidenceTemplate,
+    MeasurementEvidence,
+    PilotEvidence,
+)
+from capability_exchange.pilot.learning import LearningOutput, normalize_learning
+from capability_exchange.pilot.measurement import (
+    LockedMeasurementPlan,
+    MeasurementPlan,
+    MeasurementPlanError,
+    MeasurementPlanTemplate,
+    MeasurementWindow,
+    canonical_plan_hash,
+    strict_majority_table,
+)
+from capability_exchange.pilot.protocol import (
+    Consent,
+    ConsentRecord,
+    PilotConsentRecord,
+    PilotProtocol,
+    Protocol,
+    ProtocolClause,
+    ProtocolError,
+    ProtocolStratum,
+    canonical_protocol_hash,
+)
+from capability_exchange.pilot.redteam import (
+    REQUIRED_REDTEAM_GATES,
+    RedTeamCase,
+    RedTeamOutcome,
+    RedTeamReport,
+    evaluate_redteam,
+)
+
+__all__ = [
+    "AnalysisError",
+    "AnalysisReport",
+    "CompletenessReport",
+    "ConsentRequiredError",
+    "ConsentRecord",
+    "Consent",
+    "PilotConsentRecord",
+    "DrillExecutor",
+    "EnrollmentError",
+    "EnrollmentGate",
+    "EnrollmentRecord",
+    "InvalidCohortError",
+    "EvidenceRecord",
+    "EvidenceTemplate",
+    "PilotEvidence",
+    "LearningOutput",
+    "MeasurementEvidence",
+    "MeasurementPlan",
+    "LockedMeasurementPlan",
+    "MeasurementPlanError",
+    "MeasurementPlanTemplate",
+    "MeasurementWindow",
+    "ParticipantMeasurement",
+    "ParticipantOutcome",
+    "ParticipantResult",
+    "PilotAnalysisReport",
+    "PilotVerdict",
+    "PilotProtocol",
+    "Protocol",
+    "ProtocolClause",
+    "ProtocolError",
+    "ProtocolHashMismatchError",
+    "ProtocolStratum",
+    "ProtocolVersionMismatchError",
+    "R7Artifact",
+    "R7CompletenessVerifier",
+    "R7Manifest",
+    "R7ManifestVerifier",
+    "R7Risk",
+    "R7Signoff",
+    "REQUIRED_REDTEAM_GATES",
+    "RedTeamCase",
+    "RedTeamOutcome",
+    "RedTeamReport",
+    "Runbook",
+    "SuccessContractRequiredError",
+    "TabletopResult",
+    "analyze_pilot",
+    "canonical_plan_hash",
+    "canonical_protocol_hash",
+    "enroll_participant",
+    "normalize_learning",
+    "required_runbooks",
+    "strict_majority_table",
+    "strict_majority_threshold",
+    "verify_r7_manifest",
+    "evaluate_redteam",
+]
