@@ -1,4 +1,4 @@
-"""The local, read-only M3 concierge journey domain.
+"""The local concierge journey domain for diagnosis, adaptation, and contribution.
 
 This module owns product state, not HTTP transport.  A server integration only
 needs to call the small transition methods on :class:`ConciergeJourney` and
@@ -25,6 +25,20 @@ from capability_exchange.adapter import (
 )
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map
+from capability_exchange.cards import (
+    CapabilityCard,
+    DisclosureManifest,
+    build_disclosure_manifest,
+    require_valid_card,
+)
+from capability_exchange.contribution import (
+    ConsentLedger,
+    Contribution,
+    ContributionLifecycle,
+    ContributionState,
+    PermissionSet,
+)
+from capability_exchange.contribution.lifecycle import StorePort
 from capability_exchange.diagnosis import assess
 from capability_exchange.evidence import EvidenceItem, EvidenceLevel, EvidenceState
 from capability_exchange.evidence.item import reference_rejection_reason
@@ -57,6 +71,9 @@ __all__ = [
     "SuccessContractFields",
     "AdaptationRefusedError",
     "AdaptationSelection",
+    "ContributionEgressError",
+    "ContributionIdentityPort",
+    "ContributionIntakePort",
     "JourneyError",
     "JourneyStateError",
 ]
@@ -79,6 +96,27 @@ class JourneyStateError(JourneyError):
 
 class AdaptationRefusedError(JourneyError):
     """An adaptation failed a named safety gate before preview or mutation."""
+
+
+class ContributionEgressError(JourneyError):
+    """Contribution authorization or intake confirmation failed closed."""
+
+
+class ContributionIdentityPort(Protocol):
+    """External identity seam used only after an explicit contribution choice."""
+
+    def contributor_secret(self) -> bytes:
+        """Return local secret material used only for pseudonymous provenance."""
+
+
+class ContributionIntakePort(Protocol):
+    """Narrow contribution seam: exact bytes in, version withdrawal out."""
+
+    def submit(self, payload: bytes, /) -> None:
+        """Accept exactly the ledger-authorized disclosure bytes."""
+
+    def withdraw(self, card_version_hash: str, /) -> None:
+        """Stop intake use of one immutable Card version immediately."""
 
 
 class ConciergeStage(StrEnum):
@@ -117,6 +155,12 @@ class ConciergeStage(StrEnum):
     ADAPT_RECEIPT = "adaptation-receipt"
     ADAPT_VERIFY = "adaptation-verify"
     UNDO = "adaptation-undo"
+    CONTRIBUTION_BUILD = "contribution-build"
+    CONTRIBUTION_REVIEW = "contribution-review"
+    CONTRIBUTION_DISCLOSE = "contribution-disclose"
+    CONTRIBUTION_APPROVE = "contribution-approve"
+    CONTRIBUTION_SUBMIT = "contribution-submit"
+    CONTRIBUTION_WITHDRAW = "contribution-withdraw"
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,7 +496,7 @@ def _slug(value: str) -> str:
 
 
 class ConciergeJourney:
-    """Explicit state machine for M3 stages 1–6.
+    """Explicit state machine for M3-M5 stages 1-9.
 
     The class has no HTTP, filesystem-read, or mutation capability.  Its only
     filesystem writes are the local ``InspectionJobStore`` records required by
@@ -502,6 +546,62 @@ class ConciergeJourney:
         self._adaptation_contract: SuccessContract | None = None
         self._adaptation_refusal = ""
         self._hard_stop_reason = ""
+
+        # M5 contribution dependencies are ports, not embedded services.  A
+        # normal account-free diagnosis/adaptation journey never calls them.
+        self._contribution_identity: ContributionIdentityPort | None = None
+        self._contribution_intake: ContributionIntakePort | None = None
+        self._contribution_stores: tuple[StorePort, ...] = ()
+        self._contribution_consent: ConsentLedger | None = None
+        self._contribution_lifecycle: ContributionLifecycle | None = None
+        self._contribution_card: CapabilityCard | None = None
+        self._contribution_manifest: DisclosureManifest | None = None
+        self._contribution: Contribution | None = None
+
+    def configure_contribution(
+        self,
+        *,
+        identity: ContributionIdentityPort,
+        intake: ContributionIntakePort,
+        stores: Iterable[StorePort] = (),
+    ) -> None:
+        """Attach reviewed external ports without invoking identity or egress."""
+
+        if self._contribution_identity is not None or self._contribution_intake is not None:
+            raise JourneyStateError("contribution ports are already configured")
+        if self.stage not in {
+            ConciergeStage.CAPABILITY_MAP,
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_UNDO,
+        }:
+            raise JourneyStateError(
+                "contribution ports may be configured only after account-free diagnosis"
+            )
+        if not callable(getattr(identity, "contributor_secret", None)):
+            raise ValueError("identity port must provide contributor_secret()")
+        if not callable(getattr(intake, "submit", None)) or not callable(
+            getattr(intake, "withdraw", None)
+        ):
+            raise ValueError("intake port must provide submit() and withdraw()")
+        self._contribution_identity = identity
+        self._contribution_intake = intake
+        self._contribution_stores = tuple(stores)
+
+    @property
+    def contribution_card(self) -> CapabilityCard | None:
+        return self._contribution_card
+
+    @property
+    def contribution_manifest(self) -> DisclosureManifest | None:
+        return self._contribution_manifest
+
+    @property
+    def contribution(self) -> Contribution | None:
+        return self._contribution
+
+    @property
+    def contribution_available(self) -> bool:
+        return self._contribution_identity is not None and self._contribution_intake is not None
 
     @staticmethod
     def _require_job_store_outside_scope(
@@ -1331,6 +1431,166 @@ class ConciergeJourney:
     def read_adaptation_receipt(self) -> object | None:
         return self.adaptation_receipt
 
+    # ------------------------------------------------------------------
+    # M5 optional contribution stage (9)
+    # ------------------------------------------------------------------
+
+    def choose_contribution(self) -> None:
+        """Enter stage 9 only after a separate, explicit contribution choice."""
+
+        self._require(
+            ConciergeStage.CAPABILITY_MAP,
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_UNDO,
+        )
+        if self._contribution_identity is None or self._contribution_intake is None:
+            raise JourneyStateError("contribution intake and identity ports are unavailable")
+        self.stage = ConciergeStage.CONTRIBUTION_BUILD
+
+    def build_contribution(self, card: CapabilityCard) -> CapabilityCard:
+        """Accept one closed, inert Card through the hardened Card validator."""
+
+        self._require(ConciergeStage.CONTRIBUTION_BUILD)
+        require_valid_card(card)
+        self._contribution_card = card
+        self.stage = ConciergeStage.CONTRIBUTION_REVIEW
+        return card
+
+    def review_contribution(self) -> CapabilityCard:
+        """Revalidate the immutable version before field disclosure is possible."""
+
+        self._require(ConciergeStage.CONTRIBUTION_REVIEW)
+        card = self._contribution_card
+        if card is None:
+            raise JourneyStateError("build a valid Capability Card before review")
+        require_valid_card(card)
+        self.stage = ConciergeStage.CONTRIBUTION_DISCLOSE
+        return card
+
+    def disclose_contribution(
+        self,
+        approved_fields: Iterable[str],
+    ) -> DisclosureManifest:
+        """Construct the only exact-byte payload eligible for later egress."""
+
+        self._require(ConciergeStage.CONTRIBUTION_DISCLOSE)
+        card = self._contribution_card
+        if card is None:
+            raise JourneyStateError("review a valid Capability Card before disclosure")
+        manifest = build_disclosure_manifest(card, approved_fields=tuple(approved_fields))
+        self._contribution_manifest = manifest
+        self.stage = ConciergeStage.CONTRIBUTION_APPROVE
+        return manifest
+
+    def approve_contribution(self, permissions: PermissionSet) -> Contribution:
+        """Record exact version consent, then derive pseudonymous provenance.
+
+        Identity is deliberately invoked here rather than during diagnosis,
+        adaptation, contribution choice, building, review, or disclosure.
+        """
+
+        self._require(ConciergeStage.CONTRIBUTION_APPROVE)
+        card = self._contribution_card
+        manifest = self._contribution_manifest
+        identity = self._contribution_identity
+        if card is None or manifest is None or identity is None:
+            raise JourneyStateError("a reviewed exact disclosure is required before approval")
+        if permissions.is_unresolvable:
+            raise ContributionEgressError(
+                "unresolvable permission state is fully withdrawn and cannot be approved"
+            )
+
+        secret = identity.contributor_secret()
+        if type(secret) is not bytes or not secret or len(secret) > 4096:
+            raise ContributionEgressError(
+                "identity port did not provide bounded local contributor authority"
+            )
+        ledger = ConsentLedger()
+        ledger.grant(card, manifest, permissions)
+        lifecycle = ContributionLifecycle(
+            stores=list(self._contribution_stores),
+            consent=ledger,
+        )
+        contribution = lifecycle.draft(
+            card,
+            manifest,
+            contributor_secret=secret,
+        )
+        self._contribution_consent = ledger
+        self._contribution_lifecycle = lifecycle
+        self._contribution = contribution
+        self.stage = ConciergeStage.CONTRIBUTION_SUBMIT
+        return contribution
+
+    def submit_contribution(self) -> Contribution:
+        """Submit locally, then send one ledger-authorized positional byte value."""
+
+        self._require(ConciergeStage.CONTRIBUTION_SUBMIT)
+        card = self._contribution_card
+        manifest = self._contribution_manifest
+        contribution = self._contribution
+        ledger = self._contribution_consent
+        lifecycle = self._contribution_lifecycle
+        intake = self._contribution_intake
+        if any(
+            value is None
+            for value in (card, manifest, contribution, ledger, lifecycle, intake)
+        ):
+            raise ContributionEgressError("contribution approval state is incomplete")
+        assert isinstance(card, CapabilityCard)
+        assert isinstance(manifest, DisclosureManifest)
+        assert isinstance(contribution, Contribution)
+        assert isinstance(ledger, ConsentLedger)
+        assert isinstance(lifecycle, ContributionLifecycle)
+        assert intake is not None
+        if contribution.card.version_hash != card.version_hash or contribution.manifest != manifest:
+            raise ContributionEgressError(
+                "exact approved Card version and disclosure consent no longer match"
+            )
+
+        try:
+            outbound = ledger.authorize_outbound(card, manifest)
+        except Exception as exc:
+            raise ContributionEgressError(
+                "exact approved Card version and disclosure consent no longer match"
+            ) from exc
+        if type(outbound) is not bytes:
+            raise ContributionEgressError("consent authority did not return exact bytes")
+
+        submitted = lifecycle.submit(contribution)
+        if submitted.state is not ContributionState.SUBMITTED:
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            raise ContributionEgressError("contribution was withdrawn before intake submission")
+        try:
+            intake.submit(outbound)
+        except Exception as exc:
+            lifecycle.quarantine(contribution, "intake did not confirm exact-byte submission")
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            raise ContributionEgressError(
+                "intake did not confirm exact-byte submission; the Card is quarantined"
+            ) from exc
+        self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+        return submitted
+
+    def withdraw_contribution(self, *, reason: str) -> Contribution:
+        """Revoke local consent immediately, then synchronously notify intake."""
+
+        self._require(ConciergeStage.CONTRIBUTION_WITHDRAW)
+        contribution = self._contribution
+        lifecycle = self._contribution_lifecycle
+        intake = self._contribution_intake
+        if contribution is None or lifecycle is None or intake is None:
+            raise JourneyStateError("there is no approved contribution to withdraw")
+        if contribution.state is not ContributionState.WITHDRAWN:
+            lifecycle.withdraw(contribution, reason=reason)
+        try:
+            intake.withdraw(contribution.version_hash)
+        except Exception as exc:
+            raise ContributionEgressError(
+                "local withdrawal is immediate, but intake withdrawal was not confirmed"
+            ) from exc
+        return contribution
+
     def close(self) -> None:
         """Close and clean up local state, regardless of the current stage."""
 
@@ -1360,6 +1620,14 @@ class ConciergeJourney:
             self._adaptation_authority = None
             self._adaptation_engine = None
             self._adaptation_contract = None
+            self._contribution_identity = None
+            self._contribution_intake = None
+            self._contribution_stores = ()
+            self._contribution_consent = None
+            self._contribution_lifecycle = None
+            self._contribution_card = None
+            self._contribution_manifest = None
+            self._contribution = None
             self.stage = ConciergeStage.CLOSED
 
     def decline(self) -> None:

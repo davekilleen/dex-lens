@@ -40,6 +40,11 @@ jobs:
         # and a non-editable install of the real wheel artifact.
         run: python -m pytest -rs tests/concierge tests/test_packaging.py
 
+      - name: M5 exact contribution egress
+        # Stage 9 may send one value only: bytes freshly authorized from the
+        # exact approved DisclosureManifest. Identity remains outside stages 1-8.
+        run: python -m pytest -rs tests/concierge/test_contribution_journey.py tests/egress/test_m5_contribution_egress.py
+
       - name: Test (pytest)
         # -rs so a hostile fixture that skipped (e.g. bind-mount-escape where
         # user namespaces are unavailable) is visible in the log rather than

@@ -1,4 +1,4 @@
-"""Local-only HTML views for the M3 read-only concierge journey.
+"""Local-only HTML views for the explicit concierge journey.
 
 The views are intentionally boring HTML: no scripts, external resources,
 browser storage, network APIs, sockets, or analytics.  Dynamic values are
@@ -14,6 +14,7 @@ from collections.abc import Iterable
 
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map as render_map_markdown
+from capability_exchange.cards import canonical_card_bytes
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
@@ -35,6 +36,8 @@ __all__ = [
     "render_job_map_view",
     "render_adaptation",
     "render_adaptation_view",
+    "render_contribution",
+    "render_contribution_view",
     "render_journey",
     "render_permission",
     "render_permission_view",
@@ -368,10 +371,12 @@ def render_capability_map(
         </form>
       </div>
     """
+    contribution = _contribution_choice(journey, csrf_token) if journey is not None else ""
     body = f"""
       <h1>Capability Map</h1>
       <pre>{_escape(markdown)}</pre>
       {adaptation}
+      {contribution}
       <form method="post" action="/close">
         {_csrf(csrf_token)}
         <button class="secondary" type="submit">Close and clear this session</button>
@@ -475,6 +480,7 @@ def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
         <form method="post" action="/adaptation/undo">{_csrf(csrf_token)}
           <button class="secondary" type="submit">Undo this adaptation</button>
         </form>
+        {_contribution_choice(journey, csrf_token)}
       </div>
     """
     if stage is ConciergeStage.ADAPTATION_UNDO:
@@ -486,6 +492,7 @@ def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
         <form method="post" action="/close">{_csrf(csrf_token)}
           <button class="secondary" type="submit">Close and leave</button>
         </form>
+        {_contribution_choice(journey, csrf_token)}
       </div>
     """
     return "<h1>Adaptation unavailable</h1><p>No bounded adaptation is selected.</p>"
@@ -495,6 +502,137 @@ def render_adaptation(journey: ConciergeJourney, csrf_token: str) -> str:
     """Render stages 7-8 without giving views any mutation capability."""
 
     return _document("Adaptation", _adaptation_preview_body(journey, csrf_token))
+
+
+def _contribution_choice(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render the optional boundary without touching an identity port."""
+
+    if not journey.contribution_available:
+        return ""
+    return f"""
+      <div class="panel">
+        <h2>Contribute an optional Capability Card</h2>
+        <p>Diagnosis and adaptation are complete without an account. Choose this
+        only if you want to build and inspect a separate contribution.</p>
+        <form method="post" action="/contribution/choose">{_csrf(csrf_token)}
+          <button type="submit">Choose to contribute</button>
+        </form>
+      </div>
+    """
+
+
+def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render the six explicit stage-9 screens with an exact-byte approval."""
+
+    stage = journey.stage
+    card = journey.contribution_card
+    manifest = journey.contribution_manifest
+    contribution = journey.contribution
+    if stage is ConciergeStage.CONTRIBUTION_BUILD:
+        body = f"""
+          <h1>Build a Capability Card</h1>
+          <div class="panel">
+            <p>Build one closed, inert Card. Raw prompts, histories, personal
+            examples, attachments, secrets, and extra fields are rejected.</p>
+            <form method="post" action="/contribution/build">{_csrf(csrf_token)}
+              <label>Capability Card JSON<textarea name="card_json" required></textarea></label>
+              <button type="submit">Build and validate Card</button>
+            </form>
+          </div>
+        """
+    elif stage is ConciergeStage.CONTRIBUTION_REVIEW and card is not None:
+        exact_card = canonical_card_bytes(card).decode("utf-8")
+        body = f"""
+          <h1>Review the Capability Card</h1>
+          <div class="panel">
+            <p>This is still local. Nothing has been selected for disclosure.</p>
+            <pre>{_escape(exact_card)}</pre>
+            <form method="post" action="/contribution/review">{_csrf(csrf_token)}
+              <button type="submit">Continue to field disclosure</button>
+            </form>
+          </div>
+        """
+    elif stage is ConciergeStage.CONTRIBUTION_DISCLOSE and card is not None:
+        fields = "".join(
+            f'<label><input type="checkbox" name="approved_field" '
+            f'value="{_escape(field)}">{_escape(field)}</label>'
+            for field in card.declared_fields
+        )
+        body = f"""
+          <h1>Choose exact disclosure fields</h1>
+          <div class="panel">
+            <p>Nothing is selected by default. The next screen shows the exact
+            UTF-8 bytes before any approval or identity request.</p>
+            <form method="post" action="/contribution/disclose">{_csrf(csrf_token)}
+              {fields}
+              <button type="submit">Build exact disclosure</button>
+            </form>
+          </div>
+        """
+    elif stage is ConciergeStage.CONTRIBUTION_APPROVE and manifest is not None:
+        permission_fields = "".join(
+            f'<label><input type="checkbox" name="permission" '
+            f'value="{name}">{name}</label>'
+            for name in (
+                "review",
+                "storage",
+                "moderation",
+                "attribution",
+                "reuse",
+                "distribution",
+            )
+        )
+        body = f"""
+          <h1>Approve exact contribution bytes</h1>
+          <div class="panel">
+            <p>Exact UTF-8 bytes ({len(manifest.payload_bytes)} bytes), SHA-256
+            {_escape(manifest.byte_hash)}:</p>
+            <pre>{_escape(manifest.display_text)}</pre>
+            <p><strong>Withdrawal limit:</strong> Withdrawal stops new review,
+            reuse, attribution, and distribution where feasible. Shipped Core
+            releases cannot be recalled. This limit is shown before any separate
+            Core-adoption agreement, which is never automatic.</p>
+            <h2>Grant each permission separately</h2>
+            <form method="post" action="/contribution/approve">{_csrf(csrf_token)}
+              {permission_fields}
+              <button type="submit">Approve this exact version</button>
+            </form>
+          </div>
+        """
+    elif stage is ConciergeStage.CONTRIBUTION_SUBMIT and contribution is not None:
+        body = f"""
+          <h1>Submit approved contribution</h1>
+          <div class="panel">
+            <p>Version {_escape(contribution.version_hash)} is approved. Submit
+            sends only the exact authorized disclosure bytes to the intake port.</p>
+            <form method="post" action="/contribution/submit">{_csrf(csrf_token)}
+              <button type="submit">Submit exact approved bytes</button>
+            </form>
+          </div>
+        """
+    elif stage is ConciergeStage.CONTRIBUTION_WITHDRAW and contribution is not None:
+        if contribution.state.value == "withdrawn":
+            detail = """
+              <p><strong>Withdrawal is complete.</strong> Local consent and every
+              controlled use stopped immediately.</p>
+            """
+        else:
+            detail = f"""
+              <p>Status: {_escape(contribution.state.value)}.</p>
+              <form method="post" action="/contribution/withdraw">{_csrf(csrf_token)}
+                <input type="hidden" name="reason" value="person requested withdrawal">
+                <button type="submit">Withdraw this version immediately</button>
+              </form>
+            """
+        body = f"""
+          <h1>Contribution withdrawal</h1>
+          <div class="panel">{detail}
+            <p>A shipped Core release cannot be recalled; no Core adoption is automatic.</p>
+          </div>
+        """
+    else:
+        body = "<h1>Contribution unavailable</h1><p>No approved stage is available.</p>"
+    return _document("Contribution", body)
 
 
 def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
@@ -525,6 +663,15 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
     }:
         return render_adaptation(journey, csrf_token=csrf_token)
     if journey.stage in {
+        ConciergeStage.CONTRIBUTION_BUILD,
+        ConciergeStage.CONTRIBUTION_REVIEW,
+        ConciergeStage.CONTRIBUTION_DISCLOSE,
+        ConciergeStage.CONTRIBUTION_APPROVE,
+        ConciergeStage.CONTRIBUTION_SUBMIT,
+        ConciergeStage.CONTRIBUTION_WITHDRAW,
+    }:
+        return render_contribution(journey, csrf_token=csrf_token)
+    if journey.stage in {
         ConciergeStage.JOB_MAP,
         ConciergeStage.DIAGNOSIS,
     }:
@@ -538,3 +685,4 @@ render_job_map_view = render_job_map
 render_fallback_view = render_fallback
 render_capability_map_view = render_capability_map
 render_adaptation_view = render_adaptation
+render_contribution_view = render_contribution

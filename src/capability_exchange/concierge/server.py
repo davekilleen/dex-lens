@@ -1,4 +1,4 @@
-"""Loopback-only local browser concierge (M3 stages 1-6).
+"""Loopback-only local browser concierge (stages 1-9).
 
 The server is intentionally small and stdlib-only. It has no static asset
 pipeline, no analytics, and no third-party resources; every page is rendered
@@ -37,6 +37,7 @@ from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.boundary.deletion import DeletionError
+from capability_exchange.cards import CapabilityCard
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
@@ -48,6 +49,8 @@ from capability_exchange.concierge.journey import (
     ConciergeJourney,
     ConciergeStage,
     ContractFields,
+    ContributionIdentityPort,
+    ContributionIntakePort,
     FallbackEvidence,
     FallbackMode,
     JobDraftFields,
@@ -60,6 +63,8 @@ from capability_exchange.concierge.security import (
     ensure_loopback_bind_address,
 )
 from capability_exchange.concierge.views import render_journey
+from capability_exchange.contribution import PermissionSet
+from capability_exchange.contribution.lifecycle import StorePort
 from capability_exchange.evidence import EvidenceLevel, EvidenceState
 from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
 
@@ -135,6 +140,9 @@ class ConciergeSession:
     fallback: bool = False
     fallback_message: str = ""
     cleanup_error: str = ""
+    contribution_identity: ContributionIdentityPort | None = None
+    contribution_intake: ContributionIntakePort | None = None
+    contribution_stores: tuple[StorePort, ...] = ()
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -146,6 +154,12 @@ class ConciergeSession:
     )
 
     def __post_init__(self) -> None:
+        contribution_ports = (
+            self.contribution_identity is not None,
+            self.contribution_intake is not None,
+        )
+        if any(contribution_ports) and not all(contribution_ports):
+            raise ValueError("contribution identity and intake ports must be configured together")
         self._consent_scope = ScopeSnapshot.capture(self.approved_roots)
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
@@ -474,6 +488,12 @@ class ConciergeSession:
     def diagnose(self) -> None:
         with self._state_lock:
             self.journey.diagnose()
+            if (
+                self.contribution_identity is not None
+                and self.contribution_intake is not None
+                and not self.journey.contribution_available
+            ):
+                self.configure_contribution()
             self._sync_journey()
 
     # M4 stages 7-8 stay behind the same narrow session boundary as the M3
@@ -513,6 +533,65 @@ class ConciergeSession:
         with self._state_lock:
             self.journey.undo_adaptation()
 
+    def configure_contribution(self) -> None:
+        """Attach external ports after diagnosis without invoking either port."""
+
+        if self.contribution_identity is None or self.contribution_intake is None:
+            raise ValueError("contribution ports are unavailable")
+        self.journey.configure_contribution(
+            identity=self.contribution_identity,
+            intake=self.contribution_intake,
+            stores=self.contribution_stores,
+        )
+
+    def choose_contribution(self) -> None:
+        with self._state_lock:
+            if not self.journey.contribution_available:
+                self.configure_contribution()
+            self.journey.choose_contribution()
+
+    def build_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            card = CapabilityCard.model_validate_json(_required(form, "card_json"))
+            self.journey.build_contribution(card)
+
+    def review_contribution(self) -> None:
+        with self._state_lock:
+            self.journey.review_contribution()
+
+    def disclose_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            fields = tuple(form.get("approved_field", ()))
+            self.journey.disclose_contribution(fields)
+
+    def approve_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            granted = set(form.get("permission", ()))
+            allowed = {
+                "review",
+                "storage",
+                "moderation",
+                "attribution",
+                "reuse",
+                "distribution",
+            }
+            unknown = granted - allowed
+            if unknown:
+                raise ValueError("unknown contribution permission")
+            self.journey.approve_contribution(
+                PermissionSet(**{name: name in granted for name in sorted(allowed)})
+            )
+
+    def submit_contribution(self) -> None:
+        with self._state_lock:
+            self.journey.submit_contribution()
+
+    def withdraw_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.withdraw_contribution(
+                reason=_optional(form, "reason") or "person requested withdrawal"
+            )
+
     def _revalidate_scope(self) -> None:
         missing = tuple(path for path in self.approved_roots if not path.exists())
         if missing:
@@ -525,6 +604,9 @@ def new_session(
     approved_roots: tuple[Path, ...],
     collector: Callable[..., AdapterResultEnvelope],
     now: Callable[[], datetime] = _utc_now,
+    contribution_identity: ContributionIdentityPort | None = None,
+    contribution_intake: ContributionIntakePort | None = None,
+    contribution_stores: tuple[StorePort, ...] = (),
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
     return ConciergeSession(
@@ -532,6 +614,9 @@ def new_session(
         collector=collector,
         now=now,
         expires_at=now() + SESSION_TTL,
+        contribution_identity=contribution_identity,
+        contribution_intake=contribution_intake,
+        contribution_stores=contribution_stores,
     )
 
 
@@ -683,6 +768,33 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
                 lambda ignored: self.server.session.undo_adaptation(), form
             )
             return
+        if parsed.path == "/contribution/choose":
+            self._journey_action(
+                lambda ignored: self.server.session.choose_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/build":
+            self._journey_action(self.server.session.build_contribution, form)
+            return
+        if parsed.path == "/contribution/review":
+            self._journey_action(
+                lambda ignored: self.server.session.review_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/disclose":
+            self._journey_action(self.server.session.disclose_contribution, form)
+            return
+        if parsed.path == "/contribution/approve":
+            self._journey_action(self.server.session.approve_contribution, form)
+            return
+        if parsed.path == "/contribution/submit":
+            self._journey_action(
+                lambda ignored: self.server.session.submit_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/withdraw":
+            self._journey_action(self.server.session.withdraw_contribution, form)
+            return
         if parsed.path == "/close":
             self.server.session.terminate_and_wait()
             self._send_page(_render_session(self.server.session))
@@ -751,6 +863,7 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             if self.server.session.journey.stage in {
                 ConciergeStage.ADAPTATION_REFUSED,
                 ConciergeStage.ADAPTATION_HARD_STOP,
+                ConciergeStage.CONTRIBUTION_WITHDRAW,
             }:
                 self._send_page(
                     _render_session(self.server.session),
