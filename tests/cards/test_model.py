@@ -52,10 +52,10 @@ def test_card_is_closed_and_inert() -> None:
     card = make_card()
     assert card.card_id == "weekly-review"
     assert card.model_config["frozen"] is True
-    assert "reviewed" not in card.model_fields
-    assert "trust" not in card.model_fields
-    assert "attachment" not in card.model_fields
-    assert "raw_attachment" not in card.model_fields
+    assert "reviewed" not in type(card).model_fields
+    assert "trust" not in type(card).model_fields
+    assert "attachment" not in type(card).model_fields
+    assert "raw_attachment" not in type(card).model_fields
 
 
 def test_card_is_immutable() -> None:
