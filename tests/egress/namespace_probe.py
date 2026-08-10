@@ -26,6 +26,9 @@ from tests.concierge.test_local_server import RunningServer
 from tests.egress.harness import EGRESS_CANARIES, build_canary_system
 from tests.fixtures.hostile.catalog import derivations_of
 
+from capability_exchange.adaptation.hosts.claude_code import (
+    claude_code_adaptation_contract,
+)
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.concierge.journey import JobDraftFields
 
@@ -138,7 +141,11 @@ def _run_journey() -> tuple[list[str], list[str], list[str], bool]:
                 [str(root)], cancel_event=cancel_event
             ).envelope
 
-        with RunningServer(collect, approved_root=root) as running:
+        with RunningServer(
+            collect,
+            approved_root=root,
+            adapter_contract=claude_code_adaptation_contract((str(root),)),
+        ) as running:
             pages.append(running.bootstrap())
             status, _, body = running.post("/approve")
             if status != 200:
@@ -197,23 +204,12 @@ def _run_journey() -> tuple[list[str], list[str], list[str], bool]:
             status, _, body = running.post(
                 "/adaptation/select", body=urlencode(adaptation)
             )
-            if status != 200:
-                raise RuntimeError("adaptation selection failed")
+            if status == 200 or "outcome procedure" not in body.lower():
+                raise RuntimeError("real-user adaptation did not refuse without outcome proof")
             pages.append(body)
-            for path in (
-                "/adaptation/preview",
-                "/adaptation/approve",
-                "/adaptation/apply",
-                "/adaptation/verify",
-                "/adaptation/undo",
-            ):
-                status, _, body = running.post(path)
-                if status != 200:
-                    raise RuntimeError(f"adaptation stage failed: {path}")
-                pages.append(body)
 
         if tree_digests(root) != before:
-            raise RuntimeError("adaptation undo did not restore the inspected root")
+            raise RuntimeError("refused adaptation changed the inspected root")
 
     joined = "\n".join(pages)
     application_leaks = _leak_markers(joined.encode(), canaries)
@@ -316,11 +312,11 @@ def main() -> int:
     pages: list[str] = []
     canaries: list[str] = []
     application_leaks: list[str] = []
-    adaptation_complete = False
+    adaptation_refused = False
     journey_error = ""
     if capture_ready:
         try:
-            pages, canaries, application_leaks, adaptation_complete = _run_journey()
+            pages, canaries, application_leaks, adaptation_refused = _run_journey()
         except BaseException as exc:  # emit only the failure class
             journey_error = type(exc).__name__
     else:
@@ -371,7 +367,7 @@ def main() -> int:
             ).splitlines()
         ),
         "journey_complete": not journey_error,
-        "adaptation_complete": adaptation_complete,
+        "adaptation_refused": adaptation_refused,
         "journey_error": journey_error,
         "pages_checked": len(pages),
         "packet_count": len(packet_lines),

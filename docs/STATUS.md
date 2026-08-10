@@ -7,13 +7,13 @@ Last updated: 2026-08-10. Plain-language companion to
 
 The six-milestone product candidate is built. M1–M3 are merged to `main`;
 M4–M6 and their final security remediation are integrated on
-`programme/m3-m6-completion` in draft PR #5. The exact candidate commit has
-passed the complete Linux/macOS matrix and every formal security evidence gate;
-delivery review and merge remain.
+`programme/m3-m6-completion` in draft PR #5. The current branch passes the
+complete local suite; the exact GitHub candidate must pass the Linux/macOS
+matrix and every formal security evidence gate before merge.
 
 This does **not** mean Dex Lens is released or that the pilot has happened.
-There is no supported installer, no published release, no observed participant
-evidence, and no completed independent sign-off.
+There is no supported participant setup package, no published release, no
+observed participant evidence, and no completed independent sign-off.
 
 ## Milestones
 
@@ -25,9 +25,10 @@ evidence, and no completed independent sign-off.
    journey, editable confirmation, session security, cancellation, guided
    fallback, and formal egress evidence are built. Deep inspection fails closed
    to the guided path when macOS cannot prove the stronger containment claim.
-4. **M4 — safe adaptation: built, not merged or released.** One bounded change
-   can be previewed, approved once, recovered after interruption, verified,
-   receipted, and undone. Diagnose-only remains the default.
+4. **M4 — safe adaptation boundary: built, not merged or released.** Preview,
+   approval, recovery, receipt, and undo are exercised on isolated synthetic
+   files. Real-user automation refuses because Lens cannot yet observe the job
+   outcome after real use; diagnosis and guidance remain available.
 5. **M5 — optional contribution: built, not merged or connected to a live
    intake.** Capability Cards, exact disclosure, fresh per-version consent,
    moderation, catalogue trust, withdrawal, and stage-nine user control are in
@@ -41,19 +42,22 @@ evidence, and no completed independent sign-off.
 ## Verification state
 
 - M3 is green on merged-main GitHub CI across Linux and macOS.
-- The combined M3–M6 candidate passes 1,250 local tests, lint, and the data
-  inventory on the Devbox.
-- Exact commit `e27cc6b9cb0e6db4566797e7d2d286108e6bd84b` passes the
-  GitHub Linux and macOS 3.11/3.12 matrix, privileged bind-mount proof,
-  M3/M4 offline-egress proof, M5 exact-byte egress proof, and combined
-  G1–G6 plus R3 release gate.
+- The combined M3–M6 candidate passes the complete local test suite, lint, and
+  the data inventory on the Devbox.
+- PR #5 is the authoritative exact-build record. Its Linux/macOS matrix,
+  privileged bind-mount proof, M3/M4 offline-egress proof, M5 exact-byte
+  egress proof, and combined G1–G6 plus R3 release gate must all be green on
+  the exact merge candidate.
 - A local skip is recorded as **unproven**, never silently treated as a pass.
 
 ## What remains before invited testing
 
-1. Complete review and merge only after explicit approval.
+1. Complete exact-build CI and merge only after explicit approval.
 2. Prepare the supported tester handoff rather than asking participants to
    interpret developer instructions unaided.
+3. Keep automated real-user adaptation disabled until a genuine later-use
+   Success Contract outcome procedure exists; configuration presence is not
+   outcome proof.
 
 ## What remains before the pilot can complete
 

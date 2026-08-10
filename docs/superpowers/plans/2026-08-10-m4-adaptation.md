@@ -2,11 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement one bounded, user-owned, reversible Claude Code adaptation through a host-neutral T1–T9 transaction engine and concierge stages 7–8.
+> **Status, 10 August 2026:** historical execution plan, not the live tracker.
+> The transaction and refusal machinery was built, but real-user automation is
+> deliberately unavailable: creating a valid file does not prove the person's
+> job improved. See `docs/STATUS.md` for the current delivery state. The
+> unchecked boxes below preserve the original plan rather than claiming work is
+> still queued.
 
-**Architecture:** Mutation code lives in a new `adaptation` package, never on the diagnosis adapter surface. The first operation is a create-only, namespaced plain-text Claude Code skill file under an explicitly approved user root; its verifier checks the exact approved bytes and a Success Contract observable signal. Every transaction binds preview, single-use approval, recovery, apply, receipt, verification, and undo through immutable digests and fails closed.
+**Goal:** Implement one bounded, user-owned, reversible Claude Code adaptation through a host-neutral T1–T9 transaction engine and concierge stages 7–8, with honest refusal wherever real outcome verification is unavailable.
 
-**Tech Stack:** Python, Pydantic, filesystem primitives, pytest fault injection, existing G2/R2/G6 models and concierge server.
+**Architecture:** Mutation code lives in a separate `adaptation` package, never on the diagnosis adapter surface. The transaction engine binds preview, single-use approval, recovery, apply, receipt, verification, and undo through immutable digests and fails closed. Structural file verification runs only in the isolated recovery drill; real-user changes refuse until a later-use Success Contract outcome can genuinely be observed.
+
+**Tech Stack:** Python, Pydantic, bounded filesystem operations, pytest fault injection, existing G2/R2/G6 models and concierge server.
 
 ---
 
@@ -35,7 +42,7 @@
 - Test: `tests/adaptation/test_approval.py`
 
 - [ ] Write failing tests for exact effect lists, canonical target jail, current-byte hash, deterministic preview digest, drift refusal, glob refusal, expiry, replay, wrong-job, and wrong-preview approval.
-- [ ] Run and observe the expected missing-feature failures.
+- [ ] Run and observe the expected unimplemented-behaviour failures.
 - [ ] Implement immutable preview and approval records. Consume approvals atomically and bind them to host, job, capability, target, limits, and preview digest.
 - [ ] Re-run focused tests green.
 

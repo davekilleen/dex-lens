@@ -1,0 +1,26 @@
+{
+  "abuse_categories": [
+    "credential-or-personal-data",
+    "prompt-injection",
+    "unsafe-instruction",
+    "harassment-or-deception",
+    "rights-or-confidentiality"
+  ],
+  "approval_criteria": [
+    "The Card passes the closed schema and hostile-content scanner.",
+    "Every required scanner class passes before human review.",
+    "Contributor rights are attested for this exact Card version.",
+    "The reviewer is eligible, independent, and conflict-free.",
+    "No unresolved abuse case remains for this exact Card version."
+  ],
+  "case_states": ["open", "investigating", "resolved", "rejected"],
+  "conflict_rule": "Reviewers must declare conflicts and may not review their own contribution.",
+  "disclosure_incentives_prohibited": true,
+  "policy_version": "1.0.0",
+  "required_scanners": ["secrets", "personal-data", "prompt-injection", "unsafe-instruction"],
+  "response_deadline_hours": 72,
+  "reviewer_access_rule": "Only authenticated people on the explicit reviewer allowlist may moderate.",
+  "rights_attestation_required": true,
+  "scanner_timeout_action": "reject",
+  "scanner_unavailable_action": "quarantine"
+}

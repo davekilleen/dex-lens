@@ -11,7 +11,7 @@ import pytest
 from tests.cards.test_model import make_card
 from tests.concierge.test_adaptation_journey import _journey, _select
 
-from capability_exchange.cards import build_disclosure_manifest
+from capability_exchange.cards import CapabilityCard, build_disclosure_manifest
 from capability_exchange.concierge.journey import (
     ConciergeStage,
     ContributionEgressError,
@@ -142,8 +142,10 @@ def test_diagnosis_and_adaptation_do_not_require_or_invoke_identity(tmp_path: Pa
 
     assert journey.stage is ConciergeStage.CAPABILITY_MAP
     assert identity.calls == 0
-    _select(journey)
-    journey.preview_adaptation()
+    from capability_exchange.concierge.journey import AdaptationRefusedError
+
+    with pytest.raises(AdaptationRefusedError, match="outcome procedure"):
+        _select(journey)
     assert identity.calls == 0
     assert intake.submissions == []
 
@@ -208,6 +210,103 @@ def test_each_transition_fails_closed_without_skipping_a_stage(tmp_path: Path) -
     assert journey.stage is ConciergeStage.CONTRIBUTION_BUILD
     assert identity.calls == 0
     assert intake.submissions == []
+
+
+def test_edit_redacts_into_new_version_and_clears_disclosure(tmp_path: Path) -> None:
+    identity = RecordingIdentity()
+    intake = RecordingIntake()
+    journey = _contribution_journey(
+        tmp_path,
+        identity=identity,
+        intake=intake,
+        store=InMemoryStore("exchange-cards"),
+    )
+    original, old_manifest = _reach_approval(journey)
+    revised = make_card(
+        version=original.version + 1,
+        method="Use a redacted, bounded weekly review.",
+    )
+
+    comparison = journey.edit_contribution(revised)
+
+    assert journey.stage is ConciergeStage.CONTRIBUTION_REVIEW
+    assert journey.contribution_card == revised
+    assert journey.contribution_manifest is None
+    assert comparison.previous_version_hash == original.version_hash
+    assert comparison.revised_version_hash == revised.version_hash
+    assert comparison.changed_fields == ("version", "method")
+    assert old_manifest.byte_hash not in comparison.revised_exact_json
+    assert identity.calls == 0
+    assert intake.submissions == []
+    page = render_journey(journey, csrf_token="csrf")
+    assert 'action="/contribution/edit"' in page
+    assert "Previous exact JSON" in page
+    assert "Revised exact JSON" in page
+    assert 'name="approved_field"' not in page
+
+
+@pytest.mark.parametrize(
+    "updates, message",
+    (
+        ({"version": 2}, "content field"),
+        ({"card_id": "different-card", "version": 2}, "same card_id"),
+        ({"version": 3, "method": "A changed method."}, "exactly one"),
+    ),
+)
+def test_edit_refuses_noop_identity_change_and_version_jump(
+    tmp_path: Path,
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    journey = _contribution_journey(
+        tmp_path,
+        identity=RecordingIdentity(),
+        intake=RecordingIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    original, _ = _reach_approval(journey)
+    payload = original.model_dump(mode="json")
+    payload.update(updates)
+    edited = CapabilityCard.model_validate(payload)
+
+    with pytest.raises(JourneyStateError, match=message):
+        journey.edit_contribution(edited)
+
+    assert journey.contribution_card == original
+    assert journey.stage is ConciergeStage.CONTRIBUTION_APPROVE
+
+
+def test_edited_version_requires_fresh_disclosure_and_approval(tmp_path: Path) -> None:
+    identity = RecordingIdentity()
+    journey = _contribution_journey(
+        tmp_path,
+        identity=identity,
+        intake=RecordingIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    original, _ = _reach_approval(journey)
+    first = journey.approve_contribution(_permissions())
+    old_ledger = journey._contribution_consent
+    assert old_ledger is not None
+    assert old_ledger.is_current(first.card, first.manifest)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_SUBMIT
+    revised = make_card(
+        version=original.version + 1,
+        method="Use only the explicitly redacted checklist.",
+    )
+    journey.edit_contribution(revised)
+    assert not old_ledger.is_current(first.card, first.manifest)
+
+    with pytest.raises(JourneyStateError, match="contribution-review"):
+        journey.approve_contribution(_permissions())
+    assert identity.calls == 1
+
+    journey.review_contribution()
+    manifest = journey.disclose_contribution(("selected_job", "method"))
+    contribution = journey.approve_contribution(_permissions())
+    assert contribution.version_hash == revised.version_hash
+    assert contribution.manifest == manifest
+    assert identity.calls == 2
 
 
 def test_submit_revalidates_exact_card_version_and_manifest_consent(tmp_path: Path) -> None:

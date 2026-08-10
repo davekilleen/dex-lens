@@ -28,9 +28,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _artifact_payload(report: object) -> dict[str, object]:
+def _artifact_payload(report: object, redteam: object) -> dict[str, object]:
     """Persist only fields the inventory explicitly allows this gate to store."""
-    return {"pilot_gate": report.dump_for_storage()}  # type: ignore[attr-defined]
+    return {
+        "pilot_gate": report.dump_for_storage(),  # type: ignore[attr-defined]
+        "red_team": redteam.dump_for_storage(),  # type: ignore[attr-defined]
+    }
 
 
 def _load_formal_evidence(
@@ -74,7 +77,7 @@ def _load_formal_evidence(
             if not pcap.is_file() or data.get("pcap_sha256") != _sha256(pcap):
                 raise ValueError("M3-M4 formal evidence pcap hash is invalid")
             observed = data.get("evidence") or {}
-            for key in ("journey_complete", "adaptation_complete"):
+            for key in ("journey_complete", "adaptation_refused"):
                 if observed.get(key) is not True:
                     raise ValueError(f"M3-M4 formal evidence is missing {key}")
         elif producer == "scripts/m5_egress_gate.py":
@@ -138,7 +141,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
-            _artifact_payload(report),
+            _artifact_payload(report, redteam),
             sort_keys=True,
             indent=2,
         )

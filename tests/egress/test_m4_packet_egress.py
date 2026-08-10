@@ -21,6 +21,7 @@ from tests.egress.network_harness import (
 )
 from tests.fixtures.hostile.catalog import derivations_of
 
+from capability_exchange.concierge.journey import AdaptationRefusedError
 from capability_exchange.concierge.views import render_journey
 
 
@@ -32,13 +33,6 @@ def test_m4_stage_7_8_journey_has_no_socket_or_canary_egress(
     (Path(journey.permission.approved_roots[0]) / "CLAUDE.md").write_text(
         canary, encoding="utf-8"
     )
-    _select(journey)
-    pages = [render_journey(journey, csrf_token="csrf")]
-    journey.preview_adaptation()
-    pages.append(render_journey(journey, csrf_token="csrf"))
-    journey.approve_adaptation()
-    pages.append(render_journey(journey, csrf_token="csrf"))
-
     destinations: list[object] = []
     original_connect = socket.socket.connect
 
@@ -49,18 +43,15 @@ def test_m4_stage_7_8_journey_has_no_socket_or_canary_egress(
         return original_connect(sock, address)  # type: ignore[arg-type]
 
     monkeypatch.setattr(socket.socket, "connect", loopback_only)
-    result = journey.apply_adaptation()
-    pages.append(render_journey(journey, csrf_token="csrf"))
-    journey.verify_adaptation()
-    pages.append(render_journey(journey, csrf_token="csrf"))
-    journey.undo_adaptation()
-    pages.append(render_journey(journey, csrf_token="csrf"))
+    with pytest.raises(AdaptationRefusedError, match="outcome procedure"):
+        _select(journey)
+    pages = [render_journey(journey, csrf_token="csrf")]
 
     joined = "\n".join(pages)
     assert destinations == []
     assert canary not in joined
     assert all(derived not in joined for derived in derivations_of(canary))
-    assert result.receipt_path.exists()
+    assert not any(Path(journey.permission.approved_roots[0]).rglob("receipt-*.json"))
 
 
 def test_m4_packet_dns_proxy_harness_is_network_none() -> None:
@@ -73,8 +64,8 @@ def test_m4_packet_dns_proxy_harness_is_network_none() -> None:
         assert run.returncode == 0, run.stderr
         assert run.evidence is not None
         assert_evidence(run.evidence)
-        assert run.evidence.get("adaptation_complete") is True
-        assert run.evidence.get("pages_checked", 0) >= 11
+        assert run.evidence.get("adaptation_refused") is True
+        assert run.evidence.get("pages_checked", 0) >= 7
         assert run.evidence.get("proxy_requests") == []
         assert run.evidence.get("dns_packets") == []
     finally:

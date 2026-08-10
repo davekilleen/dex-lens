@@ -7,12 +7,14 @@ from capability_exchange.pilot.learning import normalize_learning
 from capability_exchange.pilot.measurement import MeasurementPlan
 
 
-def make_plan(now: datetime) -> MeasurementPlan:
+def make_plan(
+    now: datetime, *, contract_id: str = "job", threshold: float = 1
+) -> MeasurementPlan:
     plan = MeasurementPlan(
-        contract_id="job",
+        contract_id=contract_id,
         baseline_window={"start": now, "end": now + timedelta(days=1)},
         follow_up_window={"start": now + timedelta(days=2), "end": now + timedelta(days=3)},
-        improvement_threshold=1,
+        improvement_threshold=threshold,
         objective_signal="objective receipt",
         cohort_strata={"non-dex": (4, 5), "dex-customized": (2, 3)},
         regression_definition="regression",
@@ -26,7 +28,7 @@ def make_plan(now: datetime) -> MeasurementPlan:
 def analyze(records, plan):
     return analyze_pilot(
         records,
-        plan,
+        {f"p{i}": plan for i in range(7)},
         expected_participant_strata={
             f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)
         },
@@ -91,6 +93,57 @@ def test_four_of_seven_clean_is_successful_but_severe_failure_stops() -> None:
     assert stopped.trust_floor_stop
 
 
+def test_each_participant_uses_their_own_contract_plan() -> None:
+    now = datetime.now(UTC)
+    records = [
+        row(
+            i,
+            now,
+            contract_id=f"job-{i}",
+            follow_up_value=2 if i < 4 else 0,
+        )
+        for i in range(7)
+    ]
+    plans = {
+        f"p{i}": make_plan(now, contract_id=f"job-{i}", threshold=1)
+        for i in range(7)
+    }
+
+    report = analyze_pilot(
+        records,
+        plans,
+        expected_participant_strata={
+            f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)
+        },
+    )
+
+    assert report.verdict is PilotVerdict.SUCCESSFUL
+    assert report.improved_count == 4
+    assert tuple(item.contract_id for item in report.participant_plan_bindings) == tuple(
+        f"job-{i}" for i in range(7)
+    )
+    assert all(len(item.plan_hash) == 64 for item in report.participant_plan_bindings)
+
+
+def test_missing_or_wrong_participant_plan_is_refused() -> None:
+    now = datetime.now(UTC)
+    records = [row(i, now, contract_id=f"job-{i}") for i in range(7)]
+    plans = {
+        f"p{i}": make_plan(now, contract_id=f"job-{i}") for i in range(7)
+    }
+    roster = {f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)}
+
+    missing = dict(plans)
+    missing.pop("p6")
+    with pytest.raises(Exception, match="exactly one measurement plan"):
+        analyze_pilot(records, missing, expected_participant_strata=roster)
+
+    wrong = dict(plans)
+    wrong["p6"] = make_plan(now, contract_id="someone-elses-job")
+    with pytest.raises(Exception, match="mismatched plan"):
+        analyze_pilot(records, wrong, expected_participant_strata=roster)
+
+
 def test_missing_follow_up_and_self_report_only_are_not_imputed() -> None:
     now = datetime.now(UTC)
     records = [row(i, now, improved=True) for i in range(7)]
@@ -123,7 +176,7 @@ def test_omitting_an_enrolled_participant_is_rejected() -> None:
     with pytest.raises(Exception, match="exact enrolled participant set"):
         analyze_pilot(
             records,
-            make_plan(now),
+            {f"p{i}": make_plan(now) for i in range(7)},
             expected_participant_strata={
                 f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)
             },
@@ -136,7 +189,7 @@ def test_cohort_outside_six_to_eight_is_rejected() -> None:
     with pytest.raises(Exception, match="6–8"):
         analyze_pilot(
             records,
-            make_plan(now),
+            {f"p{i}": make_plan(now) for i in range(5)},
             expected_participant_strata={
                 f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(5)
             },

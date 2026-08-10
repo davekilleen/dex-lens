@@ -33,7 +33,7 @@ from capability_exchange.adaptation.transaction import (
     TransactionFailedError,
     UndoConflictError,
 )
-from capability_exchange.adapter import AdapterResultEnvelope
+from capability_exchange.adapter import AdapterContract, AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.boundary.deletion import DeletionError
@@ -143,6 +143,7 @@ class ConciergeSession:
     contribution_identity: ContributionIdentityPort | None = None
     contribution_intake: ContributionIntakePort | None = None
     contribution_stores: tuple[StorePort, ...] = ()
+    adapter_contract: AdapterContract | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -164,7 +165,9 @@ class ConciergeSession:
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
-        contract = claude_code_contract(tuple(str(root) for root in self.approved_roots))
+        contract = self.adapter_contract or claude_code_contract(
+            tuple(str(root) for root in self.approved_roots)
+        )
         permission = PermissionMetadata.from_contract(
             contract,
             approved_roots=self.approved_roots,
@@ -179,6 +182,7 @@ class ConciergeSession:
             collector=self._collect_for_journey,
             job_store=Path(self.tempdir.name) / "inspection-jobs",
             now=self.now,
+            adapter_contract=contract,
         )
         self._security = SessionSecurity(
             bootstrap_token=self.bootstrap_token,
@@ -555,6 +559,11 @@ class ConciergeSession:
             card = CapabilityCard.model_validate_json(_required(form, "card_json"))
             self.journey.build_contribution(card)
 
+    def edit_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            card = CapabilityCard.model_validate_json(_required(form, "card_json"))
+            self.journey.edit_contribution(card)
+
     def review_contribution(self) -> None:
         with self._state_lock:
             self.journey.review_contribution()
@@ -607,6 +616,7 @@ def new_session(
     contribution_identity: ContributionIdentityPort | None = None,
     contribution_intake: ContributionIntakePort | None = None,
     contribution_stores: tuple[StorePort, ...] = (),
+    adapter_contract: AdapterContract | None = None,
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
     return ConciergeSession(
@@ -617,6 +627,7 @@ def new_session(
         contribution_identity=contribution_identity,
         contribution_intake=contribution_intake,
         contribution_stores=contribution_stores,
+        adapter_contract=adapter_contract,
     )
 
 
@@ -775,6 +786,9 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/contribution/build":
             self._journey_action(self.server.session.build_contribution, form)
+            return
+        if parsed.path == "/contribution/edit":
+            self._journey_action(self.server.session.edit_contribution, form)
             return
         if parsed.path == "/contribution/review":
             self._journey_action(

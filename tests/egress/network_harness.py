@@ -172,7 +172,9 @@ def assert_evidence(evidence: dict[str, Any]) -> None:
         "only loopback is present": evidence.get("interfaces") == ["lo"],
         "loopback is enabled": evidence.get("loopback_enabled") is True,
         "journey completed": evidence.get("journey_complete") is True,
-        "adaptation completed and was undone": evidence.get("adaptation_complete") is True,
+        "real-user adaptation refused without outcome proof": (
+            evidence.get("adaptation_refused") is True
+        ),
         "at least five pages were checked": evidence.get("pages_checked", 0) >= 5,
         "proxy accepted no request": evidence.get("proxy_requests") == [],
         "no DNS packet was captured": evidence.get("dns_packets") == [],

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, Self
@@ -23,6 +26,7 @@ __all__ = [
     "AnalysisError",
     "ParticipantMeasurement",
     "ParticipantOutcome",
+    "ParticipantPlanBinding",
     "ParticipantResult",
     "PilotAnalysisReport",
     "AnalysisReport",
@@ -187,13 +191,27 @@ class ParticipantResult(InventoriedModel):
         return tuple_text(value, label="evidence_limits")
 
 
-class PilotAnalysisReport(InventoriedModel):
-    """One contract's before/after report, explicitly formative."""
+class ParticipantPlanBinding(InventoriedModel):
+    """Immutable binding from one participant to their own job measurement plan."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    participant_id: str
     contract_id: str
     plan_hash: str
+
+    @field_validator("participant_id", "contract_id", "plan_hash")
+    @classmethod
+    def _id(cls, value: str, info: Any) -> str:
+        return clean_text(value, label=info.field_name, max_length=256)
+
+
+class PilotAnalysisReport(InventoriedModel):
+    """Participant-specific before/after report, explicitly formative."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    participant_plan_bindings: tuple[ParticipantPlanBinding, ...] = Field(min_length=1)
     enrolled_count: int = Field(ge=1)
     improved_count: int = Field(ge=0)
     improvement_threshold_count: int = Field(ge=1)
@@ -205,11 +223,6 @@ class PilotAnalysisReport(InventoriedModel):
     card_learning_count: int = Field(default=0, ge=0)
     formative_only: Literal[True] = True
 
-    @field_validator("contract_id", "plan_hash")
-    @classmethod
-    def _id(cls, value: str, info: Any) -> str:
-        return clean_text(value, label=info.field_name, max_length=256)
-
     @field_validator("evidence_limits")
     @classmethod
     def _limits(cls, value: tuple[str, ...]) -> tuple[str, ...]:
@@ -219,6 +232,12 @@ class PilotAnalysisReport(InventoriedModel):
     def _counts(self) -> Self:
         if len(self.participant_results) != self.enrolled_count:
             raise ValueError("participant result count must equal enrolled denominator")
+        if len(self.participant_plan_bindings) != self.enrolled_count:
+            raise ValueError("participant plan binding count must equal enrolled denominator")
+        if {item.participant_id for item in self.participant_plan_bindings} != {
+            item.participant_id for item in self.participant_results
+        }:
+            raise ValueError("participant plan bindings must match participant results")
         if self.improved_count > self.enrolled_count:
             raise ValueError("improved_count cannot exceed enrolled_count")
         if self.verdict is PilotVerdict.SUCCESSFUL and self.trust_floor_stop:
@@ -251,6 +270,14 @@ class PilotAnalysisReport(InventoriedModel):
             return "successful"
         return "not successful"
 
+    @property
+    def contract_binding_hash(self) -> str:
+        payload = [item.model_dump(mode="json") for item in self.participant_plan_bindings]
+        encoded = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
 
 def _coerce_measurement(
     value: ParticipantMeasurement | EvidenceRecord | dict[str, Any],
@@ -266,12 +293,12 @@ def _coerce_measurement(
 
 def analyze_pilot(
     records: list[ParticipantMeasurement | EvidenceRecord | dict[str, Any]] | tuple[Any, ...],
-    plan: MeasurementPlan,
+    plans_by_participant: Mapping[str, MeasurementPlan],
     *,
     expected_participant_strata: dict[str, str],
-    first_collection_at: datetime | None = None,
+    first_collection_at_by_participant: Mapping[str, datetime] | None = None,
 ) -> PilotAnalysisReport:
-    """Analyze one contract without imputation or aggregate/general claims."""
+    """Analyze each participant against their own locked job contract and plan."""
 
     measurements = tuple(_coerce_measurement(item) for item in records)
     if not measurements:
@@ -285,27 +312,53 @@ def analyze_pilot(
             "analysis rows must match the exact enrolled participant set; "
             "dropouts and missing follow-up cannot be omitted"
         )
+    if set(plans_by_participant) != set(expected_participant_strata):
+        raise AnalysisError("every enrolled participant requires exactly one measurement plan")
     if any(
         item.stratum_id != expected_participant_strata[item.participant_id]
         for item in measurements
     ):
         raise AnalysisError("analysis stratum does not match the enrolled participant roster")
-    for stratum_id, (minimum, maximum) in plan.cohort_strata.items():
+    plans = tuple(plans_by_participant.values())
+    if not plans:
+        raise AnalysisError("every enrolled participant requires a measurement plan")
+    cohort_strata = plans[0].cohort_strata
+    if any(plan.cohort_strata != cohort_strata for plan in plans):
+        raise AnalysisError("participant plans disagree on the locked cohort strata")
+    for stratum_id, (minimum, maximum) in cohort_strata.items():
         count = sum(1 for item in measurements if item.stratum_id == stratum_id)
         if count < minimum or count > maximum:
             raise AnalysisError(
                 f"analysis cohort stratum {stratum_id!r} has {count}; "
                 f"locked quota is {minimum}–{maximum}"
             )
-    undeclared = {item.stratum_id for item in measurements} - set(plan.cohort_strata)
+    undeclared = {item.stratum_id for item in measurements} - set(cohort_strata)
     if undeclared:
         raise AnalysisError("analysis contains a stratum absent from the locked plan")
-    if any(item.contract_id != plan.contract_id for item in measurements):
-        raise AnalysisError("analysis is contract-specific; evidence contract id mismatched plan")
-    try:
-        plan.assert_admissible(first_collection_at=first_collection_at)
-    except MeasurementPlanError as exc:
-        raise AnalysisError(str(exc)) from exc
+    bindings: list[ParticipantPlanBinding] = []
+    for item in measurements:
+        plan = plans_by_participant[item.participant_id]
+        if item.contract_id != plan.contract_id:
+            raise AnalysisError(
+                f"participant {item.participant_id} evidence contract id mismatched plan"
+            )
+        try:
+            plan.assert_admissible(
+                first_collection_at=(
+                    None
+                    if first_collection_at_by_participant is None
+                    else first_collection_at_by_participant.get(item.participant_id)
+                )
+            )
+        except MeasurementPlanError as exc:
+            raise AnalysisError(f"participant {item.participant_id}: {exc}") from exc
+        bindings.append(
+            ParticipantPlanBinding(
+                participant_id=item.participant_id,
+                contract_id=item.contract_id,
+                plan_hash=plan.content_hash or "",
+            )
+        )
 
     results: list[ParticipantResult] = []
     improved_count = 0
@@ -313,6 +366,7 @@ def analyze_pilot(
     report_limits: list[str] = []
     trust_floor_stop = False
     for item in measurements:
+        plan = plans_by_participant[item.participant_id]
         limits = list(item.evidence_limits)
         improved = False
         evidence_limited = False
@@ -408,7 +462,7 @@ def analyze_pilot(
         )
 
     enrolled_count = len(results)
-    threshold = plan.threshold_for(enrolled_count)
+    threshold = strict_majority_threshold(enrolled_count)
     verdict = (
         PilotVerdict.STOP_AND_REVIEW
         if trust_floor_stop
@@ -417,8 +471,7 @@ def analyze_pilot(
         else PilotVerdict.NOT_DEMONSTRATED
     )
     return PilotAnalysisReport(
-        contract_id=plan.contract_id,
-        plan_hash=plan.content_hash or "",
+        participant_plan_bindings=tuple(bindings),
         enrolled_count=enrolled_count,
         improved_count=improved_count,
         improvement_threshold_count=threshold,

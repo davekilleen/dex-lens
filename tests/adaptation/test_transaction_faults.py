@@ -16,6 +16,9 @@ from capability_exchange.adaptation.transaction import (
     TransactionEngine,
     TransactionFailedError,
 )
+from capability_exchange.adaptation.verification import (
+    CREATED_SKILL_OUTCOME_SIGNAL,
+)
 from capability_exchange.jobs.contract import (
     JobBoundaries,
     JobCadence,
@@ -24,7 +27,7 @@ from capability_exchange.jobs.contract import (
 )
 
 NOW = datetime(2026, 8, 10, 9, 0, tzinfo=UTC)
-SIGNAL = "New entries are grouped under topic headings"
+SIGNAL = CREATED_SKILL_OUTCOME_SIGNAL
 
 
 def fixture(root: Path):
@@ -32,19 +35,19 @@ def fixture(root: Path):
         request=OperationRequest(
             operation=OperationKind.CREATE_NAMESPACED_SKILL,
             approved_root=str(root),
-            relative_path="dex-lens-reading-list.md",
+            relative_path="dex-lens-recovery-drill.md",
         ),
-        host_id="claude-code-local",
-        job_id="reading-list",
-        capability_id="topic-grouping",
+        host_id="synthetic-recovery-drill",
+        job_id="recovery-drill",
+        capability_id="recovery-proof",
         content="# Skill\n\nGroup new reading-list entries under topic headings.\n",
         expected_benefit="Group reading-list entries by topic",
         created_at=NOW,
     )
     contract = SuccessContract(
-        job_id="reading-list",
-        situation="When I save useful articles during the week",
-        desired_outcome="My local reading list is grouped by topic",
+        job_id="recovery-drill",
+        situation="When the isolated synthetic transaction is exercised",
+        desired_outcome="The fixed synthetic skill is loadable",
         success_evidence=(SIGNAL,),
         boundaries=JobBoundaries(
             privacy_limits=("No article text leaves this machine",),
@@ -76,8 +79,8 @@ class CrashAt:
 def test_restart_resolves_every_fault_to_prestate_or_complete_receipt(
     tmp_path: Path, checkpoint: str
 ) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     preview, contract = fixture(approved)
     authority = ApprovalAuthority()
     issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
@@ -89,6 +92,7 @@ def test_restart_resolves_every_fault_to_prestate_or_complete_receipt(
         adapter_version="1.0.0",
         fault_hook=CrashAt(checkpoint),
     )
+    recovery = crashing.prepare_recovery(preview, now=NOW)
     with pytest.raises(InjectedCrash):
         crashing.execute(
             preview,
@@ -96,6 +100,7 @@ def test_restart_resolves_every_fault_to_prestate_or_complete_receipt(
             contract=contract,
             observable_signal=SIGNAL,
             now=NOW + timedelta(seconds=1),
+            recovery_point=recovery,
         )
 
     restarted = TransactionEngine(
@@ -118,8 +123,8 @@ def test_restart_resolves_every_fault_to_prestate_or_complete_receipt(
 
 
 def test_receipt_failure_rolls_back_exact_applied_file(tmp_path: Path, monkeypatch) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     preview, contract = fixture(approved)
     authority = ApprovalAuthority()
     issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
@@ -135,6 +140,7 @@ def test_receipt_failure_rolls_back_exact_applied_file(tmp_path: Path, monkeypat
         adapter_id="claude-code-local",
         adapter_version="1.0.0",
     )
+    recovery = engine.prepare_recovery(preview, now=NOW)
     with pytest.raises(TransactionFailedError, match="receipt"):
         engine.execute(
             preview,
@@ -142,6 +148,7 @@ def test_receipt_failure_rolls_back_exact_applied_file(tmp_path: Path, monkeypat
             contract=contract,
             observable_signal=SIGNAL,
             now=NOW + timedelta(seconds=1),
+            recovery_point=recovery,
         )
     assert not Path(preview.target_path).exists()
     assert engine.incidents[-1].kind is IncidentKind.RECEIPT_FAILED
@@ -150,8 +157,8 @@ def test_receipt_failure_rolls_back_exact_applied_file(tmp_path: Path, monkeypat
 def test_unrelated_bytes_after_crash_are_never_deleted_as_partial_output(
     tmp_path: Path,
 ) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     preview, contract = fixture(approved)
     authority = ApprovalAuthority()
     issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
@@ -163,6 +170,7 @@ def test_unrelated_bytes_after_crash_are_never_deleted_as_partial_output(
         adapter_version="1.0.0",
         fault_hook=CrashAt("mid-write"),
     )
+    recovery = engine.prepare_recovery(preview, now=NOW)
     with pytest.raises(InjectedCrash):
         engine.execute(
             preview,
@@ -170,6 +178,7 @@ def test_unrelated_bytes_after_crash_are_never_deleted_as_partial_output(
             contract=contract,
             observable_signal=SIGNAL,
             now=NOW,
+            recovery_point=recovery,
         )
     Path(preview.target_path).write_text("unrelated later work", encoding="utf-8")
 

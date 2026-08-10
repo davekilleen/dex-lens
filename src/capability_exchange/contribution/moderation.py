@@ -6,8 +6,11 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from html import escape
+from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, final
 
@@ -25,6 +28,9 @@ from capability_exchange.contribution.provenance import pseudonymous_contributor
 
 __all__ = [
     "ModerationAttestation",
+    "ModerationAbuseCase",
+    "ModerationCaseState",
+    "ModerationPolicy",
     "ModerationResult",
     "ModerationService",
     "ModerationStatus",
@@ -37,6 +43,157 @@ __all__ = [
     "AttestationVerifier",
     "PrincipalIdentityPort",
 ]
+
+
+_POLICY_FIELDS = frozenset(
+    {
+        "policy_version",
+        "approval_criteria",
+        "reviewer_access_rule",
+        "conflict_rule",
+        "abuse_categories",
+        "case_states",
+        "response_deadline_hours",
+        "rights_attestation_required",
+        "required_scanners",
+        "scanner_unavailable_action",
+        "scanner_timeout_action",
+        "disclosure_incentives_prohibited",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ModerationPolicy:
+    """Closed, versioned operating rules loaded from the checked-in policy."""
+
+    policy_version: str
+    approval_criteria: tuple[str, ...]
+    reviewer_access_rule: str
+    conflict_rule: str
+    abuse_categories: tuple[str, ...]
+    case_states: tuple[str, ...]
+    response_deadline_hours: int
+    rights_attestation_required: bool
+    required_scanners: tuple[str, ...]
+    scanner_unavailable_action: str
+    scanner_timeout_action: str
+    disclosure_incentives_prohibited: bool
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> ModerationPolicy:
+        if frozenset(value) != _POLICY_FIELDS:
+            missing = sorted(_POLICY_FIELDS - frozenset(value))
+            extra = sorted(frozenset(value) - _POLICY_FIELDS)
+            raise ValueError(f"moderation policy fields mismatch: missing={missing}, extra={extra}")
+        try:
+            policy = cls(
+                policy_version=str(value["policy_version"]),
+                approval_criteria=tuple(value["approval_criteria"]),  # type: ignore[arg-type]
+                reviewer_access_rule=str(value["reviewer_access_rule"]),
+                conflict_rule=str(value["conflict_rule"]),
+                abuse_categories=tuple(value["abuse_categories"]),  # type: ignore[arg-type]
+                case_states=tuple(value["case_states"]),  # type: ignore[arg-type]
+                response_deadline_hours=int(value["response_deadline_hours"]),
+                rights_attestation_required=value["rights_attestation_required"] is True,
+                required_scanners=tuple(value["required_scanners"]),  # type: ignore[arg-type]
+                scanner_unavailable_action=str(value["scanner_unavailable_action"]),
+                scanner_timeout_action=str(value["scanner_timeout_action"]),
+                disclosure_incentives_prohibited=(
+                    value["disclosure_incentives_prohibited"] is True
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("moderation policy has invalid field types") from exc
+        policy.assert_valid()
+        return policy
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> ModerationPolicy:
+        source = path or Path(__file__).with_name("moderation_policy.v1.json")
+        try:
+            raw = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("versioned moderation policy is unavailable or invalid") from exc
+        if not isinstance(raw, dict):
+            raise ValueError("versioned moderation policy must be one closed object")
+        return cls.from_mapping(raw)
+
+    def assert_valid(self) -> None:
+        text_fields = (
+            self.policy_version,
+            self.reviewer_access_rule,
+            self.conflict_rule,
+        )
+        if any(not item.strip() or len(item) > 512 for item in text_fields):
+            raise ValueError("moderation policy text must be bounded and non-empty")
+        if not self.approval_criteria or any(
+            not item.strip() or len(item) > 512 for item in self.approval_criteria
+        ):
+            raise ValueError("moderation policy requires bounded approval criteria")
+        if not self.abuse_categories or len(set(self.abuse_categories)) != len(
+            self.abuse_categories
+        ):
+            raise ValueError("moderation policy requires unique abuse categories")
+        required_states = {"open", "investigating", "resolved", "rejected"}
+        if set(self.case_states) != required_states:
+            raise ValueError("moderation policy requires the closed case-state model")
+        if not 1 <= self.response_deadline_hours <= 720:
+            raise ValueError("moderation response deadline must be between 1 and 720 hours")
+        if self.rights_attestation_required is not True:
+            raise ValueError("moderation policy must require rights attestation")
+        if set(self.required_scanners) != {
+            "secrets",
+            "personal-data",
+            "prompt-injection",
+            "unsafe-instruction",
+        }:
+            raise ValueError("moderation policy must name every required scanner class")
+        if self.scanner_unavailable_action != "quarantine":
+            raise ValueError("scanner unavailability must quarantine")
+        if self.scanner_timeout_action != "reject":
+            raise ValueError("scanner timeout must reject")
+        if self.disclosure_incentives_prohibited is not True:
+            raise ValueError("moderation policy must prohibit disclosure incentives")
+
+    @property
+    def policy_hash(self) -> str:
+        payload = json.dumps(
+            {
+                field: getattr(self, field)
+                for field in sorted(_POLICY_FIELDS)
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+    def assert_copy_allowed(self, copy: str) -> None:
+        lowered = " ".join(copy.lower().split())
+        incentive_terms = ("reward", "badge", "recognition", "priority", "bonus")
+        disclosure_terms = ("share more", "disclose more", "more fields", "all fields")
+        if any(term in lowered for term in incentive_terms) and any(
+            term in lowered for term in disclosure_terms
+        ):
+            raise ValueError("copy must not condition incentives on broader disclosure")
+
+
+class ModerationCaseState(StrEnum):
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    RESOLVED = "resolved"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class ModerationAbuseCase:
+    case_id: str
+    card_version_hash: str
+    category: str
+    state: ModerationCaseState
+    opened_at: datetime
+    response_due_at: datetime
 
 
 class ModerationStatus(StrEnum):
@@ -202,7 +359,15 @@ class ModerationService:
         attestation_key_id: str = "moderation-1",
         trusted_scanners: set[tuple[str, str]] | None = None,
         trusted_key_ids: set[str] | None = None,
+        policy: ModerationPolicy | None = None,
+        policy_path: Path | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
+        if policy is not None and policy_path is not None:
+            raise ValueError("provide moderation policy or policy_path, not both")
+        self.policy = policy or ModerationPolicy.load(policy_path)
+        self.policy.assert_valid()
+        self._now = now or (lambda: datetime.now(UTC))
         self.eligible_reviewers = frozenset(
             set() if eligible_reviewers is None else eligible_reviewers
         )
@@ -234,12 +399,94 @@ class ModerationService:
             else trusted_scanners
         )
         self._attestations: dict[str, ModerationAttestation] = {}
+        self._abuse_cases: dict[str, ModerationAbuseCase] = {}
 
     @property
     def attestations(self) -> Mapping[str, ModerationAttestation]:
         """Read-only view; callers cannot insert caller-asserted trust."""
 
         return MappingProxyType(self._attestations)
+
+    @property
+    def abuse_cases(self) -> Mapping[str, ModerationAbuseCase]:
+        return MappingProxyType(self._abuse_cases)
+
+    def report_abuse(
+        self,
+        card: CapabilityCard,
+        *,
+        category: str,
+        at: datetime | None = None,
+    ) -> ModerationAbuseCase:
+        """Open one bounded, deadline-bearing moderation case for a Card version."""
+
+        require_valid_card(card)
+        if category not in self.policy.abuse_categories:
+            raise ValueError("abuse category is outside the closed moderation policy")
+        opened = at or self._now()
+        if opened.tzinfo is None or opened.tzinfo.utcoffset(opened) is None:
+            raise ValueError("abuse case time must be timezone-aware")
+        material = f"{card.version_hash}\0{category}\0{opened.isoformat()}".encode()
+        case_id = "case:" + hashlib.sha256(material).hexdigest()
+        case = ModerationAbuseCase(
+            case_id=case_id,
+            card_version_hash=card.version_hash,
+            category=category,
+            state=ModerationCaseState.OPEN,
+            opened_at=opened,
+            response_due_at=opened
+            + timedelta(hours=self.policy.response_deadline_hours),
+        )
+        self._abuse_cases[case_id] = case
+        return case
+
+    def resolve_abuse_case(
+        self,
+        case_id: str,
+        *,
+        state: ModerationCaseState | str,
+        conflict_declared: bool,
+    ) -> ModerationAbuseCase:
+        if self._reviewer_identity is None or self._contributor_identity is None:
+            raise ValueError("authenticated reviewer authority is unavailable")
+        reviewer_id = self._reviewer_identity.authenticated_principal()
+        contributor_id = self._contributor_identity.authenticated_principal()
+        if reviewer_id not in self.eligible_reviewers:
+            raise ValueError("reviewer is not eligible to resolve abuse cases")
+        if reviewer_id == contributor_id:
+            raise ValueError("conflict: a contributor cannot resolve their own abuse case")
+        if type(conflict_declared) is not bool or conflict_declared is not True:
+            raise ValueError("conflict declaration is required to resolve an abuse case")
+        if case_id not in self._abuse_cases:
+            raise ValueError("unknown moderation abuse case")
+        resolved_state = ModerationCaseState(state)
+        if resolved_state not in {
+            ModerationCaseState.RESOLVED,
+            ModerationCaseState.REJECTED,
+        }:
+            raise ValueError("abuse case may close only as resolved or rejected")
+        current = self._abuse_cases[case_id]
+        closed = ModerationAbuseCase(
+            case_id=current.case_id,
+            card_version_hash=current.card_version_hash,
+            category=current.category,
+            state=resolved_state,
+            opened_at=current.opened_at,
+            response_due_at=current.response_due_at,
+        )
+        self._abuse_cases[case_id] = closed
+        return closed
+
+    def _assert_no_open_abuse_case(self, card: CapabilityCard) -> None:
+        now = self._now()
+        for case in self._abuse_cases.values():
+            if case.card_version_hash != card.version_hash:
+                continue
+            if case.state in {ModerationCaseState.RESOLVED, ModerationCaseState.REJECTED}:
+                continue
+            if now > case.response_due_at:
+                raise ValueError("overdue abuse case blocks moderation approval")
+            raise ValueError("open abuse case blocks moderation approval")
 
     def scan(self, card: CapabilityCard) -> ModerationResult:
         try:
@@ -411,6 +658,8 @@ class ModerationService:
         conflict_declared: bool = False,
         conflict_of_interest: bool = False,
     ) -> ModerationAttestation:
+        self.policy.assert_valid()
+        self._assert_no_open_abuse_case(card)
         if (
             not self.eligible_reviewers
             or self._reviewer_identity is None

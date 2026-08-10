@@ -11,6 +11,7 @@ from capability_exchange.pilot.analysis import (
     AnalysisReport,
     ParticipantMeasurement,
     ParticipantOutcome,
+    ParticipantPlanBinding,
     ParticipantResult,
     PilotAnalysisReport,
     PilotVerdict,
@@ -31,6 +32,7 @@ from capability_exchange.pilot.completeness import (
 )
 from capability_exchange.pilot.drills import (
     DrillExecutor,
+    RecoveryFailureEvidence,
     Runbook,
     TabletopResult,
     required_runbooks,
@@ -127,6 +129,7 @@ __all__ = [
     "MeasurementWindow",
     "ParticipantMeasurement",
     "ParticipantOutcome",
+    "ParticipantPlanBinding",
     "ParticipantResult",
     "PilotAnalysisReport",
     "PilotVerdict",
@@ -145,6 +148,7 @@ __all__ = [
     "R7ManifestVerifier",
     "R7Risk",
     "R7Signoff",
+    "RecoveryFailureEvidence",
     "REQUIRED_REDTEAM_GATES",
     "REQUIRED_REDTEAM_TESTS",
     "RedTeamCase",

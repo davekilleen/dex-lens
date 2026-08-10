@@ -10,6 +10,7 @@ from capability_exchange.pilot.protocol import (
     ProtocolClause,
     ProtocolStratum,
 )
+from capability_exchange.pilot.redteam import evaluate_gate_redteam
 
 
 def gate_report():
@@ -70,7 +71,10 @@ def protocol(*, red_team_complete: bool = True) -> PilotProtocol:
         adverse_event_reporting=clause,
         incident_response=clause,
     )
-    return value.attach_red_team(gate_report()) if red_team_complete else value
+    if not red_team_complete:
+        return value
+    gate = gate_report()
+    return value.attach_red_team(evaluate_gate_redteam(gate), gate_report=gate)
 
 
 def test_protocol_hash_is_canonical_and_changes_on_substantive_edit() -> None:
@@ -116,9 +120,43 @@ def test_protocol_binds_the_exact_executed_gate_report() -> None:
     assert current.pilot_gate_report is not None
     assert current.pilot_gate_report.commit == "a" * 40
     assert current.pilot_gate_report.content_hash
+    assert current.red_team_report is not None
+    assert current.red_team_report.source_gate_report_hash == current.pilot_gate_report.content_hash
+    assert current.red_team_report.dump_for_storage()["cases"]
     current.assert_red_team_ready()
 
 
 def test_protocol_without_executed_gate_report_cannot_touch_participants() -> None:
     with pytest.raises(ValueError, match="exact-build gate"):
         protocol(red_team_complete=False).assert_red_team_ready()
+
+
+def test_gate_report_alone_or_mismatched_red_team_cannot_start_pilot() -> None:
+    empty = protocol(red_team_complete=False)
+    gate = gate_report()
+    gate_only = empty.model_copy(update={"pilot_gate_report": gate})
+    with pytest.raises(ValueError, match="red-team report"):
+        gate_only.assert_red_team_ready()
+
+    red_team = evaluate_gate_redteam(gate).model_copy(
+        update={"source_gate_report_hash": "0" * 64}
+    )
+    with pytest.raises(ValueError, match="revalidation|not bound"):
+        empty.attach_red_team(red_team, gate_report=gate)
+
+
+def test_model_copy_cannot_forge_empty_gate_or_red_team_evidence() -> None:
+    current = protocol()
+    assert current.pilot_gate_report is not None
+    assert current.red_team_report is not None
+    forged = current.model_copy(
+        update={
+            "pilot_gate_report": current.pilot_gate_report.model_copy(
+                update={"evidence": ()}
+            ),
+            "red_team_report": current.red_team_report.model_copy(update={"cases": ()}),
+        }
+    )
+
+    with pytest.raises(ValueError):
+        forged.assert_red_team_ready()

@@ -66,8 +66,13 @@ _MODULE_EXPORTS: dict[str, tuple[str, ...]] = {
         "UndoStatus",
     ),
     "verification": (
+        "CREATED_SKILL_OUTCOME_SIGNAL",
+        "OutcomeCheck",
+        "OutcomeCheckState",
+        "OutcomeObservationArtifact",
         "VerificationResult",
         "VerificationVerdict",
+        "has_outcome_procedure",
         "verify_created_skill",
     ),
 }

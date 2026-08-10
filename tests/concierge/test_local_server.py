@@ -88,6 +88,7 @@ class RunningServer(AbstractContextManager["RunningServer"]):
         collector: Callable[..., AdapterResultEnvelope],
         *,
         approved_root: Path | None = None,
+        adapter_contract: object | None = None,
     ) -> None:
         self.calls = 0
         self.tempdir = tempfile.TemporaryDirectory()
@@ -106,6 +107,7 @@ class RunningServer(AbstractContextManager["RunningServer"]):
             approved_roots=(self.approved_root,),
             collector=counted_collector,
             now=lambda: COLLECTED_AT,
+            adapter_contract=adapter_contract,
         )
         self.server = ConciergeServer(("127.0.0.1", 0), self.session)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -508,6 +510,24 @@ class TestStagesOneToSix:
             assert "Capability Map" in body
             assert "Your job: instruction-guided-work" in body
             assert "overall score" not in body.lower()
+            assert 'action="/adaptation/select"' not in body
+
+            status, _, body = running.post(
+                "/adaptation/select",
+                body=urlencode(
+                    {
+                        "job_id": "instruction-guided-work",
+                        "capability_id": "weekly-review",
+                        "approved_skills_root": str(running.approved_root),
+                        "markdown": "# Weekly review helper\n",
+                        "expected_benefit": "Prepare the weekly review",
+                        "observable_signal": "weekly review follows the instructions",
+                    }
+                ),
+            )
+            assert status == 400
+            assert "Diagnose-only" in body
+            assert not (running.approved_root / "dex-lens-instruction-guided-work.md").exists()
 
     @linux_only
     def test_real_contained_full_journey_writes_nothing_to_approved_root(

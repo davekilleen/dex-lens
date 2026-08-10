@@ -26,6 +26,7 @@ from capability_exchange.adaptation.receipt import (
 )
 from capability_exchange.adaptation.recovery import (
     RecoveryConflictError,
+    RecoveryPoint,
     RecoveryUnavailableError,
     create_recovery_point,
     restore_absent_target,
@@ -99,17 +100,18 @@ class TransactionJournal(InventoriedModel):
     state: JournalState
     preview_digest: str
     approval_id: str
+    approval_issued_at: datetime
     target_path: str
     content_sha256: str
     recovery_manifest_path: str
     receipt_path: str
     updated_at: datetime
 
-    @field_validator("updated_at")
+    @field_validator("approval_issued_at", "updated_at")
     @classmethod
     def _updated_at_is_aware(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("journal updated_at must be timezone-aware")
+            raise ValueError("journal approval and update times must be timezone-aware")
         return value
 
 
@@ -342,6 +344,39 @@ class TransactionEngine:
             hard_stopped=hard_stopped,
         )
 
+    def prepare_recovery(
+        self, preview: AdaptationPreview, *, now: datetime
+    ) -> RecoveryPoint:
+        """Create and read-validate the exact undo proof before consent."""
+
+        if self._hard_stopped:
+            raise AutomationHardStoppedError(
+                "automation is hard-stopped for this session after an incident"
+            )
+        assert_preview_current(preview)
+        return create_recovery_point(
+            preview,
+            state_root=self.state_root / "recovery",
+            created_at=now,
+        )
+
+    @staticmethod
+    def _validate_prepared_recovery(
+        preview: AdaptationPreview, recovery: RecoveryPoint
+    ) -> RecoveryPoint:
+        proven = validate_recovery_point(
+            Path(recovery.manifest_path), require_prior_state=True
+        )
+        if (
+            proven != recovery
+            or proven.preview_digest != preview.preview_digest
+            or proven.target_path != preview.target_path
+        ):
+            raise RecoveryUnavailableError(
+                "pre-consent recovery proof does not match the exact preview"
+            )
+        return proven
+
     def execute(
         self,
         preview: AdaptationPreview,
@@ -350,6 +385,7 @@ class TransactionEngine:
         contract: SuccessContract,
         observable_signal: str,
         now: datetime,
+        recovery_point: RecoveryPoint | None = None,
     ) -> TransactionResult:
         transaction_id = self._transaction_id(preview)
         journal = self._read_journal(transaction_id)
@@ -368,21 +404,28 @@ class TransactionEngine:
                 "automation is hard-stopped for this session after an incident"
             )
         else:
+            if recovery_point is None:
+                raise RecoveryUnavailableError(
+                    "a validated pre-consent recovery proof is required before apply"
+                )
+            recovery = self._validate_prepared_recovery(preview, recovery_point)
             approval = self.approval_authority.consume(
                 approval_token, preview, now=now
             )
             journal = TransactionJournal(
                 transaction_id=transaction_id,
-                state=JournalState.APPROVED,
+                state=JournalState.RECOVERY_READY,
                 preview_digest=preview.preview_digest,
                 approval_id=approval.approval_id,
+                approval_issued_at=approval.issued_at,
                 target_path=preview.target_path,
                 content_sha256=preview.content_sha256,
-                recovery_manifest_path="",
+                recovery_manifest_path=recovery.manifest_path,
                 receipt_path="",
                 updated_at=now,
             )
             self._write_journal(journal)
+            self._checkpoint("before-recovery")
 
         if self._hard_stopped:
             raise AutomationHardStoppedError(
@@ -390,18 +433,8 @@ class TransactionEngine:
             )
 
         if journal.state is JournalState.APPROVED:
-            self._checkpoint("before-recovery")
-            assert_preview_current(preview)
-            recovery = create_recovery_point(
-                preview,
-                state_root=self.state_root / "recovery",
-                created_at=now,
-            )
-            journal = self._advance(
-                journal,
-                JournalState.RECOVERY_READY,
-                now,
-                recovery_manifest_path=recovery.manifest_path,
+            raise RecoveryUnavailableError(
+                "legacy transaction lacks a pre-consent recovery proof"
             )
 
         journal = self._apply_or_reconcile(journal, preview, now)
@@ -412,11 +445,13 @@ class TransactionEngine:
                 contract,
                 observable_signal=observable_signal,
                 verified_at=now,
+                evidence_root=self.state_root / "outcome-evidence",
             )
             receipt = TransactionReceipt(
                 transaction_id=transaction_id,
                 preview_digest=preview.preview_digest,
                 approval_id=journal.approval_id,
+                approval_issued_at=journal.approval_issued_at,
                 operation=preview.operation,
                 target_path=preview.target_path,
                 content_sha256=preview.content_sha256,
@@ -426,6 +461,11 @@ class TransactionEngine:
                 applied_at=now,
                 verification_verdict=verification.verdict,
                 evidence_level=verification.evidence_level,
+                verification_procedure_id=verification.procedure_id,
+                verification_evidence_reference=verification.evidence_reference,
+                verification_evidence_sha256=verification.evidence_sha256,
+                verification_contract_digest=verification.contract_digest,
+                verification_observed_at=verification.verified_at,
             )
             try:
                 receipt_path = write_receipt(receipt, self.receipt_root)

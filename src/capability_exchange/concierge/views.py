@@ -346,7 +346,11 @@ def render_capability_map(
 
     markdown = render_map_markdown(capability_map)
     adaptation = ""
-    if journey is not None and journey.stage is ConciergeStage.CAPABILITY_MAP:
+    if (
+        journey is not None
+        and journey.stage is ConciergeStage.CAPABILITY_MAP
+        and journey.adaptation_available
+    ):
         jobs = tuple(journey.confirmed_contracts)
         options = "".join(
             f'<option value="{_escape(contract.job_id)}">{_escape(contract.job_id)}</option>'
@@ -428,6 +432,7 @@ def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
       </div>
     """
     if stage is ConciergeStage.ADAPTATION_PREVIEW and preview is not None:
+        recovery = journey.adaptation_recovery
         return f"""
       <h1>Review exact adaptation preview</h1>
       <div class="panel">
@@ -439,6 +444,11 @@ def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
         <li>Expected benefit: {_escape(getattr(preview, 'expected_benefit', ''))}</li>
         <li>Effects: {_list(getattr(preview, 'effects', ()))}</li>
         <li>Risks: {_list(getattr(preview, 'risks', ()))}</li></ul>
+        <h2>Recovery proof</h2>
+        <p>This proof was created and read back before consent.</p>
+        <ul><li>Recovery id: {_escape(getattr(recovery, 'recovery_id', 'unavailable'))}</li>
+        <li>Prior state: {_escape(getattr(recovery, 'prior_state', 'unavailable'))}</li>
+        <li>Undo promise: restore the exact prior state if the change is reversed</li></ul>
         <pre>{_escape(getattr(preview, 'content', ''))}</pre>
         <form method="post" action="/adaptation/approve">{_csrf(csrf_token)}
           <button type="submit">Approve this one change</button>
@@ -473,9 +483,17 @@ def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
     """
     if stage is ConciergeStage.ADAPTATION_VERIFY:
         verification = journey.adaptation_verification
+        recorded_verdict = getattr(verification, "verdict", verification)
+        raw_verdict = getattr(recorded_verdict, "value", recorded_verdict)
+        verdict = {
+            "working": "Working",
+            "partial": "Partial",
+            "not-demonstrated": "Not demonstrated",
+            "unknown": "Unknown",
+        }.get(str(raw_verdict), "Unknown")
         return f"""
-      <h1>Adaptation verified</h1>
-      <div class="panel"><p>Outcome: {_escape(getattr(verification, 'verdict', verification))}</p>
+      <h1>Adaptation outcome</h1>
+      <div class="panel"><p>Outcome: {_escape(verdict)}</p>
         <p>{_escape(getattr(verification, 'detail', 'Verification recorded'))}</p>
         <form method="post" action="/adaptation/undo">{_csrf(csrf_token)}
           <button class="secondary" type="submit">Undo this adaptation</button>
@@ -542,11 +560,37 @@ def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
         """
     elif stage is ConciergeStage.CONTRIBUTION_REVIEW and card is not None:
         exact_card = canonical_card_bytes(card).decode("utf-8")
+        comparison = journey.contribution_comparison
+        comparison_html = ""
+        if comparison is not None:
+            changed = ", ".join(comparison.changed_fields)
+            comparison_html = f"""
+              <h2>What changed in version {card.version}</h2>
+              <p>Changed fields: {_escape(changed)}.</p>
+              <p>Previous hash: {_escape(comparison.previous_version_hash)}</p>
+              <p>Revised hash: {_escape(comparison.revised_version_hash)}</p>
+              <details><summary>Compare exact versions</summary>
+                <h3>Previous exact JSON</h3>
+                <pre>{_escape(comparison.previous_exact_json)}</pre>
+                <h3>Revised exact JSON</h3>
+                <pre>{_escape(comparison.revised_exact_json)}</pre>
+              </details>
+            """
         body = f"""
           <h1>Review the Capability Card</h1>
           <div class="panel">
             <p>This is still local. Nothing has been selected for disclosure.</p>
+            {comparison_html}
             <pre>{_escape(exact_card)}</pre>
+            <h2>Edit or redact into a new version</h2>
+            <p>Keep the same Card ID, increase the version by one, and change at
+            least one content field. Any earlier disclosure selection is cleared.</p>
+            <form method="post" action="/contribution/edit">{_csrf(csrf_token)}
+              <label>Revised Capability Card JSON
+                <textarea name="card_json" required>{_escape(exact_card)}</textarea>
+              </label>
+              <button type="submit">Validate revised version</button>
+            </form>
             <form method="post" action="/contribution/review">{_csrf(csrf_token)}
               <button type="submit">Continue to field disclosure</button>
             </form>
@@ -600,6 +644,7 @@ def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
           </div>
         """
     elif stage is ConciergeStage.CONTRIBUTION_SUBMIT and contribution is not None:
+        exact_card = canonical_card_bytes(contribution.card).decode("utf-8")
         body = f"""
           <h1>Submit approved contribution</h1>
           <div class="panel">
@@ -607,6 +652,15 @@ def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
             sends only the exact authorized disclosure bytes to the intake port.</p>
             <form method="post" action="/contribution/submit">{_csrf(csrf_token)}
               <button type="submit">Submit exact approved bytes</button>
+            </form>
+            <h2>Edit before sending</h2>
+            <p>This withdraws the current approval. Keep the same Card ID,
+            increase the version by one, and approve the revised exact bytes afresh.</p>
+            <form method="post" action="/contribution/edit">{_csrf(csrf_token)}
+              <label>Revised Capability Card JSON
+                <textarea name="card_json" required>{_escape(exact_card)}</textarea>
+              </label>
+              <button type="submit">Withdraw approval and revise</button>
             </form>
           </div>
         """

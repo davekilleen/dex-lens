@@ -22,6 +22,7 @@ from typing import Any, Protocol, TypeAlias
 
 from capability_exchange.adapter import (
     AdapterContract,
+    AdapterMode,
     AdapterResultEnvelope,
     InstrumentHealth,
     ProbeResult,
@@ -32,6 +33,7 @@ from capability_exchange.cards import (
     CapabilityCard,
     DisclosureManifest,
     build_disclosure_manifest,
+    canonical_card_bytes,
     require_valid_card,
 )
 from capability_exchange.contribution import (
@@ -76,6 +78,7 @@ __all__ = [
     "AdaptationSelection",
     "ContributionEgressError",
     "ContributionHandle",
+    "ContributionVersionComparison",
     "ContributionIdentityPort",
     "ContributionIntakePort",
     "SubmissionReceipt",
@@ -141,6 +144,17 @@ class ContributionHandle:
             + self.revocation_token.encode("ascii")
         )
         return "sha256:" + hashlib.sha256(material).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class ContributionVersionComparison:
+    """Exact, local comparison shown before a revised Card can be disclosed."""
+
+    previous_version_hash: str
+    revised_version_hash: str
+    changed_fields: tuple[str, ...]
+    previous_exact_json: str
+    revised_exact_json: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,9 +575,11 @@ class ConciergeJourney:
         collector: Callable[[], CollectionResult] | None = None,
         job_store: InspectionJobStore | Path,
         now: Callable[[], datetime] = _utc_now,
+        adapter_contract: AdapterContract | None = None,
     ) -> None:
         self.now = now
         self.permission = self._resolve_permission(permission, adapter)
+        self._adapter_contract = adapter_contract
         if isinstance(job_store, Path):
             job_store = InspectionJobStore(job_store)
         self._require_job_store_outside_scope(job_store, self.permission)
@@ -587,6 +603,7 @@ class ConciergeJourney:
         self.adaptation_receipt_root = self.job_store.directory.parent / "adaptation-receipts"
         self._adaptation_selection: AdaptationSelection | None = None
         self._adaptation_preview: object | None = None
+        self._adaptation_recovery: object | None = None
         self._adaptation_approval: object | None = None
         self._adaptation_result: object | None = None
         self._adaptation_verification: object | None = None
@@ -605,6 +622,7 @@ class ConciergeJourney:
         self._contribution_consent: ConsentLedger | None = None
         self._contribution_lifecycle: ContributionLifecycle | None = None
         self._contribution_card: CapabilityCard | None = None
+        self._contribution_comparison: ContributionVersionComparison | None = None
         self._contribution_manifest: DisclosureManifest | None = None
         self._contribution: Contribution | None = None
         self._contribution_handle: ContributionHandle | None = None
@@ -648,6 +666,10 @@ class ConciergeJourney:
     @property
     def contribution_manifest(self) -> DisclosureManifest | None:
         return self._contribution_manifest
+
+    @property
+    def contribution_comparison(self) -> ContributionVersionComparison | None:
+        return self._contribution_comparison
 
     @property
     def contribution(self) -> Contribution | None:
@@ -1126,6 +1148,21 @@ class ConciergeJourney:
     # ------------------------------------------------------------------
 
     @property
+    def adaptation_available(self) -> bool:
+        """Whether the host explicitly declares the one supported write operation."""
+
+        from capability_exchange.adaptation.contract import OperationKind
+
+        contract = self._adapter_contract
+        return bool(
+            contract is not None
+            and contract.mode is AdapterMode.ADAPT_CAPABLE
+            and contract.mutation_contract is not None
+            and OperationKind.CREATE_NAMESPACED_SKILL
+            in contract.mutation_contract.operations
+        )
+
+    @property
     def adaptation_selection(self) -> AdaptationSelection | None:
         """The one bounded choice currently being prepared, if any."""
 
@@ -1136,6 +1173,12 @@ class ConciergeJourney:
         """The immutable exact-byte preview shown to the person."""
 
         return self._adaptation_preview
+
+    @property
+    def adaptation_recovery(self) -> object | None:
+        """The validated undo proof created and shown before approval."""
+
+        return self._adaptation_recovery
 
     @property
     def adaptation_approval(self) -> object | None:
@@ -1260,6 +1303,10 @@ class ConciergeJourney:
         """
 
         self._require_adaptation_running(ConciergeStage.CAPABILITY_MAP)
+        if not self.adaptation_available:
+            reason = "Diagnose-only adapter has no approved host mutation contract"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
         if self._adaptation_selection is not None:
             raise JourneyStateError("one adaptation must finish before another can be selected")
         try:
@@ -1325,6 +1372,14 @@ class ConciergeJourney:
         if not decision.allowed:
             self._refuse(f"{decision.reason.value}: {decision.explanation}")
             raise AdaptationRefusedError(self._adaptation_refusal)
+        from capability_exchange.adaptation.verification import has_outcome_procedure
+
+        if not has_outcome_procedure(
+            OperationKind.CREATE_NAMESPACED_SKILL, selection.observable_signal
+        ):
+            reason = "no core-owned outcome procedure supports the selected success signal"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
         self._adaptation_selection = selection
         self._adaptation_contract = contract
         self.stage = ConciergeStage.ADAPTATION_SELECT
@@ -1340,6 +1395,7 @@ class ConciergeJourney:
         from capability_exchange.adaptation.hosts.claude_code import (
             build_claude_code_skill_preview,
         )
+        from capability_exchange.adaptation.recovery import RecoveryUnavailableError
 
         try:
             preview = build_claude_code_skill_preview(
@@ -1350,10 +1406,13 @@ class ConciergeJourney:
                 expected_benefit=selection.expected_benefit,
                 created_at=self.now(),
             )
-        except (OSError, RuntimeError, ValueError) as exc:
+            engine = self._adaptation_engine_for(preview)
+            recovery = engine.prepare_recovery(preview, now=self.now())
+        except (OSError, RecoveryUnavailableError, RuntimeError, ValueError) as exc:
             self._refuse(f"preview refused: {exc}")
             raise AdaptationRefusedError(self._adaptation_refusal) from exc
         self._adaptation_preview = preview
+        self._adaptation_recovery = recovery
         self.stage = ConciergeStage.ADAPTATION_PREVIEW
         return preview
 
@@ -1364,6 +1423,8 @@ class ConciergeJourney:
         preview = self._adaptation_preview
         if preview is None:
             raise JourneyStateError("preview the exact adaptation before approving it")
+        if self._adaptation_recovery is None:
+            raise JourneyStateError("a validated recovery proof is required before approval")
         from capability_exchange.adaptation.approval import ApprovalAuthority
 
         authority = self._adaptation_authority
@@ -1384,7 +1445,14 @@ class ConciergeJourney:
         selection = self._adaptation_selection
         contract = self._adaptation_contract
         issued = self._adaptation_approval
-        if preview is None or selection is None or contract is None or issued is None:
+        recovery = self._adaptation_recovery
+        if (
+            preview is None
+            or selection is None
+            or contract is None
+            or issued is None
+            or recovery is None
+        ):
             raise JourneyStateError("select, preview, and approve one adaptation before apply")
         token = approval_token or getattr(issued, "token", "")
         if not token:
@@ -1398,6 +1466,7 @@ class ConciergeJourney:
                 contract=contract,
                 observable_signal=selection.observable_signal,
                 now=self.now(),
+                recovery_point=recovery,
             )
         except Exception as exc:
             from capability_exchange.adaptation.transaction import (
@@ -1513,8 +1582,63 @@ class ConciergeJourney:
         self._require(ConciergeStage.CONTRIBUTION_BUILD)
         require_valid_card(card)
         self._contribution_card = card
+        self._contribution_comparison = None
         self.stage = ConciergeStage.CONTRIBUTION_REVIEW
         return card
+
+    def edit_contribution(self, edited: CapabilityCard) -> ContributionVersionComparison:
+        """Replace a local draft with exactly one explicit, reviewable new version."""
+
+        self._require(
+            ConciergeStage.CONTRIBUTION_REVIEW,
+            ConciergeStage.CONTRIBUTION_DISCLOSE,
+            ConciergeStage.CONTRIBUTION_APPROVE,
+            ConciergeStage.CONTRIBUTION_SUBMIT,
+        )
+        previous = self._contribution_card
+        if previous is None:
+            raise JourneyStateError("build a valid Capability Card before editing it")
+        require_valid_card(edited)
+        if edited.card_id != previous.card_id:
+            raise JourneyStateError("an edited Card must retain the same card_id")
+        if edited.version != previous.version + 1:
+            raise JourneyStateError("an edited Card must increment version by exactly one")
+        previous_bytes = canonical_card_bytes(previous)
+        revised_bytes = canonical_card_bytes(edited)
+        previous_fields = previous.model_dump(mode="json")
+        revised_fields = edited.model_dump(mode="json")
+        changed = tuple(
+            field
+            for field in previous.__class__.model_fields
+            if previous_fields[field] != revised_fields[field]
+        )
+        if not any(field != "version" for field in changed):
+            raise JourneyStateError(
+                "an edited Card version must change at least one content field"
+            )
+        comparison = ContributionVersionComparison(
+            previous_version_hash=previous.version_hash,
+            revised_version_hash=edited.version_hash,
+            changed_fields=changed,
+            previous_exact_json=previous_bytes.decode("utf-8"),
+            revised_exact_json=revised_bytes.decode("utf-8"),
+        )
+        if self._intake_submission_attempted:
+            raise JourneyStateError("an already submitted contribution must be withdrawn")
+        if self._contribution_consent is not None and self._contribution_manifest is not None:
+            self._contribution_consent.withdraw(previous, self._contribution_manifest)
+        self._contribution_card = edited
+        self._contribution_comparison = comparison
+        self._contribution_manifest = None
+        self._contribution_consent = None
+        self._contribution_lifecycle = None
+        self._contribution = None
+        self._contribution_handle = None
+        self._pending_withdrawal_version_hash = None
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
+        self.stage = ConciergeStage.CONTRIBUTION_REVIEW
+        return comparison
 
     def review_contribution(self) -> CapabilityCard:
         """Revalidate the immutable version before field disclosure is possible."""
@@ -1806,6 +1930,7 @@ class ConciergeJourney:
             self.capability_map_markdown = ""
             self._adaptation_selection = None
             self._adaptation_preview = None
+            self._adaptation_recovery = None
             self._adaptation_approval = None
             self._adaptation_result = None
             self._adaptation_verification = None

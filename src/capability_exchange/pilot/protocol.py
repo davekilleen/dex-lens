@@ -23,6 +23,7 @@ from capability_exchange.pilot._common import (
     utc_now,
 )
 from capability_exchange.pilot.gate import PilotBuildGateReport
+from capability_exchange.pilot.redteam import RedTeamReport
 
 __all__ = [
     "Consent",
@@ -198,6 +199,7 @@ class PilotProtocol(InventoriedModel):
     adverse_event_reporting: ProtocolClause
     incident_response: ProtocolClause
     pilot_gate_report: PilotBuildGateReport | None = None
+    red_team_report: RedTeamReport | None = None
     synthetic_only: bool = False
     participant_evidence: str | None = None
     independent_signoff: str | None = None
@@ -270,21 +272,59 @@ class PilotProtocol(InventoriedModel):
     def assert_red_team_ready(self) -> None:
         """Refuse participant use without exact-build executable gate evidence."""
 
-        report = self.pilot_gate_report
-        if report is None or not (
-            report.pilot_start_allowed or report.guided_downgrade_available
+        gate = self.pilot_gate_report
+        red_team = self.red_team_report
+        if gate is not None:
+            gate = PilotBuildGateReport.model_validate(gate.model_dump(mode="python"))
+        if red_team is not None:
+            red_team = RedTeamReport.model_validate(red_team.model_dump(mode="python"))
+        if gate is None or not (
+            gate.pilot_start_allowed or gate.guided_downgrade_available
         ):
             raise ProtocolError(
                 "pilot protocol has no passing exact-build gate report; "
                 "participant systems must not be touched"
             )
+        if red_team is None or not (
+            red_team.pilot_start_allowed or red_team.guided_downgrade_available
+        ):
+            raise ProtocolError(
+                "pilot protocol has no complete red-team report; "
+                "participant systems must not be touched"
+            )
+        if (
+            red_team.commit != gate.commit
+            or red_team.source_gate_report_hash != gate.content_hash
+        ):
+            raise ProtocolError("red-team evidence is not bound to the exact build gate report")
 
-    def attach_red_team(self, report: PilotBuildGateReport) -> PilotProtocol:
-        """Return a new protocol hash-bound to the exact executed build gate."""
+    def attach_red_team(
+        self,
+        report: RedTeamReport,
+        *,
+        gate_report: PilotBuildGateReport,
+    ) -> PilotProtocol:
+        """Return a protocol bound to both the exact gate and its red-team evidence."""
 
-        if not isinstance(report, PilotBuildGateReport):
+        if not isinstance(gate_report, PilotBuildGateReport):
             raise ProtocolError("protocol requires a validated exact-build gate report")
-        return self.model_copy(update={"pilot_gate_report": report})
+        if not isinstance(report, RedTeamReport):
+            raise ProtocolError("protocol requires the actual red-team report")
+        try:
+            gate_report = PilotBuildGateReport.model_validate(
+                gate_report.model_dump(mode="python")
+            )
+            report = RedTeamReport.model_validate(report.model_dump(mode="python"))
+        except ValueError as exc:
+            raise ProtocolError("red-team evidence failed exact schema revalidation") from exc
+        if (
+            report.commit != gate_report.commit
+            or report.source_gate_report_hash != gate_report.content_hash
+        ):
+            raise ProtocolError("red-team evidence is not bound to the exact build gate report")
+        return self.model_copy(
+            update={"pilot_gate_report": gate_report, "red_team_report": report}
+        )
 
     def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
         """Do not allow a post-hash protocol edit to masquerade as current."""

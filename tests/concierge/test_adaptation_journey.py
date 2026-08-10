@@ -15,12 +15,20 @@ from urllib.parse import urlencode
 import pytest
 from tests.concierge.test_local_server import RunningServer
 
+from capability_exchange.adaptation.hosts.claude_code import (
+    claude_code_adaptation_contract,
+)
 from capability_exchange.adaptation.transaction import RecoveryFailedError
+from capability_exchange.adaptation.verification import (
+    CREATED_SKILL_OUTCOME_SIGNAL,
+    VerificationVerdict,
+)
 from capability_exchange.adapter import (
     AdapterResultEnvelope,
     InstrumentHealth,
     ProbeResult,
 )
+from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.concierge.journey import (
     AdaptationRefusedError,
     ConciergeJourney,
@@ -33,7 +41,36 @@ from capability_exchange.concierge.journey import (
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 NOW = datetime(2026, 8, 10, 9, 0, tzinfo=UTC)
-SIGNAL = "The local reading list is grouped under topic headings"
+SIGNAL = CREATED_SKILL_OUTCOME_SIGNAL
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_outcome_fixture(monkeypatch):
+    """Exercise journey mechanics behind a test-only outcome boundary."""
+
+    from capability_exchange.adaptation import transaction, verification
+    from capability_exchange.adaptation.verification import VerificationResult
+    from capability_exchange.diagnosis.finding import CapabilityState
+    from capability_exchange.evidence import EvidenceLevel
+
+    monkeypatch.setattr(verification, "has_outcome_procedure", lambda *_args: True)
+
+    def synthetic_result(preview, contract, *, observable_signal, verified_at, **_kwargs):
+        return VerificationResult(
+            verdict=VerificationVerdict.WORKING,
+            capability_state=CapabilityState.WORKING,
+            evidence_state=EvidenceState.OBSERVED,
+            evidence_level=EvidenceLevel.VERIFIED,
+            observable_signal=observable_signal,
+            procedure_id="test-only-journey-procedure",
+            evidence_reference="evidence://synthetic/journey-mechanics",
+            evidence_sha256="a" * 64,
+            contract_digest="b" * 64,
+            detail="test-only result for downstream journey mechanics",
+            verified_at=verified_at,
+        )
+
+    monkeypatch.setattr(transaction, "verify_created_skill", synthetic_result)
 
 
 def _envelope() -> AdapterResultEnvelope:
@@ -57,7 +94,12 @@ def _envelope() -> AdapterResultEnvelope:
     )
 
 
-def _journey(tmp_path: Path, *, situation: str = "When I save useful articles") -> ConciergeJourney:
+def _journey(
+    tmp_path: Path,
+    *,
+    situation: str = "When I save useful articles",
+    adapt_capable: bool = True,
+) -> ConciergeJourney:
     root = tmp_path / "claude"
     skills = root / ".claude" / "skills"
     skills.mkdir(parents=True)
@@ -76,6 +118,11 @@ def _journey(tmp_path: Path, *, situation: str = "When I save useful articles") 
         collector=_envelope,
         job_store=tmp_path / "inspection-jobs",
         now=lambda: NOW,
+        adapter_contract=(
+            claude_code_adaptation_contract((str(root),))
+            if adapt_capable
+            else claude_code_contract((str(root),))
+        ),
     )
     journey.approve()
     journey.add_job(
@@ -128,6 +175,10 @@ def test_one_bounded_adaptation_has_explicit_select_to_undo_stages(tmp_path: Pat
     assert journey.stage is ConciergeStage.ADAPTATION_PREVIEW
     assert preview.job_id == "reading-list"
     assert preview.prior_state == "absent"
+    recovery = journey.adaptation_recovery
+    assert recovery is not None
+    assert recovery.prior_state == "absent"
+    assert recovery.target_path == preview.target_path
 
     issued = journey.approve_adaptation()
     assert journey.stage is ConciergeStage.ADAPTATION_APPROVAL
@@ -136,6 +187,7 @@ def test_one_bounded_adaptation_has_explicit_select_to_undo_stages(tmp_path: Pat
     result = journey.apply_adaptation()
     assert journey.stage is ConciergeStage.ADAPTATION_RECEIPT
     assert result.receipt_path.is_file()
+    assert journey.adaptation_receipt.recovery_manifest_path == recovery.manifest_path
     assert Path(preview.target_path).read_text(encoding="utf-8") == preview.content
 
     verification = journey.verify_adaptation()
@@ -146,6 +198,27 @@ def test_one_bounded_adaptation_has_explicit_select_to_undo_stages(tmp_path: Pat
     assert journey.stage is ConciergeStage.ADAPTATION_UNDO
     assert undone.status.value == "undone"
     assert not Path(preview.target_path).exists()
+
+
+def test_diagnose_only_contract_never_executes_adaptation(tmp_path: Path) -> None:
+    journey = _journey(tmp_path, adapt_capable=False)
+    assert not journey.adaptation_available
+
+    with pytest.raises(AdaptationRefusedError, match="Diagnose-only"):
+        _select(journey)
+
+    assert journey.adaptation_preview is None
+    assert journey.stage is ConciergeStage.ADAPTATION_REFUSED
+
+
+def test_approval_refuses_when_preconsent_recovery_proof_is_missing(tmp_path: Path) -> None:
+    journey = _journey(tmp_path)
+    _select(journey)
+    journey.preview_adaptation()
+    journey._adaptation_recovery = None
+
+    with pytest.raises(JourneyStateError, match="recovery proof"):
+        journey.approve_adaptation()
 
 
 def test_high_impact_job_refuses_before_preview_and_says_why(tmp_path: Path) -> None:
@@ -181,7 +254,7 @@ def test_unverified_verification_hard_stops_the_session(monkeypatch, tmp_path: P
     journey.preview_adaptation()
     journey.approve_adaptation()
 
-    from capability_exchange.adaptation.verification import VerificationResult, VerificationVerdict
+    from capability_exchange.adaptation.verification import VerificationResult
     from capability_exchange.diagnosis.finding import CapabilityState
     from capability_exchange.evidence import EvidenceLevel
 
@@ -246,7 +319,12 @@ def test_incident_and_hard_stop_runbooks_name_both_fail_closed_triggers() -> Non
 def test_http_routes_delegate_the_same_explicit_stages(tmp_path: Path) -> None:
     """Transport routes only invoke domain transitions; they do not mutate inline."""
 
-    with RunningServer(_envelope, approved_root=tmp_path / "claude") as running:
+    approved_root = tmp_path / "claude"
+    with RunningServer(
+        _envelope,
+        approved_root=approved_root,
+        adapter_contract=claude_code_adaptation_contract((str(approved_root),)),
+    ) as running:
         running.bootstrap()
         running.post("/approve")
         running.wait_for_collection()
@@ -290,12 +368,17 @@ def test_http_routes_delegate_the_same_explicit_stages(tmp_path: Path) -> None:
             ("/adaptation/preview", "Review exact adaptation preview"),
             ("/adaptation/approve", "Adaptation approved"),
             ("/adaptation/apply", "Adaptation receipt"),
-            ("/adaptation/verify", "Adaptation verified"),
+            ("/adaptation/verify", "Adaptation outcome"),
             ("/adaptation/undo", "Adaptation undone"),
         ):
             status, _, body = running.post(path)
             assert status == 200
             assert expected in body
+            if path == "/adaptation/preview":
+                assert "Recovery proof" in body
+                assert "Prior state: absent" in body
+            if path == "/adaptation/verify":
+                assert "Outcome: Working" in body
             assert running.session.inventory_state.journey_state.startswith(
                 "adaptation-"
             )

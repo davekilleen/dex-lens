@@ -11,11 +11,15 @@ from capability_exchange.adaptation.contract import OperationKind
 from capability_exchange.adaptation.incidents import IncidentKind
 from capability_exchange.adaptation.preview import build_preview
 from capability_exchange.adaptation.receipt import read_receipt
+from capability_exchange.adaptation.recovery import RecoveryUnavailableError
 from capability_exchange.adaptation.transaction import (
     AutomationHardStoppedError,
     TransactionEngine,
 )
-from capability_exchange.adaptation.verification import VerificationVerdict
+from capability_exchange.adaptation.verification import (
+    CREATED_SKILL_OUTCOME_SIGNAL,
+    VerificationVerdict,
+)
 from capability_exchange.jobs.contract import (
     JobBoundaries,
     JobCadence,
@@ -24,14 +28,14 @@ from capability_exchange.jobs.contract import (
 )
 
 NOW = datetime(2026, 8, 10, 9, 0, tzinfo=UTC)
-SIGNAL = "New entries are grouped under topic headings"
+SIGNAL = CREATED_SKILL_OUTCOME_SIGNAL
 
 
 def make_contract() -> SuccessContract:
     return SuccessContract(
-        job_id="reading-list",
-        situation="When I save useful articles during the week",
-        desired_outcome="My local reading list is grouped by topic",
+        job_id="recovery-drill",
+        situation="When the isolated synthetic transaction is exercised",
+        desired_outcome="The fixed synthetic skill is loadable",
         success_evidence=(SIGNAL,),
         boundaries=JobBoundaries(
             privacy_limits=("No article text leaves this machine",),
@@ -44,16 +48,16 @@ def make_contract() -> SuccessContract:
     )
 
 
-def make_preview(root: Path, *, job_id: str = "reading-list"):
+def make_preview(root: Path, *, job_id: str = "recovery-drill"):
     return build_preview(
         request=OperationRequest(
             operation=OperationKind.CREATE_NAMESPACED_SKILL,
             approved_root=str(root),
-            relative_path=f"dex-lens-{job_id}.md",
+            relative_path="dex-lens-recovery-drill.md",
         ),
-        host_id="claude-code-local",
+        host_id="synthetic-recovery-drill",
         job_id=job_id,
-        capability_id="topic-grouping",
+        capability_id="recovery-proof",
         content="# Skill\n\nGroup new reading-list entries under topic headings.\n",
         expected_benefit="Group reading-list entries by topic",
         created_at=NOW,
@@ -61,6 +65,7 @@ def make_preview(root: Path, *, job_id: str = "reading-list"):
 
 
 def execute(engine: TransactionEngine, authority: ApprovalAuthority, preview):
+    recovery = engine.prepare_recovery(preview, now=NOW)
     issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
     return engine.execute(
         preview,
@@ -68,12 +73,13 @@ def execute(engine: TransactionEngine, authority: ApprovalAuthority, preview):
         contract=make_contract(),
         observable_signal=SIGNAL,
         now=NOW + timedelta(seconds=1),
+        recovery_point=recovery,
     )
 
 
 def test_successful_transaction_is_applied_receipted_and_verified(tmp_path: Path) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     authority = ApprovalAuthority()
     engine = TransactionEngine(
         state_root=tmp_path / "state",
@@ -92,14 +98,15 @@ def test_successful_transaction_is_applied_receipted_and_verified(tmp_path: Path
     assert result.hard_stopped is False
     receipt = read_receipt(result.receipt_path)
     assert receipt.preview_digest == preview.preview_digest
+    assert receipt.approval_issued_at == NOW
     assert receipt.verification_verdict is VerificationVerdict.WORKING
 
 
 def test_replaying_completed_transaction_has_one_effect_and_one_receipt(
     tmp_path: Path,
 ) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     authority = ApprovalAuthority()
     engine = TransactionEngine(
         state_root=tmp_path / "state",
@@ -124,11 +131,67 @@ def test_replaying_completed_transaction_has_one_effect_and_one_receipt(
     assert Path(preview.target_path).read_text(encoding="utf-8") == preview.content
 
 
+def test_apply_refuses_target_drift_after_preconsent_recovery_proof(
+    tmp_path: Path,
+) -> None:
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
+    authority = ApprovalAuthority()
+    engine = TransactionEngine(
+        state_root=tmp_path / "state",
+        receipt_root=tmp_path / "receipts",
+        approval_authority=authority,
+        adapter_id="claude-code-local",
+        adapter_version="1.0.0",
+    )
+    preview = make_preview(approved)
+    recovery = engine.prepare_recovery(preview, now=NOW)
+    issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
+    target = Path(preview.target_path)
+    target.write_text("unrelated later work", encoding="utf-8")
+
+    with pytest.raises(RecoveryUnavailableError):
+        engine.execute(
+            preview,
+            approval_token=issued.token,
+            contract=make_contract(),
+            observable_signal=SIGNAL,
+            now=NOW + timedelta(seconds=1),
+            recovery_point=recovery,
+        )
+    assert target.read_text(encoding="utf-8") == "unrelated later work"
+
+
+def test_apply_refuses_without_preconsent_recovery_proof(tmp_path: Path) -> None:
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
+    authority = ApprovalAuthority()
+    engine = TransactionEngine(
+        state_root=tmp_path / "state",
+        receipt_root=tmp_path / "receipts",
+        approval_authority=authority,
+        adapter_id="claude-code-local",
+        adapter_version="1.0.0",
+    )
+    preview = make_preview(approved)
+    issued = authority.issue(preview, now=NOW, ttl=timedelta(minutes=5))
+
+    with pytest.raises(RecoveryUnavailableError, match="pre-consent"):
+        engine.execute(
+            preview,
+            approval_token=issued.token,
+            contract=make_contract(),
+            observable_signal=SIGNAL,
+            now=NOW + timedelta(seconds=1),
+        )
+    assert not Path(preview.target_path).exists()
+
+
 def test_unknown_verification_hard_stops_later_automation(
     tmp_path: Path, monkeypatch
 ) -> None:
-    approved = tmp_path / "approved"
-    approved.mkdir()
+    approved = tmp_path / "dex-pilot-recovery-test" / "approved"
+    approved.mkdir(parents=True)
     authority = ApprovalAuthority()
     engine = TransactionEngine(
         state_root=tmp_path / "state",
@@ -153,7 +216,9 @@ def test_unknown_verification_hard_stops_later_automation(
     assert result.hard_stopped
     assert engine.incidents[-1].kind is IncidentKind.UNVERIFIED
 
-    other = make_preview(approved, job_id="weekly-planning")
+    other_root = tmp_path / "dex-pilot-recovery-other" / "approved"
+    other_root.mkdir(parents=True)
+    other = make_preview(other_root, job_id="weekly-planning")
     issued = authority.issue(other, now=NOW, ttl=timedelta(minutes=5))
     with pytest.raises(AutomationHardStoppedError):
         engine.execute(

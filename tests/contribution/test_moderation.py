@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from tests.cards.test_model import make_card
@@ -10,10 +13,17 @@ from tests.cards.test_model import make_card
 from capability_exchange.cards.validation import ReasonCode
 from capability_exchange.contribution.moderation import (
     ModerationAttestation,
+    ModerationCaseState,
+    ModerationPolicy,
     ModerationService,
     ModerationStatus,
     ScannerTimeout,
     ScannerUnavailable,
+)
+
+POLICY_PATH = (
+    Path(__file__).parents[2]
+    / "src/capability_exchange/contribution/moderation_policy.v1.json"
 )
 
 
@@ -65,6 +75,98 @@ def test_scanner_down_quarantines_and_timeout_rejects() -> None:
         service.handle_scanner_failure(ScannerUnavailable()).status is ModerationStatus.QUARANTINED
     )
     assert service.handle_scanner_failure(ScannerTimeout()).status is ModerationStatus.REJECTED
+
+
+def test_versioned_policy_is_closed_complete_and_hashed() -> None:
+    policy = ModerationPolicy.load(POLICY_PATH)
+
+    assert policy.policy_version == "1.0.0"
+    assert set(policy.required_scanners) == {
+        "secrets",
+        "personal-data",
+        "prompt-injection",
+        "unsafe-instruction",
+    }
+    assert policy.policy_hash.startswith("sha256:")
+    assert len(policy.policy_hash) == 71
+
+    raw = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    raw.pop("conflict_rule")
+    with pytest.raises(ValueError, match="fields mismatch"):
+        ModerationPolicy.from_mapping(raw)
+
+
+def test_missing_policy_and_disclosure_incentive_copy_fail_closed(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="unavailable or invalid"):
+        ModerationService(policy_path=tmp_path / "missing.json")
+
+    policy = ModerationPolicy.load(POLICY_PATH)
+    with pytest.raises(ValueError, match="broader disclosure"):
+        policy.assert_copy_allowed("Earn recognition when you share more fields")
+    policy.assert_copy_allowed("Participation is voluntary; disclose only chosen fields.")
+
+
+def test_actual_participant_and_contribution_copy_has_no_disclosure_incentive() -> None:
+    policy = ModerationPolicy.load(POLICY_PATH)
+    root = Path(__file__).parents[2]
+
+    for path in (
+        root / "src/capability_exchange/concierge/views.py",
+        root / "docs/pilot/recruitment-message.md",
+        root / "README.md",
+    ):
+        policy.assert_copy_allowed(path.read_text(encoding="utf-8"))
+
+
+def test_abuse_case_has_deadline_and_blocks_approval_until_resolved() -> None:
+    opened = datetime(2026, 8, 10, 12, tzinfo=UTC)
+    current = [opened]
+    service = authorized_service()
+    service._now = lambda: current[0]
+    card = make_card()
+    case = service.report_abuse(card, category="prompt-injection")
+
+    assert case.state is ModerationCaseState.OPEN
+    assert case.response_due_at == opened + timedelta(hours=72)
+    with pytest.raises(ValueError, match="open abuse case"):
+        service.approve(card, rights_attested=True, conflict_declared=True)
+
+    current[0] = case.response_due_at + timedelta(seconds=1)
+    with pytest.raises(ValueError, match="overdue abuse case"):
+        service.approve(card, rights_attested=True, conflict_declared=True)
+
+    with pytest.raises(ValueError, match="conflict declaration"):
+        service.resolve_abuse_case(
+            case.case_id,
+            state=ModerationCaseState.REJECTED,
+            conflict_declared=False,
+        )
+    with pytest.raises(ValueError, match="conflict declaration"):
+        service.resolve_abuse_case(
+            case.case_id,
+            state=ModerationCaseState.REJECTED,
+            conflict_declared="false",  # type: ignore[arg-type]
+        )
+    service.resolve_abuse_case(
+        case.case_id,
+        state=ModerationCaseState.REJECTED,
+        conflict_declared=True,
+    )
+    assert service.approve(
+        card, rights_attested=True, conflict_declared=True
+    ).card_version_hash == card.version_hash
+
+
+def test_abuse_case_cannot_be_closed_without_allowlisted_reviewer() -> None:
+    service = ModerationService()
+    case = service.report_abuse(make_card(), category="prompt-injection")
+
+    with pytest.raises(ValueError, match="reviewer authority"):
+        service.resolve_abuse_case(
+            case.case_id,
+            state=ModerationCaseState.REJECTED,
+            conflict_declared=True,
+        )
 
 
 def test_reviewer_rendering_is_inert_and_self_approval_is_refused() -> None:

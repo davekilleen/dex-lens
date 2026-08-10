@@ -461,6 +461,18 @@ fields:
     deletion: delete-adaptation-receipts
     audit: "durable local receipt field; bearer token excluded"
 
+  TransactionReceipt.approval_issued_at:
+    description: "time the fresh approval was issued"
+    collection: "copied from the consumed approval record"
+    derivation: "timezone-aware timestamp"
+    display: "shown in the receipt with the approval identity"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local approval-time proof; bearer token excluded"
+
   TransactionReceipt.operation:
     description: "closed allowlisted operation that completed"
     collection: "copied from the approved preview"
@@ -569,6 +581,210 @@ fields:
     deletion: delete-adaptation-receipts
     audit: "durable local receipt field"
 
+  TransactionReceipt.verification_procedure_id:
+    description: "operation-specific procedure that tested the Success Contract signal"
+    collection: "copied from the evidence-bearing outcome probe"
+    derivation: "required whenever the receipt claims Working or Partial"
+    display: "shown with the local adaptation receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local T7 outcome evidence"
+
+  TransactionReceipt.verification_evidence_reference:
+    description: "non-raw reference to the observed outcome evidence"
+    collection: "copied from the evidence-bearing outcome probe"
+    derivation: "raw paths and private content are rejected"
+    display: "shown with the local adaptation receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local T7 outcome evidence"
+
+  TransactionReceipt.verification_evidence_sha256:
+    description: "SHA-256 binding to the observed outcome evidence"
+    collection: "copied from the evidence-bearing outcome probe"
+    derivation: "validated as a lowercase SHA-256 digest"
+    display: "shown with the local adaptation receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local T7 outcome evidence"
+
+  TransactionReceipt.verification_contract_digest:
+    description: "SHA-256 binding to the exact confirmed Success Contract"
+    collection: "copied from core-owned outcome verification"
+    derivation: "canonical hash of the closed Success Contract schema"
+    display: "shown with the local adaptation receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local T7 contract binding"
+
+  TransactionReceipt.verification_observed_at:
+    description: "timezone-aware time the outcome procedure completed"
+    collection: "recorded by core-owned outcome verification"
+    derivation: "copied from the verified result"
+    display: "shown with the local adaptation receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local T7 observation time"
+
+  OutcomeCheck.check_id:
+    description: "closed identity of one core-owned outcome check"
+    collection: "assigned by the built-in operation procedure"
+    derivation: "fixed by the procedure implementation"
+    display: "shown only in local verification evidence"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 observation"
+
+  OutcomeCheck.state:
+    description: "closed observed state of one core-owned outcome check"
+    collection: "observed by the built-in operation procedure"
+    derivation: "passed, failed, or unavailable; never caller verdict"
+    display: "shown only in local verification evidence"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 observation"
+
+  OutcomeCheck.observation_sha256:
+    description: "digest of one bounded structural observation"
+    collection: "computed by the built-in procedure"
+    derivation: "SHA-256 over canonical non-content observation metadata"
+    display: "shown only in local verification evidence"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 observation binding"
+
+  OutcomeObservationArtifact.schema_version:
+    description: "closed version of the outcome evidence artifact"
+    collection: "fixed by core"
+    derivation: "literal schema version 1"
+    display: "not user-facing"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 evidence"
+
+  OutcomeObservationArtifact.procedure_id:
+    description: "closed core-owned operation procedure identity"
+    collection: "fixed by core"
+    derivation: "literal create-skill loadability procedure"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 evidence"
+
+  OutcomeObservationArtifact.operation:
+    description: "allowlisted operation exercised by the procedure"
+    collection: "copied from the exact preview"
+    derivation: "closed operation vocabulary"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 evidence"
+
+  OutcomeObservationArtifact.preview_digest:
+    description: "exact adaptation preview exercised by the procedure"
+    collection: "copied from the exact preview"
+    derivation: "validated lowercase SHA-256"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 binding"
+
+  OutcomeObservationArtifact.contract_digest:
+    description: "exact confirmed Success Contract exercised by the procedure"
+    collection: "computed from the closed contract schema"
+    derivation: "canonical SHA-256"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 binding"
+
+  OutcomeObservationArtifact.observable_signal:
+    description: "closed machine-checkable Success Contract signal"
+    collection: "selected from the confirmed contract"
+    derivation: "must match the built-in procedure literal"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 binding"
+
+  OutcomeObservationArtifact.checks:
+    description: "two observations emitted by the core-owned procedure"
+    collection: "observed locally after apply"
+    derivation: "exact bytes and loadable Markdown checks"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 observations"
+
+  OutcomeObservationArtifact.started_at:
+    description: "timezone-aware outcome procedure start"
+    collection: "recorded locally"
+    derivation: "none"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 timing"
+
+  OutcomeObservationArtifact.completed_at:
+    description: "timezone-aware outcome procedure completion"
+    collection: "recorded locally"
+    derivation: "none"
+    display: "shown with verification details"
+    storage:
+      location: "local outcome evidence directory"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-state
+    audit: "durable local T7 timing"
+
   VerificationResult.verdict:
     description: "closed operation verification verdict"
     collection: "assigned locally by the operation verifier"
@@ -618,6 +834,46 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral bounded contract text"
+
+  VerificationResult.procedure_id:
+    description: "operation-specific procedure that exercised the outcome signal"
+    collection: "assigned by the core-owned operation procedure"
+    derivation: "present only after its canonical evidence is reread"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied structurally into the receipt"
+
+  VerificationResult.evidence_reference:
+    description: "non-raw reference to the outcome observation"
+    collection: "created by the core-owned operation procedure"
+    derivation: "present only after its canonical evidence is reread"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied structurally into the receipt"
+
+  VerificationResult.evidence_sha256:
+    description: "SHA-256 binding for the outcome observation"
+    collection: "computed from reread core-owned evidence bytes"
+    derivation: "present only after canonical evidence validation"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied structurally into the receipt"
+
+  VerificationResult.contract_digest:
+    description: "SHA-256 binding to the exact confirmed Success Contract"
+    collection: "computed locally by core-owned verification"
+    derivation: "canonical hash of the closed contract schema"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied structurally into the receipt"
 
   VerificationResult.detail:
     description: "bounded honest explanation of the verification result"
@@ -680,6 +936,18 @@ fields:
     collection: "copied from the single-use approval record"
     derivation: "none; raw token excluded"
     display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.approval_issued_at:
+    description: "time the single-use approval was issued"
+    collection: "copied from the consumed approval record"
+    derivation: "timezone-aware timestamp"
+    display: "shown in local transaction status with the approval identity"
     storage:
       location: "user-controlled Dex Lens transaction journal directory"
       duration: "until verified undo, reconciliation, or user-requested deletion"
@@ -2572,20 +2840,40 @@ fields:
     deletion: not-stored
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
-  PilotAnalysisReport.contract_id:
-    description: "M6 pilot PilotAnalysisReport contract_id metadata"
+  ParticipantPlanBinding.participant_id:
+    description: "pseudonymous participant identifier bound to one locked plan"
     collection: "recorded locally by the pilot tooling"
-    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    derivation: "copied from the participant measurement after roster validation"
     display: "shown only in the local pilot evidence review"
     storage: none
     sharing: never
     deletion: not-stored
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
-  PilotAnalysisReport.plan_hash:
-    description: "M6 pilot PilotAnalysisReport plan_hash metadata"
+  ParticipantPlanBinding.contract_id:
+    description: "participant-specific confirmed job contract identifier"
     collection: "recorded locally by the pilot tooling"
-    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    derivation: "matched exactly between measurement evidence and the locked plan"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  ParticipantPlanBinding.plan_hash:
+    description: "hash of the participant-specific locked measurement plan"
+    collection: "derived locally by the pilot tooling"
+    derivation: "copied from the admissible plan content hash"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  PilotAnalysisReport.participant_plan_bindings:
+    description: "immutable participant, contract, and locked-plan bindings"
+    collection: "derived locally by the pilot tooling"
+    derivation: "built only after every enrolled participant plan is validated"
     display: "shown only in the local pilot evidence review"
     storage: none
     sharing: never
@@ -3452,10 +3740,20 @@ fields:
     deletion: not-stored
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
-  LearningOutput.contract_id:
-    description: "M6 pilot LearningOutput contract_id metadata"
+  LearningOutput.contract_binding_hash:
+    description: "privacy-preserving hash of all participant contract-plan bindings"
     collection: "recorded locally by the pilot tooling"
-    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+    derivation: "SHA-256 over the closed participant binding records"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+
+  LearningOutput.contract_count:
+    description: "number of distinct participant job contracts represented"
+    collection: "recorded locally by the pilot tooling"
+    derivation: "counted from validated participant plan bindings"
     display: "shown only in the local pilot evidence review"
     storage: none
     sharing: never
@@ -4012,6 +4310,16 @@ fields:
     deletion: not-stored
     audit: "protocol-hash-bound release evidence"
 
+  PilotProtocol.red_team_report:
+    description: "actual hostile-suite report bound to the exact build gate"
+    collection: "attached only after validating commit and gate-report hashes"
+    derivation: "derived from the exact executor-produced pilot gate report"
+    display: "shown only in the local pilot evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "protocol-hash-bound red-team evidence"
+
   PilotProtocol.created_at:
     description: "M6 pilot PilotProtocol created_at metadata"
     collection: "recorded locally by the pilot tooling"
@@ -4037,9 +4345,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.test_id:
@@ -4047,9 +4357,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.outcome:
@@ -4057,9 +4369,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.commit:
@@ -4067,9 +4381,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.evidence_hash:
@@ -4077,9 +4393,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.observed_at:
@@ -4087,9 +4405,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamCase.notes:
@@ -4097,9 +4417,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.required_gates:
@@ -4107,9 +4429,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.cases:
@@ -4117,9 +4441,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.synthetic_system:
@@ -4127,9 +4453,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.commit:
@@ -4137,9 +4465,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.content_hash:
@@ -4147,9 +4477,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.pilot_start_allowed:
@@ -4157,9 +4489,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.guided_downgrade_available:
@@ -4167,9 +4501,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   RedTeamReport.explanation:
@@ -4177,9 +4513,11 @@ fields:
     collection: "recorded locally by the pilot tooling"
     derivation: "validated by the closed M6 schema; raw private content is not accepted"
     display: "shown only in the local pilot evidence review"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
   PilotProtocol.synthetic_only:
@@ -4729,9 +5067,11 @@ fields:
     collection: "derived by the pilot gate executor"
     derivation: "must equal the source exact-build gate report hash"
     display: "shown in local red-team evidence"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral R6 red-team evidence"
 
   RedTeamReport.source_gate_report_hash:
@@ -4739,9 +5079,11 @@ fields:
     collection: "derived by the pilot gate executor"
     derivation: "must bind every canonical red-team case"
     display: "shown in local red-team evidence"
-    storage: none
+    storage:
+      location: "exact-build pilot gate evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
     sharing: never
-    deletion: not-stored
+    deletion: delete-pilot-gate-evidence
     audit: "ephemeral R6 red-team evidence"
 
   TabletopResult.scenario_id:
@@ -4773,3 +5115,249 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.execution_evidence_hash:
+    description: "hash of the observed recovery-failure execution signals"
+    collection: "derived from the synthetic real TransactionEngine drill"
+    derivation: "hashes the transaction, exception, hard-stop, and incident result"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.transaction_id:
+    description: "synthetic transaction identifier exercised by the tabletop"
+    collection: "returned by the real local TransactionEngine drill"
+    derivation: "bound to the preview digest by the transaction engine"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.transaction_journal_sha256:
+    description: "SHA-256 of the real synthetic transaction journal exercised"
+    collection: "computed from the journal written by TransactionEngine"
+    derivation: "included in the canonical recovery-drill evidence hash"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.transaction_receipt_sha256:
+    description: "SHA-256 of the real synthetic transaction receipt exercised"
+    collection: "computed from the receipt written by TransactionEngine"
+    derivation: "included in the canonical recovery-drill evidence hash"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.recovery_manifest_sha256:
+    description: "SHA-256 of the recovery manifest before deliberate removal"
+    collection: "computed from the validated recovery manifest"
+    derivation: "included in the canonical recovery-drill evidence hash"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.observed_incident_kind:
+    description: "closed incident kind emitted by the real transaction engine"
+    collection: "copied from the observed in-memory IncidentRecord"
+    derivation: "must be recovery-failed for a passing recovery tabletop"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.recovery_error_observed:
+    description: "whether the real undo raised RecoveryFailedError"
+    collection: "observed directly around TransactionEngine.undo"
+    derivation: "must be true for a passing recovery tabletop"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.execution_artifact_path:
+    description: "root-relative path to persisted recovery tabletop evidence"
+    collection: "assigned by the real drill executor"
+    derivation: "must remain beneath the verifier evidence root"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence reference"
+
+  TabletopResult.execution_artifact_hash:
+    description: "SHA-256 of persisted recovery tabletop evidence"
+    collection: "computed by the real drill executor after read-back"
+    derivation: "validated against actual artifact bytes"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence reference"
+
+  RecoveryFailureEvidence.schema_version:
+    description: "field in persisted synthetic recovery tabletop evidence"
+    collection: "emitted by the real TransactionEngine drill"
+    derivation: "cross-validated against journal, receipt, recovery, and incident evidence"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+
+  RecoveryFailureEvidence.runbook_id:
+    description: "runbook identity in persisted synthetic recovery evidence"
+    collection: "emitted by the real TransactionEngine drill"
+    derivation: "closed to incident or hard-stop"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.scenario_id:
+    description: "scenario identity in persisted synthetic recovery evidence"
+    collection: "emitted by the real TransactionEngine drill"
+    derivation: "bound to the closed runbook scenario"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.transaction_journal:
+    description: "validated transaction journal in recovery evidence"
+    collection: "reread from the real synthetic transaction"
+    derivation: "closed TransactionJournal schema"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.transaction_receipt:
+    description: "validated transaction receipt in recovery evidence"
+    collection: "reread from the real synthetic transaction"
+    derivation: "closed TransactionReceipt schema"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.recovery_manifest_payload:
+    description: "validated recovery manifest payload in recovery evidence"
+    collection: "reread before the synthetic deletion fault"
+    derivation: "closed RecoveryPoint schema"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.recovery_manifest_payload_sha256:
+    description: "checksum of the canonical recovery manifest payload"
+    collection: "reread from the real manifest wrapper"
+    derivation: "independently recomputed by verification"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.incident_kind:
+    description: "closed incident kind observed from the transaction engine"
+    collection: "copied from the real in-memory incident"
+    derivation: "literal recovery-failed"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.incident_transaction_id:
+    description: "transaction identity named by the recovery incident"
+    collection: "copied from the real in-memory incident"
+    derivation: "cross-bound to journal and receipt"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.observed_exception:
+    description: "closed exception observed around the real undo call"
+    collection: "recorded only when RecoveryFailedError is caught"
+    derivation: "literal RecoveryFailedError"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.hard_stopped:
+    description: "literal proof that the transaction engine hard-stopped"
+    collection: "observed from the real engine after undo failure"
+    derivation: "must be true"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.executed_at:
+    description: "timezone-aware time of the recovery tabletop"
+    collection: "recorded by the real drill executor"
+    derivation: "checked against journal and receipt chronology"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery evidence"
+  RecoveryFailureEvidence.attestation_key_id:
+    description: "trusted key identity for recovery execution attestation"
+    collection: "provided by the configured tabletop evidence signer"
+    derivation: "must be in the verifier's trusted key set"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery provenance"
+  RecoveryFailureEvidence.signature:
+    description: "execution attestation over canonical recovery evidence"
+    collection: "issued by the configured tabletop evidence signer"
+    derivation: "verified against the trusted key before a pass is accepted"
+    display: "shown only in local R7 evidence review"
+    storage:
+      location: "R7-root recovery tabletop evidence artifact"
+      duration: "until pilot evidence closeout or user-requested deletion"
+    sharing: never
+    deletion: delete-tabletop-evidence
+    audit: "durable local R7 recovery provenance"

@@ -7,8 +7,8 @@ Mac. You choose a setup folder, confirm the real work you use it for, and Lens
 shows what appears to work, what the evidence actually supports, and where the
 picture is still uncertain.
 
-You do not need to use Dex. There is no account, analytics, migration, or hidden
-comparison with somebody else's system.
+You do not need to use Dex. There is no account or analytics, you keep your
+existing system, and there is no hidden comparison with somebody else's setup.
 
 > **Current status:** the source code is a pilot candidate, not a supported
 > download or finished public release. The first real participant pilot has not
@@ -19,7 +19,8 @@ comparison with somebody else's system.
 - A map of the real jobs you say matter, which you can correct before Lens uses it.
 - A plain-English view of your setup's strengths, gaps, and unnecessarily broad access.
 - An explanation of how each finding is known — never a made-up overall score.
-- The option to preview one small, reversible improvement without adopting Dex.
+- A guided preview of one possible improvement, without adopting Dex or silently
+  changing the setup you already own.
 - The option to share a carefully limited recipe back, only after seeing and
   approving the exact information that would leave your machine.
 
@@ -29,8 +30,9 @@ comparison with somebody else's system.
 2. **Confirm the purpose.** You edit the list of jobs Lens thinks you use the setup for.
 3. **Review the evidence.** Lens separates what it can verify from what is merely
    configured, reported by you, or still unknown.
-4. **Decide what happens next.** Diagnosis does not change anything. A possible
-   improvement is a separate choice with an exact preview and a tested undo path.
+4. **Decide what happens next.** Diagnosis does not change anything. Lens can
+   explain and preview a possible improvement, but the real-user pilot does not
+   automate it until the agreed job outcome can genuinely be checked.
 5. **Keep or share the result.** Your findings stay local. Sharing a sanitized
    Capability Card is optional, off by default, and asks for fresh approval.
 
@@ -40,7 +42,7 @@ comparison with somebody else's system.
 | --- | --- |
 | **Reads** | Supported setup files inside the folder you select, such as instructions, skills, and configuration. It does not silently widen that folder. |
 | **Changes during diagnosis** | Nothing. The diagnosis is read-only. |
-| **Changes after a separate approval** | At most one bounded, namespaced improvement that you see in full first. Lens checks that it can restore the original state and gives you a receipt afterward. |
+| **Changes after a separate approval** | None in the first real-user pilot. The recovery machinery is tested on isolated synthetic files, but Lens will not confuse “a file was created” with “your real job improved.” |
 | **Sends during diagnosis or adaptation** | Nothing. Those stages require no account and make no external connection. |
 | **Sends if you choose to contribute** | Only the exact sanitized Capability Card and disclosure bytes shown to you for approval. No sharing is selected by default. |
 
@@ -74,22 +76,25 @@ The pilot candidate contains the complete local journey:
 
 - private diagnosis and editable Job Map;
 - evidence-backed Capability Map;
-- one previewed, approved, recoverable change with verification, receipt, and undo;
+- a guided improvement preview, plus isolated synthetic tests of approval,
+  recovery, receipts, and undo (real-user automation remains unavailable);
 - optional Capability Card review, disclosure, consent, submission, and withdrawal;
 - pilot enrolment, measurement, safety-gate, runbook, and evidence-pack machinery.
 
 M3, the read-only source alpha, is merged in [PR #4](https://github.com/davekilleen/dex-lens/pull/4).
 The M4–M6 pilot candidate is in [draft PR #5](https://github.com/davekilleen/dex-lens/pull/5),
-with its Linux/macOS test matrix and exact-build safety gates green. It remains
-unmerged and unreleased while the delivery review completes.
+where the Linux/macOS test matrix and exact-build safety gates are required
+before merge. It remains unmerged and unreleased while delivery review completes.
 
 ## What is not complete
 
-- There is no supported installer or published Dex Lens release yet.
+- There is no supported participant setup package or published Dex Lens release yet.
 - No real participant pilot has run, so there is no real-world outcome evidence.
 - Consent wording still needs human review before anyone enrols.
 - The final evidence pack still needs named risk owners and independent safety sign-off.
 - A Mac that cannot prove deep-inspection containment uses the guided path instead.
+- Automated real-user improvements remain unavailable until Lens has a genuine
+  way to observe the Success Contract outcome after real use.
 
 ## Try the source build
 

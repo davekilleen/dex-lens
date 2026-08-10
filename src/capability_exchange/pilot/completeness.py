@@ -19,7 +19,9 @@ from capability_exchange.pilot.drills import (
     TABLETOP_SCENARIOS,
     TabletopResult,
     required_runbooks,
+    validate_recovery_failure_evidence,
 )
+from capability_exchange.pilot.protocol import PilotProtocol
 
 __all__ = [
     "CompletenessReport",
@@ -49,6 +51,8 @@ REQUIRED_ARTIFACT_IDS = (
     "fault-injection-results",
     "incident-runbook",
     "hard-stop-runbook",
+    "incident-tabletop-evidence",
+    "hard-stop-tabletop-evidence",
     "withdrawal-runbook",
     "key-rotation-runbook",
     "support-runbook",
@@ -348,14 +352,32 @@ def _artifact_is_parseable(path: Path) -> bool:
 def _load_manifest(
     value: R7Manifest | str | Path,
     root: Path | None,
+    evidence_verifier: SignoffSignatureVerifier | None,
+    trusted_evidence_key_ids: frozenset[str],
 ) -> tuple[R7Manifest, Path | None]:
+    context = {
+        "evidence_root": root,
+        "evidence_verifier": evidence_verifier,
+        "trusted_evidence_key_ids": trusted_evidence_key_ids,
+    }
     if isinstance(value, R7Manifest):
-        return value, root
+        return (
+            R7Manifest.model_validate(
+                value.model_dump(mode="python"), context=context
+            ),
+            root,
+        )
     path = Path(value)
     manifest_root = root or path.parent
+    context["evidence_root"] = manifest_root
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return R7Manifest.model_validate(data), manifest_root
+        return (
+            R7Manifest.model_validate(
+                data, context=context
+            ),
+            manifest_root,
+        )
     except Exception as exc:  # noqa: BLE001 - verifier must report, never crash
         raise ValueError(f"R7 manifest could not be parsed: {type(exc).__name__}") from exc
 
@@ -371,9 +393,15 @@ def verify_r7_manifest(
     """Return exact missing/invalid conditions; never infer a complete pack."""
 
     try:
-        value, base = _load_manifest(manifest, root)
+        value, base = _load_manifest(
+            manifest, root, signoff_verifier, trusted_verifier_key_ids
+        )
     except ValueError as exc:
-        return CompletenessReport(complete=False, issues=(str(exc),))
+        detail = " ".join(str(exc).split())[:440]
+        return CompletenessReport(
+            complete=False,
+            issues=(f"R7 manifest failed schema revalidation: {detail}",),
+        )
     issues: list[str] = []
     verified: list[str] = []
     if base is None:
@@ -449,7 +477,9 @@ def verify_r7_manifest(
             protocol_payload = json.loads(
                 (base / protocol_artifact.path).read_text(encoding="utf-8")
             )
-            if protocol_payload.get("content_hash") != observed_schema.protocol_hash:
+            protocol = PilotProtocol.model_validate(protocol_payload)
+            protocol.assert_red_team_ready()
+            if protocol.protocol_hash != observed_schema.protocol_hash:
                 raise ValueError("observed evidence does not match the protocol artifact")
         except Exception as exc:  # noqa: BLE001 - observed evidence fails closed
             issues.append(
@@ -475,9 +505,38 @@ def verify_r7_manifest(
         result = tabletop_by_id.get(runbook_id)
         expected_scenario, expected_trigger = TABLETOP_SCENARIOS[runbook_id]
         artifact = by_id.get(f"{runbook_id}-runbook")
+        recovery_evidence_ok = False
+        tabletop_artifact = by_id.get(f"{runbook_id}-tabletop-evidence")
+        if (
+            runbook_id in {"incident", "hard-stop"}
+            and result is not None
+            and base is not None
+            and result.execution_artifact_path
+            and result.execution_artifact_hash
+            and tabletop_artifact is not None
+            and tabletop_artifact.artifact_id in verified
+            and tabletop_artifact.path == result.execution_artifact_path
+            and tabletop_artifact.content_hash == result.execution_artifact_hash
+        ):
+            try:
+                evidence_path = (base / result.execution_artifact_path).resolve()
+                evidence_path.relative_to(base.resolve())
+                evidence = validate_recovery_failure_evidence(
+                    evidence_path,
+                    result.execution_artifact_hash,
+                    verifier=signoff_verifier,
+                    trusted_key_ids=trusted_verifier_key_ids,
+                )
+                recovery_evidence_ok = (
+                    evidence.runbook_id == runbook_id
+                    and evidence.scenario_id == expected_scenario
+                    and evidence.transaction_journal.transaction_id
+                    == result.transaction_id
+                )
+            except Exception:  # noqa: BLE001 - malformed evidence is incomplete
+                recovery_evidence_ok = False
         if (
             result is None
-            or not result.passed
             or not result.trigger_observed
             or not result.exit_criteria_met
             or result.scenario_id != expected_scenario
@@ -485,7 +544,16 @@ def verify_r7_manifest(
             or result.actions_evidenced != runbooks_by_id[runbook_id].actions
             or artifact is None
             or result.runbook_artifact_hash != artifact.content_hash
-            or (runbook_id in {"incident", "hard-stop"} and not result.stop_triggered)
+            or (
+                runbook_id in {"incident", "hard-stop"}
+                and not recovery_evidence_ok
+            )
+            or (
+                runbook_id not in {"incident", "hard-stop"}
+                and not (
+                    result.passed and result.trigger_observed and result.exit_criteria_met
+                )
+            )
             or (runbook_id == "withdrawal" and not result.deletion_verified)
         ):
             issues.append(f"runbook tabletop is missing or failed: {runbook_id}")

@@ -124,7 +124,7 @@ def write_formal_envelopes(tmp_path: Path) -> list[Path]:
                 "tests/egress/test_m4_packet_egress.py",
             ],
             "pcap_sha256": pcap_hash,
-            "evidence": {"journey_complete": True, "adaptation_complete": True},
+            "evidence": {"journey_complete": True, "adaptation_refused": True},
         },
         "m5.json": {
             "schema_version": 1,
@@ -224,7 +224,7 @@ def test_m3_executor_envelope_is_m3_m4_only_and_hash_binds_pcap(
         tmp_path,
         status="proven",
         capability=module.capability_probe(),
-        evidence={"journey_complete": True, "adaptation_complete": True},
+        evidence={"journey_complete": True, "adaptation_refused": True},
         pcap_sha256="4" * 64,
     )
     envelope = json.loads((tmp_path / "evidence.json").read_text(encoding="utf-8"))

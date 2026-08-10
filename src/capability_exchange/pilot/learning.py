@@ -16,7 +16,8 @@ class LearningOutput(InventoriedModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    contract_id: str
+    contract_binding_hash: str
+    contract_count: int = Field(ge=1)
     verdict: PilotVerdict
     enrolled_count: int = Field(ge=1)
     improved_count: int = Field(ge=0)
@@ -27,10 +28,10 @@ class LearningOutput(InventoriedModel):
     raw_private_evidence_included: bool = False
     canary_scan_passed: bool = True
 
-    @field_validator("contract_id")
+    @field_validator("contract_binding_hash")
     @classmethod
     def _id(cls, value: str) -> str:
-        return clean_text(value, label="contract_id", max_length=256)
+        return clean_text(value, label="contract_binding_hash", max_length=256)
 
     @field_validator("evidence_limit_codes")
     @classmethod
@@ -79,7 +80,8 @@ def normalize_learning(
 
     canaries = tuple(value for value in private_values if value)
     output = LearningOutput(
-        contract_id=report.contract_id,
+        contract_binding_hash=report.contract_binding_hash,
+        contract_count=len({item.contract_id for item in report.participant_plan_bindings}),
         verdict=report.verdict,
         enrolled_count=report.enrolled_count,
         improved_count=report.improved_count,
