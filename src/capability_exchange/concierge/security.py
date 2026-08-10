@@ -49,6 +49,15 @@ _JOURNEY_STATES = frozenset(
         "fallback",
         "diagnosis",
         "capability-map",
+        "adaptation-select",
+        "adaptation-preview",
+        "adaptation-approval",
+        "adaptation-apply",
+        "adaptation-receipt",
+        "adaptation-verify",
+        "adaptation-undo",
+        "adaptation-refused",
+        "adaptation-hard-stop",
         "closed",
     }
 )

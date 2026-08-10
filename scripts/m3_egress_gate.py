@@ -32,6 +32,7 @@ from tests.egress.network_harness import (  # noqa: E402
 _SAFE_SCALAR_FIELDS = {
     "loopback_enabled",
     "journey_complete",
+    "adaptation_complete",
     "pages_checked",
     "packet_count",
     "pcap_size_bytes",

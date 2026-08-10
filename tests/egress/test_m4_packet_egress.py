@@ -29,6 +29,9 @@ def test_m4_stage_7_8_journey_has_no_socket_or_canary_egress(
 ) -> None:
     canary = "M4-private-canary-not-on-the-wire-001"
     journey = _journey(tmp_path)
+    (Path(journey.permission.approved_roots[0]) / "CLAUDE.md").write_text(
+        canary, encoding="utf-8"
+    )
     _select(journey)
     pages = [render_journey(journey, csrf_token="csrf")]
     journey.preview_adaptation()
@@ -70,6 +73,8 @@ def test_m4_packet_dns_proxy_harness_is_network_none() -> None:
         assert run.returncode == 0, run.stderr
         assert run.evidence is not None
         assert_evidence(run.evidence)
+        assert run.evidence.get("adaptation_complete") is True
+        assert run.evidence.get("pages_checked", 0) >= 11
         assert run.evidence.get("proxy_requests") == []
         assert run.evidence.get("dns_packets") == []
     finally:

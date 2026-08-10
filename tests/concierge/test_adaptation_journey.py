@@ -296,3 +296,6 @@ def test_http_routes_delegate_the_same_explicit_stages(tmp_path: Path) -> None:
             status, _, body = running.post(path)
             assert status == 200
             assert expected in body
+            assert running.session.inventory_state.journey_state.startswith(
+                "adaptation-"
+            )
