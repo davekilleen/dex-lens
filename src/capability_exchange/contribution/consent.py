@@ -112,7 +112,9 @@ class ConsentRecord(InventoriedModel):
         manifest: DisclosureManifest,
         permissions: PermissionSet,
     ) -> ConsentRecord:
-        require_valid_card(card)
+        card = require_valid_card(card)
+        if not manifest.verify_card(card):
+            raise ConsentError("disclosure manifest does not match this Card version")
         return cls(
             card_id=card.card_id,
             card_version_hash=card.version_hash,
@@ -127,6 +129,7 @@ class ConsentLedger:
 
     def __init__(self) -> None:
         self._records: dict[tuple[str, str], ConsentRecord] = {}
+        self._withdrawn_versions: set[str] = set()
 
     def grant(
         self,
@@ -135,11 +138,13 @@ class ConsentLedger:
         permissions: PermissionSet,
     ) -> ConsentRecord:
         try:
-            require_valid_card(card)
+            card = require_valid_card(card)
         except CardValidationError as exc:
             raise ConsentError(
                 "Card validation failed before consent: " + ", ".join(exc.reason_codes)
             ) from exc
+        if card.version_hash in self._withdrawn_versions:
+            raise ConsentError("this immutable Card version was withdrawn and cannot be re-granted")
         if not manifest.verify_card(card):
             raise ConsentError("disclosure manifest does not match this Card version")
         if not card.rights.rights_attested:
@@ -163,7 +168,39 @@ class ConsentLedger:
             )
         return self._records[(card.version_hash, manifest.byte_hash)]
 
+    def authorize_outbound(
+        self, card: CapabilityCard, manifest: DisclosureManifest
+    ) -> bytes:
+        """Return only the exact bytes covered by active version consent.
+
+        The ledger, rather than a caller-supplied boolean, is the sole local
+        authorization seam. Both Card and manifest are rebuilt through their
+        validators so Pydantic's construction escape hatches cannot cross it.
+        """
+
+        try:
+            validated_card = require_valid_card(card)
+            self.require(validated_card, manifest)
+            if not manifest.verify_card(validated_card):
+                raise ConsentError("disclosure manifest does not match this Card version")
+            # Rebuild the expected manifest from the validated Card; return its
+            # bytes, not bytes held by the caller's object.
+            from capability_exchange.cards.disclosure import build_disclosure_manifest
+
+            expected = build_disclosure_manifest(
+                validated_card, approved_fields=manifest.approved_fields
+            )
+        except (CardValidationError, ValueError, TypeError) as exc:
+            raise ConsentError("disclosure manifest failed revalidation") from exc
+        if (
+            expected.byte_hash != manifest.byte_hash
+            or expected.display_text != manifest.display_text
+        ):
+            raise ConsentError("disclosure manifest does not match this Card version")
+        return expected.payload_bytes
+
     def withdraw(self, card: CapabilityCard, manifest: DisclosureManifest) -> None:
+        self._withdrawn_versions.add(card.version_hash)
         key = (card.version_hash, manifest.byte_hash)
         record = self._records.get(key)
         if record is None:

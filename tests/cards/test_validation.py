@@ -55,3 +55,9 @@ def test_missing_declaration_is_a_structural_reason() -> None:
 
 def test_clean_card_has_no_issues() -> None:
     assert validate_card(make_card()) == ()
+
+
+def test_bypassed_card_instances_are_revalidated_at_every_boundary() -> None:
+    malformed = make_card().model_copy(update={"method": 123})
+
+    assert ReasonCode.SCHEMA in {issue.reason for issue in validate_card(malformed)}

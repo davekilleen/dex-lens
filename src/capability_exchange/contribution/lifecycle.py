@@ -9,7 +9,12 @@ from typing import Protocol
 from capability_exchange.cards.disclosure import DisclosureManifest
 from capability_exchange.cards.model import CapabilityCard
 from capability_exchange.cards.validation import CardValidationError, require_valid_card
-from capability_exchange.contribution.consent import ConsentError, ConsentLedger, PermissionSet
+from capability_exchange.contribution.consent import (
+    ConsentError,
+    ConsentLedger,
+    ConsentRecord,
+    PermissionSet,
+)
 from capability_exchange.contribution.provenance import VersionProvenance, build_provenance
 
 __all__ = [
@@ -65,7 +70,9 @@ class StorePort(Protocol):
 class ModerationTrustPort(Protocol):
     """Read-only trust seam for immutable, signed moderation attestations."""
 
-    def is_trusted(self, card: CapabilityCard) -> bool: ...
+    def attestation_for(self, card: CapabilityCard) -> object | None: ...
+
+    def verify_attestation(self, card: CapabilityCard, attestation: object) -> bool: ...
 
 
 @dataclass(slots=True)
@@ -83,8 +90,12 @@ class InMemoryStore:
     def __post_init__(self) -> None:
         # A shipped Core release is outside Exchange control.  Keep its bytes
         # and record the honest non-recallable boundary on withdrawal.
-        if self.recallable is None:
-            self.recallable = self.name != "core-release"
+        if self.name == "core-release":
+            if self.recallable is True:
+                raise ValueError("core-release stores are permanently non-recallable")
+            self.recallable = False
+        elif self.recallable is None:
+            self.recallable = True
 
     def put(self, version_hash: str, payload: bytes) -> None:
         if version_hash not in self.withdrawn_versions:
@@ -234,12 +245,12 @@ class ContributionLifecycle:
                 f"cannot transition contribution from {contribution.state.value} to {target.value}"
             )
 
-    def _require_active_consent(self, contribution: Contribution) -> None:
+    def _require_active_consent(self, contribution: Contribution) -> ConsentRecord:
         if contribution.state is ContributionState.WITHDRAWN:
             raise IllegalTransition("withdrawn Card versions cannot be used again")
         try:
             require_valid_card(contribution.card)
-            self.consent.require(contribution.card, contribution.manifest)
+            record = self.consent.require(contribution.card, contribution.manifest)
         except CardValidationError as exc:
             self._revoke_and_withdraw(contribution, "Card validation failed")
             raise CardValidationError(exc.issues) from exc
@@ -248,12 +259,16 @@ class ContributionLifecycle:
             raise ConsentError(
                 "withdrawn Card versions cannot be redrafted or resubmitted"
             ) from exc
+        return record
 
     def _require_moderation_attestation(self, contribution: Contribution) -> None:
         if self._moderation is None:
             raise PermissionDenied("immutable moderation attestation is required before review")
         try:
-            trusted = self._moderation.is_trusted(contribution.card)
+            attestation = self._moderation.attestation_for(contribution.card)
+            trusted = attestation is not None and self._moderation.verify_attestation(
+                contribution.card, attestation
+            )
         except Exception:  # noqa: BLE001 - trust ports fail closed
             trusted = False
         if not trusted:
@@ -262,25 +277,25 @@ class ContributionLifecycle:
             )
 
     def submit(self, contribution: Contribution) -> Contribution:
-        self._require_active_consent(contribution)
-        if contribution.permissions.is_unresolvable or contribution.permissions.review is not True:
+        record = self._require_active_consent(contribution)
+        permissions = record.permissions
+        if permissions.is_unresolvable or permissions.review is not True:
             # Unknown permission state is not a prompt to ask for more access;
             # it is fully withdrawn and cannot reach review.
             reason = (
                 "permission state was unresolvable"
-                if contribution.permissions.is_unresolvable
+                if permissions.is_unresolvable
                 else "review permission was not granted"
             )
             self._revoke_and_withdraw(contribution, reason)
             return contribution
         # Consent may be valid while a caller hands us a forged manifest or a
         # Card changed through a bypass route.  Re-check before any store.put.
-        if not contribution.manifest.verify_card(contribution.card):
-            raise ConsentError("disclosure manifest no longer matches this Card version")
+        outbound = self.consent.authorize_outbound(contribution.card, contribution.manifest)
         self._transition(contribution, ContributionState.SUBMITTED)
         for store in self.stores:
-            if contribution.permissions.storage is True:
-                store.put(contribution.version_hash, contribution.manifest.payload_bytes)
+            if permissions.storage is True:
+                store.put(contribution.version_hash, outbound)
         return contribution
 
     def quarantine(self, contribution: Contribution, reason: str) -> Contribution:
@@ -293,8 +308,8 @@ class ContributionLifecycle:
 
     def mark_reviewed(self, contribution: Contribution) -> Contribution:
         self._assert_transition(contribution, ContributionState.REVIEWED)
-        self._require_active_consent(contribution)
-        if contribution.permissions.moderation is not True:
+        record = self._require_active_consent(contribution)
+        if record.permissions.moderation is not True:
             raise PermissionDenied("moderation permission is not granted for this Card version")
         self._require_moderation_attestation(contribution)
         self._transition(contribution, ContributionState.REVIEWED)
@@ -318,16 +333,18 @@ class ContributionLifecycle:
 
     def mark_eligible(self, contribution: Contribution) -> Contribution:
         self._assert_transition(contribution, ContributionState.ELIGIBLE)
-        self._require_active_consent(contribution)
+        record = self._require_active_consent(contribution)
         self._require_moderation_attestation(contribution)
-        if contribution.permissions.reuse is not True:
+        if record.permissions.reuse is not True:
             raise PermissionDenied("reuse permission is not granted for this Card version")
-        if contribution.permissions.distribution is not True:
+        if record.permissions.distribution is not True:
             raise PermissionDenied("distribution permission is not granted for this Card version")
         self._transition(contribution, ContributionState.ELIGIBLE)
         return contribution
 
     def withdraw(self, contribution: Contribution, *, reason: str) -> Contribution:
+        if contribution.state is ContributionState.WITHDRAWN:
+            raise IllegalTransition("contribution is already withdrawn")
         self.consent.withdraw(contribution.card, contribution.manifest)
         if contribution.state is not ContributionState.WITHDRAWN:
             self._transition(contribution, ContributionState.WITHDRAWN)

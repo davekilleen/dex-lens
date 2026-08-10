@@ -165,7 +165,11 @@ def _flatten_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
 def _structural_issues(payload: object) -> tuple[CapabilityCard | None, list[ValidationIssue]]:
     issues: list[ValidationIssue] = []
     if isinstance(payload, CapabilityCard):
-        return payload, issues
+        # Pydantic's ``model_construct`` and ``model_copy(update=...)`` are
+        # deliberately unvalidated escape hatches. Treat an existing instance
+        # as untrusted input and rebuild it through the schema instead of
+        # accepting its Python type as proof that validation ran.
+        payload = dict(payload.__dict__)
     if not isinstance(payload, Mapping):
         return None, [
             ValidationIssue("card", ReasonCode.SCHEMA, "Card must be a mapping or CapabilityCard")
@@ -297,11 +301,11 @@ def require_valid_card(payload: CapabilityCard | Mapping[str, Any]) -> Capabilit
     issues = validate_card(payload)
     if issues:
         raise CardValidationError(issues)
-    if isinstance(payload, CapabilityCard):
-        return payload
-    # ``validate_card`` has already parsed a mapping; parsing once more keeps
-    # this helper's return type explicit without retaining untrusted input.
-    return CapabilityCard.model_validate(payload)
+    raw = dict(payload.__dict__) if isinstance(payload, CapabilityCard) else payload
+    # ``validate_card`` has already parsed the same values; parsing once more
+    # returns a fresh validated object and never retains a bypass-constructed
+    # or model-copy-mutated instance.
+    return CapabilityCard.model_validate(raw)
 
 
 class CardScanner:

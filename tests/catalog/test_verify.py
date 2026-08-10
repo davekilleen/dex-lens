@@ -5,6 +5,7 @@ from __future__ import annotations
 from capability_exchange.catalog.verify import (
     CatalogEntry,
     CatalogStatus,
+    CatalogVerifier,
     SignedCatalog,
     verify_catalog,
 )
@@ -40,8 +41,9 @@ def test_valid_signature_is_required_before_catalog_use() -> None:
 
 
 def test_tampered_or_unsigned_catalog_falls_back_to_last_verified_or_none() -> None:
-    first = verify_catalog(signed(), Verifier())
-    tampered = verify_catalog(signed(signature="bad"), Verifier(), last_verified=first.catalog)
+    consumer = CatalogVerifier(Verifier())
+    first = consumer.verify(signed())
+    tampered = consumer.verify(signed(signature="bad"))
     assert tampered.status is CatalogStatus.LAST_VERIFIED
     assert tampered.catalog == first.catalog
     none = verify_catalog(signed(signature="bad"), Verifier())
@@ -52,3 +54,10 @@ def test_tampered_or_unsigned_catalog_falls_back_to_last_verified_or_none() -> N
 def test_non_release_artifacts_are_rejected() -> None:
     result = verify_catalog(signed(release_provenance="experimental"), Verifier())
     assert result.status is CatalogStatus.NONE
+
+
+def test_bypass_constructed_catalog_envelope_fails_closed_instead_of_crashing() -> None:
+    malformed = SignedCatalog.model_construct(payload="{}", signature=None, key_id="core-1")
+    result = verify_catalog(malformed, Verifier())
+    assert result.status is CatalogStatus.NONE
+    assert result.catalog is None

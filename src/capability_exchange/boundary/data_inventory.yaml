@@ -10,14 +10,12 @@
 # or bare strings, comments). Schema-validated by pydantic at import and by
 # scripts/check_inventory.py in CI (the g2-inventory-check step).
 #
-# M1 posture: diagnosis is ephemeral and telemetry-free. The only stored
-# artifact on this slice is the local crash log, which records structure
-# (exception type, code locations) and never values. No field declares any
-# sharing; the schema itself only admits "sharing: never" at M1 — widening
-# it is a G2 schema change that reopens gate review (see HANDOFF D8 for the
-# catalog-refresh decision that would introduce the first approved flow).
+# Diagnosis remains ephemeral and telemetry-free. M5 opens exactly one reviewed
+# sharing field: the user-previewed canonical DisclosureManifest bytes may
+# cross the contribution-intake port. No wrapper, identifier, header, consent
+# record, or other product field is transmissible.
 
-inventory_version: 1
+inventory_version: 2
 
 fields:
 
@@ -1837,7 +1835,7 @@ fields:
     derivation: "canonical JSON serialization; no extra fields"
     display: "shown verbatim before submission"
     storage: none
-    sharing: never
+    sharing: contribution-intake-exact-manifest
     deletion: not-stored
     audit: "ephemeral manifest value"
 
@@ -2115,6 +2113,46 @@ fields:
     description: "immutable pre-review scanner pass bound to one Card version"
     collection: "copied from the scanner result at moderation approval"
     derivation: "scanner status must be scanner-passed"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.scanner_id:
+    description: "closed scanner identity bound to one moderation result"
+    collection: "declared by the scanner trust port"
+    derivation: "default local validator or injected scanner id"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.scanner_version:
+    description: "scanner version bound to one moderation result"
+    collection: "declared by the scanner trust port"
+    derivation: "version identifier"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.scanner_reason_codes:
+    description: "reason-code tuple from the exact pre-review scan"
+    collection: "copied from the scanner result"
+    derivation: "closed reason codes only"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.scanner_result_hash:
+    description: "content hash of scanner identity version and exact result"
+    collection: "derived at human approval"
+    derivation: "SHA-256 over canonical scanner evidence"
     display: "shown in moderation audit"
     storage: none
     sharing: never

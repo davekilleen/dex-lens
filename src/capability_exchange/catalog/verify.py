@@ -83,13 +83,7 @@ class CatalogResult:
     message: str
 
 
-def _none_or_last(last_verified: CapabilityCatalog | None, reason: str) -> CatalogResult:
-    if last_verified is not None:
-        return CatalogResult(
-            status=CatalogStatus.LAST_VERIFIED,
-            catalog=last_verified,
-            message=f"catalog rejected ({reason}); using last verified catalog",
-        )
+def _none(reason: str) -> CatalogResult:
     return CatalogResult(
         status=CatalogStatus.NONE,
         catalog=None,
@@ -100,8 +94,6 @@ def _none_or_last(last_verified: CapabilityCatalog | None, reason: str) -> Catal
 def verify_catalog(
     signed: SignedCatalog,
     verifier: SignatureVerifier,
-    *,
-    last_verified: CapabilityCatalog | None = None,
 ) -> CatalogResult:
     """Verify signature and release provenance before catalog use.
 
@@ -110,8 +102,18 @@ def verify_catalog(
     explicitly with ``none``; no unverified entry is exposed.
     """
 
+    try:
+        signed = SignedCatalog.model_validate(
+            {
+                "payload": signed.payload,
+                "signature": signed.signature,
+                "key_id": signed.key_id,
+            }
+        )
+    except (AttributeError, TypeError, ValidationError):
+        return _none("signed envelope is malformed")
     if not signed.signature.strip():
-        return _none_or_last(last_verified, "unsigned payload")
+        return _none("unsigned payload")
     try:
         if callable(verifier):
             valid = bool(verifier(signed.payload_bytes, signed.signature, signed.key_id))
@@ -120,7 +122,7 @@ def verify_catalog(
     except Exception:  # noqa: BLE001 - verifier failures are signature failures
         valid = False
     if not valid:
-        return _none_or_last(last_verified, "signature verification failed")
+        return _none("signature verification failed")
     try:
         raw = json.loads(signed.payload)
         entries_raw = raw["entries"]
@@ -131,7 +133,7 @@ def verify_catalog(
             raise ValueError("catalog contains a non-release artifact")
         catalog = CapabilityCatalog(entries=entries)
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, ValidationError) as exc:
-        return _none_or_last(last_verified, f"catalog payload invalid: {type(exc).__name__}")
+        return _none(f"catalog payload invalid: {type(exc).__name__}")
     return CatalogResult(
         status=CatalogStatus.VERIFIED,
         catalog=catalog,
@@ -159,11 +161,13 @@ class CatalogVerifier:
         return self._last_verified
 
     def verify(self, signed: SignedCatalog) -> CatalogResult:
-        result = verify_catalog(
-            signed,
-            self._verifier,
-            last_verified=self._last_verified,
-        )
+        result = verify_catalog(signed, self._verifier)
         if result.status is CatalogStatus.VERIFIED:
             self._last_verified = result.catalog
+        elif self._last_verified is not None:
+            result = CatalogResult(
+                status=CatalogStatus.LAST_VERIFIED,
+                catalog=self._last_verified,
+                message=result.message + "; using internally retained last verified catalog",
+            )
         return result

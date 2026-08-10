@@ -10,6 +10,7 @@ from capability_exchange.contribution.consent import ConsentError, ConsentLedger
 from capability_exchange.contribution.lifecycle import (
     ContributionLifecycle,
     ContributionState,
+    IllegalTransition,
     InMemoryStore,
 )
 
@@ -97,3 +98,10 @@ def test_withdrawal_does_not_delete_a_shipped_core_release() -> None:
     assert shipped.non_recallable_versions == {card.version_hash}
     with pytest.raises(ConsentError):
         lifecycle.draft(card, manifest, contributor_secret=b"secret")
+    with pytest.raises(IllegalTransition, match="already withdrawn"):
+        lifecycle.withdraw(contribution, reason="replayed request")
+
+
+def test_shipped_core_store_cannot_be_made_recallable_by_configuration() -> None:
+    with pytest.raises(ValueError, match="core-release"):
+        InMemoryStore("core-release", recallable=True)

@@ -170,9 +170,11 @@ def main() -> int:
 
     inventory = active_inventory()
     stored = sum(1 for entry in inventory.fields.values() if entry.stores)
+    transmitted = sum(1 for entry in inventory.fields.values() if entry.shares)
     print(
         f"g2-inventory-check: OK — {len(inventory.fields)} inventoried field(s), "
-        f"{stored} stored (all with registered deletion paths), 0 transmitted."
+        f"{stored} stored (all with registered deletion paths), "
+        f"{transmitted} transmitted through closed reviewed paths."
     )
     return 0
 

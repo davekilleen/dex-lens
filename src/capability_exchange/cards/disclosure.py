@@ -37,8 +37,8 @@ def _canonical_json(value: Any) -> bytes:
 def canonical_card_bytes(card: CapabilityCard) -> bytes:
     """Canonical bytes for a complete immutable Card version."""
 
-    require_valid_card(card)
-    return _canonical_json(card.model_dump(mode="json"))
+    validated = require_valid_card(card)
+    return _canonical_json(validated.model_dump(mode="json"))
 
 
 @final
@@ -79,6 +79,10 @@ class DisclosureManifest(InventoriedModel):
             raise ValueError("disclosure payload must be canonical JSON") from exc
         if not isinstance(parsed, dict):
             raise ValueError("disclosure payload must be a JSON object")
+        if set(parsed) != set(self.approved_fields):
+            raise ValueError("disclosure payload keys must equal the approved fields")
+        if self.display_text != _canonical_json(parsed).decode("utf-8"):
+            raise ValueError("disclosure payload must use canonical JSON bytes")
         issues = scan_text(parsed, path="disclosure")
         if issues:
             reasons = ", ".join(dict.fromkeys(issue.reason.value for issue in issues))
@@ -103,26 +107,28 @@ class DisclosureManifest(InventoriedModel):
     def approved_bytes(self) -> bytes:
         return self.payload_bytes
 
-    def outbound_bytes(self, *, consented: bool) -> bytes:
-        """Return bytes only after the caller proves fresh explicit consent."""
-
-        if not consented:
-            raise DisclosureError("outbound bytes require explicit version-bound consent")
-        if self.byte_hash != _sha256(self.payload_bytes):
-            raise DisclosureError("disclosure bytes no longer match their manifest hash")
-        return self.payload_bytes
-
     def verify_card(self, card: CapabilityCard) -> bool:
         try:
-            require_valid_card(card)
-            if self.card_version_hash != card.version_hash:
+            validated_card = require_valid_card(card)
+            validated_manifest = type(self).model_validate(
+                {
+                    "card_version_hash": self.card_version_hash,
+                    "approved_fields": self.approved_fields,
+                    "byte_hash": self.byte_hash,
+                    "display_text": self.display_text,
+                }
+            )
+            if validated_manifest.card_version_hash != validated_card.version_hash:
                 return False
-            if self.byte_hash != _sha256(self.payload_bytes):
-                return False
-            expected = build_disclosure_manifest(card, approved_fields=self.approved_fields)
-        except (CardValidationError, DisclosureError):
+            expected = build_disclosure_manifest(
+                validated_card, approved_fields=validated_manifest.approved_fields
+            )
+        except (CardValidationError, DisclosureError, ValueError, TypeError):
             return False
-        return expected.display_text == self.display_text and expected.byte_hash == self.byte_hash
+        return (
+            expected.display_text == validated_manifest.display_text
+            and expected.byte_hash == validated_manifest.byte_hash
+        )
 
 
 def _sha256(payload: bytes) -> str:
@@ -139,7 +145,7 @@ def build_disclosure_manifest(
     """
 
     try:
-        require_valid_card(card)
+        card = require_valid_card(card)
     except CardValidationError as exc:
         raise DisclosureError(f"Card validation failed: {', '.join(exc.reason_codes)}") from exc
 

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
+from pydantic import ValidationError
 
 from capability_exchange.cards.disclosure import (
     DisclosureError,
+    DisclosureManifest,
     build_disclosure_manifest,
     canonical_card_bytes,
 )
@@ -27,6 +31,17 @@ def test_manifest_shows_exact_fields_and_bytes() -> None:
     assert manifest.byte_hash
 
 
+def test_manifest_constructor_requires_canonical_bytes_for_exact_selected_fields() -> None:
+    payload = '{"limitations":[]}'
+    with pytest.raises(ValidationError, match="approved fields"):
+        DisclosureManifest(
+            card_version_hash=make_card().version_hash,
+            approved_fields=("method",),
+            byte_hash="sha256:" + hashlib.sha256(payload.encode()).hexdigest(),
+            display_text=payload,
+        )
+
+
 def test_manifest_rejects_unmodelled_or_duplicate_fields() -> None:
     card = make_card()
     with pytest.raises(DisclosureError):
@@ -41,6 +56,12 @@ def test_canonical_bytes_are_stable_and_version_bound() -> None:
     changed = make_card(method="A changed recipe that remains bounded and inert.")
     assert canonical_card_bytes(first) == canonical_card_bytes(same)
     assert canonical_card_bytes(first) != canonical_card_bytes(changed)
+
+
+def test_model_copy_cannot_turn_a_card_field_into_unvalidated_outbound_data() -> None:
+    malformed = make_card().model_copy(update={"method": 123})
+    with pytest.raises(DisclosureError, match="schema-invalid"):
+        build_disclosure_manifest(malformed, approved_fields=("method",))
 
 
 @pytest.mark.parametrize(

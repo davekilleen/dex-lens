@@ -39,7 +39,7 @@ class TestPackagedInventory:
     def test_packaged_inventory_loads_and_validates(self) -> None:
         inv = load_packaged_inventory()
         assert isinstance(inv, Inventory)
-        assert inv.inventory_version == 1
+        assert inv.inventory_version == 2
         assert inv.fields, "packaged inventory must not be empty"
 
     def test_import_time_inventory_is_active(self) -> None:
@@ -103,12 +103,13 @@ class TestSchemaFailsClosed:
         with pytest.raises(InventoryError):
             load_inventory_text(make_doc(body))
 
-    def test_sharing_other_than_never_rejected_at_m1(self) -> None:
-        # M1 is diagnosis-only and telemetry-free: no field may declare any
-        # sharing. Widening this is a schema change that reopens G2 review.
+    def test_only_the_exact_contribution_manifest_field_may_declare_sharing(self) -> None:
         body = VALID_ENTRY_BODY.replace(
-            "    sharing: never\n", '    sharing: "catalog refresh"\n'
+            "    sharing: never\n",
+            "    sharing: contribution-intake-exact-manifest\n",
         )
+        allowed = load_inventory_text(make_doc(body, key="DisclosureManifest.display_text"))
+        assert allowed.fields["DisclosureManifest.display_text"].shares
         with pytest.raises(InventoryError):
             load_inventory_text(make_doc(body))
 

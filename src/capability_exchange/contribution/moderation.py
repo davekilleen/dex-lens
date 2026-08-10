@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import secrets
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from html import escape
@@ -88,11 +89,24 @@ class ModerationAttestation(InventoriedModel):
     rights_attested: bool
     conflict_declared: bool
     scanner_passed: bool
+    scanner_id: str
+    scanner_version: str
+    scanner_reason_codes: tuple[str, ...]
+    scanner_result_hash: str
     signature: str
     key_id: str
     attestation_id: str
 
-    @field_validator("card_version_hash", "reviewer_id", "signature", "key_id", "attestation_id")
+    @field_validator(
+        "card_version_hash",
+        "reviewer_id",
+        "scanner_id",
+        "scanner_version",
+        "scanner_result_hash",
+        "signature",
+        "key_id",
+        "attestation_id",
+    )
     @classmethod
     def _bounded_identity(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip() or len(value) > 512:
@@ -101,18 +115,31 @@ class ModerationAttestation(InventoriedModel):
             raise ValueError("moderation attestation identifiers cannot contain controls")
         return value
 
+    @field_validator("scanner_reason_codes")
+    @classmethod
+    def _bounded_reasons(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        result = tuple(value)
+        if len(result) > 64 or any(not item.strip() or len(item) > 128 for item in result):
+            raise ValueError("scanner reason codes must be bounded non-empty identifiers")
+        return result
+
 
 class _HmacAttestationTrust:
     """Small local default trust port; production injects a real signer."""
 
-    def __init__(self, secret: bytes) -> None:
+    def __init__(self, secret: bytes, *, key_id: str) -> None:
         self._secret = bytes(secret)
+        self._key_id = key_id
 
     def sign(self, payload: bytes, key_id: str) -> str:
+        if key_id != self._key_id:
+            raise ValueError("attestation key id is not trusted")
         digest = hmac.new(self._secret, key_id.encode("utf-8") + b"\0" + payload, hashlib.sha256)
         return "hmac-sha256:" + digest.hexdigest()
 
     def verify(self, payload: bytes, signature: str, key_id: str) -> bool:
+        if key_id != self._key_id:
+            return False
         expected = self.sign(payload, key_id)
         return hmac.compare_digest(expected, signature)
 
@@ -124,6 +151,10 @@ def _attestation_payload(
     rights_attested: bool,
     conflict_declared: bool,
     scanner_passed: bool,
+    scanner_id: str,
+    scanner_version: str,
+    scanner_reason_codes: tuple[str, ...],
+    scanner_result_hash: str,
     key_id: str,
 ) -> bytes:
     return json.dumps(
@@ -133,12 +164,32 @@ def _attestation_payload(
             "rights_attested": rights_attested,
             "conflict_declared": conflict_declared,
             "scanner_passed": scanner_passed,
+            "scanner_id": scanner_id,
+            "scanner_version": scanner_version,
+            "scanner_reason_codes": scanner_reason_codes,
+            "scanner_result_hash": scanner_result_hash,
             "key_id": key_id,
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def _scanner_result_hash(
+    result: ModerationResult, *, scanner_id: str, scanner_version: str
+) -> str:
+    payload = json.dumps(
+        {
+            "result": result.model_dump(mode="json"),
+            "scanner_id": scanner_id,
+            "scanner_version": scanner_version,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 class ModerationService:
@@ -148,7 +199,7 @@ class ModerationService:
         self,
         *,
         eligible_reviewers: set[str] | None = None,
-        local_secret: bytes = b"m5-scanner",
+        local_secret: bytes | None = None,
         scanner: ScannerPort
         | Callable[[CapabilityCard], tuple[ValidationIssue, ...]]
         | None = None,
@@ -158,13 +209,29 @@ class ModerationService:
         | None = None,
         attestation_key_id: str = "moderation-1",
     ) -> None:
-        self.eligible_reviewers = frozenset(eligible_reviewers or {"dave"})
-        self._local_secret = local_secret
+        self.eligible_reviewers = frozenset(
+            {"dave"} if eligible_reviewers is None else eligible_reviewers
+        )
+        self._local_secret = (
+            secrets.token_bytes(32) if local_secret is None else bytes(local_secret)
+        )
+        if not self._local_secret:
+            raise ValueError("local moderation secret must be non-empty")
         self._scanner = scanner
-        default_trust = _HmacAttestationTrust(local_secret)
+        default_trust = _HmacAttestationTrust(
+            secrets.token_bytes(32), key_id=attestation_key_id
+        )
         self._signer = signer or default_trust
         self._verifier = verifier or default_trust
         self._attestation_key_id = attestation_key_id
+        self._scanner_id = (
+            "capability-card-validator"
+            if scanner is None
+            else str(getattr(scanner, "scanner_id", ""))
+        )
+        self._scanner_version = (
+            "1" if scanner is None else str(getattr(scanner, "scanner_version", ""))
+        )
         self._attestations: dict[str, ModerationAttestation] = {}
 
     @property
@@ -176,6 +243,8 @@ class ModerationService:
     def scan(self, card: CapabilityCard) -> ModerationResult:
         try:
             require_valid_card(card)
+            if not self._scanner_id.strip() or not self._scanner_version.strip():
+                raise ScannerUnavailable("scanner identity/version is not declared")
             if self._scanner is None:
                 issues = validate_card(card)
             elif callable(self._scanner):
@@ -267,6 +336,8 @@ class ModerationService:
             require_valid_card(card)
             if attestation.card_version_hash != card.version_hash:
                 return False
+            if attestation.key_id != self._attestation_key_id:
+                return False
             if attestation.reviewer_id not in self.eligible_reviewers:
                 return False
             if not (
@@ -275,12 +346,31 @@ class ModerationService:
                 and attestation.conflict_declared
             ):
                 return False
+            current_scan = self.scan(card)
+            current_hash = _scanner_result_hash(
+                current_scan,
+                scanner_id=self._scanner_id,
+                scanner_version=self._scanner_version,
+            )
+            if current_scan.status is not ModerationStatus.SCANNED:
+                return False
+            if (
+                attestation.scanner_id != self._scanner_id
+                or attestation.scanner_version != self._scanner_version
+                or attestation.scanner_reason_codes != current_scan.reason_codes
+                or attestation.scanner_result_hash != current_hash
+            ):
+                return False
             payload = _attestation_payload(
                 card_version_hash=attestation.card_version_hash,
                 reviewer_id=attestation.reviewer_id,
                 rights_attested=attestation.rights_attested,
                 conflict_declared=attestation.conflict_declared,
                 scanner_passed=attestation.scanner_passed,
+                scanner_id=attestation.scanner_id,
+                scanner_version=attestation.scanner_version,
+                scanner_reason_codes=attestation.scanner_reason_codes,
+                scanner_result_hash=attestation.scanner_result_hash,
                 key_id=attestation.key_id,
             )
             if callable(self._verifier):
@@ -310,7 +400,10 @@ class ModerationService:
             raise ValueError("reviewer is not eligible for this moderation port")
         if not contributor_ref.strip():
             raise ValueError("contributor reference is required for conflict checks")
-        if reviewer_id == contributor_ref or contributor_ref == self.contributor_ref(card):
+        authenticated_contributor = self.contributor_ref(card)
+        if contributor_ref != authenticated_contributor:
+            raise ValueError("authenticated contributor reference does not match this Card version")
+        if reviewer_id == authenticated_contributor:
             raise ValueError("conflict: a contributor cannot approve their own Card version")
         if conflict_of_interest:
             raise ValueError("conflict: reviewer declared a conflict of interest")
@@ -321,6 +414,11 @@ class ModerationService:
         scanned = self.scan(card)
         if scanned.status is not ModerationStatus.SCANNED:
             raise ValueError("Card is quarantined by the pre-review scanner")
+        scanner_hash = _scanner_result_hash(
+            scanned,
+            scanner_id=self._scanner_id,
+            scanner_version=self._scanner_version,
+        )
         key_id = self._attestation_key_id
         payload = _attestation_payload(
             card_version_hash=card.version_hash,
@@ -328,6 +426,10 @@ class ModerationService:
             rights_attested=True,
             conflict_declared=True,
             scanner_passed=True,
+            scanner_id=self._scanner_id,
+            scanner_version=self._scanner_version,
+            scanner_reason_codes=scanned.reason_codes,
+            scanner_result_hash=scanner_hash,
             key_id=key_id,
         )
         if callable(self._signer):
@@ -342,12 +444,18 @@ class ModerationService:
             rights_attested=True,
             conflict_declared=True,
             scanner_passed=True,
+            scanner_id=self._scanner_id,
+            scanner_version=self._scanner_version,
+            scanner_reason_codes=scanned.reason_codes,
+            scanner_result_hash=scanner_hash,
             signature=signature,
             key_id=key_id,
             attestation_id=attestation_id,
         )
         if not self.verify_attestation(card, attestation):
             raise ValueError("moderation attestation signature failed verification")
+        if card.version_hash in self._attestations:
+            raise ValueError("this Card version already has an immutable moderation attestation")
         self._attestations[card.version_hash] = attestation
         return attestation
 
@@ -362,7 +470,7 @@ class DaveFinalApprovalPort:
         self,
         *,
         eligible_reviewers: set[str] | None = None,
-        local_secret: bytes = b"m5-scanner",
+        local_secret: bytes | None = None,
         signer: AttestationSigner | Callable[[bytes, str], str] | None = None,
         verifier: AttestationVerifier
         | Callable[[bytes, str, str], bool]

@@ -162,10 +162,14 @@ class TestEphemeralByDefault:
             with pytest.raises(NoTransmissibleFieldsError):
                 m.dump_for_transmission()
 
-    def test_packaged_inventory_permits_no_transmission_at_all(self) -> None:
-        # Against the real packaged inventory (not a test substitute):
-        # zero fields declare sharing other than "never".
+    def test_packaged_inventory_has_one_closed_exact_contribution_field(self) -> None:
         from capability_exchange.boundary.inventory import load_packaged_inventory
 
-        for key, field_entry in load_packaged_inventory().fields.items():
-            assert field_entry.sharing == "never", f"{key} declares sharing"
+        shared = {
+            key: field_entry.sharing
+            for key, field_entry in load_packaged_inventory().fields.items()
+            if field_entry.shares
+        }
+        assert shared == {
+            "DisclosureManifest.display_text": "contribution-intake-exact-manifest"
+        }
