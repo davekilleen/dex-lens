@@ -54,7 +54,7 @@ testpaths = ["tests"]
 # -rs: every skip prints its reason. A hostile fixture that could not run on a
 # host is an unproven gate (HANDOFF 5.1) and must be auditable in the run
 # output, never silent.
-addopts = "-q -rs"
+addopts = "-q -rs --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100
