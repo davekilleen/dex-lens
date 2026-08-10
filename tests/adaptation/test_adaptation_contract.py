@@ -30,6 +30,10 @@ def test_contract_is_closed_to_the_one_registered_operation() -> None:
         valid_contract(operations=("send-message",))
 
 
+def test_fresh_permission_is_a_required_guarantee_not_an_implementation_detail() -> None:
+    assert Guarantee.PERMISSION in REQUIRED_GUARANTEES
+
+
 def test_contract_fields_are_inside_the_g2_inventory_boundary() -> None:
     assert issubclass(MutationContract, InventoriedModel)
     payload = valid_contract().model_dump(mode="json")

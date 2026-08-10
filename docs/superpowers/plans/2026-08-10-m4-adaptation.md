@@ -22,7 +22,7 @@
 
 - [ ] Write failing tests proving unknown operations, blocked categories, wildcard targets, paths outside approval, and missing guarantees are unconstructable.
 - [ ] Run the tests and confirm import/model failures are caused by missing M4 types.
-- [ ] Add frozen `MutationContract`, `OperationRecipe`, and guarantee-matrix models plus a data-driven registry containing only `create_namespaced_skill`.
+- [ ] Add frozen `MutationContract`, `OperationRecipe`, and guarantee-matrix models plus a data-driven registry containing only `create_namespaced_skill`; fresh permission is an explicit seventh guarantee rather than an implementation detail.
 - [ ] Keep Diagnose-only as the default; an Adapt-capable reference validates only when preview, recovery, ownership, receipt, verifier, and undo guarantees are all proven.
 - [ ] Re-run the focused tests and existing adapter surface tests.
 
@@ -104,4 +104,3 @@
 - [ ] Add runbook trigger assertions for `Unverified` and `Recovery failed`.
 - [ ] Drive the full stage 1–8 journey in the network-none packet/DNS/proxy harness; assert no canary or derivation egress.
 - [ ] Run M4 focused suites, then the entire suite and lint.
-

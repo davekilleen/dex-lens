@@ -1,7 +1,7 @@
 """Closed M4 mutation contract and guarantee vocabulary.
 
 An adapter is Adapt-capable only when a named operation is structurally
-allowlisted and all six guarantees needed by T1–T9 are present.  Declarations
+allowlisted and all seven guarantees needed by T1–T9 are present.  Declarations
 do not themselves prove a guarantee; the conformance matrix validates each
 one before the adapter contract may expose the operation.
 """
@@ -43,6 +43,7 @@ class Guarantee(StrEnum):
     """Guarantees every Adapt-capable operation must prove."""
 
     PREVIEW_IDENTITY = "preview-identity"
+    PERMISSION = "permission"
     RECOVERY = "recovery"
     OWNERSHIP = "ownership"
     RECEIPT = "receipt"

@@ -7,8 +7,8 @@ factory takes the concrete roots the person approved and produces the
 versioned :class:`~capability_exchange.adapter.AdapterContract` the
 conformance suite holds the adapter to.
 
-Diagnose-only, always: no host-specific ownership and rewind contract
-exists in M1, so Adapt-capable is structurally unrepresentable.
+Diagnose-only by default: callers must explicitly opt into the separate M4
+create-only host mutation contract after its T1–T9 release evidence passes.
 """
 
 from __future__ import annotations

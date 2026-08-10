@@ -13,8 +13,8 @@ Two rules are load-bearing here:
   contract is Diagnose-only — the hard boundary from #348: "no host-specific
   ownership and rewind contract means Diagnose-only."
 - **Adapt-capable is structurally gated.** M4's mutation contract is closed
-  to allowlisted operations and refuses unless every preview, recovery,
-  ownership, receipt, verification, and undo guarantee is present.
+  to allowlisted operations and refuses unless every preview, permission,
+  recovery, ownership, receipt, verification, and undo guarantee is present.
 """
 
 from __future__ import annotations
