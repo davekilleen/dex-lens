@@ -41,6 +41,18 @@ COOKIE_METADATA: tuple[str, ...] = (
     "path:/",
 )
 
+_JOURNEY_STATES = frozenset(
+    {
+        "permission",
+        "collecting",
+        "job-map",
+        "fallback",
+        "diagnosis",
+        "capability-map",
+        "closed",
+    }
+)
+
 
 def _secret_digest(value: str) -> str:
     """Return a non-reversible reference for an in-memory bearer secret."""
@@ -78,12 +90,21 @@ class ConciergeSessionState(InventoriedModel):
     def _metadata_lines(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item.strip() for item in value):
             raise ValueError("cookie metadata entries must be non-empty")
+        if tuple(value) != COOKIE_METADATA:
+            raise ValueError("cookie metadata must match the local session policy")
         return tuple(value)
 
     @field_validator("approved_scope_references")
     @classmethod
     def _scope_references(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not item.startswith("scope:") for item in value):
+        if any(
+            not item.startswith("scope:")
+            or "/" in item
+            or "\\" in item
+            or ".." in item
+            or any(ord(char) < 32 or ord(char) == 127 for char in item)
+            for item in value
+        ):
             raise ValueError("approved scope references must be non-raw scope locators")
         return tuple(value)
 
@@ -93,6 +114,35 @@ class ConciergeSessionState(InventoriedModel):
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
             raise ValueError("session expiry must be timezone-aware")
         return value
+
+    @field_validator("journey_state")
+    @classmethod
+    def _closed_journey_state(cls, value: str) -> str:
+        if value not in _JOURNEY_STATES:
+            raise ValueError("journey state is outside the closed concierge vocabulary")
+        return value
+
+    @classmethod
+    def model_construct(
+        cls, _fields_set: set[str] | None = None, **values: object
+    ) -> ConciergeSessionState:
+        """Keep the secret/reference validators active on bypass construction."""
+
+        state = super().model_construct(_fields_set, **values)
+        cls.model_validate(state.__dict__)
+        return state
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> ConciergeSessionState:
+        """Reject raw session fields smuggled through Pydantic's copy route."""
+
+        copied = super().model_copy(update=update, deep=deep)
+        type(self).model_validate(copied.__dict__)
+        return copied
 
 
 class SecurityFailure(ValueError):
