@@ -1,4 +1,10 @@
+import runpy
 from pathlib import Path
+
+
+class _StoredGateReport:
+    def dump_for_storage(self) -> dict[str, bool]:
+        return {"pilot_start_allowed": True}
 
 
 def test_ci_has_release_blocking_exact_pilot_build_gate() -> None:
@@ -26,3 +32,12 @@ def test_gate_script_exists_and_is_not_a_declared_pass() -> None:
     assert "pilot_start_allowed" in script
     assert "git" in script
     assert "formal_evidence" in script
+
+
+def test_gate_artifact_excludes_ephemeral_redteam_report() -> None:
+    namespace = runpy.run_path("scripts/pilot_gate.py")
+    artifact_payload = namespace["_artifact_payload"]
+
+    assert artifact_payload(_StoredGateReport()) == {
+        "pilot_gate": {"pilot_start_allowed": True}
+    }

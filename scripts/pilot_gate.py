@@ -28,6 +28,11 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _artifact_payload(report: object) -> dict[str, object]:
+    """Persist only fields the inventory explicitly allows this gate to store."""
+    return {"pilot_gate": report.dump_for_storage()}  # type: ignore[attr-defined]
+
+
 def _load_formal_evidence(
     paths: list[Path], *, commit: str
 ) -> tuple[FormalGateEvidence, ...]:
@@ -133,10 +138,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
-            {
-                "pilot_gate": report.dump_for_storage(),
-                "r6_redteam": redteam.dump_for_storage(),
-            },
+            _artifact_payload(report),
             sort_keys=True,
             indent=2,
         )
