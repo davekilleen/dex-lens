@@ -21,6 +21,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from capability_exchange.adaptation.approval import (
+    ApprovalExpiredError,
+    ApprovalMismatchError,
+    ApprovalReplayError,
+)
+from capability_exchange.adaptation.transaction import (
+    AutomationHardStoppedError,
+    RecoveryFailedError,
+    TransactionConflictError,
+    TransactionFailedError,
+    UndoConflictError,
+)
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
@@ -34,6 +46,7 @@ from capability_exchange.concierge.collection import (
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
+    ConciergeStage,
     ContractFields,
     FallbackEvidence,
     FallbackMode,
@@ -463,6 +476,43 @@ class ConciergeSession:
             self.journey.diagnose()
             self._sync_journey()
 
+    # M4 stages 7-8 stay behind the same narrow session boundary as the M3
+    # journey.  HTTP handlers only parse bounded form fields and call these
+    # methods; preview, approval, apply, receipt, verification, and undo all
+    # remain domain transitions on ``ConciergeJourney``.
+
+    def select_adaptation(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.select_adaptation(
+                job_id=_required(form, "job_id"),
+                capability_id=_required(form, "capability_id"),
+                approved_skills_root=Path(_required(form, "approved_skills_root")),
+                markdown=_required(form, "markdown"),
+                expected_benefit=_required(form, "expected_benefit"),
+                observable_signal=_required(form, "observable_signal"),
+            )
+
+    def preview_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.preview_adaptation()
+
+    def approve_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.approve_adaptation()
+
+    def apply_adaptation(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            token = _optional(form, "approval_token")
+            self.journey.apply_adaptation(approval_token=token or None)
+
+    def verify_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.verify_adaptation()
+
+    def undo_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.undo_adaptation()
+
     def _revalidate_scope(self) -> None:
         missing = tuple(path for path in self.approved_roots if not path.exists())
         if missing:
@@ -522,7 +572,10 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if not self._valid_session_cookie():
             self._forbidden("session is not valid")
             return
-        if parsed.path == "/session":
+        if parsed.path == "/session" or parsed.path in {
+            "/adaptation/receipt",
+            "/adapt/receipt",
+        }:
             self._send_page(_render_session(self.server.session))
             return
         self._not_found()
@@ -604,6 +657,32 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/diagnose":
             self._journey_action(lambda ignored: self.server.session.diagnose(), form)
             return
+        if parsed.path in {"/adaptation/select", "/adapt/select"}:
+            self._journey_action(self.server.session.select_adaptation, form)
+            return
+        if parsed.path in {"/adaptation/preview", "/adapt/preview"}:
+            self._journey_action(
+                lambda ignored: self.server.session.preview_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/approve", "/adapt/approve"}:
+            self._journey_action(
+                lambda ignored: self.server.session.approve_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/apply", "/adapt/apply"}:
+            self._journey_action(self.server.session.apply_adaptation, form)
+            return
+        if parsed.path in {"/adaptation/verify", "/adapt/verify"}:
+            self._journey_action(
+                lambda ignored: self.server.session.verify_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/undo", "/adapt/undo"}:
+            self._journey_action(
+                lambda ignored: self.server.session.undo_adaptation(), form
+            )
+            return
         if parsed.path == "/close":
             self.server.session.terminate_and_wait()
             self._send_page(_render_session(self.server.session))
@@ -669,7 +748,31 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             )
             return
         except (JobStoreError, JourneyError, TypeError, ValueError) as exc:
+            if self.server.session.journey.stage in {
+                ConciergeStage.ADAPTATION_REFUSED,
+                ConciergeStage.ADAPTATION_HARD_STOP,
+            }:
+                self._send_page(
+                    _render_session(self.server.session),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
             self._bad_request(str(exc))
+            return
+        except (
+            ApprovalExpiredError,
+            ApprovalMismatchError,
+            ApprovalReplayError,
+            AutomationHardStoppedError,
+            RecoveryFailedError,
+            TransactionConflictError,
+            TransactionFailedError,
+            UndoConflictError,
+        ):
+            # The domain transition has already recorded refusal/hard-stop
+            # state.  Render that state instead of leaking a traceback or
+            # attempting an implicit retry from the transport layer.
+            self._send_page(_render_session(self.server.session), status=HTTPStatus.BAD_REQUEST)
             return
         self._send_page(_render_session(self.server.session))
 

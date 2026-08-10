@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
@@ -55,6 +55,8 @@ __all__ = [
     "JobDraftFields",
     "PermissionMetadata",
     "SuccessContractFields",
+    "AdaptationRefusedError",
+    "AdaptationSelection",
     "JourneyError",
     "JourneyStateError",
 ]
@@ -75,12 +77,18 @@ class JourneyStateError(JourneyError):
     """A transition is not valid for the current explicit stage."""
 
 
+class AdaptationRefusedError(JourneyError):
+    """An adaptation failed a named safety gate before preview or mutation."""
+
+
 class ConciergeStage(StrEnum):
-    """Machine-readable stages for the read-only six-stage journey.
+    """Machine-readable stages for the read-only and adaptation journey.
 
     ``DOORWAY`` is an alias for integrations that model opening the command as
     a transition.  A newly-created journey is already at the unscanned
-    ``PERMISSION`` screen, because opening it has not read anything.
+    ``PERMISSION`` screen, because opening it has not read anything.  The
+    adaptation stages deliberately remain separate from diagnosis: each one
+    permits exactly one next action and no stage carries a write capability.
     """
 
     DOORWAY = "permission"
@@ -93,6 +101,50 @@ class ConciergeStage(StrEnum):
     CAPABILITY_MAP = "capability-map"
     FALLBACK = "fallback"
     CLOSED = "closed"
+    ADAPTATION_SELECT = "adaptation-select"
+    ADAPTATION_PREVIEW = "adaptation-preview"
+    ADAPTATION_APPROVAL = "adaptation-approval"
+    ADAPTATION_APPLY = "adaptation-apply"
+    ADAPTATION_RECEIPT = "adaptation-receipt"
+    ADAPTATION_VERIFY = "adaptation-verify"
+    ADAPTATION_UNDO = "adaptation-undo"
+    ADAPTATION_REFUSED = "adaptation-refused"
+    ADAPTATION_HARD_STOP = "adaptation-hard-stop"
+    ADAPT_SELECT = "adaptation-select"
+    ADAPT_PREVIEW = "adaptation-preview"
+    ADAPT_APPROVAL = "adaptation-approval"
+    ADAPT_APPLY = "adaptation-apply"
+    ADAPT_RECEIPT = "adaptation-receipt"
+    ADAPT_VERIFY = "adaptation-verify"
+    UNDO = "adaptation-undo"
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptationSelection:
+    """One explicit, bounded adaptation choice awaiting preview."""
+
+    job_id: str
+    capability_id: str
+    approved_skills_root: Path
+    markdown: str
+    expected_benefit: str
+    observable_signal: str
+
+    def __post_init__(self) -> None:
+        validate_job_id(self.job_id)
+        _text(self.capability_id, "capability_id")
+        if not isinstance(self.markdown, str) or not self.markdown.strip():
+            raise ValueError("markdown must be non-empty text")
+        if len(self.markdown.encode("utf-8")) > 262_144:
+            raise ValueError("markdown exceeds the bounded adaptation preview size")
+        if any(
+            ord(char) < 32 and char not in "\n\r\t" or ord(char) == 127
+            for char in self.markdown
+        ):
+            raise ValueError("markdown contains unsupported control characters")
+        _text(self.expected_benefit, "expected_benefit")
+        _text(self.observable_signal, "observable_signal")
+        object.__setattr__(self, "approved_skills_root", Path(self.approved_skills_root))
 
 
 class FallbackMode(StrEnum):
@@ -432,6 +484,24 @@ class ConciergeJourney:
         self._selected: set[str] = set()
         self.capability_map: CapabilityMap | None = None
         self.capability_map_markdown = ""
+
+        # Adaptation state is deliberately ephemeral in the journey.  The
+        # transaction engine owns durable journals, recovery manifests, and
+        # receipts; the concierge only retains the currently selected record
+        # so a browser cannot widen the approved change between stages.
+        self.adaptation_state_root = self.job_store.directory.parent / "adaptation-state"
+        self.adaptation_receipt_root = self.job_store.directory.parent / "adaptation-receipts"
+        self._adaptation_selection: AdaptationSelection | None = None
+        self._adaptation_preview: object | None = None
+        self._adaptation_approval: object | None = None
+        self._adaptation_result: object | None = None
+        self._adaptation_verification: object | None = None
+        self._adaptation_undo_result: object | None = None
+        self._adaptation_authority: object | None = None
+        self._adaptation_engine: object | None = None
+        self._adaptation_contract: SuccessContract | None = None
+        self._adaptation_refusal = ""
+        self._hard_stop_reason = ""
 
     @staticmethod
     def _require_job_store_outside_scope(
@@ -891,6 +961,376 @@ class ConciergeJourney:
         self.stage = ConciergeStage.CAPABILITY_MAP
         return self.capability_map
 
+    # ------------------------------------------------------------------
+    # M4 adaptation stages (7-8)
+    # ------------------------------------------------------------------
+
+    @property
+    def adaptation_selection(self) -> AdaptationSelection | None:
+        """The one bounded choice currently being prepared, if any."""
+
+        return self._adaptation_selection
+
+    @property
+    def adaptation_preview(self) -> object | None:
+        """The immutable exact-byte preview shown to the person."""
+
+        return self._adaptation_preview
+
+    @property
+    def adaptation_approval(self) -> object | None:
+        """The single-use approval record (the bearer token is not persisted)."""
+
+        return self._adaptation_approval
+
+    @property
+    def adaptation_result(self) -> object | None:
+        """The transaction result containing the local receipt path."""
+
+        return self._adaptation_result
+
+    @property
+    def adaptation_verification(self) -> object | None:
+        """The Success-Contract-scoped verification result."""
+
+        return self._adaptation_verification
+
+    @property
+    def adaptation_undo_result(self) -> object | None:
+        """The bounded undo result after a successful stage-8 reversal."""
+
+        return self._adaptation_undo_result
+
+    @property
+    def adaptation_refusal(self) -> str:
+        return self._adaptation_refusal
+
+    @property
+    def hard_stop_reason(self) -> str:
+        return self._hard_stop_reason
+
+    @property
+    def adaptation_hard_stopped(self) -> bool:
+        return self.stage is ConciergeStage.ADAPTATION_HARD_STOP
+
+    @property
+    def hard_stopped(self) -> bool:
+        """Short integration alias for the session's adaptation stop state."""
+
+        return self.adaptation_hard_stopped
+
+    @property
+    def adaptation_incidents(self) -> tuple[object, ...]:
+        engine = self._adaptation_engine
+        if engine is None:
+            return ()
+        return tuple(getattr(engine, "incidents", ()))
+
+    @property
+    def adaptation_receipt(self) -> object | None:
+        """Read the standard local receipt without re-running the transaction."""
+
+        result = self._adaptation_result
+        if result is None:
+            return None
+        path = getattr(result, "receipt_path", None)
+        if path is None:
+            return None
+        from capability_exchange.adaptation.receipt import read_receipt
+
+        try:
+            return read_receipt(Path(path))
+        except (OSError, ValueError) as exc:
+            self._hard_stop("Unverified: the local adaptation receipt is unreadable")
+            raise JourneyStateError(
+                "receipt is unreadable; adaptation is hard-stopped"
+            ) from exc
+
+    def _require_adaptation_running(self, *allowed: ConciergeStage) -> None:
+        if self.stage is ConciergeStage.ADAPTATION_HARD_STOP:
+            raise JourneyStateError(
+                "adaptation is hard-stopped; no further automated changes are allowed"
+            )
+        self._require(*allowed)
+
+    def _hard_stop(self, reason: str) -> None:
+        """Stop automation and retain only a bounded, honest explanation."""
+
+        self._hard_stop_reason = " ".join(str(reason).split())[:512]
+        self.stage = ConciergeStage.ADAPTATION_HARD_STOP
+
+    def _refuse(self, reason: str) -> None:
+        self._adaptation_refusal = " ".join(str(reason).split())[:512]
+        self.stage = ConciergeStage.ADAPTATION_REFUSED
+
+    def _adaptation_engine_for(self, preview: object) -> object:
+        """Lazily create the host-neutral engine after a preview exists."""
+
+        if self._adaptation_engine is not None:
+            return self._adaptation_engine
+        from capability_exchange.adaptation.approval import ApprovalAuthority
+        from capability_exchange.adaptation.transaction import TransactionEngine
+
+        authority = ApprovalAuthority()
+        self._adaptation_authority = authority
+        self._adaptation_engine = TransactionEngine(
+            state_root=self.adaptation_state_root,
+            receipt_root=self.adaptation_receipt_root,
+            approval_authority=authority,
+            adapter_id=self.permission.adapter_id,
+            adapter_version=self.permission.adapter_version,
+        )
+        return self._adaptation_engine
+
+    def select_adaptation(
+        self,
+        job_id: str,
+        capability_id: str,
+        approved_skills_root: Path,
+        markdown: str,
+        expected_benefit: str,
+        observable_signal: str,
+    ) -> AdaptationSelection:
+        """Select one capability for a bounded, preview-first adaptation.
+
+        The selection transition performs the independent G6 job and proposal
+        checks.  It never creates a preview or writes a host file.  A second
+        selection is impossible until this transaction has been undone or the
+        session is restarted.
+        """
+
+        self._require_adaptation_running(ConciergeStage.CAPABILITY_MAP)
+        if self._adaptation_selection is not None:
+            raise JourneyStateError("one adaptation must finish before another can be selected")
+        try:
+            validate_job_id(job_id)
+        except ValueError as exc:
+            self._refuse(str(exc))
+            raise AdaptationRefusedError(str(exc)) from exc
+        contract = self._confirmed.get(job_id)
+        if contract is None:
+            raise JourneyStateError("select an adaptation only for a confirmed Success Contract")
+
+        try:
+            selection = AdaptationSelection(
+                job_id=job_id,
+                capability_id=capability_id,
+                approved_skills_root=Path(approved_skills_root),
+                markdown=markdown,
+                expected_benefit=expected_benefit,
+                observable_signal=observable_signal,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self._refuse(f"selection refused: {exc}")
+            raise AdaptationRefusedError(self._adaptation_refusal) from exc
+        root = selection.approved_skills_root.resolve(strict=False)
+        approved = tuple(
+            Path(value).expanduser().resolve(strict=False)
+            for value in self.permission.approved_roots
+        )
+        if not any(
+            root == candidate or root.is_relative_to(candidate)
+            for candidate in approved
+        ):
+            reason = "adaptation target is outside the explicitly approved user root"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
+
+        from capability_exchange.adaptation.allowlist import OperationKind
+        from capability_exchange.adaptation.eligibility import adaptation_eligibility
+
+        job_description = " ".join(
+            (
+                contract.situation,
+                contract.desired_outcome,
+            )
+        )
+        proposal_description = " ".join(
+            (selection.capability_id, selection.expected_benefit, selection.markdown)
+        )
+        decision = adaptation_eligibility(
+            job_description=job_description,
+            # Classify the job's positive Situation/Desired-outcome text.  Do
+            # not feed boundary prose such as "never send" into the classifier:
+            # a safety limit is not evidence that the job itself sends a
+            # message, and the taxonomy must still catch an actual send job in
+            # the job description above.
+            contract_fields={
+                "situation": contract.situation,
+                "desired_outcome": contract.desired_outcome,
+            },
+            proposal_description=proposal_description,
+            operation=OperationKind.CREATE_NAMESPACED_SKILL,
+        )
+        if not decision.allowed:
+            self._refuse(f"{decision.reason.value}: {decision.explanation}")
+            raise AdaptationRefusedError(self._adaptation_refusal)
+        self._adaptation_selection = selection
+        self._adaptation_contract = contract
+        self.stage = ConciergeStage.ADAPTATION_SELECT
+        return selection
+
+    def preview_adaptation(self) -> object:
+        """Build the exact immutable preview; no mutation is attempted."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_SELECT)
+        selection = self._adaptation_selection
+        if selection is None:
+            raise JourneyStateError("select an adaptation before previewing it")
+        from capability_exchange.adaptation.hosts.claude_code import (
+            build_claude_code_skill_preview,
+        )
+
+        try:
+            preview = build_claude_code_skill_preview(
+                approved_skills_root=selection.approved_skills_root,
+                job_id=selection.job_id,
+                capability_id=selection.capability_id,
+                markdown=selection.markdown,
+                expected_benefit=selection.expected_benefit,
+                created_at=self.now(),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._refuse(f"preview refused: {exc}")
+            raise AdaptationRefusedError(self._adaptation_refusal) from exc
+        self._adaptation_preview = preview
+        self.stage = ConciergeStage.ADAPTATION_PREVIEW
+        return preview
+
+    def approve_adaptation(self, *, ttl: timedelta = timedelta(minutes=5)) -> object:
+        """Issue a fresh, single-use approval bound to the exact preview."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_PREVIEW)
+        preview = self._adaptation_preview
+        if preview is None:
+            raise JourneyStateError("preview the exact adaptation before approving it")
+        from capability_exchange.adaptation.approval import ApprovalAuthority
+
+        authority = self._adaptation_authority
+        if not isinstance(authority, ApprovalAuthority):
+            self._adaptation_engine_for(preview)
+            authority = self._adaptation_authority
+        assert isinstance(authority, ApprovalAuthority)
+        issued = authority.issue(preview, now=self.now(), ttl=ttl)
+        self._adaptation_approval = issued
+        self.stage = ConciergeStage.ADAPTATION_APPROVAL
+        return issued
+
+    def apply_adaptation(self, approval_token: str | None = None) -> object:
+        """Apply exactly the approved preview through the transaction engine."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_APPROVAL)
+        preview = self._adaptation_preview
+        selection = self._adaptation_selection
+        contract = self._adaptation_contract
+        issued = self._adaptation_approval
+        if preview is None or selection is None or contract is None or issued is None:
+            raise JourneyStateError("select, preview, and approve one adaptation before apply")
+        token = approval_token or getattr(issued, "token", "")
+        if not token:
+            raise JourneyStateError("a fresh single-use approval token is required")
+        engine = self._adaptation_engine_for(preview)
+        self.stage = ConciergeStage.ADAPTATION_APPLY
+        try:
+            result = engine.execute(
+                preview,
+                approval_token=token,
+                contract=contract,
+                observable_signal=selection.observable_signal,
+                now=self.now(),
+            )
+        except Exception as exc:
+            from capability_exchange.adaptation.transaction import (
+                AutomationHardStoppedError,
+                RecoveryFailedError,
+                TransactionConflictError,
+            )
+
+            if isinstance(
+                exc,
+                (AutomationHardStoppedError, RecoveryFailedError, TransactionConflictError),
+            ):
+                self._hard_stop(
+                    "Recovery failed: adaptation could not prove a safe transaction state"
+                    if isinstance(exc, RecoveryFailedError)
+                    else f"Unverified: adaptation automation stopped ({exc})"
+                )
+            else:
+                self._refuse(f"adaptation was not applied: {exc}")
+            raise
+        self._adaptation_result = result
+        if getattr(result, "hard_stopped", False):
+            self._hard_stop("Unverified: outcome verification was Unknown; automation stopped")
+        else:
+            self.stage = ConciergeStage.ADAPTATION_RECEIPT
+        return result
+
+    def verify_adaptation(self) -> object:
+        """Publish the already-recorded verification as stage 7's final proof."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_RECEIPT)
+        result = self._adaptation_result
+        if result is None:
+            raise JourneyStateError("apply the approved adaptation before verification")
+        verification = getattr(result, "verification", None)
+        if verification is None:
+            receipt = self.adaptation_receipt
+            verification = getattr(receipt, "verification_verdict", None)
+        self._adaptation_verification = verification
+        if verification is None or getattr(
+            verification, "value", verification
+        ) in {"unknown", "unverified"}:
+            self._hard_stop("Unverified: outcome verification was unavailable")
+            raise JourneyStateError("verification is Unverified; adaptation is hard-stopped")
+        self.stage = ConciergeStage.ADAPTATION_VERIFY
+        return verification
+
+    def undo_adaptation(self) -> object:
+        """Restore the exact pre-change state, or trigger the hard stop."""
+
+        self._require_adaptation_running(
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_RECEIPT,
+        )
+        preview = self._adaptation_preview
+        if preview is None:
+            raise JourneyStateError("no adaptation preview is available to undo")
+        engine = self._adaptation_engine
+        if engine is None:
+            raise JourneyStateError("adaptation transaction engine is unavailable")
+        try:
+            result = engine.undo(preview)
+        except Exception as exc:
+            from capability_exchange.adaptation.transaction import (
+                AutomationHardStoppedError,
+                RecoveryFailedError,
+                UndoConflictError,
+            )
+
+            if isinstance(
+                exc,
+                (RecoveryFailedError, UndoConflictError, AutomationHardStoppedError),
+            ):
+                self._hard_stop(
+                    "Recovery failed: undo could not prove a byte-identical restoration"
+                )
+            raise
+        self._adaptation_undo_result = result
+        self.stage = ConciergeStage.ADAPTATION_UNDO
+        return result
+
+    # Short stage-oriented aliases keep the domain surface readable for
+    # integrations while the explicit names above remain the canonical API.
+    select_change = select_adaptation
+    preview_change = preview_adaptation
+    approve_change = approve_adaptation
+    apply_change = apply_adaptation
+    verify_change = verify_adaptation
+    undo_change = undo_adaptation
+
+    def read_adaptation_receipt(self) -> object | None:
+        return self.adaptation_receipt
+
     def close(self) -> None:
         """Close and clean up local state, regardless of the current stage."""
 
@@ -911,6 +1351,15 @@ class ConciergeJourney:
             self._selected.clear()
             self.capability_map = None
             self.capability_map_markdown = ""
+            self._adaptation_selection = None
+            self._adaptation_preview = None
+            self._adaptation_approval = None
+            self._adaptation_result = None
+            self._adaptation_verification = None
+            self._adaptation_undo_result = None
+            self._adaptation_authority = None
+            self._adaptation_engine = None
+            self._adaptation_contract = None
             self.stage = ConciergeStage.CLOSED
 
     def decline(self) -> None:

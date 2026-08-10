@@ -33,6 +33,8 @@ __all__ = [
     "render_fallback_view",
     "render_job_map",
     "render_job_map_view",
+    "render_adaptation",
+    "render_adaptation_view",
     "render_journey",
     "render_permission",
     "render_permission_view",
@@ -331,19 +333,168 @@ def render_collecting(csrf_token: str) -> str:
     return _document("Inspection in progress", body)
 
 
-def render_capability_map(capability_map: CapabilityMap, csrf_token: str) -> str:
+def render_capability_map(
+    capability_map: CapabilityMap,
+    csrf_token: str,
+    *,
+    journey: ConciergeJourney | None = None,
+) -> str:
     """Render the existing jobs-first map inside a safe local page."""
 
     markdown = render_map_markdown(capability_map)
+    adaptation = ""
+    if journey is not None and journey.stage is ConciergeStage.CAPABILITY_MAP:
+        jobs = tuple(journey.confirmed_contracts)
+        options = "".join(
+            f'<option value="{_escape(contract.job_id)}">{_escape(contract.job_id)}</option>'
+            for contract in jobs
+        )
+        adaptation = f"""
+      <div class="panel">
+        <h2>Adapt one bounded capability</h2>
+        <p>Adaptation is separate from diagnosis. Select one confirmed job,
+        review the exact local Markdown file, approve it once, and keep a
+        receipt with an undo path. High-impact or uncertain jobs are refused.</p>
+        <form method="post" action="/adaptation/select">
+          {_csrf(csrf_token)}
+          <label>Confirmed job<select name="job_id" required>{options}</select></label>
+          <label>Capability id<input name="capability_id" required></label>
+          <label>Approved skills root<input name="approved_skills_root" required></label>
+          <label>Exact Markdown preview<textarea name="markdown" required># Dex Lens helper
+</textarea></label>
+          <label>Expected benefit<input name="expected_benefit" required></label>
+          <label>Observable Success Contract signal<input name="observable_signal" required></label>
+          <div class="actions"><button type="submit">Select this adaptation</button></div>
+        </form>
+      </div>
+    """
     body = f"""
       <h1>Capability Map</h1>
       <pre>{_escape(markdown)}</pre>
+      {adaptation}
       <form method="post" action="/close">
         {_csrf(csrf_token)}
         <button class="secondary" type="submit">Close and clear this session</button>
       </form>
     """
     return _document("Capability Map", body)
+
+
+def _adaptation_preview_body(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render one stage-7/8 page from immutable journey records."""
+
+    stage = journey.stage
+    selection = journey.adaptation_selection
+    preview = journey.adaptation_preview
+    refusal = journey.adaptation_refusal
+    if stage is ConciergeStage.ADAPTATION_REFUSED:
+        return f"""
+      <h1>Adaptation not automated</h1>
+      <div class="panel"><p><strong>Refused:</strong> {_escape(refusal)}</p>
+      <p>The safe path is guidance only. No host file was changed.</p>
+      <form method="post" action="/close">{_csrf(csrf_token)}
+        <button class="secondary" type="submit">Close and leave</button>
+      </form></div>
+    """
+    if stage is ConciergeStage.ADAPTATION_HARD_STOP:
+        return f"""
+      <h1>Adaptation hard stop</h1>
+      <div class="panel"><p><strong>Automation stopped:</strong>
+        {_escape(journey.hard_stop_reason)}</p>
+        <p>No further automated changes are available in this session. Follow
+        the incident and hard-stop runbooks before any review or retry.</p>
+        <form method="post" action="/close">{_csrf(csrf_token)}
+          <button class="secondary" type="submit">Close and leave</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_SELECT and selection is not None:
+        return f"""
+      <h1>Selected adaptation</h1>
+      <div class="panel">
+        <p>One bounded local change is selected. Nothing has been written.</p>
+        <ul><li>Job: {_escape(selection.job_id)}</li>
+        <li>Capability: {_escape(selection.capability_id)}</li>
+        <li>Target root: {_escape(selection.approved_skills_root)}</li>
+        <li>Expected benefit: {_escape(selection.expected_benefit)}</li></ul>
+        <form method="post" action="/adaptation/preview">{_csrf(csrf_token)}
+          <button type="submit">Build exact preview</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_PREVIEW and preview is not None:
+        return f"""
+      <h1>Review exact adaptation preview</h1>
+      <div class="panel">
+        <p>Nothing has been written. Approval is specific to this exact file,
+        content hash, job, and capability.</p>
+        <ul><li>Target: {_escape(getattr(preview, 'target_path', ''))}</li>
+        <li>Bytes: {_escape(getattr(preview, 'content_size', ''))}</li>
+        <li>Content SHA-256: {_escape(getattr(preview, 'content_sha256', ''))}</li>
+        <li>Expected benefit: {_escape(getattr(preview, 'expected_benefit', ''))}</li>
+        <li>Effects: {_list(getattr(preview, 'effects', ()))}</li>
+        <li>Risks: {_list(getattr(preview, 'risks', ()))}</li></ul>
+        <pre>{_escape(getattr(preview, 'content', ''))}</pre>
+        <form method="post" action="/adaptation/approve">{_csrf(csrf_token)}
+          <button type="submit">Approve this one change</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_APPROVAL and preview is not None:
+        return f"""
+      <h1>Adaptation approved</h1>
+      <div class="panel">
+        <p>A single-use approval is bound to {_escape(getattr(preview, 'target_path', ''))}.
+        The transaction will create one namespaced Markdown file and no network
+        request.</p>
+        <form method="post" action="/adaptation/apply">{_csrf(csrf_token)}
+          <button type="submit">Apply approved change</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_APPLY:
+        return "<h1>Applying adaptation</h1><p>Writing one approved local Markdown file.</p>"
+    if stage is ConciergeStage.ADAPTATION_RECEIPT:
+        result = journey.adaptation_result
+        receipt_path = getattr(result, "receipt_path", "")
+        return f"""
+      <h1>Adaptation receipt</h1>
+      <div class="panel"><p>The approved local change is applied and receipted.</p>
+        <p>Receipt: <code>{_escape(receipt_path)}</code></p>
+        <form method="post" action="/adaptation/verify">{_csrf(csrf_token)}
+          <button type="submit">Verify against the Success Contract</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_VERIFY:
+        verification = journey.adaptation_verification
+        return f"""
+      <h1>Adaptation verified</h1>
+      <div class="panel"><p>Outcome: {_escape(getattr(verification, 'verdict', verification))}</p>
+        <p>{_escape(getattr(verification, 'detail', 'Verification recorded'))}</p>
+        <form method="post" action="/adaptation/undo">{_csrf(csrf_token)}
+          <button class="secondary" type="submit">Undo this adaptation</button>
+        </form>
+      </div>
+    """
+    if stage is ConciergeStage.ADAPTATION_UNDO:
+        undone = journey.adaptation_undo_result
+        return f"""
+      <h1>Adaptation undone</h1>
+      <div class="panel"><p>The exact pre-change state was restored.</p>
+        <p>Status: {_escape(getattr(undone, 'status', undone))}</p>
+        <form method="post" action="/close">{_csrf(csrf_token)}
+          <button class="secondary" type="submit">Close and leave</button>
+        </form>
+      </div>
+    """
+    return "<h1>Adaptation unavailable</h1><p>No bounded adaptation is selected.</p>"
+
+
+def render_adaptation(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render stages 7-8 without giving views any mutation capability."""
+
+    return _document("Adaptation", _adaptation_preview_body(journey, csrf_token))
 
 
 def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
@@ -356,7 +507,23 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
     if journey.stage is ConciergeStage.FALLBACK and journey.fallback is not None:
         return render_fallback(journey.fallback, csrf_token=csrf_token)
     if journey.stage is ConciergeStage.CAPABILITY_MAP and journey.capability_map is not None:
-        return render_capability_map(journey.capability_map, csrf_token=csrf_token)
+        return render_capability_map(
+            journey.capability_map,
+            csrf_token=csrf_token,
+            journey=journey,
+        )
+    if journey.stage in {
+        ConciergeStage.ADAPTATION_SELECT,
+        ConciergeStage.ADAPTATION_PREVIEW,
+        ConciergeStage.ADAPTATION_APPROVAL,
+        ConciergeStage.ADAPTATION_APPLY,
+        ConciergeStage.ADAPTATION_RECEIPT,
+        ConciergeStage.ADAPTATION_VERIFY,
+        ConciergeStage.ADAPTATION_UNDO,
+        ConciergeStage.ADAPTATION_REFUSED,
+        ConciergeStage.ADAPTATION_HARD_STOP,
+    }:
+        return render_adaptation(journey, csrf_token=csrf_token)
     if journey.stage in {
         ConciergeStage.JOB_MAP,
         ConciergeStage.DIAGNOSIS,
@@ -370,3 +537,4 @@ render_permission_view = render_permission
 render_job_map_view = render_job_map
 render_fallback_view = render_fallback
 render_capability_map_view = render_capability_map
+render_adaptation_view = render_adaptation
