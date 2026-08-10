@@ -12,10 +12,9 @@ Two rules are load-bearing here:
 - **Diagnose-only by default.** A host with no explicit ownership/mutation
   contract is Diagnose-only — the hard boundary from #348: "no host-specific
   ownership and rewind contract means Diagnose-only."
-- **Adapt-capable is unrepresentable in M1.** The mutation contract is a
-  forward-declared type (:class:`MutationContractRef`) that cannot be
-  constructed until M4 builds the real host-specific mutation contract, so
-  no code path can produce an Adapt-capable contract today.
+- **Adapt-capable is structurally gated.** M4's mutation contract is closed
+  to allowlisted operations and refuses unless every preview, recovery,
+  ownership, receipt, verification, and undo guarantee is present.
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from typing import Any, final
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from capability_exchange.adaptation.contract import MutationContract
 from capability_exchange.boundary.serialization import InventoriedModel
 
 __all__ = [
@@ -41,7 +41,7 @@ __all__ = [
 
 
 class MutationContractUnavailableError(Exception):
-    """The host-specific mutation contract does not exist yet (M4 builds it)."""
+    """Legacy alpha error retained for callers that imported this name."""
 
 
 class AdaptCapableUnrepresentableError(Exception):
@@ -51,7 +51,7 @@ class AdaptCapableUnrepresentableError(Exception):
 class AdapterMode(StrEnum):
     """Diagnose-only vs Adapt-capable status of a host.
 
-    Diagnose-only is the default and, in M1, the only representable mode.
+    Diagnose-only is the default. Adapt-capable requires a complete M4 contract.
     """
 
     DIAGNOSE_ONLY = "diagnose-only"
@@ -95,34 +95,7 @@ class VersionDetectionMethod(StrEnum):
     UNKNOWN = "unknown"
 
 
-@final
-class MutationContractRef(InventoriedModel):
-    """Forward declaration of the host-specific mutation contract.
-
-    M4 builds the real thing (ownership, preconditions, backup, verification,
-    receipts, rewind — HANDOFF 2.3 M-F). Until then this type cannot be
-    constructed by any route — ``__init__``, ``model_validate``, and
-    ``model_construct`` all refuse — which makes Adapt-capable structurally
-    unrepresentable rather than merely discouraged.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _unconstructable_in_m1(cls, value: object) -> object:
-        raise MutationContractUnavailableError(
-            "the host-specific mutation contract is forward-declared and cannot "
-            "be constructed in M1; M4 builds it. Until then every host is "
-            "Diagnose-only."
-        )
-
-    @classmethod
-    def model_construct(cls, *args: Any, **kwargs: Any) -> MutationContractRef:
-        raise MutationContractUnavailableError(
-            "the host-specific mutation contract cannot be constructed in M1, "
-            "including via model_construct; M4 builds it."
-        )
+MutationContractRef = MutationContract
 
 
 _KEBAB_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
@@ -209,7 +182,7 @@ class AdapterContract(InventoriedModel):
     version_detection: VersionDetectionMethod
     #: Diagnose-only by default. Adapt-capable requires a mutation contract.
     mode: AdapterMode = AdapterMode.DIAGNOSE_ONLY
-    #: Forward-declared in M1: unconstructable, so always ``None`` today.
+    #: Concrete M4 contract; absent keeps the adapter Diagnose-only.
     mutation_contract: MutationContractRef | None = None
 
     @field_validator("adapter_id")
@@ -278,8 +251,14 @@ class AdapterContract(InventoriedModel):
             raise AdaptCapableUnrepresentableError(
                 'Adapt-capable requires a host-specific ownership and mutation '
                 'contract: "no host-specific ownership and rewind contract means '
-                'Diagnose-only" (#348). The mutation contract is forward-declared '
-                'and cannot be constructed until M4, so this host is Diagnose-only.'
+                'Diagnose-only" (#348). This host supplied no complete M4 contract.'
+            )
+        if mode is AdapterMode.ADAPT_CAPABLE and not isinstance(
+            self.mutation_contract, MutationContract
+        ):
+            raise AdaptCapableUnrepresentableError(
+                "Adapt-capable requires a validated MutationContract instance; "
+                "untyped or bypass-constructed declarations are refused."
             )
 
     @classmethod
