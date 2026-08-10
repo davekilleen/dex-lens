@@ -80,7 +80,8 @@ The pilot candidate contains the complete local journey:
 
 M3, the read-only source alpha, is merged in [PR #4](https://github.com/davekilleen/dex-lens/pull/4).
 The M4–M6 pilot candidate is in [draft PR #5](https://github.com/davekilleen/dex-lens/pull/5),
-going through the repository's review and safety gates.
+with its Linux/macOS test matrix and exact-build safety gates green. It remains
+unmerged and unreleased while the delivery review completes.
 
 ## What is not complete
 

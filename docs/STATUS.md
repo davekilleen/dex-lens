@@ -7,8 +7,9 @@ Last updated: 2026-08-10. Plain-language companion to
 
 The six-milestone product candidate is built. M1–M3 are merged to `main`;
 M4–M6 and their final security remediation are integrated on
-`programme/m3-m6-completion` in draft PR #5 and are going through delivery
-review and exact-commit CI.
+`programme/m3-m6-completion` in draft PR #5. The exact candidate commit has
+passed the complete Linux/macOS matrix and every formal security evidence gate;
+delivery review and merge remain.
 
 This does **not** mean Dex Lens is released or that the pilot has happened.
 There is no supported installer, no published release, no observed participant
@@ -40,18 +41,18 @@ evidence, and no completed independent sign-off.
 ## Verification state
 
 - M3 is green on merged-main GitHub CI across Linux and macOS.
-- The combined M3–M6 candidate passes the complete local suite, lint, and data
+- The combined M3–M6 candidate passes 1,250 local tests, lint, and the data
   inventory on the Devbox.
-- Host-specific proofs that this Devbox cannot execute — privileged bind-mount,
-  packet capture, and macOS sandbox behaviour — must pass in the dedicated
-  GitHub CI jobs for the exact candidate commit.
+- Exact commit `e27cc6b9cb0e6db4566797e7d2d286108e6bd84b` passes the
+  GitHub Linux and macOS 3.11/3.12 matrix, privileged bind-mount proof,
+  M3/M4 offline-egress proof, M5 exact-byte egress proof, and combined
+  G1–G6 plus R3 release gate.
 - A local skip is recorded as **unproven**, never silently treated as a pass.
 
 ## What remains before invited testing
 
-1. Pass the exact-commit GitHub CI matrix and privileged evidence gates.
-2. Complete review and merge only after explicit approval.
-3. Prepare the supported tester handoff rather than asking participants to
+1. Complete review and merge only after explicit approval.
+2. Prepare the supported tester handoff rather than asking participants to
    interpret developer instructions unaided.
 
 ## What remains before the pilot can complete
