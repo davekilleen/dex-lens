@@ -14,6 +14,8 @@ import pytest
 
 from capability_exchange.adapter import AdapterResultEnvelope, InstrumentHealth, ProbeResult
 from capability_exchange.concierge.security import (
+    COOKIE_METADATA,
+    ConciergeSessionState,
     SessionSecurity,
     ensure_loopback_bind_address,
 )
@@ -131,6 +133,52 @@ def test_security_failures_terminate_and_discard() -> None:
     assert security.bootstrap_token == ""
     assert security.session_token == ""
     assert security.csrf_token == ""
+
+
+def test_session_inventory_state_digests_secrets_and_carries_browser_metadata() -> None:
+    """Only non-secret session references cross the typed G2 boundary."""
+    security = SessionSecurity(
+        bootstrap_token="bootstrap",
+        session_token="session-secret",
+        csrf_token="csrf-secret",
+        expires_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    builder = getattr(security, "inventory_state", None)
+    assert callable(builder), "SessionSecurity must expose an inventoried state view"
+
+    state = builder(
+        approved_scope_references=("scope:sha256:approved",),
+        journey_state="permission",
+    )
+
+    assert state.session_token_digest != "session-secret"
+    assert state.csrf_token_digest != "csrf-secret"
+    assert state.approved_scope_references == ("scope:sha256:approved",)
+    assert state.journey_state == "permission"
+    assert state.cookie_metadata
+    assert "session-secret" not in state.model_dump_json()
+    assert "csrf-secret" not in state.model_dump_json()
+
+
+def test_session_inventory_state_rejects_raw_scope_paths_on_bypass_routes() -> None:
+    """The typed G2 view cannot smuggle a local path via Pydantic shortcuts."""
+    values = {
+        "session_token_digest": "a" * 64,
+        "csrf_token_digest": "b" * 64,
+        "cookie_metadata": COOKIE_METADATA,
+        "approved_scope_references": ("scope:/home/dave/private",),
+        "expires_at": datetime.now(UTC) + timedelta(minutes=1),
+        "journey_state": "permission",
+    }
+    with pytest.raises(ValueError, match="scope"):
+        ConciergeSessionState.model_validate(values)
+    with pytest.raises(ValueError, match="scope"):
+        ConciergeSessionState.model_construct(**values)
+    valid = ConciergeSessionState.model_validate(
+        {**values, "approved_scope_references": ("scope:sha256:approved",)}
+    )
+    with pytest.raises(ValueError, match="scope"):
+        valid.model_copy(update={"approved_scope_references": ("scope:/tmp/raw",)})
 
 
 def test_session_expiry_automatically_discards_state(tmp_path: Path) -> None:

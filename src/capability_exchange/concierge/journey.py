@@ -1,4 +1,4 @@
-"""The local, read-only M3 concierge journey domain.
+"""The local concierge journey domain for diagnosis, adaptation, and contribution.
 
 This module owns product state, not HTTP transport.  A server integration only
 needs to call the small transition methods on :class:`ConciergeJourney` and
@@ -9,22 +9,41 @@ render the corresponding view.  In particular, the journey never constructs a
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import field as dataclass_field
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from capability_exchange.adapter import (
     AdapterContract,
+    AdapterMode,
     AdapterResultEnvelope,
     InstrumentHealth,
     ProbeResult,
 )
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map
+from capability_exchange.cards import (
+    CapabilityCard,
+    DisclosureManifest,
+    build_disclosure_manifest,
+    canonical_card_bytes,
+    require_valid_card,
+)
+from capability_exchange.contribution import (
+    ConsentLedger,
+    Contribution,
+    ContributionLifecycle,
+    ContributionState,
+    PermissionSet,
+)
+from capability_exchange.contribution.lifecycle import StorePort
 from capability_exchange.diagnosis import assess
 from capability_exchange.evidence import EvidenceItem, EvidenceLevel, EvidenceState
 from capability_exchange.evidence.item import reference_rejection_reason
@@ -55,6 +74,15 @@ __all__ = [
     "JobDraftFields",
     "PermissionMetadata",
     "SuccessContractFields",
+    "AdaptationRefusedError",
+    "AdaptationSelection",
+    "ContributionEgressError",
+    "ContributionHandle",
+    "ContributionVersionComparison",
+    "ContributionIdentityPort",
+    "ContributionIntakePort",
+    "SubmissionReceipt",
+    "WithdrawalReceipt",
     "JourneyError",
     "JourneyStateError",
 ]
@@ -75,12 +103,94 @@ class JourneyStateError(JourneyError):
     """A transition is not valid for the current explicit stage."""
 
 
+class AdaptationRefusedError(JourneyError):
+    """An adaptation failed a named safety gate before preview or mutation."""
+
+
+class ContributionEgressError(JourneyError):
+    """Contribution authorization or intake confirmation failed closed."""
+
+
+class ContributionIdentityPort(Protocol):
+    """External identity seam used only after an explicit contribution choice."""
+
+    def contributor_secret(self) -> bytes:
+        """Return local secret material used only for pseudonymous provenance."""
+
+
+@dataclass(frozen=True, slots=True)
+class ContributionHandle:
+    """Private control-plane handle bound to exact payload bytes.
+
+    The Card version identifier is deliberately absent.  Intake correlates the
+    payload by its manifest byte hash and proves later revocation authority with
+    the private token.  The token is never rendered or included in ``repr``.
+    """
+
+    manifest_byte_hash: str
+    revocation_token: str = dataclass_field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.manifest_byte_hash):
+            raise ValueError("contribution handle requires an exact manifest byte hash")
+        if not isinstance(self.revocation_token, str) or len(self.revocation_token) < 32:
+            raise ValueError("contribution handle requires private revocation authority")
+
+    @property
+    def receipt_binding(self) -> str:
+        material = (
+            self.manifest_byte_hash.encode("ascii")
+            + b"\0"
+            + self.revocation_token.encode("ascii")
+        )
+        return "sha256:" + hashlib.sha256(material).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class ContributionVersionComparison:
+    """Exact, local comparison shown before a revised Card can be disclosed."""
+
+    previous_version_hash: str
+    revised_version_hash: str
+    changed_fields: tuple[str, ...]
+    previous_exact_json: str
+    revised_exact_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionReceipt:
+    manifest_byte_hash: str
+    handle_binding: str
+    accepted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawalReceipt:
+    manifest_byte_hash: str
+    handle_binding: str
+    withdrawn: bool
+
+
+class ContributionIntakePort(Protocol):
+    """Narrow contribution seam: exact bytes in, version withdrawal out."""
+
+    def submit(
+        self, payload: bytes, /, *, handle: ContributionHandle
+    ) -> SubmissionReceipt:
+        """Accept exact disclosure bytes plus a separate private control handle."""
+
+    def withdraw(self, handle: ContributionHandle, /) -> WithdrawalReceipt:
+        """Revoke the exact accepted payload and prove it was previously active."""
+
+
 class ConciergeStage(StrEnum):
-    """Machine-readable stages for the read-only six-stage journey.
+    """Machine-readable stages for the read-only and adaptation journey.
 
     ``DOORWAY`` is an alias for integrations that model opening the command as
     a transition.  A newly-created journey is already at the unscanned
-    ``PERMISSION`` screen, because opening it has not read anything.
+    ``PERMISSION`` screen, because opening it has not read anything.  The
+    adaptation stages deliberately remain separate from diagnosis: each one
+    permits exactly one next action and no stage carries a write capability.
     """
 
     DOORWAY = "permission"
@@ -93,6 +203,56 @@ class ConciergeStage(StrEnum):
     CAPABILITY_MAP = "capability-map"
     FALLBACK = "fallback"
     CLOSED = "closed"
+    ADAPTATION_SELECT = "adaptation-select"
+    ADAPTATION_PREVIEW = "adaptation-preview"
+    ADAPTATION_APPROVAL = "adaptation-approval"
+    ADAPTATION_APPLY = "adaptation-apply"
+    ADAPTATION_RECEIPT = "adaptation-receipt"
+    ADAPTATION_VERIFY = "adaptation-verify"
+    ADAPTATION_UNDO = "adaptation-undo"
+    ADAPTATION_REFUSED = "adaptation-refused"
+    ADAPTATION_HARD_STOP = "adaptation-hard-stop"
+    ADAPT_SELECT = "adaptation-select"
+    ADAPT_PREVIEW = "adaptation-preview"
+    ADAPT_APPROVAL = "adaptation-approval"
+    ADAPT_APPLY = "adaptation-apply"
+    ADAPT_RECEIPT = "adaptation-receipt"
+    ADAPT_VERIFY = "adaptation-verify"
+    UNDO = "adaptation-undo"
+    CONTRIBUTION_BUILD = "contribution-build"
+    CONTRIBUTION_REVIEW = "contribution-review"
+    CONTRIBUTION_DISCLOSE = "contribution-disclose"
+    CONTRIBUTION_APPROVE = "contribution-approve"
+    CONTRIBUTION_SUBMIT = "contribution-submit"
+    CONTRIBUTION_WITHDRAW = "contribution-withdraw"
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptationSelection:
+    """One explicit, bounded adaptation choice awaiting preview."""
+
+    job_id: str
+    capability_id: str
+    approved_skills_root: Path
+    markdown: str
+    expected_benefit: str
+    observable_signal: str
+
+    def __post_init__(self) -> None:
+        validate_job_id(self.job_id)
+        _text(self.capability_id, "capability_id")
+        if not isinstance(self.markdown, str) or not self.markdown.strip():
+            raise ValueError("markdown must be non-empty text")
+        if len(self.markdown.encode("utf-8")) > 262_144:
+            raise ValueError("markdown exceeds the bounded adaptation preview size")
+        if any(
+            ord(char) < 32 and char not in "\n\r\t" or ord(char) == 127
+            for char in self.markdown
+        ):
+            raise ValueError("markdown contains unsupported control characters")
+        _text(self.expected_benefit, "expected_benefit")
+        _text(self.observable_signal, "observable_signal")
+        object.__setattr__(self, "approved_skills_root", Path(self.approved_skills_root))
 
 
 class FallbackMode(StrEnum):
@@ -400,7 +560,7 @@ def _slug(value: str) -> str:
 
 
 class ConciergeJourney:
-    """Explicit state machine for M3 stages 1–6.
+    """Explicit state machine for M3-M5 stages 1-9.
 
     The class has no HTTP, filesystem-read, or mutation capability.  Its only
     filesystem writes are the local ``InspectionJobStore`` records required by
@@ -415,9 +575,11 @@ class ConciergeJourney:
         collector: Callable[[], CollectionResult] | None = None,
         job_store: InspectionJobStore | Path,
         now: Callable[[], datetime] = _utc_now,
+        adapter_contract: AdapterContract | None = None,
     ) -> None:
         self.now = now
         self.permission = self._resolve_permission(permission, adapter)
+        self._adapter_contract = adapter_contract
         if isinstance(job_store, Path):
             job_store = InspectionJobStore(job_store)
         self._require_job_store_outside_scope(job_store, self.permission)
@@ -432,6 +594,96 @@ class ConciergeJourney:
         self._selected: set[str] = set()
         self.capability_map: CapabilityMap | None = None
         self.capability_map_markdown = ""
+
+        # Adaptation state is deliberately ephemeral in the journey.  The
+        # transaction engine owns durable journals, recovery manifests, and
+        # receipts; the concierge only retains the currently selected record
+        # so a browser cannot widen the approved change between stages.
+        self.adaptation_state_root = self.job_store.directory.parent / "adaptation-state"
+        self.adaptation_receipt_root = self.job_store.directory.parent / "adaptation-receipts"
+        self._adaptation_selection: AdaptationSelection | None = None
+        self._adaptation_preview: object | None = None
+        self._adaptation_recovery: object | None = None
+        self._adaptation_approval: object | None = None
+        self._adaptation_result: object | None = None
+        self._adaptation_verification: object | None = None
+        self._adaptation_undo_result: object | None = None
+        self._adaptation_authority: object | None = None
+        self._adaptation_engine: object | None = None
+        self._adaptation_contract: SuccessContract | None = None
+        self._adaptation_refusal = ""
+        self._hard_stop_reason = ""
+
+        # M5 contribution dependencies are ports, not embedded services.  A
+        # normal account-free diagnosis/adaptation journey never calls them.
+        self._contribution_identity: ContributionIdentityPort | None = None
+        self._contribution_intake: ContributionIntakePort | None = None
+        self._contribution_stores: tuple[StorePort, ...] = ()
+        self._contribution_consent: ConsentLedger | None = None
+        self._contribution_lifecycle: ContributionLifecycle | None = None
+        self._contribution_card: CapabilityCard | None = None
+        self._contribution_comparison: ContributionVersionComparison | None = None
+        self._contribution_manifest: DisclosureManifest | None = None
+        self._contribution: Contribution | None = None
+        self._contribution_handle: ContributionHandle | None = None
+        self._pending_withdrawal_version_hash: str | None = None
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
+
+    def configure_contribution(
+        self,
+        *,
+        identity: ContributionIdentityPort,
+        intake: ContributionIntakePort,
+        stores: Iterable[StorePort] = (),
+    ) -> None:
+        """Attach reviewed external ports without invoking identity or egress."""
+
+        if self._contribution_identity is not None or self._contribution_intake is not None:
+            raise JourneyStateError("contribution ports are already configured")
+        if self.stage not in {
+            ConciergeStage.CAPABILITY_MAP,
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_UNDO,
+        }:
+            raise JourneyStateError(
+                "contribution ports may be configured only after account-free diagnosis"
+            )
+        if not callable(getattr(identity, "contributor_secret", None)):
+            raise ValueError("identity port must provide contributor_secret()")
+        if not callable(getattr(intake, "submit", None)) or not callable(
+            getattr(intake, "withdraw", None)
+        ):
+            raise ValueError("intake port must provide submit() and withdraw()")
+        self._contribution_identity = identity
+        self._contribution_intake = intake
+        self._contribution_stores = tuple(stores)
+
+    @property
+    def contribution_card(self) -> CapabilityCard | None:
+        return self._contribution_card
+
+    @property
+    def contribution_manifest(self) -> DisclosureManifest | None:
+        return self._contribution_manifest
+
+    @property
+    def contribution_comparison(self) -> ContributionVersionComparison | None:
+        return self._contribution_comparison
+
+    @property
+    def contribution(self) -> Contribution | None:
+        return self._contribution
+
+    @property
+    def contribution_available(self) -> bool:
+        return self._contribution_identity is not None and self._contribution_intake is not None
+
+    @property
+    def has_pending_withdrawal(self) -> bool:
+        """Whether close/expiry retained enough authority to retry intake revocation."""
+
+        return self._pending_withdrawal
 
     @staticmethod
     def _require_job_store_outside_scope(
@@ -891,11 +1143,776 @@ class ConciergeJourney:
         self.stage = ConciergeStage.CAPABILITY_MAP
         return self.capability_map
 
+    # ------------------------------------------------------------------
+    # M4 adaptation stages (7-8)
+    # ------------------------------------------------------------------
+
+    @property
+    def adaptation_available(self) -> bool:
+        """Whether the host explicitly declares the one supported write operation."""
+
+        from capability_exchange.adaptation.contract import OperationKind
+
+        contract = self._adapter_contract
+        return bool(
+            contract is not None
+            and contract.mode is AdapterMode.ADAPT_CAPABLE
+            and contract.mutation_contract is not None
+            and OperationKind.CREATE_NAMESPACED_SKILL
+            in contract.mutation_contract.operations
+        )
+
+    @property
+    def adaptation_selection(self) -> AdaptationSelection | None:
+        """The one bounded choice currently being prepared, if any."""
+
+        return self._adaptation_selection
+
+    @property
+    def adaptation_preview(self) -> object | None:
+        """The immutable exact-byte preview shown to the person."""
+
+        return self._adaptation_preview
+
+    @property
+    def adaptation_recovery(self) -> object | None:
+        """The validated undo proof created and shown before approval."""
+
+        return self._adaptation_recovery
+
+    @property
+    def adaptation_approval(self) -> object | None:
+        """The single-use approval record (the bearer token is not persisted)."""
+
+        return self._adaptation_approval
+
+    @property
+    def adaptation_result(self) -> object | None:
+        """The transaction result containing the local receipt path."""
+
+        return self._adaptation_result
+
+    @property
+    def adaptation_verification(self) -> object | None:
+        """The Success-Contract-scoped verification result."""
+
+        return self._adaptation_verification
+
+    @property
+    def adaptation_undo_result(self) -> object | None:
+        """The bounded undo result after a successful stage-8 reversal."""
+
+        return self._adaptation_undo_result
+
+    @property
+    def adaptation_refusal(self) -> str:
+        return self._adaptation_refusal
+
+    @property
+    def hard_stop_reason(self) -> str:
+        return self._hard_stop_reason
+
+    @property
+    def adaptation_hard_stopped(self) -> bool:
+        return self.stage is ConciergeStage.ADAPTATION_HARD_STOP
+
+    @property
+    def hard_stopped(self) -> bool:
+        """Short integration alias for the session's adaptation stop state."""
+
+        return self.adaptation_hard_stopped
+
+    @property
+    def adaptation_incidents(self) -> tuple[object, ...]:
+        engine = self._adaptation_engine
+        if engine is None:
+            return ()
+        return tuple(getattr(engine, "incidents", ()))
+
+    @property
+    def adaptation_receipt(self) -> object | None:
+        """Read the standard local receipt without re-running the transaction."""
+
+        result = self._adaptation_result
+        if result is None:
+            return None
+        path = getattr(result, "receipt_path", None)
+        if path is None:
+            return None
+        from capability_exchange.adaptation.receipt import read_receipt
+
+        try:
+            return read_receipt(Path(path))
+        except (OSError, ValueError) as exc:
+            self._hard_stop("Unverified: the local adaptation receipt is unreadable")
+            raise JourneyStateError(
+                "receipt is unreadable; adaptation is hard-stopped"
+            ) from exc
+
+    def _require_adaptation_running(self, *allowed: ConciergeStage) -> None:
+        if self.stage is ConciergeStage.ADAPTATION_HARD_STOP:
+            raise JourneyStateError(
+                "adaptation is hard-stopped; no further automated changes are allowed"
+            )
+        self._require(*allowed)
+
+    def _hard_stop(self, reason: str) -> None:
+        """Stop automation and retain only a bounded, honest explanation."""
+
+        self._hard_stop_reason = " ".join(str(reason).split())[:512]
+        self.stage = ConciergeStage.ADAPTATION_HARD_STOP
+
+    def _refuse(self, reason: str) -> None:
+        self._adaptation_refusal = " ".join(str(reason).split())[:512]
+        self.stage = ConciergeStage.ADAPTATION_REFUSED
+
+    def _adaptation_engine_for(self, preview: object) -> object:
+        """Lazily create the host-neutral engine after a preview exists."""
+
+        if self._adaptation_engine is not None:
+            return self._adaptation_engine
+        from capability_exchange.adaptation.approval import ApprovalAuthority
+        from capability_exchange.adaptation.transaction import TransactionEngine
+
+        authority = ApprovalAuthority()
+        self._adaptation_authority = authority
+        self._adaptation_engine = TransactionEngine(
+            state_root=self.adaptation_state_root,
+            receipt_root=self.adaptation_receipt_root,
+            approval_authority=authority,
+            adapter_id=self.permission.adapter_id,
+            adapter_version=self.permission.adapter_version,
+        )
+        return self._adaptation_engine
+
+    def select_adaptation(
+        self,
+        job_id: str,
+        capability_id: str,
+        approved_skills_root: Path,
+        markdown: str,
+        expected_benefit: str,
+        observable_signal: str,
+    ) -> AdaptationSelection:
+        """Select one capability for a bounded, preview-first adaptation.
+
+        The selection transition performs the independent G6 job and proposal
+        checks.  It never creates a preview or writes a host file.  A second
+        selection is impossible until this transaction has been undone or the
+        session is restarted.
+        """
+
+        self._require_adaptation_running(ConciergeStage.CAPABILITY_MAP)
+        if not self.adaptation_available:
+            reason = "Diagnose-only adapter has no approved host mutation contract"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
+        if self._adaptation_selection is not None:
+            raise JourneyStateError("one adaptation must finish before another can be selected")
+        try:
+            validate_job_id(job_id)
+        except ValueError as exc:
+            self._refuse(str(exc))
+            raise AdaptationRefusedError(str(exc)) from exc
+        contract = self._confirmed.get(job_id)
+        if contract is None:
+            raise JourneyStateError("select an adaptation only for a confirmed Success Contract")
+
+        try:
+            selection = AdaptationSelection(
+                job_id=job_id,
+                capability_id=capability_id,
+                approved_skills_root=Path(approved_skills_root),
+                markdown=markdown,
+                expected_benefit=expected_benefit,
+                observable_signal=observable_signal,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self._refuse(f"selection refused: {exc}")
+            raise AdaptationRefusedError(self._adaptation_refusal) from exc
+        root = selection.approved_skills_root.resolve(strict=False)
+        approved = tuple(
+            Path(value).expanduser().resolve(strict=False)
+            for value in self.permission.approved_roots
+        )
+        if not any(
+            root == candidate or root.is_relative_to(candidate)
+            for candidate in approved
+        ):
+            reason = "adaptation target is outside the explicitly approved user root"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
+
+        from capability_exchange.adaptation.allowlist import OperationKind
+        from capability_exchange.adaptation.eligibility import adaptation_eligibility
+
+        job_description = " ".join(
+            (
+                contract.situation,
+                contract.desired_outcome,
+            )
+        )
+        proposal_description = " ".join(
+            (selection.capability_id, selection.expected_benefit, selection.markdown)
+        )
+        decision = adaptation_eligibility(
+            job_description=job_description,
+            # Classify the job's positive Situation/Desired-outcome text.  Do
+            # not feed boundary prose such as "never send" into the classifier:
+            # a safety limit is not evidence that the job itself sends a
+            # message, and the taxonomy must still catch an actual send job in
+            # the job description above.
+            contract_fields={
+                "situation": contract.situation,
+                "desired_outcome": contract.desired_outcome,
+            },
+            proposal_description=proposal_description,
+            operation=OperationKind.CREATE_NAMESPACED_SKILL,
+        )
+        if not decision.allowed:
+            self._refuse(f"{decision.reason.value}: {decision.explanation}")
+            raise AdaptationRefusedError(self._adaptation_refusal)
+        from capability_exchange.adaptation.verification import has_outcome_procedure
+
+        if not has_outcome_procedure(
+            OperationKind.CREATE_NAMESPACED_SKILL, selection.observable_signal
+        ):
+            reason = "no core-owned outcome procedure supports the selected success signal"
+            self._refuse(reason)
+            raise AdaptationRefusedError(reason)
+        self._adaptation_selection = selection
+        self._adaptation_contract = contract
+        self.stage = ConciergeStage.ADAPTATION_SELECT
+        return selection
+
+    def preview_adaptation(self) -> object:
+        """Build the exact immutable preview; no mutation is attempted."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_SELECT)
+        selection = self._adaptation_selection
+        if selection is None:
+            raise JourneyStateError("select an adaptation before previewing it")
+        from capability_exchange.adaptation.hosts.claude_code import (
+            build_claude_code_skill_preview,
+        )
+        from capability_exchange.adaptation.recovery import RecoveryUnavailableError
+
+        try:
+            preview = build_claude_code_skill_preview(
+                approved_skills_root=selection.approved_skills_root,
+                job_id=selection.job_id,
+                capability_id=selection.capability_id,
+                markdown=selection.markdown,
+                expected_benefit=selection.expected_benefit,
+                created_at=self.now(),
+            )
+            engine = self._adaptation_engine_for(preview)
+            recovery = engine.prepare_recovery(preview, now=self.now())
+        except (OSError, RecoveryUnavailableError, RuntimeError, ValueError) as exc:
+            self._refuse(f"preview refused: {exc}")
+            raise AdaptationRefusedError(self._adaptation_refusal) from exc
+        self._adaptation_preview = preview
+        self._adaptation_recovery = recovery
+        self.stage = ConciergeStage.ADAPTATION_PREVIEW
+        return preview
+
+    def approve_adaptation(self, *, ttl: timedelta = timedelta(minutes=5)) -> object:
+        """Issue a fresh, single-use approval bound to the exact preview."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_PREVIEW)
+        preview = self._adaptation_preview
+        if preview is None:
+            raise JourneyStateError("preview the exact adaptation before approving it")
+        if self._adaptation_recovery is None:
+            raise JourneyStateError("a validated recovery proof is required before approval")
+        from capability_exchange.adaptation.approval import ApprovalAuthority
+
+        authority = self._adaptation_authority
+        if not isinstance(authority, ApprovalAuthority):
+            self._adaptation_engine_for(preview)
+            authority = self._adaptation_authority
+        assert isinstance(authority, ApprovalAuthority)
+        issued = authority.issue(preview, now=self.now(), ttl=ttl)
+        self._adaptation_approval = issued
+        self.stage = ConciergeStage.ADAPTATION_APPROVAL
+        return issued
+
+    def apply_adaptation(self, approval_token: str | None = None) -> object:
+        """Apply exactly the approved preview through the transaction engine."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_APPROVAL)
+        preview = self._adaptation_preview
+        selection = self._adaptation_selection
+        contract = self._adaptation_contract
+        issued = self._adaptation_approval
+        recovery = self._adaptation_recovery
+        if (
+            preview is None
+            or selection is None
+            or contract is None
+            or issued is None
+            or recovery is None
+        ):
+            raise JourneyStateError("select, preview, and approve one adaptation before apply")
+        token = approval_token or getattr(issued, "token", "")
+        if not token:
+            raise JourneyStateError("a fresh single-use approval token is required")
+        engine = self._adaptation_engine_for(preview)
+        self.stage = ConciergeStage.ADAPTATION_APPLY
+        try:
+            result = engine.execute(
+                preview,
+                approval_token=token,
+                contract=contract,
+                observable_signal=selection.observable_signal,
+                now=self.now(),
+                recovery_point=recovery,
+            )
+        except Exception as exc:
+            from capability_exchange.adaptation.transaction import (
+                AutomationHardStoppedError,
+                RecoveryFailedError,
+                TransactionConflictError,
+            )
+
+            if isinstance(
+                exc,
+                (AutomationHardStoppedError, RecoveryFailedError, TransactionConflictError),
+            ):
+                self._hard_stop(
+                    "Recovery failed: adaptation could not prove a safe transaction state"
+                    if isinstance(exc, RecoveryFailedError)
+                    else f"Unverified: adaptation automation stopped ({exc})"
+                )
+            else:
+                self._refuse(f"adaptation was not applied: {exc}")
+            raise
+        self._adaptation_result = result
+        if getattr(result, "hard_stopped", False):
+            self._hard_stop("Unverified: outcome verification was Unknown; automation stopped")
+        else:
+            self.stage = ConciergeStage.ADAPTATION_RECEIPT
+        return result
+
+    def verify_adaptation(self) -> object:
+        """Publish the already-recorded verification as stage 7's final proof."""
+
+        self._require_adaptation_running(ConciergeStage.ADAPTATION_RECEIPT)
+        result = self._adaptation_result
+        if result is None:
+            raise JourneyStateError("apply the approved adaptation before verification")
+        verification = getattr(result, "verification", None)
+        if verification is None:
+            receipt = self.adaptation_receipt
+            verification = getattr(receipt, "verification_verdict", None)
+        self._adaptation_verification = verification
+        if verification is None or getattr(
+            verification, "value", verification
+        ) in {"unknown", "unverified"}:
+            self._hard_stop("Unverified: outcome verification was unavailable")
+            raise JourneyStateError("verification is Unverified; adaptation is hard-stopped")
+        self.stage = ConciergeStage.ADAPTATION_VERIFY
+        return verification
+
+    def undo_adaptation(self) -> object:
+        """Restore the exact pre-change state, or trigger the hard stop."""
+
+        self._require_adaptation_running(
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_RECEIPT,
+        )
+        preview = self._adaptation_preview
+        if preview is None:
+            raise JourneyStateError("no adaptation preview is available to undo")
+        engine = self._adaptation_engine
+        if engine is None:
+            raise JourneyStateError("adaptation transaction engine is unavailable")
+        try:
+            result = engine.undo(preview)
+        except Exception as exc:
+            from capability_exchange.adaptation.transaction import (
+                AutomationHardStoppedError,
+                RecoveryFailedError,
+                UndoConflictError,
+            )
+
+            if isinstance(
+                exc,
+                (RecoveryFailedError, UndoConflictError, AutomationHardStoppedError),
+            ):
+                self._hard_stop(
+                    "Recovery failed: undo could not prove a byte-identical restoration"
+                )
+            raise
+        self._adaptation_undo_result = result
+        self.stage = ConciergeStage.ADAPTATION_UNDO
+        return result
+
+    # Short stage-oriented aliases keep the domain surface readable for
+    # integrations while the explicit names above remain the canonical API.
+    select_change = select_adaptation
+    preview_change = preview_adaptation
+    approve_change = approve_adaptation
+    apply_change = apply_adaptation
+    verify_change = verify_adaptation
+    undo_change = undo_adaptation
+
+    def read_adaptation_receipt(self) -> object | None:
+        return self.adaptation_receipt
+
+    # ------------------------------------------------------------------
+    # M5 optional contribution stage (9)
+    # ------------------------------------------------------------------
+
+    def choose_contribution(self) -> None:
+        """Enter stage 9 only after a separate, explicit contribution choice."""
+
+        self._require(
+            ConciergeStage.CAPABILITY_MAP,
+            ConciergeStage.ADAPTATION_VERIFY,
+            ConciergeStage.ADAPTATION_UNDO,
+        )
+        if self._contribution_identity is None or self._contribution_intake is None:
+            raise JourneyStateError("contribution intake and identity ports are unavailable")
+        self.stage = ConciergeStage.CONTRIBUTION_BUILD
+
+    def build_contribution(self, card: CapabilityCard) -> CapabilityCard:
+        """Accept one closed, inert Card through the hardened Card validator."""
+
+        self._require(ConciergeStage.CONTRIBUTION_BUILD)
+        require_valid_card(card)
+        self._contribution_card = card
+        self._contribution_comparison = None
+        self.stage = ConciergeStage.CONTRIBUTION_REVIEW
+        return card
+
+    def edit_contribution(self, edited: CapabilityCard) -> ContributionVersionComparison:
+        """Replace a local draft with exactly one explicit, reviewable new version."""
+
+        self._require(
+            ConciergeStage.CONTRIBUTION_REVIEW,
+            ConciergeStage.CONTRIBUTION_DISCLOSE,
+            ConciergeStage.CONTRIBUTION_APPROVE,
+            ConciergeStage.CONTRIBUTION_SUBMIT,
+        )
+        previous = self._contribution_card
+        if previous is None:
+            raise JourneyStateError("build a valid Capability Card before editing it")
+        require_valid_card(edited)
+        if edited.card_id != previous.card_id:
+            raise JourneyStateError("an edited Card must retain the same card_id")
+        if edited.version != previous.version + 1:
+            raise JourneyStateError("an edited Card must increment version by exactly one")
+        previous_bytes = canonical_card_bytes(previous)
+        revised_bytes = canonical_card_bytes(edited)
+        previous_fields = previous.model_dump(mode="json")
+        revised_fields = edited.model_dump(mode="json")
+        changed = tuple(
+            field
+            for field in previous.__class__.model_fields
+            if previous_fields[field] != revised_fields[field]
+        )
+        if not any(field != "version" for field in changed):
+            raise JourneyStateError(
+                "an edited Card version must change at least one content field"
+            )
+        comparison = ContributionVersionComparison(
+            previous_version_hash=previous.version_hash,
+            revised_version_hash=edited.version_hash,
+            changed_fields=changed,
+            previous_exact_json=previous_bytes.decode("utf-8"),
+            revised_exact_json=revised_bytes.decode("utf-8"),
+        )
+        if self._intake_submission_attempted:
+            raise JourneyStateError("an already submitted contribution must be withdrawn")
+        if self._contribution_consent is not None and self._contribution_manifest is not None:
+            self._contribution_consent.withdraw(previous, self._contribution_manifest)
+        self._contribution_card = edited
+        self._contribution_comparison = comparison
+        self._contribution_manifest = None
+        self._contribution_consent = None
+        self._contribution_lifecycle = None
+        self._contribution = None
+        self._contribution_handle = None
+        self._pending_withdrawal_version_hash = None
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
+        self.stage = ConciergeStage.CONTRIBUTION_REVIEW
+        return comparison
+
+    def review_contribution(self) -> CapabilityCard:
+        """Revalidate the immutable version before field disclosure is possible."""
+
+        self._require(ConciergeStage.CONTRIBUTION_REVIEW)
+        card = self._contribution_card
+        if card is None:
+            raise JourneyStateError("build a valid Capability Card before review")
+        require_valid_card(card)
+        self.stage = ConciergeStage.CONTRIBUTION_DISCLOSE
+        return card
+
+    def disclose_contribution(
+        self,
+        approved_fields: Iterable[str],
+    ) -> DisclosureManifest:
+        """Construct the only exact-byte payload eligible for later egress."""
+
+        self._require(ConciergeStage.CONTRIBUTION_DISCLOSE)
+        card = self._contribution_card
+        if card is None:
+            raise JourneyStateError("review a valid Capability Card before disclosure")
+        manifest = build_disclosure_manifest(card, approved_fields=tuple(approved_fields))
+        self._contribution_manifest = manifest
+        self.stage = ConciergeStage.CONTRIBUTION_APPROVE
+        return manifest
+
+    def approve_contribution(self, permissions: PermissionSet) -> Contribution:
+        """Record exact version consent, then derive pseudonymous provenance.
+
+        Identity is deliberately invoked here rather than during diagnosis,
+        adaptation, contribution choice, building, review, or disclosure.
+        """
+
+        self._require(ConciergeStage.CONTRIBUTION_APPROVE)
+        card = self._contribution_card
+        manifest = self._contribution_manifest
+        identity = self._contribution_identity
+        if card is None or manifest is None or identity is None:
+            raise JourneyStateError("a reviewed exact disclosure is required before approval")
+        if permissions.is_unresolvable:
+            raise ContributionEgressError(
+                "unresolvable permission state is fully withdrawn and cannot be approved"
+            )
+
+        secret = identity.contributor_secret()
+        if type(secret) is not bytes or not secret or len(secret) > 4096:
+            raise ContributionEgressError(
+                "identity port did not provide bounded local contributor authority"
+            )
+        ledger = ConsentLedger()
+        ledger.grant(card, manifest, permissions)
+        lifecycle = ContributionLifecycle(
+            stores=list(self._contribution_stores),
+            consent=ledger,
+        )
+        contribution = lifecycle.draft(
+            card,
+            manifest,
+            contributor_secret=secret,
+        )
+        self._contribution_consent = ledger
+        self._contribution_lifecycle = lifecycle
+        self._contribution = contribution
+        token_digest = hmac.new(
+            secret,
+            b"contribution-withdrawal\0" + manifest.byte_hash.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        self._contribution_handle = ContributionHandle(
+            manifest_byte_hash=manifest.byte_hash,
+            revocation_token="revocation-v1:" + token_digest,
+        )
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
+        self.stage = ConciergeStage.CONTRIBUTION_SUBMIT
+        return contribution
+
+    @staticmethod
+    def _receipt_matches(
+        receipt: object,
+        handle: ContributionHandle,
+        *,
+        confirmation_field: str,
+    ) -> bool:
+        """Require an exact, handle-bound positive receipt; truthy values fail."""
+
+        return (
+            getattr(receipt, "manifest_byte_hash", None) == handle.manifest_byte_hash
+            and getattr(receipt, "handle_binding", None) == handle.receipt_binding
+            and getattr(receipt, confirmation_field, None) is True
+            and type(getattr(receipt, confirmation_field, None)) is bool
+        )
+
+    def submit_contribution(self) -> Contribution:
+        """Submit locally, then send one ledger-authorized positional byte value."""
+
+        self._require(ConciergeStage.CONTRIBUTION_SUBMIT)
+        card = self._contribution_card
+        manifest = self._contribution_manifest
+        contribution = self._contribution
+        ledger = self._contribution_consent
+        lifecycle = self._contribution_lifecycle
+        intake = self._contribution_intake
+        handle = self._contribution_handle
+        if any(
+            value is None
+            for value in (card, manifest, contribution, ledger, lifecycle, intake, handle)
+        ):
+            raise ContributionEgressError("contribution approval state is incomplete")
+        assert isinstance(card, CapabilityCard)
+        assert isinstance(manifest, DisclosureManifest)
+        assert isinstance(contribution, Contribution)
+        assert isinstance(ledger, ConsentLedger)
+        assert isinstance(lifecycle, ContributionLifecycle)
+        assert isinstance(handle, ContributionHandle)
+        assert intake is not None
+        if contribution.card.version_hash != card.version_hash or contribution.manifest != manifest:
+            raise ContributionEgressError(
+                "exact approved Card version and disclosure consent no longer match"
+            )
+
+        try:
+            outbound = ledger.authorize_outbound(card, manifest)
+        except Exception as exc:
+            raise ContributionEgressError(
+                "exact approved Card version and disclosure consent no longer match"
+            ) from exc
+        if type(outbound) is not bytes:
+            raise ContributionEgressError("consent authority did not return exact bytes")
+
+        submitted = lifecycle.submit(contribution)
+        if submitted.state is not ContributionState.SUBMITTED:
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            raise ContributionEgressError("contribution was withdrawn before intake submission")
+        self._intake_submission_attempted = True
+        try:
+            receipt = intake.submit(outbound, handle=handle)
+        except Exception as exc:
+            lifecycle.quarantine(contribution, "intake did not confirm exact-byte submission")
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "intake did not confirm exact-byte submission; the Card is quarantined"
+            ) from exc
+        if not self._receipt_matches(receipt, handle, confirmation_field="accepted"):
+            lifecycle.quarantine(contribution, "intake returned an invalid submission receipt")
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "intake submission receipt was not exact and affirmative; the Card is quarantined"
+            )
+        self._pending_withdrawal = True
+        self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+        return submitted
+
+    def withdraw_contribution(self, *, reason: str) -> Contribution:
+        """Revoke local consent immediately, then synchronously notify intake."""
+
+        self._require(ConciergeStage.CONTRIBUTION_WITHDRAW)
+        contribution = self._contribution
+        lifecycle = self._contribution_lifecycle
+        intake = self._contribution_intake
+        handle = self._contribution_handle
+        if contribution is None or lifecycle is None or intake is None or handle is None:
+            raise JourneyStateError("there is no approved contribution to withdraw")
+        if contribution.state is not ContributionState.WITHDRAWN:
+            lifecycle.withdraw(contribution, reason=reason)
+        self._pending_withdrawal_version_hash = contribution.version_hash
+        local_pending = lifecycle.has_pending_withdrawal(contribution.version_hash)
+        if not self._intake_submission_attempted:
+            self._pending_withdrawal = local_pending
+            return contribution
+        try:
+            receipt = intake.withdraw(handle)
+        except Exception as exc:
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "local withdrawal is immediate, but intake withdrawal was not confirmed"
+            ) from exc
+        if not self._receipt_matches(receipt, handle, confirmation_field="withdrawn"):
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "local withdrawal is immediate, but intake withdrawal was not confirmed"
+            )
+        self._pending_withdrawal = local_pending
+        self._intake_submission_attempted = False
+        if not local_pending:
+            self._contribution_handle = None
+            self._pending_withdrawal_version_hash = None
+        else:
+            raise ContributionEgressError(
+                "intake withdrawal is confirmed, but a controlled-store withdrawal is still pending"
+            )
+        return contribution
+
+    def retry_pending_withdrawal(self) -> WithdrawalReceipt:
+        """Retry a close/expiry withdrawal using only preserved opaque authority."""
+
+        if not self._pending_withdrawal:
+            raise JourneyStateError("there is no pending intake withdrawal")
+        handle = self._contribution_handle
+        version_hash = self._pending_withdrawal_version_hash
+        lifecycle = self._contribution_lifecycle
+        if lifecycle is not None and version_hash is not None:
+            lifecycle.retry_pending_withdrawals(version_hash)
+        local_pending = bool(
+            lifecycle is not None
+            and version_hash is not None
+            and lifecycle.has_pending_withdrawal(version_hash)
+        )
+        if self._intake_submission_attempted:
+            intake = self._contribution_intake
+            if intake is None or handle is None:
+                raise JourneyStateError("pending withdrawal authority is unavailable")
+            try:
+                receipt = intake.withdraw(handle)
+            except Exception as exc:
+                raise ContributionEgressError("intake withdrawal retry was not confirmed") from exc
+            if not self._receipt_matches(receipt, handle, confirmation_field="withdrawn"):
+                raise ContributionEgressError("intake withdrawal retry was not confirmed")
+            self._intake_submission_attempted = False
+        if local_pending:
+            raise ContributionEgressError("controlled-store withdrawal retry was not confirmed")
+        if handle is None:
+            raise JourneyStateError("pending withdrawal receipt binding is unavailable")
+        self._pending_withdrawal = False
+        self._contribution_handle = None
+        self._contribution_intake = None
+        self._contribution_lifecycle = None
+        self._pending_withdrawal_version_hash = None
+        return WithdrawalReceipt(
+            manifest_byte_hash=handle.manifest_byte_hash,
+            handle_binding=handle.receipt_binding,
+            withdrawn=True,
+        )
+
     def close(self) -> None:
         """Close and clean up local state, regardless of the current stage."""
 
         if self.stage is ConciergeStage.CLOSED:
             return
+        # Revoke local consent at every exit.  If intake was attempted, also
+        # request authenticated withdrawal before clearing contribution state.
+        contribution = self._contribution
+        lifecycle = self._contribution_lifecycle
+        if contribution is not None and lifecycle is not None:
+            self._pending_withdrawal_version_hash = contribution.version_hash
+            if contribution.state is not ContributionState.WITHDRAWN:
+                try:
+                    lifecycle.withdraw(contribution, reason="session closed or expired")
+                except Exception:  # noqa: BLE001 - close still preserves intake recovery
+                    self._pending_withdrawal = self._intake_submission_attempted
+            if self._intake_submission_attempted:
+                intake = self._contribution_intake
+                handle = self._contribution_handle
+                if intake is None or handle is None:
+                    self._pending_withdrawal = True
+                else:
+                    try:
+                        receipt = intake.withdraw(handle)
+                    except Exception:  # noqa: BLE001 - opaque authority remains retryable
+                        self._pending_withdrawal = True
+                    else:
+                        confirmed = self._receipt_matches(
+                            receipt, handle, confirmation_field="withdrawn"
+                        )
+                        self._pending_withdrawal = not confirmed
+                        if confirmed:
+                            self._intake_submission_attempted = False
+            self._pending_withdrawal = self._pending_withdrawal or lifecycle.has_pending_withdrawal(
+                contribution.version_hash
+            )
+
         # The registered deletion path applies the same verified unlink
         # discipline as the underlying store.  Confirmed drafts are already
         # gone; unconfirmed drafts are removed here at every exit.
@@ -911,6 +1928,29 @@ class ConciergeJourney:
             self._selected.clear()
             self.capability_map = None
             self.capability_map_markdown = ""
+            self._adaptation_selection = None
+            self._adaptation_preview = None
+            self._adaptation_recovery = None
+            self._adaptation_approval = None
+            self._adaptation_result = None
+            self._adaptation_verification = None
+            self._adaptation_undo_result = None
+            self._adaptation_authority = None
+            self._adaptation_engine = None
+            self._adaptation_contract = None
+            self._contribution_identity = None
+            if not self._pending_withdrawal:
+                self._contribution_intake = None
+            self._contribution_stores = ()
+            self._contribution_consent = None
+            if not self._pending_withdrawal:
+                self._contribution_lifecycle = None
+            self._contribution_card = None
+            self._contribution_manifest = None
+            self._contribution = None
+            if not self._pending_withdrawal:
+                self._contribution_handle = None
+                self._pending_withdrawal_version_hash = None
             self.stage = ConciergeStage.CLOSED
 
     def decline(self) -> None:

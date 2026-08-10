@@ -99,6 +99,10 @@ class TestFullSuite:
         ), format_report(report)
         assert not report.failed, format_report(report)
 
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="the default CLI gate requires live OS containment; macOS proves honest refusal",
+    )
     def test_g1_cli_self_check_runs_green(self) -> None:
         assert conformance_main(["--adapter", "claude-code-local", "--self-check"]) == 0
 

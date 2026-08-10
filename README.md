@@ -1,94 +1,106 @@
 # Dex Lens
 
-**A second opinion on your AI setup — from a tool with no interest in selling you a new one.**
+**Understand what your Claude Code setup can really do — without replacing it, scoring it, or sending your private setup away.**
 
-> **Developer alpha.** The source build opens a local, read-only diagnosis
-> concierge for approved Claude Code folders. It is not a supported release or
-> pilot build yet. Adaptation and contribution are not available. The tests are
-> the most honest description of what this can and cannot currently prove.
+Dex Lens is a local second opinion for people who already use Claude Code on a
+Mac. You choose a setup folder, confirm the real work you use it for, and Lens
+shows what appears to work, what the evidence actually supports, and where the
+picture is still uncertain.
 
-## Who this is for
+You do not need to use Dex. There is no account or analytics, you keep your
+existing system, and there is no hidden comparison with somebody else's setup.
 
-You've built your own personal AI system. Custom instructions, a folder of
-prompts, skills for Claude Code, an agent you wired up over a few weekends —
-whatever shape it takes, it's *yours*, you use it every day, and it more or
-less works.
+> **Current status:** the source code is a pilot candidate, not a supported
+> download or finished public release. The first real participant pilot has not
+> run yet.
 
-You don't want to throw it away and adopt someone else's system. But you might
-want to know, honestly, how good it actually is — and you might want to borrow
-the load-bearing ideas from [Dex](https://github.com/davekilleen/Dex), an
-open-source personal AI chief of staff, without migrating to it.
+## What you get
 
-That's the gap Dex Lens exists for. It is deliberately **not** a funnel into
-Dex. The person keeps and improves the system they already have. Ever.
+- A map of the real jobs you say matter, which you can correct before Lens uses it.
+- A plain-English view of your setup's strengths, gaps, and unnecessarily broad access.
+- An explanation of how each finding is known — never a made-up overall score.
+- A guided preview of one possible improvement, without adopting Dex or silently
+  changing the setup you already own.
+- The option to share a carefully limited recipe back, only after seeing and
+  approving the exact information that would leave your machine.
 
-## What it does now
+## What a session feels like
 
-The alpha implements the first two acts, kept visibly separate and each needing
-its own yes:
+1. **Choose the folder.** Lens reads only the Claude Code setup folder you approve.
+2. **Confirm the purpose.** You edit the list of jobs Lens thinks you use the setup for.
+3. **Review the evidence.** Lens separates what it can verify from what is merely
+   configured, reported by you, or still unknown.
+4. **Decide what happens next.** Diagnosis does not change anything. Lens can
+   explain and preview a possible improvement, but the real-user pilot does not
+   automate it until the agreed job outcome can genuinely be checked.
+5. **Keep or share the result.** Your findings stay local. Sharing a sanitized
+   Capability Card is optional, off by default, and asks for fresh approval.
 
-1. **Diagnose** — a private, read-only look at your setup, on your machine,
-   organised around the jobs *you* confirm you use it for. No account and no
-   analytics.
-2. **Decide** — you see what it found: what genuinely works, how it knows,
-   and where your setup has more access than the job needs. No score, no
-   grade, no "your setup is 62% as good as Dex" — that number is
-   structurally impossible to produce here, on purpose.
-The roadmap adds two later acts. Neither exists in the alpha:
+## What Lens reads, changes, and sends
 
-3. **Adapt (roadmap)** — optionally take one evidence-backed capability from Dex and
-   fit it *to your system*, one bounded change at a time: exact preview
-   first, proven undo before anything is touched, receipt after.
-4. **Contribute (roadmap)** — optionally share one recipe back, as a sanitized
-   Capability Card you inspect, edit, and redact first. Nothing is ever
-   selected by default. Most people will never use this, and that's fine.
+| Boundary | Plain-English promise |
+| --- | --- |
+| **Reads** | Supported setup files inside the folder you select, such as instructions, skills, and configuration. It does not silently widen that folder. |
+| **Changes during diagnosis** | Nothing. The diagnosis is read-only. |
+| **Changes after a separate approval** | None in the first real-user pilot. The recovery machinery is tested on isolated synthetic files, but Lens will not confuse “a file was created” with “your real job improved.” |
+| **Sends during diagnosis or adaptation** | Nothing. Those stages require no account and make no external connection. |
+| **Sends if you choose to contribute** | Only the exact sanitized Capability Card and disclosure bytes shown to you for approval. No sharing is selected by default. |
 
-## The ethos
+## Safety in plain English
 
-- **Your system stays yours.** Installing Dex is never required and never
-  the recommendation.
-- **Diagnosis is read-only at the operating-system level**, not by promise.
-  The inspection process runs inside an OS-enforced sandbox (seccomp on
-  Linux, Seatbelt on macOS) that denies writes, network, and shell — even
-  if our own code is buggy, even if a file it reads tells it otherwise.
-- **Evidence language is literal.** "Configured" is not "working". A file
-  existing proves you set something up, not that it does the job. Findings
-  say how they're known: verified, supported, reported, or unknown.
-- **Consequential jobs are never automated.** Anything touching money,
-  messages, credentials, deletion, health, or legal matters can be looked
-  at but falls closed to a manual path.
-- **Fail closed, say so honestly.** When something can't be proven, the
-  product refuses and explains, rather than proceeding on confidence.
+Lens uses operating-system controls, not a polite promise, to keep deep
+inspection read-only and offline. A **sandbox** is a restricted process that the
+operating system prevents from writing files, contacting the internet, or
+launching other commands.
 
-These aren't aspirations; each one is enforced by tests in this repo,
-including a corpus of deliberately hostile fixtures (planted secrets,
-symlink and bind-mount escapes, prompt-injection files, sabotaged
-verification) that any change must survive.
+If the Mac cannot prove that stronger sandbox is available, Lens does not carry
+on and hope for the best. It switches to a more limited guided path where you
+provide bounded evidence yourself. This is what **fail closed** means: when a
+safety claim cannot be proven, the risky route stays unavailable.
 
-## Status
+Lens also keeps four evidence levels separate:
 
-Built and tested so far: the versioned Host Adapter contract, a contained
-Claude Code deep adapter (macOS is the first target), the evidence-state
-vocabulary, the field-level data boundary, the Job Map with its
-propose-then-confirm flow, the high-impact job taxonomy, and the diagnosis
-engine with jobs-first Capability Map rendering. The source alpha now includes
-the complete loopback-only browser concierge, editable job confirmation,
-session security and cancellation, end-to-end read-only evidence, and a guided
-fallback that accepts only bounded user-entered or export-assisted evidence
-when operating-system containment is unavailable. Next on the roadmap: the
-adaptation transaction layer, the contribution flow, and a small pilot.
+- **Verified:** directly demonstrated by a supported check.
+- **Supported:** good evidence exists, but the full job was not directly demonstrated.
+- **Reported:** you told Lens it works; Lens has not independently proved it.
+- **Unknown:** the available evidence cannot support a stronger claim.
 
-The current alpha does **not** claim that every M3 safety gate is closed. In
-particular, the macOS sandbox can prove network use is denied but cannot prove
-socket creation itself is denied; and the bind-mount hostile fixture still
-needs an isolated CI host with the privilege required to execute it. Those
-limits are recorded rather than smoothed over.
+The test suite includes deliberately hostile setup files, planted secrets,
+path escapes, prompt injection, sabotaged verification, interrupted changes,
+and withdrawal failures. The technical evidence and remaining limitations live
+in [the build status](docs/STATUS.md) and [risk register](docs/RISK-REGISTER.md).
 
-## Try the source alpha
+## What is available now
 
-Use a folder containing the Claude Code setup you want Dex Lens to offer for
-inspection. Installing does not scan it; the first browser screen asks for
-explicit read-only permission.
+The pilot candidate contains the complete local journey:
+
+- private diagnosis and editable Job Map;
+- evidence-backed Capability Map;
+- a guided improvement preview, plus isolated synthetic tests of approval,
+  recovery, receipts, and undo (real-user automation remains unavailable);
+- optional Capability Card review, disclosure, consent, submission, and withdrawal;
+- pilot enrolment, measurement, safety-gate, runbook, and evidence-pack machinery.
+
+M3, the read-only source alpha, is merged in [PR #4](https://github.com/davekilleen/dex-lens/pull/4).
+The M4–M6 pilot candidate is in [draft PR #5](https://github.com/davekilleen/dex-lens/pull/5),
+where the Linux/macOS test matrix and exact-build safety gates are required
+before merge. It remains unmerged and unreleased while delivery review completes.
+
+## What is not complete
+
+- There is no supported participant setup package or published Dex Lens release yet.
+- No real participant pilot has run, so there is no real-world outcome evidence.
+- Consent wording still needs human review before anyone enrols.
+- The final evidence pack still needs named risk owners and independent safety sign-off.
+- A Mac that cannot prove deep-inspection containment uses the guided path instead.
+- Automated real-user improvements remain unavailable until Lens has a genuine
+  way to observe the Success Contract outcome after real use.
+
+## Try the source build
+
+This is for developers and invited testers who are comfortable running a local
+source build. Installing it does not scan anything; the first browser screen
+asks which folder may be read.
 
 ```sh
 git clone https://github.com/davekilleen/dex-lens.git
@@ -98,35 +110,31 @@ python3 -m venv .venv
 .venv/bin/dex-lens --no-open /path/to/your/approved-folder
 ```
 
-Open the printed `127.0.0.1` address in a browser. The session stays on that
-machine. Press `Ctrl-C` in the terminal to close it. This is a source alpha,
-not a published package or a promise that adaptation, contribution, or pilot
-support exists.
+Open the printed `127.0.0.1` address in a browser. That address means the page is
+served only from your own machine. Press `Ctrl-C` in the terminal to close the
+session.
 
 ## Development
 
 ```sh
-python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest
 .venv/bin/ruff check .
 ```
 
-Read `CONTRIBUTING.md` before writing code: test-first, fail closed, and use
-the binding domain vocabulary exactly. The full implementation pack lives in
-[`docs/handoff/`](docs/handoff/) — the gates are the spec — with architecture
-notes in [`docs/architecture.md`](docs/architecture.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. The binding safety
+gates live in [docs/handoff](docs/handoff/), with deeper architecture notes in
+[docs/architecture.md](docs/architecture.md).
 
 ## Background
 
-Dex Lens grew out of a public planning effort in the Dex repo
-([davekilleen/Dex#347](https://github.com/davekilleen/Dex/issues/347) and
-#348–#357), hardened by an independent critique whose gates are binding
-acceptance criteria for this codebase. Internally the contribution machinery
-is called the *Dex Capability Exchange* — you'll see that name in the design
-documents.
+Dex Lens grew from a public product-design effort in the Dex repository
+([issue #347](https://github.com/davekilleen/Dex/issues/347) and #348–#357).
+Internally, the optional contribution machinery is called the Dex Capability
+Exchange. The public product name is **Dex Lens**.
 
 ## License
 
-Not yet chosen (see [`docs/DAVE-DECISIONS.md`](docs/DAVE-DECISIONS.md)).
-Until one is added, all rights reserved — but the code is public precisely
-so the safety claims can be inspected.
+A licence has not been chosen yet. Until one is added, all rights are reserved.
+The code is public so its safety claims can be inspected rather than taken on trust.

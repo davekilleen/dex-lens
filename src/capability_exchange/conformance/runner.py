@@ -28,7 +28,23 @@ from capability_exchange.conformance.checks import (
 if TYPE_CHECKING:
     from capability_exchange.conformance.subject import AdapterConformanceSubject
 
-__all__ = ["ConformanceReport", "format_report", "run_conformance_suite"]
+__all__ = [
+    "ConformanceReport",
+    "format_report",
+    "run_adaptation_conformance_suite",
+    "run_conformance_suite",
+]
+
+
+def run_adaptation_conformance_suite(contract, *, passed_test_ids: frozenset[str]):
+    """Run the M4 T1–T9 release gate through the shared conformance surface."""
+
+    from capability_exchange.adaptation.conformance import run_adaptation_conformance
+
+    return run_adaptation_conformance(
+        contract,
+        passed_test_ids=passed_test_ids,
+    )
 
 
 @dataclass(frozen=True, slots=True)

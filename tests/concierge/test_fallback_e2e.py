@@ -167,7 +167,10 @@ def test_http_fallback_reaches_capability_map_without_root_write_or_verified_lab
 
     with RunningServer(unavailable, approved_root=root) as running:
         running.bootstrap()
-        status, _, body = running.post("/approve")
+        status, _, _ = running.post("/approve")
+        assert status == 200
+        running.wait_for_collection()
+        status, _, body = running.request("GET", "/session")
         assert status == 200
         assert "guided" in body.lower()
         assert "Capability Map" not in body
@@ -225,5 +228,32 @@ def test_http_fallback_reaches_capability_map_without_root_write_or_verified_lab
         assert status == 200
         assert "Capability Map" in body
         assert "verified" not in body.lower()
+
+    assert tree_digests(root) == before
+
+
+def test_fallback_decline_exit_keeps_the_approved_tree_byte_identical(
+    tmp_path: Path,
+) -> None:
+    """The guided downgrade has the same stage-exit read-only boundary."""
+    root = tmp_path / "approved"
+    root.mkdir()
+    (root / "sentinel.txt").write_text("do not touch", encoding="utf-8")
+    before = tree_digests(root)
+
+    def unavailable(_cancel_event: object) -> object:
+        raise ContainmentUnavailableError("sandbox unavailable")
+
+    with RunningServer(unavailable, approved_root=root) as running:
+        running.bootstrap()
+        status, _, _ = running.post("/approve")
+        assert status == 200
+        running.wait_for_collection()
+        status, _, body = running.request("GET", "/session")
+        assert status == 200
+        assert "guided" in body.lower()
+        status, _, body = running.post("/decline")
+        assert status == 200
+        assert "Session closed" in body
 
     assert tree_digests(root) == before

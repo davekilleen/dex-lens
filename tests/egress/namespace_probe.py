@@ -26,7 +26,11 @@ from tests.concierge.test_local_server import RunningServer
 from tests.egress.harness import EGRESS_CANARIES, build_canary_system
 from tests.fixtures.hostile.catalog import derivations_of
 
+from capability_exchange.adaptation.hosts.claude_code import (
+    claude_code_adaptation_contract,
+)
 from capability_exchange.adapters.claude_code.containment import contained_inspection
+from capability_exchange.concierge.journey import JobDraftFields
 
 
 class _Proxy(socketserver.BaseRequestHandler):
@@ -121,12 +125,14 @@ def _leak_markers(blob: bytes, canaries: list[str]) -> list[str]:
     ]
 
 
-def _run_journey() -> tuple[list[str], list[str], list[str]]:
+def _run_journey() -> tuple[list[str], list[str], list[str], bool]:
     run_canary = f"m3-unique-canary-{uuid.uuid4().hex}"
     pages: list[str] = []
     with tempfile.TemporaryDirectory(prefix="dex-m3-fixture-") as base_dir:
         root = build_canary_system(Path(base_dir))
         (root / "CLAUDE.md").write_text(f"{run_canary}\n")
+        skills = root / ".claude" / "skills"
+        skills.mkdir(parents=True, exist_ok=True)
         canaries = [*EGRESS_CANARIES, run_canary]
         before = tree_digests(root)
 
@@ -135,7 +141,11 @@ def _run_journey() -> tuple[list[str], list[str], list[str]]:
                 [str(root)], cancel_event=cancel_event
             ).envelope
 
-        with RunningServer(collect, approved_root=root) as running:
+        with RunningServer(
+            collect,
+            approved_root=root,
+            adapter_contract=claude_code_adaptation_contract((str(root),)),
+        ) as running:
             pages.append(running.bootstrap())
             status, _, body = running.post("/approve")
             if status != 200:
@@ -146,7 +156,18 @@ def _run_journey() -> tuple[list[str], list[str], list[str]]:
             if status != 200:
                 raise RuntimeError("session failed")
             pages.append(body)
-            for job_id in running.session.journey.job_ids:
+            journey = running.session.journey
+            job_id = "network-none-reading-list"
+            journey.add_job(
+                JobDraftFields(
+                    job_id=job_id,
+                    title="Group a local reading list",
+                    situation="When I save useful articles for later",
+                    desired_outcome="My local reading list is grouped by topic",
+                )
+            )
+            journey.select_jobs((job_id,))
+            for job_id in journey.selected_job_ids:
                 status, _, body = running.post(
                     "/jobs/confirm",
                     body=urlencode(
@@ -169,15 +190,33 @@ def _run_journey() -> tuple[list[str], list[str], list[str]]:
                 raise RuntimeError("diagnosis failed")
             pages.append(body)
 
+            if tree_digests(root) != before:
+                raise RuntimeError("inspected root changed during stages 1-6")
+
+            adaptation = {
+                "job_id": job_id,
+                "capability_id": "topic-grouping",
+                "approved_skills_root": str(skills),
+                "markdown": "# Reading list helper\n\nGroup entries under topic headings.\n",
+                "expected_benefit": "Group new reading-list entries by topic",
+                "observable_signal": "the confirmed outcome is available",
+            }
+            status, _, body = running.post(
+                "/adaptation/select", body=urlencode(adaptation)
+            )
+            if status == 200 or "outcome procedure" not in body.lower():
+                raise RuntimeError("real-user adaptation did not refuse without outcome proof")
+            pages.append(body)
+
         if tree_digests(root) != before:
-            raise RuntimeError("inspected root changed during the journey")
+            raise RuntimeError("refused adaptation changed the inspected root")
 
     joined = "\n".join(pages)
     application_leaks = _leak_markers(joined.encode(), canaries)
     forbidden = ("https://", "<script", "<iframe", "<img", "fetch(", "websocket", "analytics")
     if any(item in joined.lower() for item in forbidden):
         raise RuntimeError("forbidden browser transport primitive rendered")
-    return pages, canaries, application_leaks
+    return pages, canaries, application_leaks, True
 
 
 def _capture_ready(process: subprocess.Popen[str]) -> bool:
@@ -273,10 +312,11 @@ def main() -> int:
     pages: list[str] = []
     canaries: list[str] = []
     application_leaks: list[str] = []
+    adaptation_refused = False
     journey_error = ""
     if capture_ready:
         try:
-            pages, canaries, application_leaks = _run_journey()
+            pages, canaries, application_leaks, adaptation_refused = _run_journey()
         except BaseException as exc:  # emit only the failure class
             journey_error = type(exc).__name__
     else:
@@ -327,6 +367,7 @@ def main() -> int:
             ).splitlines()
         ),
         "journey_complete": not journey_error,
+        "adaptation_refused": adaptation_refused,
         "journey_error": journey_error,
         "pages_checked": len(pages),
         "packet_count": len(packet_lines),

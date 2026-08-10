@@ -7,6 +7,8 @@ having to recreate Job Map or diagnosis rules in request handlers.
 
 from __future__ import annotations
 
+import hashlib
+import os
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,6 +99,23 @@ def _contract_fields() -> ContractFields:
     )
 
 
+def _complete_manifest(root: Path) -> tuple[tuple[str, int, int, str], ...]:
+    """Capture files, directories, and bytes for the approved root."""
+    entries: list[tuple[str, int, int, str]] = []
+    for path in sorted(root.rglob("*")):
+        stat_result = path.lstat()
+        if path.is_symlink():
+            digest = hashlib.sha256(os.readlink(path).encode()).hexdigest()
+        elif path.is_file():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        else:
+            digest = ""
+        entries.append(
+            (str(path.relative_to(root)), stat_result.st_mode, stat_result.st_mtime_ns, digest)
+        )
+    return tuple(entries)
+
+
 class TestPermissionAndStages:
     def test_permission_metadata_names_the_full_boundary(self) -> None:
         metadata = _permission()
@@ -125,6 +144,40 @@ class TestPermissionAndStages:
         journey.approve()
         assert calls == ["read"]
         assert journey.stage is ConciergeStage.JOB_MAP
+
+    @pytest.mark.parametrize("exit_stage", (1, 2, 3, 4, 5, 6))
+    def test_decline_at_each_stage_preserves_complete_approved_tree(
+        self, tmp_path: Path, exit_stage: int
+    ) -> None:
+        """Every stage-1–6 exit is a read-only boundary on the approved root."""
+        root = tmp_path / "approved"
+        (root / ".claude" / "skills" / "demo").mkdir(parents=True)
+        (root / "CLAUDE.md").write_text("standing instruction\n")
+        (root / ".claude" / "settings.json").write_text('{"model":"opus"}\n')
+        (root / ".claude" / "skills" / "demo" / "SKILL.md").write_text("# demo\n")
+        permission = replace(_permission(), approved_roots=(str(root),))
+        journey = ConciergeJourney(
+            permission=permission,
+            collector=_envelope,
+            job_store=tmp_path / "session-state",
+            now=lambda: NOW,
+        )
+        before = _complete_manifest(root)
+
+        if exit_stage >= 2:
+            journey.begin_collection()
+        if exit_stage >= 3:
+            journey.complete_collection(_envelope())
+        if exit_stage >= 4:
+            journey.confirm_job("instruction-guided-work", _contract_fields())
+        if exit_stage >= 5 and "recurring-skill-workflows" in journey.job_ids:
+            journey.discard_job("recurring-skill-workflows")
+        if exit_stage >= 6:
+            journey.diagnose()
+        journey.decline()
+
+        assert journey.stage is ConciergeStage.CLOSED
+        assert _complete_manifest(root) == before
 
     def test_job_store_must_be_outside_every_approved_root(
         self, tmp_path: Path

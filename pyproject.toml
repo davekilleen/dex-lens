@@ -47,6 +47,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "capability_exchange.boundary" = ["*.yaml"]
 "capability_exchange.adapters.claude_code" = ["profiles/*.sb"]
+"capability_exchange.contribution" = ["moderation_policy.v1.json"]
 "capability_exchange.taxonomy" = ["corpus/*.json"]
 
 [tool.pytest.ini_options]
@@ -54,7 +55,7 @@ testpaths = ["tests"]
 # -rs: every skip prints its reason. A hostile fixture that could not run on a
 # host is an unproven gate (HANDOFF 5.1) and must be auditable in the run
 # output, never silent.
-addopts = "-q -rs"
+addopts = "-q -rs --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100

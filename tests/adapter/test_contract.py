@@ -9,17 +9,15 @@ until M4 builds it.
 """
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 from pydantic import ValidationError
 
+from capability_exchange.adaptation.contract import REQUIRED_GUARANTEES, OperationKind
 from capability_exchange.adapter.contract import (
     AdaptCapableUnrepresentableError,
     AdapterContract,
     AdapterMode,
     ArchivePolicy,
     MutationContractRef,
-    MutationContractUnavailableError,
     SymlinkPolicy,
     VersionDetectionMethod,
 )
@@ -145,29 +143,39 @@ class TestContractValidation:
             contract.mode = AdapterMode.ADAPT_CAPABLE  # type: ignore[misc]
 
 
-class TestAdaptCapableUnrepresentableInM1:
-    """Adapt-capable requires a mutation-contract reference, and the
-    reference type cannot be constructed until M4 builds the real thing."""
+def valid_mutation_ref() -> MutationContractRef:
+    return MutationContractRef(
+        contract_id="claude-code-local-mutation",
+        contract_version="1.0.0",
+        operations=(OperationKind.CREATE_NAMESPACED_SKILL,),
+        guarantees=REQUIRED_GUARANTEES,
+    )
 
-    def test_mutation_contract_ref_init_raises(self) -> None:
-        with pytest.raises(MutationContractUnavailableError):
-            MutationContractRef()
 
-    def test_mutation_contract_ref_model_validate_raises(self) -> None:
-        with pytest.raises(MutationContractUnavailableError):
-            MutationContractRef.model_validate({})
+class TestAdaptCapableRequiresProvenM4Contract:
+    """M4 makes Adapt-capable representable only through its closed contract."""
 
-    def test_mutation_contract_ref_model_construct_raises(self) -> None:
-        # model_construct skips validation; the forward declaration must
-        # close that route too.
-        with pytest.raises(MutationContractUnavailableError):
-            MutationContractRef.model_construct()
+    def test_mutation_contract_ref_constructs_from_the_complete_m4_shape(self) -> None:
+        reference = valid_mutation_ref()
+        assert reference.operations == (OperationKind.CREATE_NAMESPACED_SKILL,)
 
-    @settings(max_examples=25, deadline=None)
-    @given(payload=st.dictionaries(st.text(max_size=10), st.text(max_size=10), max_size=3))
-    def test_no_payload_constructs_a_mutation_contract(self, payload: dict) -> None:
-        with pytest.raises(MutationContractUnavailableError):
-            MutationContractRef.model_validate(payload)
+    def test_mutation_contract_ref_rejects_missing_guarantees(self) -> None:
+        with pytest.raises(ValidationError, match="undo"):
+            MutationContractRef(
+                contract_id="claude-code-local-mutation",
+                contract_version="1.0.0",
+                operations=(OperationKind.CREATE_NAMESPACED_SKILL,),
+                guarantees=REQUIRED_GUARANTEES[:-1],
+            )
+
+    def test_mutation_contract_ref_model_construct_cannot_bypass_validation(self) -> None:
+        with pytest.raises(ValidationError):
+            MutationContractRef.model_construct(
+                contract_id="unproven",
+                contract_version="1.0.0",
+                operations=(OperationKind.CREATE_NAMESPACED_SKILL,),
+                guarantees=(),
+            )
 
     def test_adapt_capable_without_mutation_contract_refuses(self) -> None:
         with pytest.raises(AdaptCapableUnrepresentableError, match="Diagnose-only"):
@@ -177,8 +185,17 @@ class TestAdaptCapableUnrepresentableInM1:
         with pytest.raises(AdaptCapableUnrepresentableError):
             AdapterContract(**valid_kwargs(mode="adapt-capable"))
 
-    def test_adapt_capable_via_mutation_contract_payload_refuses(self) -> None:
-        with pytest.raises(MutationContractUnavailableError):
+    def test_adapt_capable_with_complete_mutation_contract_constructs(self) -> None:
+        contract = AdapterContract(
+            **valid_kwargs(
+                mode=AdapterMode.ADAPT_CAPABLE,
+                mutation_contract=valid_mutation_ref(),
+            )
+        )
+        assert contract.mode is AdapterMode.ADAPT_CAPABLE
+
+    def test_adapt_capable_via_incomplete_mutation_contract_payload_refuses(self) -> None:
+        with pytest.raises(ValidationError):
             AdapterContract.model_validate(
                 valid_kwargs(mode="adapt-capable", mutation_contract={})
             )
@@ -191,6 +208,20 @@ class TestAdaptCapableUnrepresentableInM1:
     def test_adapt_capable_via_model_construct_refuses(self) -> None:
         with pytest.raises(AdaptCapableUnrepresentableError):
             AdapterContract.model_construct(**valid_kwargs(mode="adapt-capable"))
+
+    def test_adapt_capable_via_model_construct_accepts_only_typed_reference(self) -> None:
+        contract = AdapterContract.model_construct(
+            **valid_kwargs(
+                mode=AdapterMode.ADAPT_CAPABLE,
+                mutation_contract=valid_mutation_ref(),
+            )
+        )
+        assert contract.mode is AdapterMode.ADAPT_CAPABLE
+
+        with pytest.raises(AdaptCapableUnrepresentableError):
+            AdapterContract.model_construct(
+                **valid_kwargs(mode=AdapterMode.ADAPT_CAPABLE, mutation_contract={})
+            )
 
 
 class TestContractSerializationBoundary:

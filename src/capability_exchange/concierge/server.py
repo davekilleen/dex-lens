@@ -1,4 +1,4 @@
-"""Loopback-only local browser concierge (M3 stages 1-6).
+"""Loopback-only local browser concierge (stages 1-9).
 
 The server is intentionally small and stdlib-only. It has no static asset
 pipeline, no analytics, and no third-party resources; every page is rendered
@@ -8,6 +8,7 @@ single-use bootstrap token, a session cookie, Origin checking, and CSRF.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import secrets
 import tempfile
@@ -20,10 +21,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from capability_exchange.adapter import AdapterResultEnvelope
+from capability_exchange.adaptation.approval import (
+    ApprovalExpiredError,
+    ApprovalMismatchError,
+    ApprovalReplayError,
+)
+from capability_exchange.adaptation.transaction import (
+    AutomationHardStoppedError,
+    RecoveryFailedError,
+    TransactionConflictError,
+    TransactionFailedError,
+    UndoConflictError,
+)
+from capability_exchange.adapter import AdapterContract, AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.boundary.deletion import DeletionError
+from capability_exchange.cards import CapabilityCard
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
@@ -33,7 +47,10 @@ from capability_exchange.concierge.collection import (
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
+    ConciergeStage,
     ContractFields,
+    ContributionIdentityPort,
+    ContributionIntakePort,
     FallbackEvidence,
     FallbackMode,
     JobDraftFields,
@@ -41,10 +58,13 @@ from capability_exchange.concierge.journey import (
     PermissionMetadata,
 )
 from capability_exchange.concierge.security import (
+    ConciergeSessionState,
     SessionSecurity,
     ensure_loopback_bind_address,
 )
 from capability_exchange.concierge.views import render_journey
+from capability_exchange.contribution import PermissionSet
+from capability_exchange.contribution.lifecycle import StorePort
 from capability_exchange.evidence import EvidenceLevel, EvidenceState
 from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
 
@@ -120,6 +140,10 @@ class ConciergeSession:
     fallback: bool = False
     fallback_message: str = ""
     cleanup_error: str = ""
+    contribution_identity: ContributionIdentityPort | None = None
+    contribution_intake: ContributionIntakePort | None = None
+    contribution_stores: tuple[StorePort, ...] = ()
+    adapter_contract: AdapterContract | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -131,11 +155,19 @@ class ConciergeSession:
     )
 
     def __post_init__(self) -> None:
+        contribution_ports = (
+            self.contribution_identity is not None,
+            self.contribution_intake is not None,
+        )
+        if any(contribution_ports) and not all(contribution_ports):
+            raise ValueError("contribution identity and intake ports must be configured together")
         self._consent_scope = ScopeSnapshot.capture(self.approved_roots)
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
-        contract = claude_code_contract(tuple(str(root) for root in self.approved_roots))
+        contract = self.adapter_contract or claude_code_contract(
+            tuple(str(root) for root in self.approved_roots)
+        )
         permission = PermissionMetadata.from_contract(
             contract,
             approved_roots=self.approved_roots,
@@ -150,6 +182,7 @@ class ConciergeSession:
             collector=self._collect_for_journey,
             job_store=Path(self.tempdir.name) / "inspection-jobs",
             now=self.now,
+            adapter_contract=contract,
         )
         self._security = SessionSecurity(
             bootstrap_token=self.bootstrap_token,
@@ -171,6 +204,19 @@ class ConciergeSession:
         """The shared, lock-protected session security state."""
 
         return self._security
+
+    @property
+    def inventory_state(self) -> ConciergeSessionState:
+        """Return the non-secret, inventory-checked browser/session view."""
+
+        references = tuple(
+            "scope:" + hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
+            for root in self.approved_roots
+        )
+        return self._security.inventory_state(
+            approved_scope_references=references,
+            journey_state=self.journey.stage.value,
+        )
 
     def expired(self) -> bool:
         return self._security.expired()
@@ -446,7 +492,114 @@ class ConciergeSession:
     def diagnose(self) -> None:
         with self._state_lock:
             self.journey.diagnose()
+            if (
+                self.contribution_identity is not None
+                and self.contribution_intake is not None
+                and not self.journey.contribution_available
+            ):
+                self.configure_contribution()
             self._sync_journey()
+
+    # M4 stages 7-8 stay behind the same narrow session boundary as the M3
+    # journey.  HTTP handlers only parse bounded form fields and call these
+    # methods; preview, approval, apply, receipt, verification, and undo all
+    # remain domain transitions on ``ConciergeJourney``.
+
+    def select_adaptation(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.select_adaptation(
+                job_id=_required(form, "job_id"),
+                capability_id=_required(form, "capability_id"),
+                approved_skills_root=Path(_required(form, "approved_skills_root")),
+                markdown=_required(form, "markdown"),
+                expected_benefit=_required(form, "expected_benefit"),
+                observable_signal=_required(form, "observable_signal"),
+            )
+
+    def preview_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.preview_adaptation()
+
+    def approve_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.approve_adaptation()
+
+    def apply_adaptation(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            token = _optional(form, "approval_token")
+            self.journey.apply_adaptation(approval_token=token or None)
+
+    def verify_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.verify_adaptation()
+
+    def undo_adaptation(self) -> None:
+        with self._state_lock:
+            self.journey.undo_adaptation()
+
+    def configure_contribution(self) -> None:
+        """Attach external ports after diagnosis without invoking either port."""
+
+        if self.contribution_identity is None or self.contribution_intake is None:
+            raise ValueError("contribution ports are unavailable")
+        self.journey.configure_contribution(
+            identity=self.contribution_identity,
+            intake=self.contribution_intake,
+            stores=self.contribution_stores,
+        )
+
+    def choose_contribution(self) -> None:
+        with self._state_lock:
+            if not self.journey.contribution_available:
+                self.configure_contribution()
+            self.journey.choose_contribution()
+
+    def build_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            card = CapabilityCard.model_validate_json(_required(form, "card_json"))
+            self.journey.build_contribution(card)
+
+    def edit_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            card = CapabilityCard.model_validate_json(_required(form, "card_json"))
+            self.journey.edit_contribution(card)
+
+    def review_contribution(self) -> None:
+        with self._state_lock:
+            self.journey.review_contribution()
+
+    def disclose_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            fields = tuple(form.get("approved_field", ()))
+            self.journey.disclose_contribution(fields)
+
+    def approve_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            granted = set(form.get("permission", ()))
+            allowed = {
+                "review",
+                "storage",
+                "moderation",
+                "attribution",
+                "reuse",
+                "distribution",
+            }
+            unknown = granted - allowed
+            if unknown:
+                raise ValueError("unknown contribution permission")
+            self.journey.approve_contribution(
+                PermissionSet(**{name: name in granted for name in sorted(allowed)})
+            )
+
+    def submit_contribution(self) -> None:
+        with self._state_lock:
+            self.journey.submit_contribution()
+
+    def withdraw_contribution(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.withdraw_contribution(
+                reason=_optional(form, "reason") or "person requested withdrawal"
+            )
 
     def _revalidate_scope(self) -> None:
         missing = tuple(path for path in self.approved_roots if not path.exists())
@@ -460,6 +613,10 @@ def new_session(
     approved_roots: tuple[Path, ...],
     collector: Callable[..., AdapterResultEnvelope],
     now: Callable[[], datetime] = _utc_now,
+    contribution_identity: ContributionIdentityPort | None = None,
+    contribution_intake: ContributionIntakePort | None = None,
+    contribution_stores: tuple[StorePort, ...] = (),
+    adapter_contract: AdapterContract | None = None,
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
     return ConciergeSession(
@@ -467,6 +624,10 @@ def new_session(
         collector=collector,
         now=now,
         expires_at=now() + SESSION_TTL,
+        contribution_identity=contribution_identity,
+        contribution_intake=contribution_intake,
+        contribution_stores=contribution_stores,
+        adapter_contract=adapter_contract,
     )
 
 
@@ -507,7 +668,10 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if not self._valid_session_cookie():
             self._forbidden("session is not valid")
             return
-        if parsed.path == "/session":
+        if parsed.path == "/session" or parsed.path in {
+            "/adaptation/receipt",
+            "/adapt/receipt",
+        }:
             self._send_page(_render_session(self.server.session))
             return
         self._not_found()
@@ -589,6 +753,62 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/diagnose":
             self._journey_action(lambda ignored: self.server.session.diagnose(), form)
             return
+        if parsed.path in {"/adaptation/select", "/adapt/select"}:
+            self._journey_action(self.server.session.select_adaptation, form)
+            return
+        if parsed.path in {"/adaptation/preview", "/adapt/preview"}:
+            self._journey_action(
+                lambda ignored: self.server.session.preview_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/approve", "/adapt/approve"}:
+            self._journey_action(
+                lambda ignored: self.server.session.approve_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/apply", "/adapt/apply"}:
+            self._journey_action(self.server.session.apply_adaptation, form)
+            return
+        if parsed.path in {"/adaptation/verify", "/adapt/verify"}:
+            self._journey_action(
+                lambda ignored: self.server.session.verify_adaptation(), form
+            )
+            return
+        if parsed.path in {"/adaptation/undo", "/adapt/undo"}:
+            self._journey_action(
+                lambda ignored: self.server.session.undo_adaptation(), form
+            )
+            return
+        if parsed.path == "/contribution/choose":
+            self._journey_action(
+                lambda ignored: self.server.session.choose_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/build":
+            self._journey_action(self.server.session.build_contribution, form)
+            return
+        if parsed.path == "/contribution/edit":
+            self._journey_action(self.server.session.edit_contribution, form)
+            return
+        if parsed.path == "/contribution/review":
+            self._journey_action(
+                lambda ignored: self.server.session.review_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/disclose":
+            self._journey_action(self.server.session.disclose_contribution, form)
+            return
+        if parsed.path == "/contribution/approve":
+            self._journey_action(self.server.session.approve_contribution, form)
+            return
+        if parsed.path == "/contribution/submit":
+            self._journey_action(
+                lambda ignored: self.server.session.submit_contribution(), form
+            )
+            return
+        if parsed.path == "/contribution/withdraw":
+            self._journey_action(self.server.session.withdraw_contribution, form)
+            return
         if parsed.path == "/close":
             self.server.session.terminate_and_wait()
             self._send_page(_render_session(self.server.session))
@@ -654,7 +874,32 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             )
             return
         except (JobStoreError, JourneyError, TypeError, ValueError) as exc:
+            if self.server.session.journey.stage in {
+                ConciergeStage.ADAPTATION_REFUSED,
+                ConciergeStage.ADAPTATION_HARD_STOP,
+                ConciergeStage.CONTRIBUTION_WITHDRAW,
+            }:
+                self._send_page(
+                    _render_session(self.server.session),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
             self._bad_request(str(exc))
+            return
+        except (
+            ApprovalExpiredError,
+            ApprovalMismatchError,
+            ApprovalReplayError,
+            AutomationHardStoppedError,
+            RecoveryFailedError,
+            TransactionConflictError,
+            TransactionFailedError,
+            UndoConflictError,
+        ):
+            # The domain transition has already recorded refusal/hard-stop
+            # state.  Render that state instead of leaking a traceback or
+            # attempting an implicit retry from the transport layer.
+            self._send_page(_render_session(self.server.session), status=HTTPStatus.BAD_REQUEST)
             return
         self._send_page(_render_session(self.server.session))
 

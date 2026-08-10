@@ -70,6 +70,14 @@ GUIDED_FALLBACK_MESSAGE = (
 )
 
 _MACOS_PROFILE_PATH = Path(__file__).resolve().parent / "profiles" / "claude_code_containment.sb"
+_MACOS_REQUIRED_PROOFS = frozenset(
+    {"socket-denied", "write-open-denied", "exec-denied"}
+)
+
+_MACOS_RUNTIME_PROBE_SOURCE = (
+    "from capability_exchange.adapters.claude_code.contained import prove_containment; "
+    "print(';'.join(prove_containment()))"
+)
 
 
 def macos_profile_params(executable: str | None = None) -> list[str]:
@@ -105,6 +113,43 @@ def macos_profile_params(executable: str | None = None) -> list[str]:
         "-D",
         f"PYAPP={framework_app if framework_app.is_file() else real}",
     ]
+
+
+def _probe_macos_runtime_proofs(sandbox_exec: str) -> tuple[str, ...]:
+    """Run the shipped profile's probes before enabling deep inspection.
+
+    Seatbelt profiles can parse and launch successfully while enforcing only
+    connect-time network denial.  That is not enough for G1's deep-adapter
+    contract: on macOS the strategy is available only when this host proves
+    the same socket-creation, write, and exec denials the Linux child proves.
+    A failed/ambiguous probe returns no proofs so callers fail closed.
+    """
+
+    argv = [
+        sandbox_exec,
+        *macos_profile_params(),
+        "-f",
+        str(_MACOS_PROFILE_PATH),
+        sys.executable,
+        "-c",
+        _MACOS_RUNTIME_PROBE_SOURCE,
+    ]
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+            argv,
+            capture_output=True,
+            timeout=30,
+            env=_child_environment(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    if completed.returncode != 0:
+        return ()
+    output = completed.stdout.decode("utf-8", "replace").strip()
+    if not output:
+        return ()
+    return tuple(proof for proof in output.split(";") if proof)
 
 
 class ContainmentUnavailableError(Exception):
@@ -150,6 +195,9 @@ class CollectionRequest:
     approved_roots: tuple[str, ...]
     bounds: CollectionBounds = field(default_factory=CollectionBounds)
     timeout_seconds: float = 120.0
+    # Test/diagnostic seam: set after the real child has exited (including a
+    # cancellation kill). It is not serialized into the child request.
+    child_terminated: threading.Event | None = field(default=None, repr=False, compare=False)
 
     def as_payload(self) -> dict[str, object]:
         return {
@@ -187,6 +235,14 @@ def _child_environment() -> dict[str, str]:
     }
     if "HOME" in os.environ:
         environment["HOME"] = os.environ["HOME"]
+    # A test-only FIFO read barrier lets cancellation tests hold the real
+    # contained child before it reaches snapshot collection.  It is copied
+    # only when pytest explicitly supplied it; normal launches never inherit
+    # arbitrary environment variables into the child.
+    barrier = os.environ.get("DEX_LENS_TEST_READ_BARRIER")
+    if barrier and os.environ.get("PYTEST_CURRENT_TEST"):
+        environment["DEX_LENS_TEST_READ_BARRIER"] = barrier
+        environment["PYTEST_CURRENT_TEST"] = os.environ["PYTEST_CURRENT_TEST"]
     return environment
 
 
@@ -197,6 +253,7 @@ def _launch_contained_child(
     layer_reason: str,
     os_enforced: bool,
     cancel_event: threading.Event | None = None,
+    child_terminated: threading.Event | None = None,
 ) -> ContainedCollection:
     """Launch the child (never via a shell), enforce exits, parse the result."""
     try:
@@ -282,6 +339,9 @@ def _launch_contained_child(
             f"could not launch the contained collection process "
             f"({type(exc).__name__})"
         ) from exc
+    finally:
+        if child_terminated is not None:
+            child_terminated.set()
 
     stderr_line = completed.stderr.decode("utf-8", "replace").strip().splitlines()
     stderr_summary = stderr_line[-1] if stderr_line else "(no detail)"
@@ -353,6 +413,7 @@ class LinuxStrategy(ContainmentStrategy):
             layer_reason="child self-confined before any target read; probes proved denial",
             os_enforced=True,
             cancel_event=cancel_event,
+            child_terminated=request.child_terminated,
         )
 
 
@@ -365,10 +426,19 @@ class MacOSStrategy(ContainmentStrategy):
     def availability(self) -> tuple[bool, str]:
         if sys.platform != "darwin":
             return (False, f"MacOSStrategy requires macOS, not {sys.platform!r}")
-        if shutil.which("sandbox-exec") is None:
+        sandbox_exec = shutil.which("sandbox-exec")
+        if sandbox_exec is None:
             return (False, "sandbox-exec not found on this host")
         if not _MACOS_PROFILE_PATH.is_file():
             return (False, f"containment profile missing at {_MACOS_PROFILE_PATH}")
+        proofs = _probe_macos_runtime_proofs(sandbox_exec)
+        missing = sorted(_MACOS_REQUIRED_PROOFS - set(proofs))
+        if missing:
+            return (
+                False,
+                "macOS containment runtime proof cannot deny socket creation and "
+                f"all G1 capabilities (missing: {', '.join(missing)})",
+            )
         return (True, "")
 
     def collect_contained(
@@ -399,6 +469,7 @@ class MacOSStrategy(ContainmentStrategy):
             layer_reason="sandbox-exec profile denies network, writes, and non-interpreter exec",
             os_enforced=True,
             cancel_event=cancel_event,
+            child_terminated=request.child_terminated,
         )
 
 

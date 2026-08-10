@@ -1,0 +1,41 @@
+{
+  "manifest_version": 1,
+  "artifacts": [
+    {"artifact_id": "data-flow-trust-boundary", "path": "../architecture.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "retention-deletion-requirements", "path": "../../src/capability_exchange/boundary/data_inventory.yaml", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "browser-security-requirements", "path": "../../src/capability_exchange/concierge/security.py", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "consent-schema", "path": "../../src/capability_exchange/pilot/protocol.py", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "evidence-schema", "path": "../../src/capability_exchange/pilot/evidence.py", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "card-schema", "path": null, "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "lifecycle-schema", "path": "../../src/capability_exchange/jobs/inspection.py", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "adapter-conformance-suite", "path": "../../tests/conformance", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "hostile-fixtures", "path": "../../tests/fixtures/hostile", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "fault-injection-results", "path": null, "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "incident-runbook", "path": "../runbooks/incident.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "hard-stop-runbook", "path": "../runbooks/hard-stop.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "withdrawal-runbook", "path": "../runbooks/withdrawal.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "key-rotation-runbook", "path": "../runbooks/key-rotation.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "support-runbook", "path": "../runbooks/support.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "risk-register", "path": "../RISK-REGISTER.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "journey-boundaries", "path": "../STATUS.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "domain-state-model", "path": "../architecture.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "adapter-contract", "path": "../../src/capability_exchange/adapter/contract.py", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "testable-gates", "path": "../handoff/sources/gates.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "pilot-protocol", "path": "protocol.json", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "measurement-evidence-templates", "path": "measurement-plan-template.json", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "observed-pilot-evidence", "path": null, "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "assumptions-non-goals", "path": "r7-manifest.json", "present": false, "parseable": false, "synthetic_only": true, "observed": false},
+    {"artifact_id": "critique-responses", "path": "../handoff/critique.md", "present": false, "parseable": false, "synthetic_only": true, "observed": false}
+  ],
+  "risks": [
+    {"risk_id": "R7-PARTICIPANT-EVIDENCE", "description": "No observed real-pilot evidence exists in this build pack.", "owner": null, "status": "open"}
+  ],
+  "observed_pilot_evidence": [],
+  "observed_evidence_status": "absent",
+  "assumptions": ["All evidence in this repository is synthetic or implementation evidence."],
+  "non_goals": ["This pack does not claim a pilot ran, legal review occurred, or independent signoff exists."],
+  "critique_responses": ["The R7 verifier intentionally remains incomplete until observed evidence and signoff are attached."],
+  "tabletop_results": [],
+  "content_hash": null,
+  "independent_signoff": null
+}
