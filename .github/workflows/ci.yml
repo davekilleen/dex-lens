@@ -134,11 +134,15 @@ jobs:
       - name: Run privileged bind-mount hostile fixture
         run: |
           install -d -m 0777 g1-bind-mount-artifact
+          # GitHub's Docker AppArmor profile denies mount(2) even when the
+          # container has SYS_ADMIN. This disposable, networkless fixture
+          # must create the hostile mount before it can prove Lens refuses it.
           docker run --rm \
             --network none \
             --cap-drop=ALL \
             --cap-add=SYS_ADMIN \
             --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
             --security-opt no-new-privileges=true \
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m \

@@ -40,6 +40,7 @@ def request_for(root: Path) -> CollectionRequest:
 
 
 class TestStrategySelection:
+    @linux_only
     def test_default_strategy_is_os_enforced(self) -> None:
         strategy = default_strategy()
         assert strategy.os_enforced

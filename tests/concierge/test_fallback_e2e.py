@@ -167,7 +167,10 @@ def test_http_fallback_reaches_capability_map_without_root_write_or_verified_lab
 
     with RunningServer(unavailable, approved_root=root) as running:
         running.bootstrap()
-        status, _, body = running.post("/approve")
+        status, _, _ = running.post("/approve")
+        assert status == 200
+        running.wait_for_collection()
+        status, _, body = running.request("GET", "/session")
         assert status == 200
         assert "guided" in body.lower()
         assert "Capability Map" not in body
@@ -243,7 +246,10 @@ def test_fallback_decline_exit_keeps_the_approved_tree_byte_identical(
 
     with RunningServer(unavailable, approved_root=root) as running:
         running.bootstrap()
-        status, _, body = running.post("/approve")
+        status, _, _ = running.post("/approve")
+        assert status == 200
+        running.wait_for_collection()
+        status, _, body = running.request("GET", "/session")
         assert status == 200
         assert "guided" in body.lower()
         status, _, body = running.post("/decline")

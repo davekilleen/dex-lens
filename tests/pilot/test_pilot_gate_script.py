@@ -16,6 +16,7 @@ def test_ci_has_release_blocking_exact_pilot_build_gate() -> None:
     assert "needs.g1-bind-mount-gate.result" in workflow
     assert "needs.m3-egress-gate.result" in workflow
     assert "needs.m5-egress-gate.result" in workflow
+    assert "--security-opt apparmor=unconfined" in workflow
 
 
 def test_gate_script_exists_and_is_not_a_declared_pass() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 from pathlib import Path
 from urllib.parse import urlencode
@@ -17,6 +18,10 @@ from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="the deep contained journey requires Linux; macOS proves the guided fallback",
+)
 def test_full_read_only_journey_has_only_loopback_parent_traffic_and_no_leak(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
