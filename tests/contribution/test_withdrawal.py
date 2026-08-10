@@ -6,6 +6,7 @@ import pytest
 from tests.cards.test_model import make_card
 
 from capability_exchange.cards.disclosure import build_disclosure_manifest
+from capability_exchange.cards.model import CardPermissions
 from capability_exchange.contribution.consent import ConsentError, ConsentLedger, PermissionSet
 from capability_exchange.contribution.lifecycle import (
     ContributionLifecycle,
@@ -15,8 +16,21 @@ from capability_exchange.contribution.lifecycle import (
 )
 
 
+def _fully_declared_card():
+    return make_card(
+        permissions=CardPermissions(
+            review=True,
+            storage=True,
+            moderation=True,
+            attribution=True,
+            reuse=True,
+            distribution=True,
+        )
+    )
+
+
 def test_withdrawal_propagates_to_every_controlled_store() -> None:
-    card = make_card()
+    card = _fully_declared_card()
     manifest = build_disclosure_manifest(card, approved_fields=("method",))
     ledger = ConsentLedger()
     ledger.grant(
@@ -45,12 +59,13 @@ def test_withdrawal_propagates_to_every_controlled_store() -> None:
         if store.name != "core-release"
     )
     shipped = next(store for store in stores if store.name == "core-release")
-    assert shipped.non_recallable_versions == {card.version_hash}
+    assert shipped.payloads == {}
+    assert shipped.non_recallable_versions == set()
     assert "cannot be recalled" in contribution.withdrawal_disclosure.lower()
 
 
 def test_failed_propagation_quarantines_store_copy() -> None:
-    card = make_card()
+    card = _fully_declared_card()
     manifest = build_disclosure_manifest(card, approved_fields=("method",))
     ledger = ConsentLedger()
     ledger.grant(
@@ -74,7 +89,7 @@ def test_failed_propagation_quarantines_store_copy() -> None:
 
 
 def test_withdrawal_does_not_delete_a_shipped_core_release() -> None:
-    card = make_card()
+    card = _fully_declared_card()
     manifest = build_disclosure_manifest(card, approved_fields=("method",))
     ledger = ConsentLedger()
     ledger.grant(
@@ -94,8 +109,8 @@ def test_withdrawal_does_not_delete_a_shipped_core_release() -> None:
     contribution = lifecycle.draft(card, manifest, contributor_secret=b"secret")
     lifecycle.submit(contribution)
     lifecycle.withdraw(contribution, reason="person requested withdrawal")
-    assert shipped.payloads[card.version_hash] == manifest.payload_bytes
-    assert shipped.non_recallable_versions == {card.version_hash}
+    assert shipped.payloads == {}
+    assert shipped.non_recallable_versions == set()
     with pytest.raises(ConsentError):
         lifecycle.draft(card, manifest, contributor_secret=b"secret")
     with pytest.raises(IllegalTransition, match="already withdrawn"):

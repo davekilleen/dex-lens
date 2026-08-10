@@ -611,10 +611,20 @@ def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
           </div>
         """
     elif stage is ConciergeStage.CONTRIBUTION_WITHDRAW and contribution is not None:
-        if contribution.state.value == "withdrawn":
+        if contribution.state.value == "withdrawn" and not journey.has_pending_withdrawal:
             detail = """
               <p><strong>Withdrawal is complete.</strong> Local consent and every
               controlled use stopped immediately.</p>
+            """
+        elif contribution.state.value == "withdrawn":
+            detail = f"""
+              <p><strong>Local withdrawal is complete; intake withdrawal is still pending.</strong>
+              No further local use is allowed. Retry uses the retained private revocation
+              authority and must return an affirmative receipt.</p>
+              <form method="post" action="/contribution/withdraw">{_csrf(csrf_token)}
+                <input type="hidden" name="reason" value="retry pending intake withdrawal">
+                <button type="submit">Retry intake withdrawal</button>
+              </form>
             """
         else:
             detail = f"""

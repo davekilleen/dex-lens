@@ -14,7 +14,7 @@ import re
 from enum import StrEnum
 from typing import Any, Literal, Self, final
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 
@@ -63,12 +63,12 @@ class CardPermissions(InventoriedModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    review: bool | None
-    storage: bool | None
-    moderation: bool | None
-    attribution: bool | None
-    reuse: bool | None
-    distribution: bool | None
+    review: StrictBool | None
+    storage: StrictBool | None
+    moderation: StrictBool | None
+    attribution: StrictBool | None
+    reuse: StrictBool | None
+    distribution: StrictBool | None
 
     @model_validator(mode="before")
     @classmethod
@@ -128,7 +128,7 @@ class CardRights(InventoriedModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
     license_status: str
-    rights_attested: bool
+    rights_attested: StrictBool
 
     @field_validator("license_status")
     @classmethod

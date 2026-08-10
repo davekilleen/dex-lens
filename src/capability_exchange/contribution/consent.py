@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import final
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, StrictBool, ValidationError
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.cards.disclosure import DisclosureManifest
@@ -46,12 +46,12 @@ class PermissionSet(InventoriedModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    review: bool | None
-    storage: bool | None
-    moderation: bool | None
-    attribution: bool | None
-    reuse: bool | None
-    distribution: bool | None
+    review: StrictBool | None
+    storage: StrictBool | None
+    moderation: StrictBool | None
+    attribution: StrictBool | None
+    reuse: StrictBool | None
+    distribution: StrictBool | None
 
     @property
     def granted(self) -> frozenset[Permission]:
@@ -103,7 +103,7 @@ class ConsentRecord(InventoriedModel):
     manifest_hash: str
     permissions: PermissionSet
     consented_at: datetime
-    withdrawn: bool = False
+    withdrawn: StrictBool = False
 
     @classmethod
     def now(
@@ -115,6 +115,7 @@ class ConsentRecord(InventoriedModel):
         card = require_valid_card(card)
         if not manifest.verify_card(card):
             raise ConsentError("disclosure manifest does not match this Card version")
+        permissions = PermissionSet.model_validate(dict(permissions.__dict__))
         return cls(
             card_id=card.card_id,
             card_version_hash=card.version_hash,
@@ -145,10 +146,27 @@ class ConsentLedger:
             ) from exc
         if card.version_hash in self._withdrawn_versions:
             raise ConsentError("this immutable Card version was withdrawn and cannot be re-granted")
+        if any(version_hash == card.version_hash for version_hash, _ in self._records):
+            raise ConsentError("consent for this immutable Card version is already recorded")
         if not manifest.verify_card(card):
             raise ConsentError("disclosure manifest does not match this Card version")
-        if not card.rights.rights_attested:
+        if card.rights.rights_attested is not True:
             raise ConsentError("rights attestation is required before version consent")
+        try:
+            permissions = PermissionSet.model_validate(dict(permissions.__dict__))
+        except (AttributeError, ValidationError) as exc:
+            raise ConsentError("permission grant failed exact validation") from exc
+        undeclared = tuple(
+            permission.value
+            for permission in Permission
+            if getattr(permissions, permission.value) is True
+            and getattr(card.permissions, permission.value) is not True
+        )
+        if undeclared:
+            raise ConsentError(
+                "consent permissions exceed those declared by the Card: "
+                + ", ".join(undeclared)
+            )
         record = ConsentRecord.now(card, manifest, permissions)
         self._records[(card.version_hash, manifest.byte_hash)] = record
         return record

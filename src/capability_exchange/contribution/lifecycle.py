@@ -75,7 +75,7 @@ class ModerationTrustPort(Protocol):
     def verify_attestation(self, card: CapabilityCard, attestation: object) -> bool: ...
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class InMemoryStore:
     """Synthetic controlled store used by tests and local lifecycle adapters."""
 
@@ -88,16 +88,19 @@ class InMemoryStore:
     non_recallable_versions: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
-        # A shipped Core release is outside Exchange control.  Keep its bytes
-        # and record the honest non-recallable boundary on withdrawal.
+        # A shipped Core release is outside Exchange control. Ordinary
+        # contribution writes are refused; any future Core adoption needs a
+        # separate policy and port rather than mutating this classification.
         if self.name == "core-release":
             if self.recallable is True:
                 raise ValueError("core-release stores are permanently non-recallable")
-            self.recallable = False
+            object.__setattr__(self, "recallable", False)
         elif self.recallable is None:
-            self.recallable = True
+            object.__setattr__(self, "recallable", True)
 
     def put(self, version_hash: str, payload: bytes) -> None:
+        if self.recallable is not True:
+            raise ValueError("ordinary contribution writes require a recallable controlled store")
         if version_hash not in self.withdrawn_versions:
             self.payloads[version_hash] = bytes(payload)
 
@@ -193,6 +196,7 @@ class ContributionLifecycle:
         self.stores = tuple(stores)
         self.consent = consent
         self._moderation = moderation if moderation is not None else moderation_service
+        self._pending_withdrawals: dict[str, list[StorePort]] = {}
 
     @property
     def moderation(self) -> ModerationTrustPort | None:
@@ -266,9 +270,10 @@ class ContributionLifecycle:
             raise PermissionDenied("immutable moderation attestation is required before review")
         try:
             attestation = self._moderation.attestation_for(contribution.card)
-            trusted = attestation is not None and self._moderation.verify_attestation(
+            verdict = attestation is not None and self._moderation.verify_attestation(
                 contribution.card, attestation
             )
+            trusted = verdict is True and type(verdict) is bool
         except Exception:  # noqa: BLE001 - trust ports fail closed
             trusted = False
         if not trusted:
@@ -294,7 +299,11 @@ class ContributionLifecycle:
         outbound = self.consent.authorize_outbound(contribution.card, contribution.manifest)
         self._transition(contribution, ContributionState.SUBMITTED)
         for store in self.stores:
-            if permissions.storage is True:
+            if (
+                permissions.storage is True
+                and store.name != "core-release"
+                and getattr(store, "recallable", True) is True
+            ):
                 store.put(contribution.version_hash, outbound)
         return contribution
 
@@ -303,7 +312,10 @@ class ContributionLifecycle:
         self._transition(contribution, ContributionState.QUARANTINED)
         contribution.audit_events.append("quarantine:" + _safe_reason(reason))
         for store in self.stores:
-            store.quarantine(contribution.version_hash)
+            try:
+                store.quarantine(contribution.version_hash)
+            except Exception:  # noqa: BLE001 - each controlled store is isolated
+                contribution.audit_events.append("quarantine-failed:" + store.name)
         return contribution
 
     def mark_reviewed(self, contribution: Contribution) -> Contribution:
@@ -364,18 +376,46 @@ class ContributionLifecycle:
     def _propagate_withdrawal(self, contribution: Contribution) -> None:
         for store in self.stores:
             if getattr(store, "recallable", True) is False:
-                marker = getattr(store, "mark_non_recallable", None)
-                if callable(marker):
-                    marker(contribution.version_hash)
-                contribution.audit_events.append("withdrawal-non-recallable:" + store.name)
+                # Ordinary contribution submission never writes this class of
+                # store, so there is no controlled copy to recall or mark.
+                contribution.audit_events.append("withdrawal-not-applicable:" + store.name)
                 continue
             try:
                 store.withdraw(contribution.version_hash)
             except Exception:  # noqa: BLE001 - a failed controlled port quarantines its copy
-                store.quarantine(contribution.version_hash)
-                contribution.audit_events.append("withdrawal-quarantined:" + store.name)
+                try:
+                    store.quarantine(contribution.version_hash)
+                except Exception:  # noqa: BLE001 - later stores must still receive withdrawal
+                    contribution.audit_events.append("withdrawal-unconfirmed:" + store.name)
+                    pending = self._pending_withdrawals.setdefault(
+                        contribution.version_hash, []
+                    )
+                    if all(candidate is not store for candidate in pending):
+                        pending.append(store)
+                else:
+                    contribution.audit_events.append("withdrawal-quarantined:" + store.name)
             else:
                 contribution.audit_events.append("withdrawal-propagated:" + store.name)
+
+    def has_pending_withdrawal(self, version_hash: str) -> bool:
+        return bool(self._pending_withdrawals.get(version_hash))
+
+    def retry_pending_withdrawals(self, version_hash: str) -> bool:
+        """Retry only stores whose withdraw and quarantine both failed."""
+
+        pending = self._pending_withdrawals.pop(version_hash, [])
+        remaining: list[StorePort] = []
+        for store in pending:
+            try:
+                store.withdraw(version_hash)
+            except Exception:  # noqa: BLE001 - retry quarantine before retaining recovery
+                try:
+                    store.quarantine(version_hash)
+                except Exception:  # noqa: BLE001 - retain for another explicit retry
+                    remaining.append(store)
+        if remaining:
+            self._pending_withdrawals[version_hash] = remaining
+        return not remaining
 
 
 def _safe_reason(reason: str) -> str:

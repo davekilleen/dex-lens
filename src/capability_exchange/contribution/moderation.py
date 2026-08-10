@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import secrets
 from collections.abc import Callable, Mapping
@@ -12,7 +11,7 @@ from html import escape
 from types import MappingProxyType
 from typing import Protocol, final
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, StrictBool, field_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.cards.model import CapabilityCard
@@ -36,6 +35,7 @@ __all__ = [
     "ScannerPort",
     "AttestationSigner",
     "AttestationVerifier",
+    "PrincipalIdentityPort",
 ]
 
 
@@ -70,6 +70,12 @@ class AttestationVerifier(Protocol):
     def verify(self, payload: bytes, signature: str, key_id: str) -> bool: ...
 
 
+class PrincipalIdentityPort(Protocol):
+    """Trusted authentication seam; request callers never supply identities."""
+
+    def authenticated_principal(self) -> str: ...
+
+
 @final
 class ModerationResult(InventoriedModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -77,7 +83,7 @@ class ModerationResult(InventoriedModel):
     card_version_hash: str
     status: ModerationStatus
     reason_codes: tuple[str, ...]
-    reviewable: bool
+    reviewable: StrictBool
 
 
 @final
@@ -86,9 +92,10 @@ class ModerationAttestation(InventoriedModel):
 
     card_version_hash: str
     reviewer_id: str
-    rights_attested: bool
-    conflict_declared: bool
-    scanner_passed: bool
+    contributor_id: str
+    rights_attested: StrictBool
+    conflict_declared: StrictBool
+    scanner_passed: StrictBool
     scanner_id: str
     scanner_version: str
     scanner_reason_codes: tuple[str, ...]
@@ -100,6 +107,7 @@ class ModerationAttestation(InventoriedModel):
     @field_validator(
         "card_version_hash",
         "reviewer_id",
+        "contributor_id",
         "scanner_id",
         "scanner_version",
         "scanner_result_hash",
@@ -124,30 +132,11 @@ class ModerationAttestation(InventoriedModel):
         return result
 
 
-class _HmacAttestationTrust:
-    """Small local default trust port; production injects a real signer."""
-
-    def __init__(self, secret: bytes, *, key_id: str) -> None:
-        self._secret = bytes(secret)
-        self._key_id = key_id
-
-    def sign(self, payload: bytes, key_id: str) -> str:
-        if key_id != self._key_id:
-            raise ValueError("attestation key id is not trusted")
-        digest = hmac.new(self._secret, key_id.encode("utf-8") + b"\0" + payload, hashlib.sha256)
-        return "hmac-sha256:" + digest.hexdigest()
-
-    def verify(self, payload: bytes, signature: str, key_id: str) -> bool:
-        if key_id != self._key_id:
-            return False
-        expected = self.sign(payload, key_id)
-        return hmac.compare_digest(expected, signature)
-
-
 def _attestation_payload(
     *,
     card_version_hash: str,
     reviewer_id: str,
+    contributor_id: str,
     rights_attested: bool,
     conflict_declared: bool,
     scanner_passed: bool,
@@ -161,6 +150,7 @@ def _attestation_payload(
         {
             "card_version_hash": card_version_hash,
             "reviewer_id": reviewer_id,
+            "contributor_id": contributor_id,
             "rights_attested": rights_attested,
             "conflict_declared": conflict_declared,
             "scanner_passed": scanner_passed,
@@ -207,10 +197,14 @@ class ModerationService:
         verifier: AttestationVerifier
         | Callable[[bytes, str, str], bool]
         | None = None,
+        reviewer_identity: PrincipalIdentityPort | None = None,
+        contributor_identity: PrincipalIdentityPort | None = None,
         attestation_key_id: str = "moderation-1",
+        trusted_scanners: set[tuple[str, str]] | None = None,
+        trusted_key_ids: set[str] | None = None,
     ) -> None:
         self.eligible_reviewers = frozenset(
-            {"dave"} if eligible_reviewers is None else eligible_reviewers
+            set() if eligible_reviewers is None else eligible_reviewers
         )
         self._local_secret = (
             secrets.token_bytes(32) if local_secret is None else bytes(local_secret)
@@ -218,12 +212,14 @@ class ModerationService:
         if not self._local_secret:
             raise ValueError("local moderation secret must be non-empty")
         self._scanner = scanner
-        default_trust = _HmacAttestationTrust(
-            secrets.token_bytes(32), key_id=attestation_key_id
-        )
-        self._signer = signer or default_trust
-        self._verifier = verifier or default_trust
+        self._signer = signer
+        self._verifier = verifier
+        self._reviewer_identity = reviewer_identity
+        self._contributor_identity = contributor_identity
         self._attestation_key_id = attestation_key_id
+        self._trusted_key_ids = frozenset(
+            set() if trusted_key_ids is None else trusted_key_ids
+        )
         self._scanner_id = (
             "capability-card-validator"
             if scanner is None
@@ -231,6 +227,11 @@ class ModerationService:
         )
         self._scanner_version = (
             "1" if scanner is None else str(getattr(scanner, "scanner_version", ""))
+        )
+        self._trusted_scanners = frozenset(
+            {("capability-card-validator", "1")}
+            if trusted_scanners is None
+            else trusted_scanners
         )
         self._attestations: dict[str, ModerationAttestation] = {}
 
@@ -245,6 +246,8 @@ class ModerationService:
             require_valid_card(card)
             if not self._scanner_id.strip() or not self._scanner_version.strip():
                 raise ScannerUnavailable("scanner identity/version is not declared")
+            if (self._scanner_id, self._scanner_version) not in self._trusted_scanners:
+                raise ScannerUnavailable("scanner identity/version is not allowlisted")
             if self._scanner is None:
                 issues = validate_card(card)
             elif callable(self._scanner):
@@ -338,7 +341,18 @@ class ModerationService:
                 return False
             if attestation.key_id != self._attestation_key_id:
                 return False
+            if attestation.key_id not in self._trusted_key_ids or self._verifier is None:
+                return False
             if attestation.reviewer_id not in self.eligible_reviewers:
+                return False
+            if self._contributor_identity is None:
+                return False
+            contributor_id = self._contributor_identity.authenticated_principal()
+            if (
+                not isinstance(contributor_id, str)
+                or attestation.contributor_id != contributor_id
+                or attestation.reviewer_id == attestation.contributor_id
+            ):
                 return False
             if not (
                 attestation.scanner_passed
@@ -364,6 +378,7 @@ class ModerationService:
             payload = _attestation_payload(
                 card_version_hash=attestation.card_version_hash,
                 reviewer_id=attestation.reviewer_id,
+                contributor_id=attestation.contributor_id,
                 rights_attested=attestation.rights_attested,
                 conflict_declared=attestation.conflict_declared,
                 scanner_passed=attestation.scanner_passed,
@@ -374,12 +389,14 @@ class ModerationService:
                 key_id=attestation.key_id,
             )
             if callable(self._verifier):
-                return bool(
-                    self._verifier(payload, attestation.signature, attestation.key_id)
+                verified = self._verifier(
+                    payload, attestation.signature, attestation.key_id
                 )
-            return bool(
-                self._verifier.verify(payload, attestation.signature, attestation.key_id)
-            )
+            else:
+                verified = self._verifier.verify(
+                    payload, attestation.signature, attestation.key_id
+                )
+            return verified is True
         except Exception:  # noqa: BLE001 - trust failures fail closed
             return False
 
@@ -390,26 +407,37 @@ class ModerationService:
         self,
         card: CapabilityCard,
         *,
-        reviewer_id: str,
-        contributor_ref: str,
         rights_attested: bool,
         conflict_declared: bool = False,
         conflict_of_interest: bool = False,
     ) -> ModerationAttestation:
+        if (
+            not self.eligible_reviewers
+            or self._reviewer_identity is None
+            or self._contributor_identity is None
+            or self._signer is None
+            or self._verifier is None
+        ):
+            raise ValueError("authenticated reviewer authority is unavailable")
+        if self._attestation_key_id not in self._trusted_key_ids:
+            raise ValueError("moderation attestation trust root is not pinned")
+        reviewer_id = self._reviewer_identity.authenticated_principal()
+        contributor_id = self._contributor_identity.authenticated_principal()
+        if not isinstance(reviewer_id, str) or not reviewer_id.strip():
+            raise ValueError("authenticated reviewer authority returned no principal")
+        if not isinstance(contributor_id, str) or not contributor_id.strip():
+            raise ValueError("authenticated contributor authority returned no principal")
         if reviewer_id not in self.eligible_reviewers:
             raise ValueError("reviewer is not eligible for this moderation port")
-        if not contributor_ref.strip():
-            raise ValueError("contributor reference is required for conflict checks")
-        authenticated_contributor = self.contributor_ref(card)
-        if contributor_ref != authenticated_contributor:
-            raise ValueError("authenticated contributor reference does not match this Card version")
-        if reviewer_id == authenticated_contributor:
+        if reviewer_id == contributor_id:
             raise ValueError("conflict: a contributor cannot approve their own Card version")
-        if conflict_of_interest:
+        if type(conflict_of_interest) is not bool or conflict_of_interest is True:
             raise ValueError("conflict: reviewer declared a conflict of interest")
-        if not rights_attested or not card.rights.rights_attested:
+        if type(rights_attested) is not bool or rights_attested is not True:
             raise ValueError("rights attestation is required before approval")
-        if not conflict_declared:
+        if card.rights.rights_attested is not True:
+            raise ValueError("rights attestation is required before approval")
+        if type(conflict_declared) is not bool or conflict_declared is not True:
             raise ValueError("conflict declaration is required before approval")
         scanned = self.scan(card)
         if scanned.status is not ModerationStatus.SCANNED:
@@ -423,6 +451,7 @@ class ModerationService:
         payload = _attestation_payload(
             card_version_hash=card.version_hash,
             reviewer_id=reviewer_id,
+            contributor_id=contributor_id,
             rights_attested=True,
             conflict_declared=True,
             scanner_passed=True,
@@ -436,11 +465,14 @@ class ModerationService:
             signature = self._signer(payload, key_id)
         else:
             signature = self._signer.sign(payload, key_id)
+        if not isinstance(signature, str) or not signature:
+            raise ValueError("moderation signing authority returned no signature")
         digest = hashlib.sha256(payload).hexdigest()
         attestation_id = f"moderation:{card.version_hash}:{reviewer_id}:{digest}"
         attestation = ModerationAttestation(
             card_version_hash=card.version_hash,
             reviewer_id=reviewer_id,
+            contributor_id=contributor_id,
             rights_attested=True,
             conflict_declared=True,
             scanner_passed=True,
@@ -475,14 +507,22 @@ class DaveFinalApprovalPort:
         verifier: AttestationVerifier
         | Callable[[bytes, str, str], bool]
         | None = None,
+        reviewer_identity: PrincipalIdentityPort | None = None,
+        contributor_identity: PrincipalIdentityPort | None = None,
         attestation_key_id: str = "moderation-1",
+        trusted_scanners: set[tuple[str, str]] | None = None,
+        trusted_key_ids: set[str] | None = None,
     ) -> None:
         self._service = ModerationService(
             eligible_reviewers=eligible_reviewers,
             local_secret=local_secret,
             signer=signer,
             verifier=verifier,
+            reviewer_identity=reviewer_identity,
+            contributor_identity=contributor_identity,
             attestation_key_id=attestation_key_id,
+            trusted_scanners=trusted_scanners,
+            trusted_key_ids=trusted_key_ids,
         )
 
     def approve(self, card: CapabilityCard, **kwargs: object) -> ModerationAttestation:

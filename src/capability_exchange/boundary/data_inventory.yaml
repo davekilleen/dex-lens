@@ -12,8 +12,12 @@
 #
 # Diagnosis remains ephemeral and telemetry-free. M5 opens exactly one reviewed
 # sharing field: the user-previewed canonical DisclosureManifest bytes may
-# cross the contribution-intake port. No wrapper, identifier, header, consent
-# record, or other product field is transmissible.
+# cross the contribution-intake port. It remains the sole request-body/product
+# field: no wrapper, Card identifier, header, or consent record joins those
+# bytes. A separate opaque control capability (manifest-byte digest plus private
+# revocation token) authenticates intake correlation and withdrawal receipts;
+# it is never part of the payload, rendered, inventoried as product data, or
+# persisted by the local journey.
 
 inventory_version: 2
 
@@ -2083,6 +2087,16 @@ fields:
     description: "eligible reviewer identity for one moderation decision"
     collection: "selected from reviewer access port"
     derivation: "conflict rules checked before approval"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.contributor_id:
+    description: "authenticated contributor identity bound to the moderation decision"
+    collection: "resolved by the trusted contributor identity port"
+    derivation: "signed with the attestation; equality with reviewer identity refuses approval"
     display: "shown in moderation audit"
     storage: none
     sharing: never

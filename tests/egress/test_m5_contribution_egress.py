@@ -22,9 +22,10 @@ from capability_exchange.contribution import InMemoryStore
 
 def test_intake_contract_has_one_positional_payload_and_no_transport_wrapper() -> None:
     parameters = tuple(inspect.signature(ContributionIntakePort.submit).parameters.values())
-    assert tuple(parameter.name for parameter in parameters) == ("self", "payload")
+    assert tuple(parameter.name for parameter in parameters) == ("self", "payload", "handle")
     assert parameters[1].kind is inspect.Parameter.POSITIONAL_ONLY
     assert parameters[1].annotation in {bytes, "bytes"}
+    assert parameters[2].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_m5_egress_equals_disclosure_payload_bytes_and_opens_no_socket(

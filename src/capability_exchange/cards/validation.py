@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from capability_exchange.cards.model import CapabilityCard
 
@@ -162,6 +162,27 @@ def _flatten_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
     return []
 
 
+def _plain_data(value: Any) -> Any:
+    """Recursively detach Pydantic instances from their validation shortcuts.
+
+    Pydantic intentionally trusts already-created nested model instances.  Card
+    boundaries cannot: hostile callers can create those instances through
+    ``model_construct`` or mutate them through ``model_copy(update=...)``.
+    Walking ``__dict__`` turns every nested model back into ordinary input so
+    the complete schema and all strict fields run again.
+    """
+
+    if isinstance(value, BaseModel):
+        return {name: _plain_data(item) for name, item in value.__dict__.items()}
+    if isinstance(value, Mapping):
+        return {key: _plain_data(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_plain_data(item) for item in value)
+    if isinstance(value, list):
+        return [_plain_data(item) for item in value]
+    return value
+
+
 def _structural_issues(payload: object) -> tuple[CapabilityCard | None, list[ValidationIssue]]:
     issues: list[ValidationIssue] = []
     if isinstance(payload, CapabilityCard):
@@ -169,7 +190,7 @@ def _structural_issues(payload: object) -> tuple[CapabilityCard | None, list[Val
         # deliberately unvalidated escape hatches. Treat an existing instance
         # as untrusted input and rebuild it through the schema instead of
         # accepting its Python type as proof that validation ran.
-        payload = dict(payload.__dict__)
+        payload = _plain_data(payload)
     if not isinstance(payload, Mapping):
         return None, [
             ValidationIssue("card", ReasonCode.SCHEMA, "Card must be a mapping or CapabilityCard")
@@ -301,7 +322,7 @@ def require_valid_card(payload: CapabilityCard | Mapping[str, Any]) -> Capabilit
     issues = validate_card(payload)
     if issues:
         raise CardValidationError(issues)
-    raw = dict(payload.__dict__) if isinstance(payload, CapabilityCard) else payload
+    raw = _plain_data(payload)
     # ``validate_card`` has already parsed the same values; parsing once more
     # returns a fresh validated object and never retains a bypass-constructed
     # or model-copy-mutated instance.

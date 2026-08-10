@@ -12,6 +12,7 @@ from capability_exchange.cards.disclosure import (
     DisclosureManifest,
     build_disclosure_manifest,
 )
+from capability_exchange.cards.model import CardPermissions
 from capability_exchange.contribution.consent import (
     ConsentError,
     ConsentLedger,
@@ -135,7 +136,16 @@ def test_hostile_card_cannot_reach_consent_or_outbound_manifest() -> None:
 
 
 def test_withdrawal_revokes_consent_and_blocks_same_version_redraft() -> None:
-    card = make_card()
+    card = make_card(
+        permissions=CardPermissions(
+            review=True,
+            storage=True,
+            moderation=True,
+            attribution=True,
+            reuse=True,
+            distribution=True,
+        )
+    )
     manifest = build_disclosure_manifest(card, approved_fields=("method",))
     ledger = ConsentLedger()
     ledger.grant(

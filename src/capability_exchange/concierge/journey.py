@@ -9,9 +9,12 @@ render the corresponding view.  In particular, the journey never constructs a
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -72,8 +75,11 @@ __all__ = [
     "AdaptationRefusedError",
     "AdaptationSelection",
     "ContributionEgressError",
+    "ContributionHandle",
     "ContributionIdentityPort",
     "ContributionIntakePort",
+    "SubmissionReceipt",
+    "WithdrawalReceipt",
     "JourneyError",
     "JourneyStateError",
 ]
@@ -109,14 +115,58 @@ class ContributionIdentityPort(Protocol):
         """Return local secret material used only for pseudonymous provenance."""
 
 
+@dataclass(frozen=True, slots=True)
+class ContributionHandle:
+    """Private control-plane handle bound to exact payload bytes.
+
+    The Card version identifier is deliberately absent.  Intake correlates the
+    payload by its manifest byte hash and proves later revocation authority with
+    the private token.  The token is never rendered or included in ``repr``.
+    """
+
+    manifest_byte_hash: str
+    revocation_token: str = dataclass_field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.manifest_byte_hash):
+            raise ValueError("contribution handle requires an exact manifest byte hash")
+        if not isinstance(self.revocation_token, str) or len(self.revocation_token) < 32:
+            raise ValueError("contribution handle requires private revocation authority")
+
+    @property
+    def receipt_binding(self) -> str:
+        material = (
+            self.manifest_byte_hash.encode("ascii")
+            + b"\0"
+            + self.revocation_token.encode("ascii")
+        )
+        return "sha256:" + hashlib.sha256(material).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionReceipt:
+    manifest_byte_hash: str
+    handle_binding: str
+    accepted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawalReceipt:
+    manifest_byte_hash: str
+    handle_binding: str
+    withdrawn: bool
+
+
 class ContributionIntakePort(Protocol):
     """Narrow contribution seam: exact bytes in, version withdrawal out."""
 
-    def submit(self, payload: bytes, /) -> None:
-        """Accept exactly the ledger-authorized disclosure bytes."""
+    def submit(
+        self, payload: bytes, /, *, handle: ContributionHandle
+    ) -> SubmissionReceipt:
+        """Accept exact disclosure bytes plus a separate private control handle."""
 
-    def withdraw(self, card_version_hash: str, /) -> None:
-        """Stop intake use of one immutable Card version immediately."""
+    def withdraw(self, handle: ContributionHandle, /) -> WithdrawalReceipt:
+        """Revoke the exact accepted payload and prove it was previously active."""
 
 
 class ConciergeStage(StrEnum):
@@ -557,6 +607,10 @@ class ConciergeJourney:
         self._contribution_card: CapabilityCard | None = None
         self._contribution_manifest: DisclosureManifest | None = None
         self._contribution: Contribution | None = None
+        self._contribution_handle: ContributionHandle | None = None
+        self._pending_withdrawal_version_hash: str | None = None
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
 
     def configure_contribution(
         self,
@@ -602,6 +656,12 @@ class ConciergeJourney:
     @property
     def contribution_available(self) -> bool:
         return self._contribution_identity is not None and self._contribution_intake is not None
+
+    @property
+    def has_pending_withdrawal(self) -> bool:
+        """Whether close/expiry retained enough authority to retry intake revocation."""
+
+        return self._pending_withdrawal
 
     @staticmethod
     def _require_job_store_outside_scope(
@@ -1519,8 +1579,35 @@ class ConciergeJourney:
         self._contribution_consent = ledger
         self._contribution_lifecycle = lifecycle
         self._contribution = contribution
+        token_digest = hmac.new(
+            secret,
+            b"contribution-withdrawal\0" + manifest.byte_hash.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        self._contribution_handle = ContributionHandle(
+            manifest_byte_hash=manifest.byte_hash,
+            revocation_token="revocation-v1:" + token_digest,
+        )
+        self._intake_submission_attempted = False
+        self._pending_withdrawal = False
         self.stage = ConciergeStage.CONTRIBUTION_SUBMIT
         return contribution
+
+    @staticmethod
+    def _receipt_matches(
+        receipt: object,
+        handle: ContributionHandle,
+        *,
+        confirmation_field: str,
+    ) -> bool:
+        """Require an exact, handle-bound positive receipt; truthy values fail."""
+
+        return (
+            getattr(receipt, "manifest_byte_hash", None) == handle.manifest_byte_hash
+            and getattr(receipt, "handle_binding", None) == handle.receipt_binding
+            and getattr(receipt, confirmation_field, None) is True
+            and type(getattr(receipt, confirmation_field, None)) is bool
+        )
 
     def submit_contribution(self) -> Contribution:
         """Submit locally, then send one ledger-authorized positional byte value."""
@@ -1532,9 +1619,10 @@ class ConciergeJourney:
         ledger = self._contribution_consent
         lifecycle = self._contribution_lifecycle
         intake = self._contribution_intake
+        handle = self._contribution_handle
         if any(
             value is None
-            for value in (card, manifest, contribution, ledger, lifecycle, intake)
+            for value in (card, manifest, contribution, ledger, lifecycle, intake, handle)
         ):
             raise ContributionEgressError("contribution approval state is incomplete")
         assert isinstance(card, CapabilityCard)
@@ -1542,6 +1630,7 @@ class ConciergeJourney:
         assert isinstance(contribution, Contribution)
         assert isinstance(ledger, ConsentLedger)
         assert isinstance(lifecycle, ContributionLifecycle)
+        assert isinstance(handle, ContributionHandle)
         assert intake is not None
         if contribution.card.version_hash != card.version_hash or contribution.manifest != manifest:
             raise ContributionEgressError(
@@ -1561,14 +1650,24 @@ class ConciergeJourney:
         if submitted.state is not ContributionState.SUBMITTED:
             self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
             raise ContributionEgressError("contribution was withdrawn before intake submission")
+        self._intake_submission_attempted = True
         try:
-            intake.submit(outbound)
+            receipt = intake.submit(outbound, handle=handle)
         except Exception as exc:
             lifecycle.quarantine(contribution, "intake did not confirm exact-byte submission")
             self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            self._pending_withdrawal = True
             raise ContributionEgressError(
                 "intake did not confirm exact-byte submission; the Card is quarantined"
             ) from exc
+        if not self._receipt_matches(receipt, handle, confirmation_field="accepted"):
+            lifecycle.quarantine(contribution, "intake returned an invalid submission receipt")
+            self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "intake submission receipt was not exact and affirmative; the Card is quarantined"
+            )
+        self._pending_withdrawal = True
         self.stage = ConciergeStage.CONTRIBUTION_WITHDRAW
         return submitted
 
@@ -1579,23 +1678,117 @@ class ConciergeJourney:
         contribution = self._contribution
         lifecycle = self._contribution_lifecycle
         intake = self._contribution_intake
-        if contribution is None or lifecycle is None or intake is None:
+        handle = self._contribution_handle
+        if contribution is None or lifecycle is None or intake is None or handle is None:
             raise JourneyStateError("there is no approved contribution to withdraw")
         if contribution.state is not ContributionState.WITHDRAWN:
             lifecycle.withdraw(contribution, reason=reason)
+        self._pending_withdrawal_version_hash = contribution.version_hash
+        local_pending = lifecycle.has_pending_withdrawal(contribution.version_hash)
+        if not self._intake_submission_attempted:
+            self._pending_withdrawal = local_pending
+            return contribution
         try:
-            intake.withdraw(contribution.version_hash)
+            receipt = intake.withdraw(handle)
         except Exception as exc:
+            self._pending_withdrawal = True
             raise ContributionEgressError(
                 "local withdrawal is immediate, but intake withdrawal was not confirmed"
             ) from exc
+        if not self._receipt_matches(receipt, handle, confirmation_field="withdrawn"):
+            self._pending_withdrawal = True
+            raise ContributionEgressError(
+                "local withdrawal is immediate, but intake withdrawal was not confirmed"
+            )
+        self._pending_withdrawal = local_pending
+        self._intake_submission_attempted = False
+        if not local_pending:
+            self._contribution_handle = None
+            self._pending_withdrawal_version_hash = None
+        else:
+            raise ContributionEgressError(
+                "intake withdrawal is confirmed, but a controlled-store withdrawal is still pending"
+            )
         return contribution
+
+    def retry_pending_withdrawal(self) -> WithdrawalReceipt:
+        """Retry a close/expiry withdrawal using only preserved opaque authority."""
+
+        if not self._pending_withdrawal:
+            raise JourneyStateError("there is no pending intake withdrawal")
+        handle = self._contribution_handle
+        version_hash = self._pending_withdrawal_version_hash
+        lifecycle = self._contribution_lifecycle
+        if lifecycle is not None and version_hash is not None:
+            lifecycle.retry_pending_withdrawals(version_hash)
+        local_pending = bool(
+            lifecycle is not None
+            and version_hash is not None
+            and lifecycle.has_pending_withdrawal(version_hash)
+        )
+        if self._intake_submission_attempted:
+            intake = self._contribution_intake
+            if intake is None or handle is None:
+                raise JourneyStateError("pending withdrawal authority is unavailable")
+            try:
+                receipt = intake.withdraw(handle)
+            except Exception as exc:
+                raise ContributionEgressError("intake withdrawal retry was not confirmed") from exc
+            if not self._receipt_matches(receipt, handle, confirmation_field="withdrawn"):
+                raise ContributionEgressError("intake withdrawal retry was not confirmed")
+            self._intake_submission_attempted = False
+        if local_pending:
+            raise ContributionEgressError("controlled-store withdrawal retry was not confirmed")
+        if handle is None:
+            raise JourneyStateError("pending withdrawal receipt binding is unavailable")
+        self._pending_withdrawal = False
+        self._contribution_handle = None
+        self._contribution_intake = None
+        self._contribution_lifecycle = None
+        self._pending_withdrawal_version_hash = None
+        return WithdrawalReceipt(
+            manifest_byte_hash=handle.manifest_byte_hash,
+            handle_binding=handle.receipt_binding,
+            withdrawn=True,
+        )
 
     def close(self) -> None:
         """Close and clean up local state, regardless of the current stage."""
 
         if self.stage is ConciergeStage.CLOSED:
             return
+        # Revoke local consent at every exit.  If intake was attempted, also
+        # request authenticated withdrawal before clearing contribution state.
+        contribution = self._contribution
+        lifecycle = self._contribution_lifecycle
+        if contribution is not None and lifecycle is not None:
+            self._pending_withdrawal_version_hash = contribution.version_hash
+            if contribution.state is not ContributionState.WITHDRAWN:
+                try:
+                    lifecycle.withdraw(contribution, reason="session closed or expired")
+                except Exception:  # noqa: BLE001 - close still preserves intake recovery
+                    self._pending_withdrawal = self._intake_submission_attempted
+            if self._intake_submission_attempted:
+                intake = self._contribution_intake
+                handle = self._contribution_handle
+                if intake is None or handle is None:
+                    self._pending_withdrawal = True
+                else:
+                    try:
+                        receipt = intake.withdraw(handle)
+                    except Exception:  # noqa: BLE001 - opaque authority remains retryable
+                        self._pending_withdrawal = True
+                    else:
+                        confirmed = self._receipt_matches(
+                            receipt, handle, confirmation_field="withdrawn"
+                        )
+                        self._pending_withdrawal = not confirmed
+                        if confirmed:
+                            self._intake_submission_attempted = False
+            self._pending_withdrawal = self._pending_withdrawal or lifecycle.has_pending_withdrawal(
+                contribution.version_hash
+            )
+
         # The registered deletion path applies the same verified unlink
         # discipline as the underlying store.  Confirmed drafts are already
         # gone; unconfirmed drafts are removed here at every exit.
@@ -1621,13 +1814,18 @@ class ConciergeJourney:
             self._adaptation_engine = None
             self._adaptation_contract = None
             self._contribution_identity = None
-            self._contribution_intake = None
+            if not self._pending_withdrawal:
+                self._contribution_intake = None
             self._contribution_stores = ()
             self._contribution_consent = None
-            self._contribution_lifecycle = None
+            if not self._pending_withdrawal:
+                self._contribution_lifecycle = None
             self._contribution_card = None
             self._contribution_manifest = None
             self._contribution = None
+            if not self._pending_withdrawal:
+                self._contribution_handle = None
+                self._pending_withdrawal_version_hash = None
             self.stage = ConciergeStage.CLOSED
 
     def decline(self) -> None:
