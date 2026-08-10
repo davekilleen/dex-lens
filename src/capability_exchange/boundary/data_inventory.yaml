@@ -91,6 +91,266 @@ fields:
     deletion: not-stored
     audit: "ephemeral private path; never transmitted"
 
+  AdaptationPreview.host_id:
+    description: "host adapter identity bound to the exact preview"
+    collection: "copied from the selected local host adapter"
+    derivation: "none"
+    display: "shown on the adaptation preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local preview field"
+
+  AdaptationPreview.job_id:
+    description: "confirmed Success Contract job identity bound to the preview"
+    collection: "copied from the locally confirmed Job Map"
+    derivation: "none"
+    display: "shown on the adaptation preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local preview field"
+
+  AdaptationPreview.capability_id:
+    description: "bounded capability identity proposed for this adaptation"
+    collection: "selected locally from the jobs-first Capability Map"
+    derivation: "none"
+    display: "shown on the adaptation preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local preview field"
+
+  AdaptationPreview.operation:
+    description: "closed allowlisted operation bound to the preview"
+    collection: "copied from the validated local OperationRequest"
+    derivation: "validated through OperationKind"
+    display: "shown as the exact proposed operation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local preview field"
+
+  AdaptationPreview.approved_root:
+    description: "canonical private local root approved for the operation"
+    collection: "resolved from the person's exact scope approval"
+    derivation: "canonical real path after path-jail validation"
+    display: "shown verbatim on the effect list"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral private path; never transmitted"
+
+  AdaptationPreview.relative_path:
+    description: "literal operation target relative to the approved root"
+    collection: "copied from the validated OperationRequest"
+    derivation: "none after traversal and glob rejection"
+    display: "shown on the effect list"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral private path; never transmitted"
+
+  AdaptationPreview.target_path:
+    description: "canonical exact local file target of the proposed operation"
+    collection: "derived locally from approved root and relative path"
+    derivation: "real-path resolution constrained by the approved path jail"
+    display: "shown verbatim on the exact effect list"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral private path; never transmitted"
+
+  AdaptationPreview.content:
+    description: "exact local Markdown content proposed for the create-only file"
+    collection: "generated locally by the allowlisted deterministic recipe"
+    derivation: "none; exact bytes are bound by size and SHA-256"
+    display: "shown in full before separate adaptation approval"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral private preview content; never copied to receipts or transmitted"
+
+  AdaptationPreview.content_sha256:
+    description: "SHA-256 binding the exact proposed content bytes"
+    collection: "derived locally from the exact UTF-8 preview bytes"
+    derivation: "SHA-256"
+    display: "shown as the preview identity"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest used for drift and apply identity checks"
+
+  AdaptationPreview.content_size:
+    description: "byte length of the exact proposed content"
+    collection: "derived locally from the exact UTF-8 preview bytes"
+    derivation: "byte count"
+    display: "shown with the exact effect"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural value"
+
+  AdaptationPreview.prior_state:
+    description: "closed create-only prior target state"
+    collection: "observed locally before preview"
+    derivation: "must be absent for the pilot operation"
+    display: "shown as no-overwrite evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral precondition"
+
+  AdaptationPreview.effects:
+    description: "complete exact operation effect list"
+    collection: "derived from the single allowlisted operation target"
+    derivation: "validated as exactly one create-file effect"
+    display: "shown in full before approval"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral exact preview surface"
+
+  AdaptationPreview.expected_benefit:
+    description: "bounded Success Contract benefit the operation intends to support"
+    collection: "derived locally from the confirmed Success Contract"
+    derivation: "bounded text; never treated as outcome proof"
+    display: "shown on the preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanatory field"
+
+  AdaptationPreview.risks:
+    description: "closed local risk statements for the operation"
+    collection: "authored with the allowlisted recipe"
+    derivation: "none"
+    display: "shown before approval"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static recipe declaration"
+
+  AdaptationPreview.created_at:
+    description: "timezone-aware preview creation time"
+    collection: "recorded locally when the exact preview is produced"
+    derivation: "none; naive timestamps rejected"
+    display: "shown with approval freshness"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local timestamp"
+
+  AdaptationPreview.preview_digest:
+    description: "SHA-256 binding every exact preview field"
+    collection: "derived locally from canonical preview JSON"
+    derivation: "SHA-256 over sorted canonical fields"
+    display: "shown as the approval identity"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral binding copied into approval and later receipt projections"
+
+  AdaptationApproval.approval_id:
+    description: "non-secret local identity of one single-use adaptation approval"
+    collection: "derived locally from the bearer-token digest"
+    derivation: "first 24 hexadecimal digest characters"
+    display: "shown in local approval and receipt history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral until transaction-journal persistence is introduced"
+
+  AdaptationApproval.token_digest:
+    description: "one-way digest of the in-memory single-use approval token"
+    collection: "derived locally when permission is granted"
+    derivation: "SHA-256; raw token is never a model field"
+    display: "never displayed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral in the session authority; never transmitted"
+
+  AdaptationApproval.preview_digest:
+    description: "exact preview identity authorized by this approval"
+    collection: "copied from the AdaptationPreview"
+    derivation: "none"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval binding"
+
+  AdaptationApproval.host_id:
+    description: "exact host identity authorized by this approval"
+    collection: "copied from the AdaptationPreview"
+    derivation: "none"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval binding"
+
+  AdaptationApproval.job_id:
+    description: "exact confirmed job identity authorized by this approval"
+    collection: "copied from the AdaptationPreview"
+    derivation: "none"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval binding"
+
+  AdaptationApproval.capability_id:
+    description: "exact capability identity authorized by this approval"
+    collection: "copied from the AdaptationPreview"
+    derivation: "none"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval binding"
+
+  AdaptationApproval.target_path:
+    description: "exact private local target authorized by this approval"
+    collection: "copied from the AdaptationPreview"
+    derivation: "none"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral private path; never transmitted"
+
+  AdaptationApproval.issued_at:
+    description: "timezone-aware time explicit permission was granted"
+    collection: "recorded locally by the approval authority"
+    derivation: "none; naive timestamps rejected"
+    display: "shown in local approval history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval freshness evidence"
+
+  AdaptationApproval.expires_at:
+    description: "time after which this approval refuses"
+    collection: "derived from issue time plus bounded TTL"
+    derivation: "timezone-aware datetime addition"
+    display: "shown before permission is granted"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral approval freshness boundary"
+
+  AdaptationApproval.limits:
+    description: "closed one-change create-only no-network approval limits"
+    collection: "authored with the local approval authority"
+    derivation: "none"
+    display: "shown before and after permission"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural limits; no approve-all state exists"
+
   EvidenceItem.state:
     description: "closed R2 evidence-state vocabulary value for one evidence item"
     collection: "assigned locally by the adapter/diagnosis pipeline that produced the item"
