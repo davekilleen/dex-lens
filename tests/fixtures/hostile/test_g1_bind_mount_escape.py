@@ -92,8 +92,9 @@ def test_g1_bind_mount_gate_rejects_skips_missing_reports_and_failed_assertions(
         validate(returncode=0, output="1 passed", report_path=missing_report)
 
     skipped_report = tmp_path / "skipped.json"
-    with pytest.raises(gate.GateFailure, match="skipped|unproven"):
-        validate(returncode=0, output="1 skipped", report_path=skipped_report)
+    for output in ("1 skipped", "1 xpassed", "2 passed, 1 deselected", "no tests ran"):
+        with pytest.raises(gate.GateFailure, match="skipped|unproven"):
+            validate(returncode=0, output=output, report_path=skipped_report)
 
     failed_report = tmp_path / "failed.json"
     failed_report.write_text(json.dumps({"escape": {"canary_readable_through_mount": False}}))

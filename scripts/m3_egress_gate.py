@@ -8,6 +8,7 @@ namespace containing synthetic fixtures and no repository credentials.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -87,11 +88,21 @@ def _write_summary(
     status: str,
     capability: object,
     evidence: dict[str, Any] | None = None,
+    pcap_sha256: str | None = None,
 ) -> None:
     if destination is None:
         return
     payload = {
+        "schema_version": 1,
         "status": status,
+        "commit": os.environ.get("DEX_LENS_BUILD_COMMIT"),
+        "producer": "scripts/m3_egress_gate.py",
+        "proofs": ["formal:m3-egress", "formal:m4-egress"],
+        "test_ids": [
+            "tests/egress/test_m3_concierge_egress.py",
+            "tests/egress/test_m4_packet_egress.py",
+        ],
+        "pcap_sha256": pcap_sha256,
         "capability": asdict(capability),
         "evidence": _sanitize_evidence(evidence),
     }
@@ -112,6 +123,11 @@ def main() -> int:
     print(f"m3-egress-capability: {capability_json(capability)}")
     if isolated and destination is None:
         print("M3 egress gate NOT PROVEN: artifact directory is required", file=sys.stderr)
+        return 2
+    commit = os.environ.get("DEX_LENS_BUILD_COMMIT", "")
+    if isolated and not __import__("re").fullmatch(r"[0-9a-f]{40}", commit):
+        _write_summary(destination, status="not-proven", capability=capability)
+        print("M3-M4 egress gate NOT PROVEN: exact build commit is required", file=sys.stderr)
         return 2
     if not capability.available:
         _write_summary(destination, status="not-proven", capability=capability)
@@ -166,19 +182,21 @@ def main() -> int:
             )
             print("M3 egress gate FAILED: clean pcap is missing", file=sys.stderr)
             return 1
+        pcap_sha256 = hashlib.sha256(pcap.read_bytes()).hexdigest()
+        if destination is not None:
+            shutil.copy2(pcap, destination / "journey.pcap")
         _write_summary(
             destination,
             status="proven",
             capability=capability,
             evidence=evidence,
+            pcap_sha256=pcap_sha256,
         )
-        if destination is not None:
-            shutil.copy2(pcap, destination / "journey.pcap")
     finally:
         directory.cleanup()
 
     print(
-        "M3 egress gate PROVEN: interfaces-disabled namespace + "
+        "M3-M4 egress gate PROVEN: interfaces-disabled namespace + "
         "packet/DNS/proxy evidence"
     )
     return 0

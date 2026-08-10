@@ -10,6 +10,7 @@ for the CI artifact, not a claim that an unprivileged local host executed it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -21,6 +22,11 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "hostile" / "test_g1_bind_mount_escape.py"
+_UNPROVEN = re.compile(
+    r"\b(?:skip|skipped|skipping|unproven|not[ -]proven|xfailed|xpassed|deselected)\b|"
+    r"\b(?:0|no) tests? (?:collected|ran|run)\b",
+    re.IGNORECASE,
+)
 
 
 class GateFailure(RuntimeError):
@@ -80,8 +86,7 @@ def validate_gate_evidence(*, returncode: int, output: str, report_path: Path) -
     """Validate pytest output and the child JSON report, failing closed."""
     if returncode != 0:
         raise GateFailure(f"bind-mount hostile module failed (exit {returncode})")
-    normalized = output.lower()
-    if re.search(r"\bskip(?:ped|ping)?\b", normalized) or "unproven" in normalized:
+    if _UNPROVEN.search(output):
         raise GateFailure("bind-mount hostile fixture was skipped or unproven")
     report = _json_report(report_path)
     _assert_report(report)
@@ -97,6 +102,26 @@ def _write_evidence(destination: Path | None, payload: dict[str, Any]) -> None:
     )
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _envelope(
+    *, status: str, commit: str, output: str, report_path: Path, report: dict[str, Any] | None
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "status": status,
+        "commit": commit,
+        "producer": "scripts/g1_bind_mount_gate.py",
+        "proofs": ["formal:g1-bind-mount"],
+        "test_ids": [str(FIXTURE.relative_to(REPO_ROOT))],
+        "pytest_output_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+        "child_report_sha256": _sha256(report_path) if report_path.is_file() else None,
+        "report": report,
+    }
+
+
 def main() -> int:
     configured = os.environ.get("G1_BIND_MOUNT_EVIDENCE_DIR")
     temporary: tempfile.TemporaryDirectory[str] | None = None
@@ -106,6 +131,20 @@ def main() -> int:
         temporary = tempfile.TemporaryDirectory(prefix="g1-bind-mount-gate-")
         evidence_dir = Path(temporary.name)
     report_path = evidence_dir / "bind-mount-child-report.json"
+    commit = os.environ.get("DEX_LENS_BUILD_COMMIT", "")
+    if configured and not re.fullmatch(r"[0-9a-f]{40}", commit):
+        _write_evidence(
+            evidence_dir,
+            _envelope(
+                status="not-proven",
+                commit=commit or "missing",
+                output="missing exact build commit",
+                report_path=report_path,
+                report=None,
+            ),
+        )
+        print("G1 bind-mount gate NOT PROVEN: exact build commit is required", file=sys.stderr)
+        return 2
     environment = os.environ.copy()
     environment.update(
         {
@@ -145,7 +184,13 @@ def main() -> int:
     except GateFailure as exc:
         _write_evidence(
             evidence_dir if configured else None,
-            {"status": "failed", "error": str(exc)},
+            _envelope(
+                status="failed",
+                commit=commit,
+                output=output,
+                report_path=report_path,
+                report=None,
+            ),
         )
         print(f"G1 bind-mount gate FAILED: {exc}", file=sys.stderr)
         if temporary is not None:
@@ -153,7 +198,13 @@ def main() -> int:
         return 1
     _write_evidence(
         evidence_dir if configured else None,
-        {"status": "proven", "report": report},
+        _envelope(
+            status="proven",
+            commit=commit,
+            output=output,
+            report_path=report_path,
+            report=report,
+        ),
     )
     print("G1 bind-mount gate PROVEN: privileged fixture + containment report")
     if temporary is not None:

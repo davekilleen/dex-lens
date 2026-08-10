@@ -9,6 +9,13 @@ def test_ci_has_release_blocking_exact_pilot_build_gate() -> None:
     assert "m3-egress-gate" in workflow
     assert "python scripts/pilot_gate.py" in workflow
     assert "Upload exact pilot-build gate evidence" in workflow
+    assert "Download G1 bind-mount evidence" in workflow
+    assert "Download M3-M4 egress evidence" in workflow
+    assert "Download M5 contribution evidence" in workflow
+    assert "--formal-evidence" in workflow
+    assert "needs.g1-bind-mount-gate.result" in workflow
+    assert "needs.m3-egress-gate.result" in workflow
+    assert "needs.m5-egress-gate.result" in workflow
 
 
 def test_gate_script_exists_and_is_not_a_declared_pass() -> None:
@@ -16,3 +23,5 @@ def test_gate_script_exists_and_is_not_a_declared_pass() -> None:
     assert "execute_pilot_gate" in script
     assert "subprocess" in script
     assert "pilot_start_allowed" in script
+    assert "git" in script
+    assert "formal_evidence" in script

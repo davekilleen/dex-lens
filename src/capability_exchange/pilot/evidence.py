@@ -76,6 +76,7 @@ class EvidenceRecord(InventoriedModel):
 
     participant_id: str
     contract_id: str
+    stratum_id: str
     baseline: MeasurementEvidence | None = None
     follow_up: MeasurementEvidence | None = None
     dropout: bool = False
@@ -84,7 +85,7 @@ class EvidenceRecord(InventoriedModel):
     card_contribution_count: int = Field(default=0, ge=0)
     evidence_limits: tuple[str, ...] = ()
 
-    @field_validator("participant_id", "contract_id")
+    @field_validator("participant_id", "contract_id", "stratum_id")
     @classmethod
     def _id(cls, value: str, info: Any) -> str:
         return clean_text(value, label=info.field_name, max_length=256)

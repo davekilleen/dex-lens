@@ -9,6 +9,7 @@ from typing import Any, Literal, Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
+from capability_exchange.evidence.item import reference_rejection_reason
 from capability_exchange.evidence.states import CLAIM_SUPPORTING_STATES, EvidenceState, coerce_state
 from capability_exchange.pilot._common import clean_text, tuple_text
 from capability_exchange.pilot.evidence import EvidenceRecord
@@ -48,6 +49,9 @@ class ParticipantMeasurement(InventoriedModel):
 
     participant_id: str
     contract_id: str
+    stratum_id: str
+    baseline_reference: str
+    follow_up_reference: str | None = None
     baseline_value: float | None = None
     follow_up_value: float | None = None
     baseline_state: EvidenceState = EvidenceState.NOT_ASSESSED
@@ -65,10 +69,21 @@ class ParticipantMeasurement(InventoriedModel):
     baseline_captured_at: datetime | None = None
     follow_up_captured_at: datetime | None = None
 
-    @field_validator("participant_id", "contract_id")
+    @field_validator("participant_id", "contract_id", "stratum_id")
     @classmethod
     def _id(cls, value: str, info: Any) -> str:
         return clean_text(value, label=info.field_name, max_length=256)
+
+    @field_validator("baseline_reference", "follow_up_reference")
+    @classmethod
+    def _reference(cls, value: str | None, info: Any) -> str | None:
+        if value is None:
+            return None
+        value = clean_text(value, label=info.field_name, max_length=512)
+        reason = reference_rejection_reason(value)
+        if reason is not None:
+            raise ValueError(reason)
+        return value
 
     @field_validator("baseline_state", "follow_up_state", mode="before")
     @classmethod
@@ -96,6 +111,10 @@ class ParticipantMeasurement(InventoriedModel):
     def _failure_type_required(self) -> Self:
         if self.severe_failure and not self.severe_failure_type:
             raise ValueError("severe_failure requires severe_failure_type")
+        if not self.baseline_reference:
+            raise ValueError("baseline_reference is required and must be non-raw")
+        if not self.dropout and not self.missing_follow_up and not self.follow_up_reference:
+            raise ValueError("follow_up_reference is required and must be non-raw")
         return self
 
     @classmethod
@@ -112,6 +131,9 @@ class ParticipantMeasurement(InventoriedModel):
         return cls(
             participant_id=evidence.participant_id,
             contract_id=evidence.contract_id,
+            stratum_id=evidence.stratum_id,
+            baseline_reference=baseline.reference if baseline else "evidence://missing-baseline",
+            follow_up_reference=follow_up.reference if follow_up else None,
             baseline_value=baseline.value if baseline else None,
             follow_up_value=follow_up.value if follow_up else None,
             baseline_state=baseline.state if baseline else EvidenceState.NOT_ASSESSED,
@@ -246,7 +268,7 @@ def analyze_pilot(
     records: list[ParticipantMeasurement | EvidenceRecord | dict[str, Any]] | tuple[Any, ...],
     plan: MeasurementPlan,
     *,
-    expected_participant_ids: frozenset[str],
+    expected_participant_strata: dict[str, str],
     first_collection_at: datetime | None = None,
 ) -> PilotAnalysisReport:
     """Analyze one contract without imputation or aggregate/general claims."""
@@ -256,13 +278,28 @@ def analyze_pilot(
         raise AnalysisError("pilot analysis requires at least one enrolled participant")
     if len({item.participant_id for item in measurements}) != len(measurements):
         raise AnalysisError("duplicate participant ids would corrupt the enrolled denominator")
-    if len(expected_participant_ids) < 6 or len(expected_participant_ids) > 8:
+    if len(expected_participant_strata) < 6 or len(expected_participant_strata) > 8:
         raise AnalysisError("pilot analysis requires the complete 6–8 participant cohort")
-    if {item.participant_id for item in measurements} != set(expected_participant_ids):
+    if {item.participant_id for item in measurements} != set(expected_participant_strata):
         raise AnalysisError(
             "analysis rows must match the exact enrolled participant set; "
             "dropouts and missing follow-up cannot be omitted"
         )
+    if any(
+        item.stratum_id != expected_participant_strata[item.participant_id]
+        for item in measurements
+    ):
+        raise AnalysisError("analysis stratum does not match the enrolled participant roster")
+    for stratum_id, (minimum, maximum) in plan.cohort_strata.items():
+        count = sum(1 for item in measurements if item.stratum_id == stratum_id)
+        if count < minimum or count > maximum:
+            raise AnalysisError(
+                f"analysis cohort stratum {stratum_id!r} has {count}; "
+                f"locked quota is {minimum}–{maximum}"
+            )
+    undeclared = {item.stratum_id for item in measurements} - set(plan.cohort_strata)
+    if undeclared:
+        raise AnalysisError("analysis contains a stratum absent from the locked plan")
     if any(item.contract_id != plan.contract_id for item in measurements):
         raise AnalysisError("analysis is contract-specific; evidence contract id mismatched plan")
     try:
@@ -286,6 +323,14 @@ def analyze_pilot(
         ):
             raise AnalysisError(
                 f"participant {item.participant_id} baseline is outside the locked baseline window"
+            )
+        if (
+            item.baseline_captured_at < plan.locked_at  # type: ignore[operator]
+            or item.baseline_captured_at < plan.first_data_collection_at
+        ):
+            raise AnalysisError(
+                f"participant {item.participant_id} baseline predates the plan lock "
+                "or first collection"
             )
         if not item.missing_follow_up and not item.dropout:
             if item.follow_up_captured_at is None or not (

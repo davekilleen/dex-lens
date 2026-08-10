@@ -19,6 +19,8 @@ from capability_exchange.pilot.analysis import (
 )
 from capability_exchange.pilot.completeness import (
     CompletenessReport,
+    ObservedEnrollmentEvidence,
+    ObservedPilotEvidence,
     R7Artifact,
     R7CompletenessVerifier,
     R7Manifest,
@@ -39,6 +41,8 @@ from capability_exchange.pilot.enrollment import (
     EnrollmentGate,
     EnrollmentRecord,
     InvalidCohortError,
+    ParticipantDeletionEvidence,
+    ParticipantDeletionManifest,
     ProtocolHashMismatchError,
     ProtocolVersionMismatchError,
     SuccessContractRequiredError,
@@ -53,6 +57,7 @@ from capability_exchange.pilot.evidence import (
 from capability_exchange.pilot.gate import (
     PILOT_GATE_TESTS,
     REQUIRED_PILOT_GATES,
+    FormalGateEvidence,
     PilotBuildGateReport,
     PilotGateEvidence,
     PilotGateOutcome,
@@ -81,9 +86,11 @@ from capability_exchange.pilot.protocol import (
 )
 from capability_exchange.pilot.redteam import (
     REQUIRED_REDTEAM_GATES,
+    REQUIRED_REDTEAM_TESTS,
     RedTeamCase,
     RedTeamOutcome,
     RedTeamReport,
+    evaluate_gate_redteam,
     evaluate_redteam,
 )
 
@@ -99,12 +106,15 @@ __all__ = [
     "EnrollmentError",
     "EnrollmentGate",
     "EnrollmentRecord",
+    "ParticipantDeletionEvidence",
+    "ParticipantDeletionManifest",
     "InvalidCohortError",
     "EvidenceRecord",
     "EvidenceTemplate",
     "PilotEvidence",
     "LearningOutput",
     "PILOT_GATE_TESTS",
+    "FormalGateEvidence",
     "REQUIRED_PILOT_GATES",
     "PilotBuildGateReport",
     "PilotGateEvidence",
@@ -128,12 +138,15 @@ __all__ = [
     "ProtocolStratum",
     "ProtocolVersionMismatchError",
     "R7Artifact",
+    "ObservedEnrollmentEvidence",
+    "ObservedPilotEvidence",
     "R7CompletenessVerifier",
     "R7Manifest",
     "R7ManifestVerifier",
     "R7Risk",
     "R7Signoff",
     "REQUIRED_REDTEAM_GATES",
+    "REQUIRED_REDTEAM_TESTS",
     "RedTeamCase",
     "RedTeamOutcome",
     "RedTeamReport",
@@ -151,4 +164,5 @@ __all__ = [
     "strict_majority_threshold",
     "verify_r7_manifest",
     "evaluate_redteam",
+    "evaluate_gate_redteam",
 ]

@@ -14,6 +14,7 @@ def make_plan(now: datetime) -> MeasurementPlan:
         follow_up_window={"start": now + timedelta(days=2), "end": now + timedelta(days=3)},
         improvement_threshold=1,
         objective_signal="objective receipt",
+        cohort_strata={"non-dex": (4, 5), "dex-customized": (2, 3)},
         regression_definition="regression",
         near_miss_definition="near miss",
         severe_failure_definition="severe trust failure",
@@ -26,7 +27,9 @@ def analyze(records, plan):
     return analyze_pilot(
         records,
         plan,
-        expected_participant_ids=frozenset(f"p{i}" for i in range(7)),
+        expected_participant_strata={
+            f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)
+        },
     )
 
 
@@ -46,6 +49,9 @@ def row(
         "follow_up_state": "observed",
         "baseline_objective_signal": True,
         "follow_up_objective_signal": True,
+        "baseline_reference": f"evidence://p{i}/baseline",
+        "follow_up_reference": f"evidence://p{i}/follow-up",
+        "stratum_id": "non-dex" if i < 4 else "dex-customized",
         "baseline_captured_at": now,
         "follow_up_captured_at": now + timedelta(days=2),
     }
@@ -118,7 +124,9 @@ def test_omitting_an_enrolled_participant_is_rejected() -> None:
         analyze_pilot(
             records,
             make_plan(now),
-            expected_participant_ids=frozenset(f"p{i}" for i in range(7)),
+            expected_participant_strata={
+                f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(7)
+            },
         )
 
 
@@ -129,7 +137,9 @@ def test_cohort_outside_six_to_eight_is_rejected() -> None:
         analyze_pilot(
             records,
             make_plan(now),
-            expected_participant_ids=frozenset(f"p{i}" for i in range(5)),
+            expected_participant_strata={
+                f"p{i}": "non-dex" if i < 4 else "dex-customized" for i in range(5)
+            },
         )
 
 
@@ -152,3 +162,44 @@ def test_measurements_outside_locked_windows_are_rejected() -> None:
     records[0] = row(0, now, baseline_captured_at=now - timedelta(seconds=1))
     with pytest.raises(Exception, match="outside the locked baseline window"):
         analyze(records, make_plan(now))
+
+
+def test_analysis_refuses_a_cohort_without_locked_stratum_quotas() -> None:
+    now = datetime.now(UTC)
+    records = [row(i, now, stratum_id="non-dex") for i in range(7)]
+    with pytest.raises(Exception, match="strat"):
+        analyze(records, make_plan(now))
+
+
+def test_baseline_cannot_predate_plan_lock_or_first_collection() -> None:
+    now = datetime.now(UTC)
+    plan = MeasurementPlan(
+        contract_id="job",
+        baseline_window={"start": now - timedelta(days=1), "end": now + timedelta(days=1)},
+        follow_up_window={"start": now + timedelta(days=2), "end": now + timedelta(days=3)},
+        improvement_threshold=1,
+        objective_signal="objective receipt",
+        cohort_strata={"non-dex": (4, 5), "dex-customized": (2, 3)},
+        regression_definition="regression",
+        near_miss_definition="near miss",
+        severe_failure_definition="severe trust failure",
+    ).lock(at=now)
+    plan.mark_first_collection(at=now)
+    records = [row(i, now, baseline_captured_at=now - timedelta(hours=1)) for i in range(7)]
+    with pytest.raises(Exception, match="predates.*lock|first collection"):
+        analyze(records, plan)
+
+
+def test_direct_measurement_without_non_raw_references_is_rejected() -> None:
+    now = datetime.now(UTC)
+    with pytest.raises(ValueError, match="reference"):
+        ParticipantMeasurement(
+            participant_id="p0",
+            contract_id="job",
+            baseline_value=0,
+            follow_up_value=2,
+            baseline_state="observed",
+            follow_up_state="observed",
+            baseline_captured_at=now,
+            follow_up_captured_at=now + timedelta(days=2),
+        )

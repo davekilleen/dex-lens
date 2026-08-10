@@ -5,17 +5,21 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Protocol
 
 from pydantic import ConfigDict, Field, field_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.pilot._common import clean_text, content_hash, tuple_text
-from capability_exchange.pilot.drills import REQUIRED_RUNBOOK_IDS, TabletopResult
+from capability_exchange.pilot.drills import (
+    REQUIRED_RUNBOOK_IDS,
+    TABLETOP_SCENARIOS,
+    TabletopResult,
+    required_runbooks,
+)
 
 __all__ = [
     "CompletenessReport",
@@ -23,6 +27,8 @@ __all__ = [
     "R7Manifest",
     "R7Risk",
     "R7Signoff",
+    "ObservedEnrollmentEvidence",
+    "ObservedPilotEvidence",
     "R7CompletenessVerifier",
     "R7ManifestVerifier",
     "R7EvidenceStatus",
@@ -63,6 +69,94 @@ class R7EvidenceStatus(StrEnum):
     ABSENT = "absent"
     SYNTHETIC = "synthetic"
     OBSERVED = "observed"
+
+
+_SHA256 = __import__("re").compile(r"^[0-9a-f]{64}$")
+
+
+class ObservedEnrollmentEvidence(InventoriedModel):
+    """One enrolled participant identity bound to protocol consent evidence."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    participant_id: str
+    stratum_id: str
+    protocol_hash: str
+    consent_record_hash: str
+
+    @field_validator("participant_id", "stratum_id")
+    @classmethod
+    def _text(cls, value: str, info: Any) -> str:
+        return clean_text(value, label=info.field_name, max_length=256)
+
+    @field_validator("protocol_hash", "consent_record_hash")
+    @classmethod
+    def _hash(cls, value: str, info: Any) -> str:
+        if not _SHA256.fullmatch(value):
+            raise ValueError(f"{info.field_name} must be a lowercase SHA-256")
+        return value
+
+
+class ObservedPilotEvidence(InventoriedModel):
+    """Concrete R7 evidence schema bound to protocol, plans, cohort, and artifacts."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    protocol_hash: str
+    locked_plan_hashes: tuple[str, ...] = Field(min_length=1)
+    enrollments: tuple[ObservedEnrollmentEvidence, ...] = Field(min_length=6, max_length=8)
+    artifact_hashes: tuple[str, ...] = Field(min_length=1)
+    observed_at: datetime
+    assumptions: tuple[str, ...] = Field(min_length=1)
+    non_goals: tuple[str, ...] = Field(min_length=1)
+
+    @field_validator("protocol_hash")
+    @classmethod
+    def _protocol_hash(cls, value: str) -> str:
+        if not _SHA256.fullmatch(value):
+            raise ValueError("protocol_hash must be a lowercase SHA-256")
+        return value
+
+    @field_validator("locked_plan_hashes", "artifact_hashes")
+    @classmethod
+    def _hashes(cls, value: tuple[str, ...], info: Any) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or any(not _SHA256.fullmatch(item) for item in value):
+            raise ValueError(f"{info.field_name} must contain unique lowercase SHA-256 hashes")
+        return value
+
+    @field_validator("assumptions", "non_goals")
+    @classmethod
+    def _lists(cls, value: tuple[str, ...], info: Any) -> tuple[str, ...]:
+        return tuple_text(value, label=info.field_name, max_items=256)
+
+    @field_validator("observed_at")
+    @classmethod
+    def _aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            raise ValueError("observed_at must be timezone-aware")
+        return value
+
+    def validate_bindings(self, *, verified_hashes: frozenset[str]) -> None:
+        if len({item.participant_id for item in self.enrollments}) != len(self.enrollments):
+            raise ValueError("observed evidence participant ids must be unique")
+        if any(item.protocol_hash != self.protocol_hash for item in self.enrollments):
+            raise ValueError("observed enrollment is not bound to the evidence protocol")
+        strata = {"non-dex": 0, "dex-customized": 0}
+        for item in self.enrollments:
+            if item.stratum_id not in strata:
+                raise ValueError("observed enrollment uses an undeclared pilot stratum")
+            strata[item.stratum_id] += 1
+        if not (4 <= strata["non-dex"] <= 5 and 2 <= strata["dex-customized"] <= 3):
+            raise ValueError("observed evidence cohort does not meet locked stratum quotas")
+        if not set(self.locked_plan_hashes) <= set(self.artifact_hashes):
+            raise ValueError("locked measurement plans are not bound into artifact hashes")
+        if not set(self.artifact_hashes) <= set(verified_hashes):
+            raise ValueError("observed evidence references an unverified artifact hash")
+
+
+class SignoffSignatureVerifier(Protocol):
+    def verify(self, payload: bytes, signature: str, key_id: str) -> bool: ...
 
 
 class R7Artifact(InventoriedModel):
@@ -121,12 +215,24 @@ class R7Signoff(InventoriedModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     reviewer: str
+    reviewer_id: str
     role: str
     independent: bool
     manifest_hash: str
+    evidence_hash: str
+    verifier_key_id: str
+    signature: str
     signed_at: datetime
 
-    @field_validator("reviewer", "role", "manifest_hash")
+    @field_validator(
+        "reviewer",
+        "reviewer_id",
+        "role",
+        "manifest_hash",
+        "evidence_hash",
+        "verifier_key_id",
+        "signature",
+    )
     @classmethod
     def _text(cls, value: str, info: Any) -> str:
         return clean_text(value, label=info.field_name, max_length=512)
@@ -137,6 +243,20 @@ class R7Signoff(InventoriedModel):
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
             raise ValueError("signed_at must be timezone-aware")
         return value
+
+    @property
+    def signed_payload(self) -> bytes:
+        return json.dumps(
+            {
+                "evidence_hash": self.evidence_hash,
+                "manifest_hash": self.manifest_hash,
+                "reviewer_id": self.reviewer_id,
+                "role": self.role,
+                "signed_at": self.signed_at.isoformat(),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
 
 class R7Manifest(InventoriedModel):
@@ -244,7 +364,9 @@ def verify_r7_manifest(
     manifest: R7Manifest | str | Path,
     *,
     root: Path | None = None,
-    signoff_verifier: Callable[[R7Signoff], bool] | None = None,
+    signoff_verifier: SignoffSignatureVerifier | None = None,
+    trusted_reviewer_ids: frozenset[str] = frozenset(),
+    trusted_verifier_key_ids: frozenset[str] = frozenset(),
 ) -> CompletenessReport:
     """Return exact missing/invalid conditions; never infer a complete pack."""
 
@@ -298,7 +420,7 @@ def verify_r7_manifest(
     named_risk_owners = bool(value.risks) and all(bool(risk.owner) for risk in value.risks)
 
     observed_artifact = by_id.get("observed-pilot-evidence")
-    observed = bool(
+    observed_marker = bool(
         value.observed_evidence_status is R7EvidenceStatus.OBSERVED
         and observed_artifact is not None
         and observed_artifact.artifact_id in verified
@@ -307,6 +429,34 @@ def verify_r7_manifest(
         and observed_artifact.content_hash
         and observed_artifact.content_hash in value.observed_pilot_evidence
     )
+    observed_schema: ObservedPilotEvidence | None = None
+    if observed_marker and base is not None and observed_artifact and observed_artifact.path:
+        try:
+            observed_payload = json.loads(
+                (base / observed_artifact.path).read_text(encoding="utf-8")
+            )
+            observed_schema = ObservedPilotEvidence.model_validate(observed_payload)
+            observed_schema.validate_bindings(
+                verified_hashes=frozenset(
+                    item.content_hash or ""
+                    for item in by_id.values()
+                    if item.artifact_id in verified
+                )
+            )
+            protocol_artifact = by_id.get("pilot-protocol")
+            if protocol_artifact is None or not protocol_artifact.path:
+                raise ValueError("observed evidence has no verified protocol artifact")
+            protocol_payload = json.loads(
+                (base / protocol_artifact.path).read_text(encoding="utf-8")
+            )
+            if protocol_payload.get("content_hash") != observed_schema.protocol_hash:
+                raise ValueError("observed evidence does not match the protocol artifact")
+        except Exception as exc:  # noqa: BLE001 - observed evidence fails closed
+            issues.append(
+                "observed pilot evidence schema or binding is invalid: "
+                f"{type(exc).__name__}"
+            )
+    observed = observed_marker and observed_schema is not None
     if not observed:
         issues.append("observed real-pilot evidence is absent (synthetic evidence is not enough)")
     if not value.assumptions or not value.non_goals:
@@ -315,9 +465,29 @@ def verify_r7_manifest(
         issues.append("Fable critique responses are missing")
 
     tabletop_by_id = {result.runbook_id: result for result in value.tabletop_results}
+    if len(tabletop_by_id) != len(value.tabletop_results):
+        issues.append("duplicate runbook tabletop identity")
+    unknown_tabletops = set(tabletop_by_id) - set(REQUIRED_RUNBOOK_IDS)
+    if unknown_tabletops:
+        issues.append("unknown runbook tabletop identity")
+    runbooks_by_id = {runbook.runbook_id: runbook for runbook in required_runbooks()}
     for runbook_id in REQUIRED_RUNBOOK_IDS:
         result = tabletop_by_id.get(runbook_id)
-        if result is None or not result.passed or not result.exit_criteria_met:
+        expected_scenario, expected_trigger = TABLETOP_SCENARIOS[runbook_id]
+        artifact = by_id.get(f"{runbook_id}-runbook")
+        if (
+            result is None
+            or not result.passed
+            or not result.trigger_observed
+            or not result.exit_criteria_met
+            or result.scenario_id != expected_scenario
+            or result.trigger_id != expected_trigger
+            or result.actions_evidenced != runbooks_by_id[runbook_id].actions
+            or artifact is None
+            or result.runbook_artifact_hash != artifact.content_hash
+            or (runbook_id in {"incident", "hard-stop"} and not result.stop_triggered)
+            or (runbook_id == "withdrawal" and not result.deletion_verified)
+        ):
             issues.append(f"runbook tabletop is missing or failed: {runbook_id}")
 
     expected_manifest_hash = value.canonical_hash()
@@ -326,16 +496,33 @@ def verify_r7_manifest(
     elif value.content_hash != expected_manifest_hash:
         issues.append("manifest content hash does not match canonical content")
 
+    signature_ok = False
+    if value.independent_signoff and signoff_verifier is not None:
+        try:
+            signature_ok = bool(
+                signoff_verifier.verify(
+                    value.independent_signoff.signed_payload,
+                    value.independent_signoff.signature,
+                    value.independent_signoff.verifier_key_id,
+                )
+            )
+        except Exception:  # noqa: BLE001 - trust verification fails closed
+            signature_ok = False
     signoff_ok = bool(
         value.independent_signoff
         and value.independent_signoff.independent
+        and value.independent_signoff.reviewer_id in trusted_reviewer_ids
+        and value.independent_signoff.verifier_key_id in trusted_verifier_key_ids
         and value.content_hash
         and value.independent_signoff.manifest_hash == value.content_hash
-        and signoff_verifier is not None
-        and signoff_verifier(value.independent_signoff)
+        and observed_artifact is not None
+        and value.independent_signoff.evidence_hash == observed_artifact.content_hash
+        and signature_ok
     )
     if not signoff_ok:
-        issues.append("independent signoff is missing or is not bound to manifest hash")
+        issues.append(
+            "independent signoff is missing or lacks a trusted reviewer/verifier binding"
+        )
 
     return CompletenessReport(
         complete=not issues,
@@ -359,16 +546,22 @@ class R7CompletenessVerifier:
         self,
         *,
         root: Path | None = None,
-        signoff_verifier: Callable[[R7Signoff], bool] | None = None,
+        signoff_verifier: SignoffSignatureVerifier | None = None,
+        trusted_reviewer_ids: frozenset[str] = frozenset(),
+        trusted_verifier_key_ids: frozenset[str] = frozenset(),
     ) -> None:
         self.root = root
         self.signoff_verifier = signoff_verifier
+        self.trusted_reviewer_ids = trusted_reviewer_ids
+        self.trusted_verifier_key_ids = trusted_verifier_key_ids
 
     def verify(self, manifest: R7Manifest | str | Path) -> CompletenessReport:
         return verify_r7_manifest(
             manifest,
             root=self.root,
             signoff_verifier=self.signoff_verifier,
+            trusted_reviewer_ids=self.trusted_reviewer_ids,
+            trusted_verifier_key_ids=self.trusted_verifier_key_ids,
         )
 
 

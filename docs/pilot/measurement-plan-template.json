@@ -6,6 +6,7 @@
   "improvement_threshold": 1.0,
   "objective_signal": "REPLACE_WITH_DECLARED_OBJECTIVE_OR_CONTEMPORANEOUS_SIGNAL",
   "objective_signal_required": true,
+  "cohort_strata": {"non-dex": [4, 5], "dex-customized": [2, 3]},
   "missing_data_treatment": "not-success; never impute",
   "dropout_treatment": "included denominator; not-success",
   "regression_definition": "outcome falls below the locked baseline comparison",

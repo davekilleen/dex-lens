@@ -4403,3 +4403,373 @@ fields:
     sharing: never
     deletion: delete-pilot-gate-evidence
     audit: "release-blocking evidence"
+
+  EnrollmentRecord.deletion_manifest:
+    description: "structured participant withdrawal deletion evidence"
+    collection: "derived by the withdrawal executor"
+    derivation: "validated against participant and protocol tombstone"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 withdrawal evidence"
+
+  EvidenceRecord.stratum_id:
+    description: "declared M6 cohort stratum identity"
+    collection: "copied from the consented enrollment"
+    derivation: "validated against the locked measurement plan"
+    display: "shown only in local aggregate analysis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 analysis metadata"
+
+  MeasurementPlan.cohort_strata:
+    description: "locked M6 cohort quota ranges by stratum"
+    collection: "authored before pilot data collection"
+    derivation: "validated against the normative M6 quota contract"
+    display: "shown in the locked measurement plan"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 plan metadata"
+
+  ParticipantMeasurement.stratum_id:
+    description: "participant cohort stratum used in M6 analysis"
+    collection: "copied from enrolled participant evidence"
+    derivation: "validated against the locked cohort roster"
+    display: "shown only in local aggregate analysis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 analysis metadata"
+
+  ParticipantMeasurement.baseline_reference:
+    description: "non-raw reference to baseline measurement evidence"
+    collection: "derived from the accepted evidence record"
+    derivation: "validated as a non-raw evidence reference"
+    display: "shown only in local evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 evidence provenance"
+
+  ParticipantMeasurement.follow_up_reference:
+    description: "non-raw reference to follow-up measurement evidence"
+    collection: "derived from the accepted evidence record"
+    derivation: "validated as a non-raw evidence reference when required"
+    display: "shown only in local evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 evidence provenance"
+
+  ParticipantDeletionEvidence.store_id:
+    description: "identifier of one participant data store"
+    collection: "returned by the local deletion port"
+    derivation: "validated as a bounded identifier"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionEvidence.artifact_hashes:
+    description: "hashes of participant artifacts addressed by deletion"
+    collection: "returned by the local deletion port"
+    derivation: "validated as SHA-256 references without raw content"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionEvidence.deleted:
+    description: "verified deletion outcome for one participant store"
+    collection: "returned by the local deletion port"
+    derivation: "must be true for a complete deletion manifest"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionEvidence.verified_at:
+    description: "time a participant store deletion was verified"
+    collection: "returned by the local deletion port"
+    derivation: "normalized to UTC"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionEvidence.verifier_id:
+    description: "identity of the participant deletion verifier"
+    collection: "returned by the local deletion port"
+    derivation: "validated as a bounded identifier"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionManifest.participant_id:
+    description: "participant identity bound to a deletion manifest"
+    collection: "copied from the withdrawal request"
+    derivation: "must match the permanent protocol tombstone"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionManifest.protocol_version:
+    description: "protocol version bound to a deletion manifest"
+    collection: "copied from the withdrawn enrollment"
+    derivation: "must match the permanent protocol tombstone"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionManifest.protocol_hash:
+    description: "protocol hash bound to a deletion manifest"
+    collection: "copied from the withdrawn enrollment"
+    derivation: "validated as a SHA-256 reference"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionManifest.withdrawal_requested_at:
+    description: "time participant collection was stopped"
+    collection: "recorded before deletion execution begins"
+    derivation: "normalized to UTC"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ParticipantDeletionManifest.stores:
+    description: "structured deletion results for participant stores"
+    collection: "returned by the local deletion port"
+    derivation: "requires unique store identities"
+    display: "shown in local withdrawal evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral M6 deletion verification"
+
+  ObservedEnrollmentEvidence.participant_id:
+    description: "participant identity in observed R7 evidence"
+    collection: "derived from consented pilot enrollment"
+    derivation: "validated for uniqueness in the observed cohort"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedEnrollmentEvidence.stratum_id:
+    description: "cohort stratum in observed R7 evidence"
+    collection: "derived from consented pilot enrollment"
+    derivation: "validated against locked M6 quotas"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedEnrollmentEvidence.protocol_hash:
+    description: "protocol hash in observed R7 enrollment evidence"
+    collection: "derived from consented pilot enrollment"
+    derivation: "must match the observed protocol artifact"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedEnrollmentEvidence.consent_record_hash:
+    description: "hash of the enrollment consent record"
+    collection: "derived from consented pilot enrollment"
+    derivation: "validated as a SHA-256 reference"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.schema_version:
+    description: "version of the observed R7 evidence schema"
+    collection: "declared by the observed evidence producer"
+    derivation: "must equal the supported schema version"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.protocol_hash:
+    description: "protocol hash binding all observed R7 evidence"
+    collection: "derived from the locked pilot protocol"
+    derivation: "must match every observed enrollment"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.locked_plan_hashes:
+    description: "hashes of locked measurement plans"
+    collection: "derived before pilot data collection"
+    derivation: "must be present in the verified artifact set"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.enrollments:
+    description: "schema-bound observed pilot enrollment evidence"
+    collection: "derived from consented pilot enrollments"
+    derivation: "validates cohort size, quotas, protocol, and uniqueness"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.artifact_hashes:
+    description: "verified artifact hashes supporting observed R7 evidence"
+    collection: "derived from the R7 manifest"
+    derivation: "must be a subset of verified manifest artifacts"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.observed_at:
+    description: "time the observed R7 evidence was assembled"
+    collection: "recorded by the evidence producer"
+    derivation: "normalized to UTC"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.assumptions:
+    description: "declared assumptions limiting observed R7 evidence"
+    collection: "authored by the evidence producer"
+    derivation: "normalized to bounded non-empty strings"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  ObservedPilotEvidence.non_goals:
+    description: "declared non-goals limiting observed R7 evidence"
+    collection: "authored by the evidence producer"
+    derivation: "normalized to bounded non-empty strings"
+    display: "shown only in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 observed evidence"
+
+  R7Signoff.reviewer_id:
+    description: "trusted reviewer identity for independent R7 sign-off"
+    collection: "provided by the independent reviewer"
+    derivation: "must be in the configured trusted reviewer set"
+    display: "shown in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 sign-off evidence"
+
+  R7Signoff.evidence_hash:
+    description: "hash of the observed evidence signed by the reviewer"
+    collection: "derived from the observed evidence artifact"
+    derivation: "must match the verified manifest artifact hash"
+    display: "shown in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 sign-off evidence"
+
+  R7Signoff.verifier_key_id:
+    description: "trusted verification key identity for R7 sign-off"
+    collection: "provided by the independent reviewer"
+    derivation: "must be in the configured trusted key set"
+    display: "shown in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 sign-off evidence"
+
+  R7Signoff.signature:
+    description: "cryptographic signature over canonical R7 sign-off payload"
+    collection: "provided by the independent reviewer"
+    derivation: "verified by the configured signature verifier"
+    display: "shown in local R7 evidence review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 sign-off evidence"
+
+  RedTeamCase.execution_report_hash:
+    description: "hash of the exact-build gate report behind a red-team case"
+    collection: "derived by the pilot gate executor"
+    derivation: "must equal the source exact-build gate report hash"
+    display: "shown in local red-team evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R6 red-team evidence"
+
+  RedTeamReport.source_gate_report_hash:
+    description: "hash of the executor-produced exact-build gate report"
+    collection: "derived by the pilot gate executor"
+    derivation: "must bind every canonical red-team case"
+    display: "shown in local red-team evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R6 red-team evidence"
+
+  TabletopResult.scenario_id:
+    description: "canonical tabletop scenario identity"
+    collection: "selected from the required runbook mapping"
+    derivation: "must match the runbook identity"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.trigger_id:
+    description: "canonical tabletop trigger identity"
+    collection: "selected from the required runbook mapping"
+    derivation: "must match the runbook identity"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"
+
+  TabletopResult.runbook_artifact_hash:
+    description: "hash binding tabletop evidence to the executed runbook"
+    collection: "derived from the required runbook artifact"
+    derivation: "validated as a SHA-256 reference"
+    display: "shown in local tabletop evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral R7 tabletop evidence"

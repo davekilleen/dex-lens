@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
-from capability_exchange.pilot.gate import GateRun, execute_pilot_gate
+from capability_exchange.pilot.gate import FormalGateEvidence, GateRun, execute_pilot_gate
 from capability_exchange.pilot.protocol import (
     ConsentRecord,
     PilotProtocol,
@@ -12,11 +13,32 @@ from capability_exchange.pilot.protocol import (
 
 
 def gate_report():
-    return execute_pilot_gate(
-        commit="a" * 40,
-        observed_at=datetime(2026, 8, 10, 10, 0, tzinfo=UTC),
-        runner=lambda test_ids: GateRun(exit_code=0, output="passed:" + test_ids[0]),
+    commit = "a" * 40
+    formal = tuple(
+        FormalGateEvidence(
+            evidence_id=evidence_id,
+            commit=commit,
+            producer="test executor",
+            status="proven",
+            artifact_sha256="b" * 64,
+            test_ids=("tests/pilot/test_protocol.py",),
+        )
+        for evidence_id in (
+            "formal:g1-bind-mount",
+            "formal:m3-egress",
+            "formal:m4-egress",
+            "formal:m5-egress",
+        )
     )
+    with patch(
+        "capability_exchange.pilot.gate._verified_repository_commit", return_value=commit
+    ):
+        return execute_pilot_gate(
+            commit=commit,
+            observed_at=datetime(2026, 8, 10, 10, 0, tzinfo=UTC),
+            runner=lambda test_ids: GateRun(exit_code=0, output="passed:" + test_ids[0]),
+            formal_evidence=formal,
+        )
 
 
 def protocol(*, red_team_complete: bool = True) -> PilotProtocol:

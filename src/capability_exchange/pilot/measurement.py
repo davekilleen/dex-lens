@@ -81,6 +81,7 @@ class MeasurementPlan(InventoriedModel):
     meaningful_improvement_threshold: float = Field(alias="improvement_threshold")
     objective_signal: str
     objective_signal_required: bool = True
+    cohort_strata: dict[str, tuple[int, int]]
     missing_data_treatment: str = "not-success"
     dropout_treatment: str = "included-denominator-not-success"
     regression_definition: str
@@ -100,6 +101,7 @@ class MeasurementPlan(InventoriedModel):
             "meaningful_improvement_threshold",
             "objective_signal",
             "objective_signal_required",
+            "cohort_strata",
             "missing_data_treatment",
             "dropout_treatment",
             "regression_definition",
@@ -146,6 +148,20 @@ class MeasurementPlan(InventoriedModel):
                 "6→4, 7→4, 8→5"
             )
         return dict(value)
+
+    @field_validator("cohort_strata")
+    @classmethod
+    def _cohort_strata(cls, value: dict[str, tuple[int, int]]) -> dict[str, tuple[int, int]]:
+        expected = {"non-dex": (4, 5), "dex-customized": (2, 3)}
+        normalized = {
+            clean_text(key, label="stratum_id", max_length=64): tuple(bounds)
+            for key, bounds in value.items()
+        }
+        if normalized != expected:
+            raise ValueError(
+                "cohort strata must be locked as non-dex 4–5 and dex-customized 2–3"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def _state(self) -> Self:

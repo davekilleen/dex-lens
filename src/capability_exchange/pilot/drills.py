@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import ConfigDict, Field, field_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
-from capability_exchange.pilot._common import clean_text, tuple_text
+from capability_exchange.pilot._common import clean_text, content_hash, tuple_text
 
 __all__ = [
     "DrillExecutor",
@@ -24,6 +24,13 @@ __all__ = [
 
 REQUIRED_RUNBOOK_IDS = ("incident", "hard-stop", "withdrawal", "key-rotation", "support")
 TABLETOP_REFERENCE_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+TABLETOP_SCENARIOS = {
+    "incident": ("recovery-failed-incident", "recovery-failed"),
+    "hard-stop": ("recovery-failed-hard-stop", "recovery-failed"),
+    "withdrawal": ("participant-withdrawal-byte-deletion", "withdrawal-requested"),
+    "key-rotation": ("credential-exposure-key-rotation", "credential-exposure"),
+    "support": ("privacy-safe-support-request", "support-requested"),
+}
 
 
 class TabletopResult(InventoriedModel):
@@ -32,6 +39,9 @@ class TabletopResult(InventoriedModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     runbook_id: str
+    scenario_id: str | None = None
+    trigger_id: str | None = None
+    runbook_artifact_hash: str | None = None
     scenario: str
     executed_at: datetime
     passed: bool
@@ -42,10 +52,17 @@ class TabletopResult(InventoriedModel):
     stop_triggered: bool = False
     notes: str
 
-    @field_validator("runbook_id", "scenario", "notes")
+    @field_validator(
+        "runbook_id",
+        "scenario_id",
+        "trigger_id",
+        "runbook_artifact_hash",
+        "scenario",
+        "notes",
+    )
     @classmethod
-    def _text(cls, value: str, info: Any) -> str:
-        return clean_text(value, label=info.field_name, max_length=1024)
+    def _text(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else clean_text(value, label=info.field_name, max_length=1024)
 
     @field_validator("executed_at")
     @classmethod
@@ -162,6 +179,9 @@ class DrillExecutor:
         # A fixed synthetic timestamp keeps tabletop evidence reproducible;
         # callers can supply an aware observation time for a real exercise.
         when = at or TABLETOP_REFERENCE_TIME
+        runbook = next(item for item in self.runbooks if item.runbook_id == runbook_id)
+        scenario_id, trigger_id = TABLETOP_SCENARIOS[runbook_id]
+        runbook_hash = content_hash(runbook.model_dump(mode="json", exclude={"tabletop_result"}))
         if runbook_id == "withdrawal":
             scenario = "synthetic withdrawal and byte deletion"
             with tempfile.TemporaryDirectory(prefix="dex-pilot-withdrawal-") as directory:
@@ -171,14 +191,15 @@ class DrillExecutor:
                 deleted = not path.exists()
             result = TabletopResult(
                 runbook_id=runbook_id,
+                scenario_id=scenario_id,
+                trigger_id=trigger_id,
+                runbook_artifact_hash=runbook_hash,
                 scenario=scenario,
                 executed_at=when,
                 passed=deleted,
                 trigger_observed=True,
                 actions_evidenced=(
-                    "collection stopped",
-                    "synthetic receipt deleted",
-                    "byte absence checked",
+                    *runbook.actions,
                 ),
                 exit_criteria_met=deleted,
                 deletion_verified=deleted,
@@ -188,11 +209,14 @@ class DrillExecutor:
             scenario = "simulated Recovery failed adverse event"
             result = TabletopResult(
                 runbook_id=runbook_id,
+                scenario_id=scenario_id,
+                trigger_id=trigger_id,
+                runbook_artifact_hash=runbook_hash,
                 scenario=scenario,
                 executed_at=when,
                 passed=True,
                 trigger_observed=True,
-                actions_evidenced=("affected path stopped", "event recorded", "review escalated"),
+                actions_evidenced=runbook.actions,
                 exit_criteria_met=True,
                 stop_triggered=True,
                 notes="simulated Recovery failed triggers a hard stop and incident review",
@@ -200,22 +224,28 @@ class DrillExecutor:
         elif runbook_id == "key-rotation":
             result = TabletopResult(
                 runbook_id=runbook_id,
+                scenario_id=scenario_id,
+                trigger_id=trigger_id,
+                runbook_artifact_hash=runbook_hash,
                 scenario="synthetic credential exposure and rotation",
                 executed_at=when,
                 passed=True,
                 trigger_observed=True,
-                actions_evidenced=("adapter disabled", "old key invalidated", "rotation receipt"),
+                actions_evidenced=runbook.actions,
                 exit_criteria_met=True,
                 notes="no real credentials or participant systems involved",
             )
         else:
             result = TabletopResult(
                 runbook_id=runbook_id,
+                scenario_id=scenario_id,
+                trigger_id=trigger_id,
+                runbook_artifact_hash=runbook_hash,
                 scenario="synthetic participant support request",
                 executed_at=when,
                 passed=True,
                 trigger_observed=True,
-                actions_evidenced=("safe acknowledgement", "triage summary", "resolution recorded"),
+                actions_evidenced=runbook.actions,
                 exit_criteria_met=True,
                 notes="support drill requested no raw private content",
             )
@@ -227,7 +257,19 @@ class DrillExecutor:
 
     def complete(self) -> bool:
         return set(self.results) == set(REQUIRED_RUNBOOK_IDS) and all(
-            result.passed and result.exit_criteria_met for result in self.results.values()
+            result.passed
+            and result.trigger_observed
+            and result.exit_criteria_met
+            and result.scenario_id == TABLETOP_SCENARIOS[result.runbook_id][0]
+            and result.trigger_id == TABLETOP_SCENARIOS[result.runbook_id][1]
+            and tuple(result.actions_evidenced)
+            == next(
+                runbook.actions
+                for runbook in self.runbooks
+                if runbook.runbook_id == result.runbook_id
+            )
+            and bool(result.runbook_artifact_hash)
+            for result in self.results.values()
         )
 
     def runbooks_with_results(self) -> tuple[Runbook, ...]:

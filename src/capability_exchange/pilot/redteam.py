@@ -10,6 +10,11 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.pilot._common import clean_text, content_hash
+from capability_exchange.pilot.gate import (
+    PILOT_GATE_TESTS,
+    PilotBuildGateReport,
+    PilotGateOutcome,
+)
 
 __all__ = [
     "REQUIRED_REDTEAM_GATES",
@@ -17,10 +22,16 @@ __all__ = [
     "RedTeamOutcome",
     "RedTeamReport",
     "evaluate_redteam",
+    "evaluate_gate_redteam",
 ]
 
 
 REQUIRED_REDTEAM_GATES = ("G1", "G2", "G3", "G4", "R3")
+REQUIRED_REDTEAM_TESTS = {
+    gate: PILOT_GATE_TESTS[gate] for gate in REQUIRED_REDTEAM_GATES
+}
+_SHA = __import__("re").compile(r"^[0-9a-f]{40}$")
+_SHA256 = __import__("re").compile(r"^[0-9a-f]{64}$")
 
 
 class RedTeamOutcome(StrEnum):
@@ -39,13 +50,28 @@ class RedTeamCase(InventoriedModel):
     outcome: RedTeamOutcome = Field(alias="status")
     commit: str
     evidence_hash: str
+    execution_report_hash: str | None = None
     observed_at: datetime
     notes: str = ""
 
-    @field_validator("gate", "test_id", "commit", "evidence_hash")
+    @field_validator("gate", "test_id")
     @classmethod
     def _text(cls, value: str, info: Any) -> str:
         return clean_text(value, label=info.field_name, max_length=256)
+
+    @model_validator(mode="after")
+    def _identity_and_hashes(self) -> Self:
+        if (
+            self.gate not in REQUIRED_REDTEAM_TESTS
+            or self.test_id not in REQUIRED_REDTEAM_TESTS[self.gate]
+        ):
+            raise ValueError("red-team case must use a canonical hostile test identity")
+        valid_hashes = _SHA.fullmatch(self.commit) and _SHA256.fullmatch(self.evidence_hash)
+        if self.execution_report_hash is not None:
+            valid_hashes = bool(valid_hashes and _SHA256.fullmatch(self.execution_report_hash))
+        if not valid_hashes and self.outcome is RedTeamOutcome.PASS:
+            object.__setattr__(self, "outcome", RedTeamOutcome.FAIL)
+        return self
 
     @field_validator("notes")
     @classmethod
@@ -73,6 +99,7 @@ class RedTeamReport(InventoriedModel):
     cases: tuple[RedTeamCase, ...] = ()
     synthetic_system: bool = True
     commit: str | None = None
+    source_gate_report_hash: str | None = None
     content_hash: str | None = None
     pilot_start_allowed: bool = False
     guided_downgrade_available: bool = False
@@ -108,11 +135,20 @@ class RedTeamReport(InventoriedModel):
             if case.gate in by_gate:
                 by_gate[case.gate].append(case)
         complete = all(
-            cases and all(case.outcome is RedTeamOutcome.PASS for case in cases)
-            for cases in by_gate.values()
+            tuple(case.test_id for case in cases) == REQUIRED_REDTEAM_TESTS[gate]
+            and all(case.outcome is RedTeamOutcome.PASS for case in cases)
+            for gate, cases in by_gate.items()
         )
         commits = {case.commit for case in self.cases}
         if len(commits) > 1:
+            complete = False
+        if (
+            self.source_gate_report_hash is None
+            or not _SHA256.fullmatch(self.source_gate_report_hash)
+            or any(
+                case.execution_report_hash != self.source_gate_report_hash for case in self.cases
+            )
+        ):
             complete = False
         if self.pilot_start_allowed and not complete:
             raise ValueError("red-team report cannot claim pilot_start_allowed without all passes")
@@ -165,19 +201,8 @@ def evaluate_redteam(
     for case in case_tuple:
         if case.gate in by_gate:
             by_gate[case.gate].append(case)
-    all_pass = all(
-        by_gate[gate] and all(case.outcome is RedTeamOutcome.PASS for case in by_gate[gate])
-        for gate in REQUIRED_REDTEAM_GATES
-    ) and chosen_commit is not None
-    g1_failed = not by_gate["G1"] or any(
-        case.outcome is not RedTeamOutcome.PASS for case in by_gate["G1"]
-    )
-    others_pass = all(
-        by_gate[gate] and all(case.outcome is RedTeamOutcome.PASS for case in by_gate[gate])
-        for gate in REQUIRED_REDTEAM_GATES
-        if gate != "G1"
-    )
-    downgrade = g1_failed and others_pass
+    all_pass = False
+    downgrade = False
     explanation = (
         "all required hostile suites passed against one exact synthetic commit"
         if all_pass
@@ -191,4 +216,54 @@ def evaluate_redteam(
         pilot_start_allowed=all_pass,
         guided_downgrade_available=downgrade,
         explanation=explanation,
+    )
+
+
+def evaluate_gate_redteam(report: PilotBuildGateReport) -> RedTeamReport:
+    """Derive R6 evidence only from the exact executor-produced pilot gate report."""
+
+    if not report.exact_build_verified or not report.content_hash:
+        raise ValueError("red-team execution requires an exact-build gate report")
+    by_gate = {item.gate: item for item in report.evidence}
+    cases: list[RedTeamCase] = []
+    for gate in REQUIRED_REDTEAM_GATES:
+        evidence = by_gate[gate]
+        for test_id in REQUIRED_REDTEAM_TESTS[gate]:
+            cases.append(
+                RedTeamCase(
+                    gate=gate,
+                    test_id=test_id,
+                    status=(
+                        RedTeamOutcome.PASS
+                        if evidence.outcome is PilotGateOutcome.PASS and evidence.exit_code == 0
+                        else RedTeamOutcome.FAIL
+                    ),
+                    commit=report.commit,
+                    evidence_hash=evidence.output_sha256,
+                    execution_report_hash=report.content_hash,
+                    observed_at=evidence.observed_at,
+                    notes="derived from exact pilot gate executor evidence",
+                )
+            )
+    case_tuple = tuple(cases)
+    passes = {
+        gate
+        for gate in REQUIRED_REDTEAM_GATES
+        if all(case.passed for case in case_tuple if case.gate == gate)
+    }
+    all_pass = set(REQUIRED_REDTEAM_GATES) <= passes
+    downgrade = "G1" not in passes and (set(REQUIRED_REDTEAM_GATES) - {"G1"}) <= passes
+    return RedTeamReport(
+        cases=case_tuple,
+        commit=report.commit,
+        source_gate_report_hash=report.content_hash,
+        pilot_start_allowed=all_pass,
+        guided_downgrade_available=downgrade,
+        explanation=(
+            "all canonical hostile suites passed from exact executor-produced evidence"
+            if all_pass
+            else "G1 alone is unproven; guided/export-assisted collection is the only downgrade"
+            if downgrade
+            else "missing or failing hostile evidence blocks pilot start"
+        ),
     )

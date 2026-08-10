@@ -106,6 +106,7 @@ jobs:
             --cpus 2 \
             -e M3_EGRESS_NETWORK_ISOLATED=1 \
             -e M3_EGRESS_ARTIFACT_DIR=/evidence \
+            -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
             -v "${PWD}/m3-egress-artifact:/evidence" \
             dex-lens-m3-egress
 
@@ -145,6 +146,7 @@ jobs:
             --memory 1g \
             --cpus 2 \
             -e G1_BIND_MOUNT_EVIDENCE_DIR=/evidence \
+            -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
             -v "${PWD}/g1-bind-mount-artifact:/evidence" \
             dex-lens-g1-bind-mount
 
@@ -156,9 +158,42 @@ jobs:
           path: g1-bind-mount-artifact/
           if-no-files-found: error
 
+  m5-egress-gate:
+    name: M5 exact contribution-byte egress evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact M5 build
+        run: python -m pip install -e ".[dev]"
+
+      - name: Execute M5 exact-byte egress gate
+        env:
+          DEX_LENS_BUILD_COMMIT: ${{ github.sha }}
+        run: >-
+          python scripts/m5_egress_gate.py
+          --output /tmp/m5-egress-evidence/evidence.json
+
+      - name: Upload M5 egress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-egress-evidence
+          path: /tmp/m5-egress-evidence/
+          if-no-files-found: error
+
   pilot-build-gate:
     name: Exact pilot-build release gate (G1-G6 + R3)
-    needs: [test, m3-egress-gate, g1-bind-mount-gate]
+    needs: [test, m3-egress-gate, g1-bind-mount-gate, m5-egress-gate]
+    if: >-
+      ${{ always() && needs.test.result == 'success' &&
+          needs.g1-bind-mount-gate.result == 'success' &&
+          needs.m3-egress-gate.result == 'success' &&
+          needs.m5-egress-gate.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,11 +205,32 @@ jobs:
       - name: Install exact pilot build
         run: python -m pip install -e ".[dev]"
 
+      - name: Download G1 bind-mount evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: g1-bind-mount-evidence
+          path: /tmp/g1-bind-mount-evidence
+
+      - name: Download M3-M4 egress evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: m3-egress-evidence
+          path: /tmp/m3-m4-egress-evidence
+
+      - name: Download M5 contribution evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: m5-egress-evidence
+          path: /tmp/m5-egress-evidence
+
       - name: Execute all six gates and R3 on this commit
         run: |
           mkdir -p pilot-gate-artifact
           python scripts/pilot_gate.py \
             --commit "${GITHUB_SHA}" \
+            --formal-evidence /tmp/g1-bind-mount-evidence/g1-bind-mount-gate.json \
+            --formal-evidence /tmp/m3-m4-egress-evidence/evidence.json \
+            --formal-evidence /tmp/m5-egress-evidence/evidence.json \
             --output pilot-gate-artifact/pilot-build-gate.json
 
       - name: Upload exact pilot-build gate evidence

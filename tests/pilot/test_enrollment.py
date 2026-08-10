@@ -3,7 +3,12 @@ from datetime import UTC, datetime
 import pytest
 
 from capability_exchange.jobs.contract import JobBoundaries, SuccessContract
-from capability_exchange.pilot.enrollment import EnrollmentError, EnrollmentGate
+from capability_exchange.pilot.enrollment import (
+    EnrollmentError,
+    EnrollmentGate,
+    ParticipantDeletionEvidence,
+    ParticipantDeletionManifest,
+)
 from capability_exchange.pilot.protocol import ConsentRecord
 
 from .test_protocol import protocol
@@ -65,9 +70,26 @@ class DeletionPort:
         self.verified = verified
         self.calls = 0
 
-    def delete_participant(self, record) -> bool:
+    def delete_participant(self, record) -> ParticipantDeletionManifest:
         self.calls += 1
-        return self.verified
+        return ParticipantDeletionManifest(
+            participant_id=record.participant_id,
+            protocol_version=record.protocol_version,
+            protocol_hash=record.protocol_hash,
+            withdrawal_requested_at=record.consent.withdrawal_requested_at,
+            stores=tuple(
+                ParticipantDeletionEvidence(
+                    store_id=store_id,
+                    artifact_hashes=("sha256:" + str(index) * 64,),
+                    deleted=self.verified,
+                    verified_at=record.consent.withdrawal_requested_at,
+                    verifier_id="synthetic-deletion-executor",
+                )
+                for index, store_id in enumerate(
+                    ("receipts", "caches", "browser-state"), start=1
+                )
+            ),
+        )
 
 
 def test_withdrawal_requires_verified_controlled_store_deletion() -> None:
@@ -77,10 +99,44 @@ def test_withdrawal_requires_verified_controlled_store_deletion() -> None:
     failing = DeletionPort(False)
     with pytest.raises(EnrollmentError, match="deletion could not be verified"):
         gate.withdraw(enrolled.participant_id, deletion_port=failing)
-    assert gate.records == (enrolled,)
+    assert gate.records == ()
+    assert gate.tombstones[0].consent.status == "withdrawn"
+    assert gate.tombstones[0].consent.deletion_confirmed_at is None
+
+    with pytest.raises(EnrollmentError, match="permanently withdrawn"):
+        gate.enroll(consent(current.protocol_hash), contract())
+
+
+def test_successful_withdrawal_keeps_a_permanent_protocol_tombstone() -> None:
+    current = protocol()
+    gate = EnrollmentGate(current)
+    enrolled = gate.enroll(consent(current.protocol_hash), contract())
 
     verified = DeletionPort(True)
     withdrawn = gate.withdraw(enrolled.participant_id, deletion_port=verified)
     assert withdrawn.consent.status == "withdrawn"
     assert withdrawn.consent.deletion_confirmed_at is not None
     assert gate.records == ()
+    assert gate.tombstones == (withdrawn,)
+    with pytest.raises(EnrollmentError, match="permanently withdrawn"):
+        gate.enroll(consent(current.protocol_hash), contract())
+
+
+def test_deletion_manifest_cannot_omit_a_controlled_participant_store() -> None:
+    now = datetime.now(UTC)
+    with pytest.raises(ValueError, match="receipts, caches, and browser-state"):
+        ParticipantDeletionManifest(
+            participant_id="p1",
+            protocol_version="v1",
+            protocol_hash="a" * 64,
+            withdrawal_requested_at=now,
+            stores=(
+                ParticipantDeletionEvidence(
+                    store_id="receipts",
+                    artifact_hashes=("sha256:" + "a" * 64,),
+                    deleted=True,
+                    verified_at=now,
+                    verifier_id="deletion-executor",
+                ),
+            ),
+        )
