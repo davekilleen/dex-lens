@@ -35,6 +35,11 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: M3 doorway + clean-wheel evidence
+        # Covers the shipped console entry point, loopback doorway lifecycle,
+        # and a non-editable install of the real wheel artifact.
+        run: python -m pytest -rs tests/concierge tests/test_packaging.py
+
       - name: Test (pytest)
         # -rs so a hostile fixture that skipped (e.g. bind-mount-escape where
         # user namespaces are unavailable) is visible in the log rather than
@@ -57,3 +62,43 @@ jobs:
         # the typed serialization boundary, and on any stored field without a
         # registered deletion path.
         run: python scripts/check_inventory.py
+
+  m3-egress-gate:
+    name: M3 packet + DNS + proxy egress gate (Linux)
+    # The evidence leg is isolated to a disposable Docker network namespace.
+    # The container has no network interfaces except loopback.  Every default
+    # capability is dropped before only NET_ADMIN (bring loopback up) and
+    # NET_RAW (AF_PACKET/tcpdump) are added.  No host sudo or SYS_ADMIN is used.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build isolated evidence image
+        run: docker build -f scripts/Dockerfile.m3-egress -t dex-lens-m3-egress .
+
+      - name: M3 full journey OS egress evidence
+        run: |
+          install -d -m 0777 m3-egress-artifact
+          docker run --rm \
+            --network none \
+            --cap-drop=ALL \
+            --cap-add=NET_ADMIN \
+            --cap-add=NET_RAW \
+            --security-opt no-new-privileges=true \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m \
+            --pids-limit 256 \
+            --memory 1g \
+            --cpus 2 \
+            -e M3_EGRESS_NETWORK_ISOLATED=1 \
+            -e M3_EGRESS_ARTIFACT_DIR=/evidence \
+            -v "${PWD}/m3-egress-artifact:/evidence" \
+            dex-lens-m3-egress
+
+      - name: Upload M3 egress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-egress-evidence
+          path: m3-egress-artifact/
+          if-no-files-found: error

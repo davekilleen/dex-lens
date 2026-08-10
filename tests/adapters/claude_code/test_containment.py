@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,33 @@ class TestStrategySelection:
         monkeypatch.setattr(containment.sys, "platform", "linux")
         available, reason = MacOSStrategy().availability()
         assert not available
+
+    def test_cancellable_child_drains_output_larger_than_pipe_capacity(
+        self, claude_root: Path
+    ) -> None:
+        envelope = TestStrategy().collect_contained(request_for(claude_root)).envelope
+        response = {
+            "schema": containment.contained.RESULT_SCHEMA,
+            "envelope": envelope.model_dump(mode="json"),
+            "layers": ["test-output-drain"],
+            "proofs": ["large-output-completed"],
+        }
+        script = (
+            "import json,sys; sys.stdin.buffer.read(); "
+            f"payload=json.loads({json.dumps(json.dumps(response))}); "
+            "payload['padding']='x'*262144; sys.stdout.write(json.dumps(payload))"
+        )
+
+        result = containment._launch_contained_child(
+            [sys.executable, "-c", script],
+            request_for(claude_root),
+            layer_reason="test output draining",
+            os_enforced=False,
+            cancel_event=threading.Event(),
+        )
+
+        assert result.envelope == envelope
+        assert result.outcome.proofs == ("large-output-completed",)
 
 
 class TestTestStrategyDiscipline:

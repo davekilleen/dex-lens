@@ -1,6 +1,6 @@
 # Dex Lens — build status and what's outstanding
 
-Last updated: 2026-08-08. Plain-language companion to `docs/handoff/HANDOFF.md`
+Last updated: 2026-08-09. Plain-language companion to `docs/handoff/HANDOFF.md`
 (the binding plan) and `docs/handoff/sources/gates.md` (the testable gates).
 
 The plan has six milestones, M1–M6. Here's where each stands.
@@ -14,11 +14,12 @@ The plan has six milestones, M1–M6. Here's where each stands.
   `Inspection` state, the high-impact job taxonomy, the diagnosis engine, and
   the jobs-first Capability Map rendering).
 
-887 tests pass on Linux; the full suite is green there.
+The full test suite passes on Linux and across the supported GitHub Actions
+matrix.
 
 ## The two loose ends before M1/M2 can be called truly closed
 
-1. **macOS socket denial — honest asymmetry recorded, waiting on CI.** Linux
+1. **macOS socket denial — honest asymmetry recorded and CI-verified.** Linux
    blocks socket creation outright. The macOS attempt (`system-socket` in the
    sandbox profile) was well-reasoned but the GitHub macos-14 runners
    disproved the stronger claim — they handed out AF_INET/AF_INET6 sockets
@@ -30,17 +31,42 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 2. **The bind-mount fixture has never actually executed.** The fix is in and
    the defence reads the live mount table, but the test that *proves* it needs
-   a privilege the VPS and possibly the GitHub runners don't grant. If it
-   skips on CI too, we need a privileged container leg or a `sudo mount` step,
-   or the G1 bind-mount gate stays formally unproven.
+   `CAP_SYS_ADMIN`, which this VPS and the standard hosted runner do not grant.
+   Closing G1 honestly requires a dedicated, isolated Linux runner with that
+   narrow privilege; the skip remains loud until one is available.
 
-## Not started — the remaining product
+## Implemented and CI-verified in draft PR #4
 
-3. **M3 — the local browser concierge.** The one trusted command that opens a
-   private, loopback-only page and walks the person through stages 1–6
-   (permission → collection → confirm jobs → diagnosis → Capability Map). This
-   is the first thing a real person would actually *see and use*. Includes the
-   session-security hardening (R3) and the offline guarantee.
+3. **M3 — the local browser concierge.** The source alpha now has the trusted
+   `dex-lens` doorway; fail-closed loopback session security; cancellable,
+   scope-revalidated collection; honest contained-host refusal; editable/addable/
+   discardable Job Map drafts; full Success Contract confirmation; diagnosis;
+   and jobs-first Capability Map rendering. The clean wheel/entry point, a real
+   contained end-to-end journey with zero inspected-root writes, canary-leak
+   checks, and completion with external connections refused are covered by
+   tests on the branch.
+
+   The guided/export-assisted diagnosis path is implemented for hosts where
+   containment is unavailable. It accepts only bounded Supported, Reported, or
+   Unknown evidence, then reuses the same editable Job Map, confirmation, and
+   Capability Map journey without writing to the inspected root.
+
+   The binding interfaces-disabled packet/DNS/proxy proof is now green in a
+   dedicated Linux CI gate. It runs the full seven-page journey in a Docker
+   `--network none` namespace, captures the loopback traffic, and fails on DNS,
+   proxy use, non-loopback packets, unparsed packets, or canary leakage.
+
+   **Not formally closed yet:** the host-level bind-mount proof above still
+   needs its dedicated isolated Linux runner, and macOS provides connect-time
+   denial rather than socket-object denial. Until those boundaries are closed
+   or explicitly accepted, call this a read-only source alpha, not a completed
+   M3 release.
+
+   **Build authorization is recorded:** HANDOFF D0 was posted on Dex issue
+   #347 on 7 August against the signed pack hash
+   `de01cfb1794790a90e34010198063a8449631e32ec450b8f4368cc21ab7bf6f5`.
+
+## Not started — later product milestones
 
 4. **M4 — the adaptation engine.** The transactional "make one change, with
    exact preview, proven undo, and a receipt" layer, gated behind all six
@@ -57,7 +83,7 @@ The plan has six milestones, M1–M6. Here's where each stands.
 
 ## Rough shape of remaining effort
 
-M3 is the biggest single lift and the most valuable (first usable surface).
+M3 is the first usable surface and is now in draft PR review.
 M4 is the most safety-critical. M5 and M6 depend on decisions in
 `DAVE-DECISIONS.md` (moderation host, pilot recruits, consent review) more
 than on code. The two M1 loose ends are small but one needs Dave's call.

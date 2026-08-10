@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from os import environ
 from pathlib import Path
 
 import pytest
@@ -66,8 +67,8 @@ def _data_files_in_source_tree() -> tuple[str, ...]:
 
 
 @pytest.fixture(scope="module")
-def wheel_contents(tmp_path_factory: pytest.TempPathFactory) -> frozenset[str]:
-    """Names inside a wheel built from a clean copy of this project.
+def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A wheel built from a clean copy of this project.
 
     Built from a copy so the build leaves no ``build/`` or ``*.egg-info`` in
     the working tree, and through the PEP 517 hook directly so it needs
@@ -97,8 +98,13 @@ def wheel_contents(tmp_path_factory: pytest.TempPathFactory) -> frozenset[str]:
         check=False,
     )
     assert completed.returncode == 0, f"wheel build failed:\n{completed.stderr}"
-    wheel = output / completed.stdout.strip().splitlines()[-1]
-    with zipfile.ZipFile(wheel) as archive:
+    return output / completed.stdout.strip().splitlines()[-1]
+
+
+@pytest.fixture(scope="module")
+def wheel_contents(built_wheel: Path) -> frozenset[str]:
+    """Names inside the wheel artifact, rather than the editable checkout."""
+    with zipfile.ZipFile(built_wheel) as archive:
         return frozenset(archive.namelist())
 
 
@@ -136,3 +142,66 @@ def test_g1_named_data_files_still_exist_where_the_code_looks_for_them() -> None
     for name in REQUIRED_DATA_FILES:
         assert (_SRC / name).is_file(), name
     assert set(REQUIRED_DATA_FILES) <= set(_data_files_in_source_tree())
+
+
+def test_clean_wheel_installs_and_exposes_the_dex_lens_doorway(
+    built_wheel: Path, tmp_path: Path
+) -> None:
+    """The shipped artifact imports, carries its data, and owns the CLI."""
+    target = tmp_path / "installed"
+    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--no-deps",
+            "--target",
+            str(target),
+            str(built_wheel),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, f"wheel install failed:\n{completed.stderr}"
+
+    script = """
+from importlib.metadata import distributions
+from pathlib import Path
+import capability_exchange
+
+target = Path(__import__('sys').argv[1]).resolve()
+package = Path(capability_exchange.__file__).resolve().parent
+assert package.is_relative_to(target), (package, target)
+for relative in (
+    'boundary/data_inventory.yaml',
+    'adapters/claude_code/profiles/claude_code_containment.sb',
+):
+    assert (package / relative).is_file(), relative
+distribution = next(distributions(path=[target]))
+entry = next(
+    item for item in distribution.entry_points
+    if item.group == 'console_scripts' and item.name == 'dex-lens'
+)
+try:
+    entry.load()(['--help'])
+except SystemExit as exc:
+    assert exc.code == 0
+else:
+    raise AssertionError('dex-lens --help did not exit through argparse')
+"""
+    environment = environ.copy()
+    environment["PYTHONPATH"] = str(target)
+    environment["PYTHONNOUSERSITE"] = "1"
+    invoked = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-c", script, str(target)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invoked.returncode == 0, invoked.stderr
+    assert "local, read-only Dex Lens alpha" in invoked.stdout
