@@ -6,6 +6,7 @@ import hashlib
 import http.client
 import inspect
 import os
+import sys
 import tempfile
 import threading
 from collections.abc import Callable
@@ -27,6 +28,13 @@ from capability_exchange.concierge.server import ConciergeServer, new_session
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 COLLECTED_AT = datetime(2026, 8, 8, 12, 0, 0, tzinfo=UTC)
+linux_only = pytest.mark.skipif(
+    sys.platform != "linux",
+    reason=(
+        "the real contained deep-inspection journey requires Linux; "
+        "macOS CI proves the honest guided fallback separately"
+    ),
+)
 
 
 def item(reference: str) -> EvidenceItem:
@@ -501,6 +509,7 @@ class TestStagesOneToSix:
             assert "Your job: instruction-guided-work" in body
             assert "overall score" not in body.lower()
 
+    @linux_only
     def test_real_contained_full_journey_writes_nothing_to_approved_root(
         self, tmp_path: Path
     ) -> None:

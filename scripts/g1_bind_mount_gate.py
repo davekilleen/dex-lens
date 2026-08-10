@@ -192,6 +192,10 @@ def main() -> int:
                 report=None,
             ),
         )
+        # This gate handles synthetic fixture data inside a disposable image.
+        # Preserve the complete pytest refusal in the CI log so a failed
+        # containment boundary can be diagnosed rather than guessed at.
+        print(output, file=sys.stderr)
         print(f"G1 bind-mount gate FAILED: {exc}", file=sys.stderr)
         if temporary is not None:
             temporary.cleanup()
