@@ -637,6 +637,114 @@ fields:
     deletion: not-stored
     audit: "ephemeral result timestamp"
 
+  TransactionJournal.transaction_id:
+    description: "stable local identity of one crash-recoverable transaction"
+    collection: "derived from the exact preview digest"
+    derivation: "first 32 hexadecimal digest characters"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.state:
+    description: "closed crash-recovery transaction state"
+    collection: "advanced locally by the transaction engine"
+    derivation: "validated through JournalState"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.preview_digest:
+    description: "exact preview identity bound to the transaction"
+    collection: "copied from the approved preview"
+    derivation: "none"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.approval_id:
+    description: "non-secret consumed approval identity bound to the transaction"
+    collection: "copied from the single-use approval record"
+    derivation: "none; raw token excluded"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.target_path:
+    description: "private exact local target bound to the transaction"
+    collection: "copied from the approved preview"
+    derivation: "none after path-jail validation"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "local private path; never transmitted"
+
+  TransactionJournal.content_sha256:
+    description: "digest of exact desired bytes without storing source content"
+    collection: "copied from the approved preview"
+    derivation: "SHA-256"
+    display: "shown as exact change identity"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
+  TransactionJournal.recovery_manifest_path:
+    description: "private user-controlled recovery manifest for this transaction"
+    collection: "copied after recovery read-back succeeds"
+    derivation: "none"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "local private path; never transmitted"
+
+  TransactionJournal.receipt_path:
+    description: "private user-controlled standard JSON receipt path"
+    collection: "recorded only after receipt write succeeds"
+    derivation: "none"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "local private path; never transmitted"
+
+  TransactionJournal.updated_at:
+    description: "timezone-aware last durable state transition time"
+    collection: "recorded locally at each journal transition"
+    derivation: "none; naive timestamps rejected"
+    display: "shown in local transaction status"
+    storage:
+      location: "user-controlled Dex Lens transaction journal directory"
+      duration: "until verified undo, reconciliation, or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-journals
+    audit: "checksummed canonical local JSON"
+
   EvidenceItem.state:
     description: "closed R2 evidence-state vocabulary value for one evidence item"
     collection: "assigned locally by the adapter/diagnosis pipeline that produced the item"

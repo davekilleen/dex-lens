@@ -25,7 +25,7 @@ def make_preview(root: Path):
         request=OperationRequest(
             operation=OperationKind.CREATE_NAMESPACED_SKILL,
             approved_root=str(root),
-            relative_path="skills/dex-lens-reading-list/SKILL.md",
+            relative_path="dex-lens-reading-list.md",
         ),
         host_id="claude-code-local",
         job_id="reading-list",
@@ -81,7 +81,7 @@ def test_restore_removes_only_the_exact_applied_bytes(tmp_path: Path) -> None:
     preview = make_preview(target_root)
     point = create_recovery_point(preview, state_root=tmp_path / "state", created_at=NOW)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(preview.content, encoding="utf-8")
 
     restore_absent_target(point, expected_applied_sha256=preview.content_sha256)
@@ -94,10 +94,9 @@ def test_restore_never_clobbers_unrelated_later_work(tmp_path: Path) -> None:
     preview = make_preview(target_root)
     point = create_recovery_point(preview, state_root=tmp_path / "state", created_at=NOW)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("changed by the person", encoding="utf-8")
 
     with pytest.raises(RecoveryConflictError):
         restore_absent_target(point, expected_applied_sha256=preview.content_sha256)
     assert target.read_text(encoding="utf-8") == "changed by the person"
-

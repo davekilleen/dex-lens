@@ -12,3 +12,8 @@ def test_m4_public_surface_exports_recovery_receipt_and_verification() -> None:
     assert adaptation.TransactionReceipt.__name__ == "TransactionReceipt"
     assert adaptation.VerificationResult.__name__ == "VerificationResult"
     assert callable(adaptation.verify_created_skill)
+
+
+def test_m4_public_surface_exports_transaction_and_undo() -> None:
+    assert adaptation.TransactionEngine.__name__ == "TransactionEngine"
+    assert adaptation.UndoStatus.UNDONE.value == "undone"

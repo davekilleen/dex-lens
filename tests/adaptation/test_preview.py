@@ -24,7 +24,7 @@ def request_for(root: Path) -> OperationRequest:
     return OperationRequest(
         operation=OperationKind.CREATE_NAMESPACED_SKILL,
         approved_root=str(root),
-        relative_path="skills/dex-lens-reading-list/SKILL.md",
+        relative_path="dex-lens-reading-list.md",
     )
 
 
@@ -97,7 +97,7 @@ def test_target_created_after_preview_is_drift_and_refuses_before_write(tmp_path
     root.mkdir()
     preview = preview_for(root)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("someone else's work", encoding="utf-8")
 
     with pytest.raises(PreviewDriftError, match="changed after preview"):
@@ -109,3 +109,22 @@ def test_naive_preview_timestamp_is_rejected(tmp_path: Path) -> None:
     root.mkdir()
     with pytest.raises(ValidationError, match="timezone"):
         preview_for(root, created_at=datetime(2026, 8, 10, 9, 0))
+
+
+def test_preview_refuses_implicit_parent_directory_creation(tmp_path: Path) -> None:
+    root = tmp_path / "approved"
+    root.mkdir()
+    with pytest.raises(ValueError, match="parent directory"):
+        build_preview(
+            request=OperationRequest(
+                operation=OperationKind.CREATE_NAMESPACED_SKILL,
+                approved_root=str(root),
+                relative_path="missing/dex-lens-reading-list.md",
+            ),
+            host_id="claude-code-local",
+            job_id="reading-list",
+            capability_id="topic-grouping",
+            content=CONTENT,
+            expected_benefit="Group new reading-list entries by topic",
+            created_at=NOW,
+        )

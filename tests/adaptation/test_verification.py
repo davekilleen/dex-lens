@@ -44,7 +44,7 @@ def make_preview(root: Path):
         request=OperationRequest(
             operation=OperationKind.CREATE_NAMESPACED_SKILL,
             approved_root=str(root),
-            relative_path="skills/dex-lens-reading-list/SKILL.md",
+            relative_path="dex-lens-reading-list.md",
         ),
         host_id="claude-code-local",
         job_id="reading-list",
@@ -60,7 +60,7 @@ def test_exact_file_and_declared_signal_verify_working(tmp_path: Path) -> None:
     root.mkdir()
     preview = make_preview(root)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(preview.content, encoding="utf-8")
 
     result = verify_created_skill(
@@ -82,7 +82,7 @@ def test_success_looking_file_without_contract_signal_is_not_demonstrated(
     root.mkdir()
     preview = make_preview(root)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(preview.content, encoding="utf-8")
 
     result = verify_created_skill(
@@ -103,7 +103,7 @@ def test_sabotaged_verifier_is_unknown_unverified_and_never_working(
     root.mkdir()
     preview = make_preview(root)
     target = Path(preview.target_path)
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(preview.content, encoding="utf-8")
 
     def fail_read(self: Path) -> bytes:
@@ -120,4 +120,3 @@ def test_sabotaged_verifier_is_unknown_unverified_and_never_working(
     assert result.capability_state is CapabilityState.UNKNOWN
     assert result.evidence_state is EvidenceState.UNVERIFIED
     assert result.evidence_level is EvidenceLevel.UNKNOWN
-

@@ -128,6 +128,11 @@ def build_preview(
     """Create a preview only while the create-only target is absent and jailed."""
 
     target = canonical_target(request)
+    if not target.parent.is_dir():
+        raise ValueError(
+            "target parent directory must already exist; implicit directory "
+            "creation is not part of the exact effect list"
+        )
     content_bytes = content.encode("utf-8")
     values: dict[str, object] = {
         "host_id": host_id,
@@ -172,4 +177,3 @@ def assert_preview_current(preview: AdaptationPreview) -> None:
         raise PreviewDriftError("approved scope changed after preview") from exc
     if str(candidate) != preview.target_path or os.path.lexists(candidate):
         raise PreviewDriftError("target changed after preview; no write was attempted")
-

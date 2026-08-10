@@ -76,10 +76,10 @@ def test_target_is_canonical_and_jailed_under_approved_root(tmp_path: Path) -> N
     request = OperationRequest(
         operation=OperationKind.CREATE_NAMESPACED_SKILL,
         approved_root=str(approved),
-        relative_path="skills/dex-lens-reading-list/SKILL.md",
+        relative_path="dex-lens-reading-list.md",
     )
     target = canonical_target(request)
-    assert target == approved / "skills/dex-lens-reading-list/SKILL.md"
+    assert target == approved / "dex-lens-reading-list.md"
     assert target.is_absolute()
 
 
@@ -92,7 +92,7 @@ def test_symlinked_parent_escape_is_refused(tmp_path: Path) -> None:
     request = OperationRequest(
         operation=OperationKind.CREATE_NAMESPACED_SKILL,
         approved_root=str(approved),
-        relative_path="skills/dex-lens-reading-list/SKILL.md",
+        relative_path="skills/dex-lens-reading-list.md",
     )
     with pytest.raises(ValueError, match="outside the approved root"):
         canonical_target(request)
@@ -100,14 +100,13 @@ def test_symlinked_parent_escape_is_refused(tmp_path: Path) -> None:
 
 def test_existing_target_is_refused_by_create_only_recipe(tmp_path: Path) -> None:
     approved = tmp_path / "approved"
-    target = approved / "skills/dex-lens-reading-list/SKILL.md"
+    target = approved / "dex-lens-reading-list.md"
     target.parent.mkdir(parents=True)
     target.write_text("existing", encoding="utf-8")
     request = OperationRequest(
         operation=OperationKind.CREATE_NAMESPACED_SKILL,
         approved_root=str(approved),
-        relative_path="skills/dex-lens-reading-list/SKILL.md",
+        relative_path="dex-lens-reading-list.md",
     )
     with pytest.raises(ValueError, match="already exists"):
         canonical_target(request)
-

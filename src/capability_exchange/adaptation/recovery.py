@@ -103,7 +103,7 @@ def create_recovery_point(
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, manifest)
-        proven = validate_recovery_point(manifest)
+        proven = validate_recovery_point(manifest, require_prior_state=True)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise RecoveryUnavailableError(
             "recovery point could not be created and read back before mutation"
@@ -113,7 +113,9 @@ def create_recovery_point(
     return proven
 
 
-def validate_recovery_point(manifest: Path) -> RecoveryPoint:
+def validate_recovery_point(
+    manifest: Path, *, require_prior_state: bool = False
+) -> RecoveryPoint:
     """Verify schema, checksum, path identity, and prior-state proof."""
 
     try:
@@ -131,7 +133,7 @@ def validate_recovery_point(manifest: Path) -> RecoveryPoint:
         point = RecoveryPoint.model_validate(wrapper["payload"])
         if Path(point.manifest_path) != manifest:
             raise ValueError("recovery manifest path does not identify itself")
-        if os.path.lexists(point.target_path):
+        if require_prior_state and os.path.lexists(point.target_path):
             raise ValueError("target is not in the recorded absent state")
         return point
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
@@ -157,4 +159,3 @@ def restore_absent_target(
     target.unlink()
     if os.path.lexists(target):
         raise RecoveryUnavailableError("target survived recovery unlink")
-

@@ -23,7 +23,7 @@ def make_preview(root: Path, *, job_id: str = "reading-list"):
         request=OperationRequest(
             operation=OperationKind.CREATE_NAMESPACED_SKILL,
             approved_root=str(root),
-            relative_path="skills/dex-lens-reading-list/SKILL.md",
+            relative_path="dex-lens-reading-list.md",
         ),
         host_id="claude-code-local",
         job_id=job_id,
@@ -97,4 +97,3 @@ def test_unknown_token_refuses_without_leaking_registry_state(tmp_path: Path) ->
     authority = ApprovalAuthority()
     with pytest.raises(ApprovalMismatchError, match="unknown"):
         authority.consume("not-a-real-token", preview, now=NOW)
-

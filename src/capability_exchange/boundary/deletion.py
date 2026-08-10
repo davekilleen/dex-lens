@@ -99,6 +99,7 @@ def _remove_file_verified(path: Path) -> None:
 CRASH_LOG_GLOB = "crashlog-*.json"
 ADAPTATION_RECEIPT_GLOB = "receipt-*.json"
 ADAPTATION_RECOVERY_GLOB = "recovery-*.json"
+ADAPTATION_JOURNAL_GLOB = "transaction-*.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -142,5 +143,12 @@ def delete_adaptation_recovery(directory: Path) -> list[Path]:
     return _delete_matching(directory, ADAPTATION_RECOVERY_GLOB)
 
 
+def delete_adaptation_journals(directory: Path) -> list[Path]:
+    """Remove every M4 crash-recovery journal under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_JOURNAL_GLOB)
+
+
 register_deletion_path("delete-adaptation-receipts", delete_adaptation_receipts)
 register_deletion_path("delete-adaptation-recovery", delete_adaptation_recovery)
+register_deletion_path("delete-adaptation-journals", delete_adaptation_journals)
