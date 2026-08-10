@@ -79,8 +79,8 @@ The pilot candidate contains the complete local journey:
 - pilot enrolment, measurement, safety-gate, runbook, and evidence-pack machinery.
 
 M3, the read-only source alpha, is merged in [PR #4](https://github.com/davekilleen/dex-lens/pull/4).
-The M4–M6 pilot candidate is being delivered through the repository's normal
-review and safety gates.
+The M4–M6 pilot candidate is in [draft PR #5](https://github.com/davekilleen/dex-lens/pull/5),
+going through the repository's review and safety gates.
 
 ## What is not complete
 

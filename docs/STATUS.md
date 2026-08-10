@@ -7,7 +7,8 @@ Last updated: 2026-08-10. Plain-language companion to
 
 The six-milestone product candidate is built. M1–M3 are merged to `main`;
 M4–M6 and their final security remediation are integrated on
-`programme/m3-m6-completion` and are going through delivery review and CI.
+`programme/m3-m6-completion` in draft PR #5 and are going through delivery
+review and exact-commit CI.
 
 This does **not** mean Dex Lens is released or that the pilot has happened.
 There is no supported installer, no published release, no observed participant
@@ -48,10 +49,9 @@ evidence, and no completed independent sign-off.
 
 ## What remains before invited testing
 
-1. Push the combined candidate and open its review PR.
-2. Pass the exact-commit GitHub CI matrix and privileged evidence gates.
-3. Complete review and merge only after explicit approval.
-4. Prepare the supported tester handoff rather than asking participants to
+1. Pass the exact-commit GitHub CI matrix and privileged evidence gates.
+2. Complete review and merge only after explicit approval.
+3. Prepare the supported tester handoff rather than asking participants to
    interpret developer instructions unaided.
 
 ## What remains before the pilot can complete
