@@ -1,0 +1,67 @@
+"""Contribution consent, provenance, lifecycle, and moderation ports."""
+
+from capability_exchange.contribution.consent import (
+    ConsentError,
+    ConsentLedger,
+    ConsentRecord,
+    Permission,
+    PermissionSet,
+    VersionConsent,
+)
+from capability_exchange.contribution.lifecycle import (
+    Contribution,
+    ContributionLifecycle,
+    ContributionLifecycleService,
+    ContributionState,
+    IllegalTransition,
+    InMemoryStore,
+    PermissionDenied,
+    SyntheticStore,
+)
+from capability_exchange.contribution.moderation import (
+    DaveFinalApprovalPort,
+    ModerationAttestation,
+    ModerationPipeline,
+    ModerationResult,
+    ModerationService,
+    ModerationStatus,
+    ScannerPort,
+    ScannerTimeout,
+    ScannerUnavailable,
+)
+from capability_exchange.contribution.provenance import (
+    ContributorReference,
+    VersionProvenance,
+    build_provenance,
+    pseudonymous_contributor_ref,
+)
+
+__all__ = [
+    "ConsentError",
+    "ConsentLedger",
+    "ConsentRecord",
+    "ContributorReference",
+    "Contribution",
+    "ContributionLifecycle",
+    "ContributionState",
+    "IllegalTransition",
+    "PermissionDenied",
+    "InMemoryStore",
+    "ContributionLifecycleService",
+    "SyntheticStore",
+    "DaveFinalApprovalPort",
+    "ModerationAttestation",
+    "ModerationResult",
+    "ModerationService",
+    "ModerationPipeline",
+    "ModerationStatus",
+    "Permission",
+    "PermissionSet",
+    "ScannerTimeout",
+    "ScannerPort",
+    "ScannerUnavailable",
+    "VersionProvenance",
+    "VersionConsent",
+    "build_provenance",
+    "pseudonymous_contributor_ref",
+]

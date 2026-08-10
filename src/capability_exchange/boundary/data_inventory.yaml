@@ -1444,3 +1444,693 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral in-memory value; exists only for the diagnosis session"
+
+  CardPermissions.review:
+    description: "separately grantable permission to send one Card version for review"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardPermissions.storage:
+    description: "separately grantable permission to retain one Card version"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardPermissions.moderation:
+    description: "separately grantable permission for moderation processing"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardPermissions.attribution:
+    description: "separately grantable permission for pseudonymous attribution"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardPermissions.reuse:
+    description: "separately grantable permission for reviewed reuse"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardPermissions.distribution:
+    description: "separately grantable permission for reviewed distribution"
+    collection: "explicitly selected by the contributor for this version"
+    derivation: "none; unresolved state fails closed as withdrawn"
+    display: "shown in the exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  CardDependencies.items:
+    description: "bounded named dependencies for an inert recipe"
+    collection: "declared by the contributor for this Card version"
+    derivation: "validated unique names; raw source material is rejected"
+    display: "shown in the Card preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardProvenance.method_basis:
+    description: "bounded statement of how the method was derived"
+    collection: "declared from the confirmed job and local review"
+    derivation: "none; no raw personal material"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardProvenance.evidence_basis:
+    description: "bounded statement of how the evidence claim was derived"
+    collection: "declared from local test evidence"
+    derivation: "none; no raw personal material"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardProvenance.adapter_id:
+    description: "adapter identity used to derive the recipe claim"
+    collection: "copied from the local adapter declaration"
+    derivation: "validated bounded identifier"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardProvenance.evidence_mode:
+    description: "bounded evidence mode for the recipe claim"
+    collection: "declared by the local contribution flow"
+    derivation: "none; never a trust assertion"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardRights.license_status:
+    description: "rights or license declaration for one Card version"
+    collection: "declared by the contributor before moderation"
+    derivation: "none"
+    display: "shown before rights attestation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardRights.rights_attested:
+    description: "whether the contributor attested rights for this Card version"
+    collection: "explicit rights action at submission"
+    derivation: "none; moderation requires true"
+    display: "shown in consent and moderation preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardTestStatus.status:
+    description: "closed local test status for an inert Card recipe"
+    collection: "declared from local test execution"
+    derivation: "closed vocabulary; never trust"
+    display: "shown as a limitation-aware test claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CardTestStatus.summary:
+    description: "bounded summary of the local test status"
+    collection: "written by the local contribution flow"
+    derivation: "bounded text only"
+    display: "shown beside test status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Card value"
+
+  CapabilityCard.card_id:
+    description: "stable kebab-case identity of a Card recipe"
+    collection: "assigned when the contributor starts a Card version"
+    derivation: "validated kebab-case"
+    display: "shown in the Card preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.version:
+    description: "monotonic immutable Card version number"
+    collection: "assigned when a material edit creates a new version"
+    derivation: "positive bounded integer"
+    display: "shown in the exact version preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.selected_job:
+    description: "the one person-selected job this Card addresses"
+    collection: "copied from the confirmed Success Contract"
+    derivation: "bounded text; no Inspection-state job is accepted"
+    display: "shown as Card scope"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.method:
+    description: "bounded reusable method recipe, inert text only"
+    collection: "edited by the contributor from the confirmed job"
+    derivation: "hostile scanner rejects secrets, PII, injection, and unsafe steps"
+    display: "shown verbatim in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.conditions:
+    description: "bounded conditions under which the method applies"
+    collection: "declared by the contributor"
+    derivation: "bounded lines; scanner applied"
+    display: "shown in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.desired_outcome:
+    description: "bounded desired outcome for the selected job"
+    collection: "copied from the confirmed Success Contract"
+    derivation: "bounded text; scanner applied"
+    display: "shown in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.boundaries:
+    description: "explicit safety and autonomy limits for the method"
+    collection: "declared by the contributor"
+    derivation: "at least one bounded line; scanner applied"
+    display: "shown prominently in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.evidence_claim:
+    description: "bounded evidence claim for this Card version"
+    collection: "declared from local test evidence"
+    derivation: "scanner rejects raw examples and unsupported content"
+    display: "shown beside test status and provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.permissions:
+    description: "six separately grantable permissions for this Card version"
+    collection: "explicit consent selection"
+    derivation: "nested CardPermissions declarations apply"
+    display: "shown in exact consent preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.dependencies:
+    description: "named dependencies for this Card version"
+    collection: "declared by the contributor"
+    derivation: "nested CardDependencies declarations apply"
+    display: "shown in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.provenance:
+    description: "method and evidence derivation declaration"
+    collection: "assembled from local confirmed-job context"
+    derivation: "nested CardProvenance declarations apply"
+    display: "shown in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.rights:
+    description: "rights and license declaration for this Card version"
+    collection: "declared before submission"
+    derivation: "nested CardRights declarations apply"
+    display: "shown before moderation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.test_status:
+    description: "local test status and bounded summary"
+    collection: "assembled from local tests"
+    derivation: "nested CardTestStatus declarations apply"
+    display: "shown with evidence claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  CapabilityCard.limitations:
+    description: "explicit limitations of one Card version"
+    collection: "declared by the contributor"
+    derivation: "at least one bounded line; scanner applied"
+    display: "shown prominently before consent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral immutable Card value"
+
+  DisclosureManifest.card_version_hash:
+    description: "immutable Card version hash bound to this disclosure"
+    collection: "derived from canonical Card bytes"
+    derivation: "SHA-256 of the closed Card version"
+    display: "shown in exact disclosure preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral manifest value"
+
+  DisclosureManifest.approved_fields:
+    description: "explicit top-level Card fields selected for this disclosure"
+    collection: "selected by the contributor; no default selection"
+    derivation: "validated against closed Card field names and uniqueness"
+    display: "shown before submission"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral manifest value"
+
+  DisclosureManifest.byte_hash:
+    description: "hash of the exact UTF-8 bytes approved for outbound contribution"
+    collection: "derived when the local manifest is built"
+    derivation: "SHA-256 of display_text UTF-8 bytes"
+    display: "shown as the exact-byte binding"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral manifest value"
+
+  DisclosureManifest.display_text:
+    description: "canonical UTF-8 text whose bytes equal the approved payload"
+    collection: "derived from explicitly approved Card fields"
+    derivation: "canonical JSON serialization; no extra fields"
+    display: "shown verbatim before submission"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral manifest value"
+
+  PermissionSet.review:
+    description: "consent for review of one immutable Card version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  PermissionSet.storage:
+    description: "consent for storage of one immutable Card version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  PermissionSet.moderation:
+    description: "consent for moderation of one immutable Card version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  PermissionSet.attribution:
+    description: "consent for pseudonymous attribution of one version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  PermissionSet.reuse:
+    description: "consent for reviewed reuse of one version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  PermissionSet.distribution:
+    description: "consent for reviewed distribution of one version"
+    collection: "explicit contributor consent"
+    derivation: "unresolved is withdrawn"
+    display: "shown in consent record"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral consent value"
+
+  ConsentRecord.card_id:
+    description: "Card identity bound to one consent record"
+    collection: "copied from immutable Card version"
+    derivation: "none"
+    display: "shown in local consent audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  ConsentRecord.card_version_hash:
+    description: "immutable Card version hash bound to consent"
+    collection: "copied from Card canonical bytes"
+    derivation: "SHA-256"
+    display: "shown in local consent audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  ConsentRecord.manifest_hash:
+    description: "approved disclosure manifest byte hash"
+    collection: "copied from disclosure manifest"
+    derivation: "SHA-256"
+    display: "shown in local consent audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  ConsentRecord.permissions:
+    description: "six permissions recorded for one version consent"
+    collection: "explicit consent action"
+    derivation: "nested PermissionSet declarations apply"
+    display: "shown before submission"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  ConsentRecord.consented_at:
+    description: "timezone-aware time of version-bound consent"
+    collection: "recorded at local consent action"
+    derivation: "naive timestamps rejected"
+    display: "shown in local consent audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  ConsentRecord.withdrawn:
+    description: "whether this version-bound consent was withdrawn"
+    collection: "set by explicit self-service withdrawal"
+    derivation: "withdrawal stops new uses"
+    display: "shown as withdrawn status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral consent audit"
+
+  VersionProvenance.contributor_ref:
+    description: "stable pseudonymous contributor reference for one version"
+    collection: "derived locally from a secret not retained in payloads"
+    derivation: "HMAC over immutable Card version hash"
+    display: "shown only as pseudonymous provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.card_version_hash:
+    description: "immutable Card version hash bound to provenance"
+    collection: "copied from Card canonical bytes"
+    derivation: "SHA-256"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.method_basis:
+    description: "bounded derivation note for the method"
+    collection: "copied from Card provenance"
+    derivation: "bounded text only"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.evidence_basis:
+    description: "bounded derivation note for the evidence claim"
+    collection: "copied from Card provenance"
+    derivation: "bounded text only"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.adapter_id:
+    description: "adapter identity for version-bound provenance"
+    collection: "copied from Card provenance"
+    derivation: "bounded identifier"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.evidence_mode:
+    description: "evidence mode for version-bound provenance"
+    collection: "copied from Card provenance"
+    derivation: "bounded text"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  VersionProvenance.approved_fields:
+    description: "manifest field names bound to version provenance"
+    collection: "copied from explicit disclosure manifest"
+    derivation: "unique closed Card field names"
+    display: "shown in provenance preview"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal ephemeral provenance"
+
+  ModerationResult.card_version_hash:
+    description: "Card version hash scanned before review"
+    collection: "copied from immutable Card bytes"
+    derivation: "SHA-256"
+    display: "shown in moderation state"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationResult.status:
+    description: "scanner or quarantine status for one Card version"
+    collection: "assigned by pre-review scanner"
+    derivation: "closed moderation vocabulary"
+    display: "visible and unsuppressible to reviewers"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationResult.reason_codes:
+    description: "specific hostile or scanner-failure reason codes"
+    collection: "derived by scanner or failure port"
+    derivation: "closed Card validation reason vocabulary"
+    display: "shown to moderation reviewer"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationResult.reviewable:
+    description: "whether scanner passed and human review may proceed"
+    collection: "derived from scanner result"
+    derivation: "quarantine and rejection are false"
+    display: "visible to reviewer tooling"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.card_version_hash:
+    description: "Card version hash bound to a human moderation attestation"
+    collection: "copied from immutable Card bytes"
+    derivation: "SHA-256"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.reviewer_id:
+    description: "eligible reviewer identity for one moderation decision"
+    collection: "selected from reviewer access port"
+    derivation: "conflict rules checked before approval"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.rights_attested:
+    description: "rights attestation required before moderation approval"
+    collection: "explicit reviewer check of contributor attestation"
+    derivation: "false refuses approval"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.conflict_declared:
+    description: "explicit reviewer conflict declaration for one version"
+    collection: "explicit reviewer action"
+    derivation: "missing declaration refuses approval"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.attestation_id:
+    description: "stable local id for one moderation attestation"
+    collection: "derived from Card version and reviewer id"
+    derivation: "bounded identifier"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  CatalogEntry.card_id:
+    description: "Card identity in a verified released Core catalog"
+    collection: "copied from a Core release artifact"
+    derivation: "none"
+    display: "shown as catalog capability identity"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral verified catalog"
+
+  CatalogEntry.version_hash:
+    description: "Card version hash in a verified released Core catalog"
+    collection: "copied from a Core release artifact"
+    derivation: "SHA-256 identifier"
+    display: "shown as catalog version"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral verified catalog"
+
+  CatalogEntry.core_release:
+    description: "Core release version that shipped this catalog entry"
+    collection: "copied from release pipeline metadata"
+    derivation: "none"
+    display: "shown in catalog provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral verified catalog"
+
+  CatalogEntry.release_provenance:
+    description: "release provenance marker; only core-release is accepted"
+    collection: "copied from Core release pipeline"
+    derivation: "non-release markers reject the whole catalog"
+    display: "shown in catalog provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral verified catalog"
+
+  CapabilityCatalog.entries:
+    description: "entries from a signature-verified Core release catalog"
+    collection: "parsed only after signature verification"
+    derivation: "all entries must declare core-release provenance"
+    display: "used by local catalog consumers"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral verified catalog"
+
+  SignedCatalog.payload:
+    description: "opaque canonical catalog payload awaiting signature verification"
+    collection: "received from the explicit catalog-refresh port"
+    derivation: "parsed only after signature verification"
+    display: "not shown as trusted until verification succeeds"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral inbound catalog bytes"
+
+  SignedCatalog.signature:
+    description: "signature accompanying one opaque catalog payload"
+    collection: "received from the explicit catalog-refresh port"
+    derivation: "verified by an injected signature port"
+    display: "verification status shown, signature not trusted by itself"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral inbound catalog bytes"
+
+  SignedCatalog.key_id:
+    description: "key identifier selected by the catalog signature port"
+    collection: "received with one opaque catalog payload"
+    derivation: "unknown or failed key verification rejects catalog"
+    display: "shown in verification status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral inbound catalog bytes"
