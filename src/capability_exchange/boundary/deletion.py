@@ -100,6 +100,7 @@ CRASH_LOG_GLOB = "crashlog-*.json"
 ADAPTATION_RECEIPT_GLOB = "receipt-*.json"
 ADAPTATION_RECOVERY_GLOB = "recovery-*.json"
 ADAPTATION_JOURNAL_GLOB = "transaction-*.json"
+PILOT_GATE_EVIDENCE_GLOB = "pilot-build-gate*.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -152,3 +153,12 @@ def delete_adaptation_journals(directory: Path) -> list[Path]:
 register_deletion_path("delete-adaptation-receipts", delete_adaptation_receipts)
 register_deletion_path("delete-adaptation-recovery", delete_adaptation_recovery)
 register_deletion_path("delete-adaptation-journals", delete_adaptation_journals)
+
+
+def delete_pilot_gate_evidence(directory: Path) -> list[Path]:
+    """Remove exact-build pilot gate evidence artifacts."""
+
+    return _delete_matching(directory, PILOT_GATE_EVIDENCE_GLOB)
+
+
+register_deletion_path("delete-pilot-gate-evidence", delete_pilot_gate_evidence)

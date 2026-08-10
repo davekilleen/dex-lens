@@ -151,6 +151,10 @@ class MeasurementPlan(InventoriedModel):
     def _state(self) -> Self:
         if self.meaningful_improvement_threshold < 0:
             raise ValueError("improvement_threshold must be non-negative")
+        if self.follow_up_window.start <= self.baseline_window.end:
+            raise ValueError(
+                "follow-up window must begin after the baseline window ends"
+            )
         if self.locked_at is None:
             if self.content_hash is not None:
                 raise ValueError("unlocked measurement plan cannot carry content_hash")
@@ -223,6 +227,10 @@ class MeasurementPlan(InventoriedModel):
             raise MeasurementPlanError("first collection timestamp must be timezone-aware")
         if when < self.locked_at:  # type: ignore[operator]
             raise MeasurementPlanError("first collection cannot predate plan lock")
+        if self.first_data_collection_at is not None:
+            if self.first_data_collection_at == when:
+                return self
+            raise MeasurementPlanError("first collection timestamp is already recorded")
         object.__setattr__(self, "first_data_collection_at", when)
         return self
 
@@ -231,9 +239,13 @@ class MeasurementPlan(InventoriedModel):
 
         if not self.locked or self.content_hash != self.canonical_hash():
             raise MeasurementPlanError("no valid hash-locked measurement plan exists")
-        collection = first_collection_at or self.first_data_collection_at
+        collection = self.first_data_collection_at
         if collection is None:
             raise MeasurementPlanError("first data collection timestamp is missing")
+        if first_collection_at is not None and first_collection_at != collection:
+            raise MeasurementPlanError(
+                "supplied first collection timestamp does not match the recorded event"
+            )
         if collection < self.locked_at:  # type: ignore[operator]
             raise MeasurementPlanError("measurement plan was locked after first data collection")
 

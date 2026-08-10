@@ -56,8 +56,7 @@
     "evidence": ["incident record", "review decision"],
     "exit_criteria": ["no automated continuation while unresolved"]
   },
-  "red_team_result_ids": [],
-  "red_team_complete": false,
+  "pilot_gate_report": null,
   "synthetic_only": true,
   "participant_evidence": "absent: this protocol file contains no observed participant evidence",
   "independent_signoff": "absent: legal/ethics and independent gate signoff remain external decisions"

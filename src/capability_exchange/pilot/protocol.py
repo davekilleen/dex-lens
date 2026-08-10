@@ -22,6 +22,7 @@ from capability_exchange.pilot._common import (
     tuple_text,
     utc_now,
 )
+from capability_exchange.pilot.gate import PilotBuildGateReport
 
 __all__ = [
     "Consent",
@@ -152,6 +153,26 @@ class PilotConsentRecord(InventoriedModel):
             deletion_confirmed_at=self.deletion_confirmed_at,
         )
 
+    def confirm_deletion(self, *, at: datetime | None = None) -> PilotConsentRecord:
+        """Bind a verified controlled-store deletion time to withdrawn consent."""
+
+        if self.status is not ConsentStatus.WITHDRAWN:
+            raise ProtocolError("deletion confirmation requires withdrawn consent")
+        when = at or utc_now()
+        if when.tzinfo is None or when.tzinfo.utcoffset(when) is None:
+            raise ValueError("deletion confirmation time must be timezone-aware")
+        return PilotConsentRecord(
+            participant_id=self.participant_id,
+            protocol_version=self.protocol_version,
+            protocol_hash=self.protocol_hash,
+            stratum_id=self.stratum_id,
+            evidence_scope=self.evidence_scope,
+            consented_at=self.consented_at,
+            status=self.status,
+            withdrawal_requested_at=self.withdrawal_requested_at,
+            deletion_confirmed_at=when,
+        )
+
     def model_copy(
         self,
         *,
@@ -176,8 +197,7 @@ class PilotProtocol(InventoriedModel):
     deletion: ProtocolClause
     adverse_event_reporting: ProtocolClause
     incident_response: ProtocolClause
-    red_team_result_ids: tuple[str, ...] = ()
-    red_team_complete: bool = False
+    pilot_gate_report: PilotBuildGateReport | None = None
     synthetic_only: bool = False
     participant_evidence: str | None = None
     independent_signoff: str | None = None
@@ -189,7 +209,7 @@ class PilotProtocol(InventoriedModel):
     def _version(cls, value: str) -> str:
         return clean_text(value, label="protocol_version", max_length=64)
 
-    @field_validator("exclusions", "red_team_result_ids")
+    @field_validator("exclusions")
     @classmethod
     def _lists(cls, value: tuple[str, ...], info: Any) -> tuple[str, ...]:
         return tuple_text(value, label=info.field_name)
@@ -248,31 +268,23 @@ class PilotProtocol(InventoriedModel):
         )
 
     def assert_red_team_ready(self) -> None:
-        """Refuse participant use without attached, complete synthetic evidence."""
+        """Refuse participant use without exact-build executable gate evidence."""
 
-        if not self.red_team_complete or not self.red_team_result_ids:
+        report = self.pilot_gate_report
+        if report is None or not (
+            report.pilot_start_allowed or report.guided_downgrade_available
+        ):
             raise ProtocolError(
-                "pilot protocol has no complete synthetic red-team result; "
+                "pilot protocol has no passing exact-build gate report; "
                 "participant systems must not be touched"
             )
 
-    def attach_red_team(self, report: Any) -> PilotProtocol:
-        """Return a protocol bound to an observed :class:`RedTeamReport`.
+    def attach_red_team(self, report: PilotBuildGateReport) -> PilotProtocol:
+        """Return a new protocol hash-bound to the exact executed build gate."""
 
-        The report is intentionally accepted by structural attributes to keep
-        this module independent from the red-team runner.  A non-complete
-        report can be attached for audit, but it never unlocks enrollment.
-        """
-
-        complete = bool(getattr(report, "complete", False))
-        cases = tuple(getattr(report, "cases", ()))
-        result_ids = tuple(
-            f"{getattr(case, 'gate', 'unknown')}:{getattr(case, 'test_id', 'unknown')}"
-            for case in cases
-        )
-        return self.model_copy(
-            update={"red_team_result_ids": result_ids, "red_team_complete": complete}
-        )
+        if not isinstance(report, PilotBuildGateReport):
+            raise ProtocolError("protocol requires a validated exact-build gate report")
+        return self.model_copy(update={"pilot_gate_report": report})
 
     def model_copy(self, *, update: dict[str, object] | None = None, deep: bool = False) -> Self:
         """Do not allow a post-hash protocol edit to masquerade as current."""

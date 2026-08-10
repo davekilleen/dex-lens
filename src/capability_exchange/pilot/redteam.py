@@ -116,6 +116,12 @@ class RedTeamReport(InventoriedModel):
             complete = False
         if self.pilot_start_allowed and not complete:
             raise ValueError("red-team report cannot claim pilot_start_allowed without all passes")
+        if self.pilot_start_allowed and (
+            self.commit is None or any(case.commit != self.commit for case in self.cases)
+        ):
+            raise ValueError(
+                "red-team report cannot pass unless every case matches its exact commit"
+            )
         if self.guided_downgrade_available:
             g1_ok = by_gate["G1"] and all(case.passed for case in by_gate["G1"])
             others_ok = all(
@@ -162,7 +168,7 @@ def evaluate_redteam(
     all_pass = all(
         by_gate[gate] and all(case.outcome is RedTeamOutcome.PASS for case in by_gate[gate])
         for gate in REQUIRED_REDTEAM_GATES
-    )
+    ) and chosen_commit is not None
     g1_failed = not by_gate["G1"] or any(
         case.outcome is not RedTeamOutcome.PASS for case in by_gate["G1"]
     )

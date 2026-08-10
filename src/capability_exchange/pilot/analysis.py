@@ -246,6 +246,7 @@ def analyze_pilot(
     records: list[ParticipantMeasurement | EvidenceRecord | dict[str, Any]] | tuple[Any, ...],
     plan: MeasurementPlan,
     *,
+    expected_participant_ids: frozenset[str],
     first_collection_at: datetime | None = None,
 ) -> PilotAnalysisReport:
     """Analyze one contract without imputation or aggregate/general claims."""
@@ -255,16 +256,15 @@ def analyze_pilot(
         raise AnalysisError("pilot analysis requires at least one enrolled participant")
     if len({item.participant_id for item in measurements}) != len(measurements):
         raise AnalysisError("duplicate participant ids would corrupt the enrolled denominator")
+    if len(expected_participant_ids) < 6 or len(expected_participant_ids) > 8:
+        raise AnalysisError("pilot analysis requires the complete 6–8 participant cohort")
+    if {item.participant_id for item in measurements} != set(expected_participant_ids):
+        raise AnalysisError(
+            "analysis rows must match the exact enrolled participant set; "
+            "dropouts and missing follow-up cannot be omitted"
+        )
     if any(item.contract_id != plan.contract_id for item in measurements):
         raise AnalysisError("analysis is contract-specific; evidence contract id mismatched plan")
-    if first_collection_at is None:
-        timestamps = [
-            timestamp
-            for item in measurements
-            for timestamp in (item.baseline_captured_at, item.follow_up_captured_at)
-            if timestamp is not None
-        ]
-        first_collection_at = min(timestamps) if timestamps else None
     try:
         plan.assert_admissible(first_collection_at=first_collection_at)
     except MeasurementPlanError as exc:
@@ -279,6 +279,24 @@ def analyze_pilot(
         limits = list(item.evidence_limits)
         improved = False
         evidence_limited = False
+        if item.baseline_captured_at is None or not (
+            plan.baseline_window.start
+            <= item.baseline_captured_at
+            <= plan.baseline_window.end
+        ):
+            raise AnalysisError(
+                f"participant {item.participant_id} baseline is outside the locked baseline window"
+            )
+        if not item.missing_follow_up and not item.dropout:
+            if item.follow_up_captured_at is None or not (
+                plan.follow_up_window.start
+                <= item.follow_up_captured_at
+                <= plan.follow_up_window.end
+            ):
+                raise AnalysisError(
+                    f"participant {item.participant_id} follow-up is outside "
+                    "the locked follow-up window"
+                )
         if item.card_contribution_count:
             card_learning_count += item.card_contribution_count
         if item.severe_failure:
@@ -304,13 +322,20 @@ def analyze_pilot(
         ):
             evidence_limited = True
             limits.append("required objective/contemporaneous signal is missing")
-        elif item.meaningful_improvement is not None:
-            improved = item.meaningful_improvement
         elif item.baseline_value is not None and item.follow_up_value is not None:
-            improved = (
+            computed_improvement = (
                 item.follow_up_value - item.baseline_value
                 >= plan.meaningful_improvement_threshold
             )
+            if (
+                item.meaningful_improvement is not None
+                and item.meaningful_improvement != computed_improvement
+            ):
+                raise AnalysisError(
+                    f"participant {item.participant_id} improvement claim "
+                    "conflicts with locked threshold"
+                )
+            improved = computed_improvement
         else:
             evidence_limited = True
             limits.append("no measurable before/after values")

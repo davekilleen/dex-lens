@@ -7,13 +7,15 @@ from capability_exchange.pilot.redteam import (
     evaluate_redteam,
 )
 
+COMMIT = "a" * 40
+
 
 def case(gate: str, outcome: RedTeamOutcome = RedTeamOutcome.PASS) -> RedTeamCase:
     return RedTeamCase(
         gate=gate,
         test_id=f"{gate.lower()}-hostile",
         status=outcome,
-        commit="pilot-commit",
+        commit=COMMIT,
         evidence_hash=f"hash-{gate}",
         observed_at=datetime.now(UTC),
     )
@@ -41,3 +43,12 @@ def test_failure_other_than_g1_has_no_downgrade() -> None:
     report = evaluate_redteam(cases)
     assert not report.pilot_start_allowed
     assert not report.guided_downgrade_available
+
+
+def test_explicit_mismatched_commit_cannot_claim_a_pass() -> None:
+    report = evaluate_redteam(
+        [case(gate) for gate in REQUIRED_REDTEAM_GATES],
+        commit="b" * 40,
+    )
+    assert not report.pilot_start_allowed
+    assert not report.complete

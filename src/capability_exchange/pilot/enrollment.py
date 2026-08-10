@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Protocol, Self
 
 from pydantic import ConfigDict, field_validator, model_validator
 
@@ -23,12 +23,20 @@ __all__ = [
     "EnrollmentError",
     "EnrollmentGate",
     "EnrollmentRecord",
+    "ParticipantDeletionPort",
     "InvalidCohortError",
     "ProtocolHashMismatchError",
     "ProtocolVersionMismatchError",
     "SuccessContractRequiredError",
     "enroll_participant",
 ]
+
+
+class ParticipantDeletionPort(Protocol):
+    """External byte-deletion verifier for all controlled participant stores."""
+
+    def delete_participant(self, record: EnrollmentRecord) -> bool:
+        """Return true only after receipts, caches, and browser state are absent."""
 
 
 class EnrollmentError(ProtocolError):
@@ -108,9 +116,8 @@ class EnrollmentGate:
     contract whose lifecycle is not the confirmed ``diagnosis`` literal.
     """
 
-    def __init__(self, protocol: PilotProtocol, *, require_red_team: bool = True) -> None:
+    def __init__(self, protocol: PilotProtocol) -> None:
         self.protocol = protocol
-        self.require_red_team = require_red_team
         self._records: dict[str, EnrollmentRecord] = {}
 
     @property
@@ -180,8 +187,7 @@ class EnrollmentGate:
 
         checked_consent = self._check_consent(consent)
         checked_contract = self._check_contract(contract)
-        if self.require_red_team:
-            self.protocol.assert_red_team_ready()
+        self.protocol.assert_red_team_ready()
         if checked_consent.participant_id in self._records:
             raise EnrollmentError("participant is already enrolled")
         when = at or utc_now()
@@ -207,13 +213,26 @@ class EnrollmentGate:
         self._records[record.participant_id] = record
         return record
 
-    def withdraw(self, participant_id: str, *, at: datetime | None = None) -> EnrollmentRecord:
-        """Return a withdrawn copy and remove the participant from active cohort."""
+    def withdraw(
+        self,
+        participant_id: str,
+        *,
+        deletion_port: ParticipantDeletionPort,
+        at: datetime | None = None,
+    ) -> EnrollmentRecord:
+        """Withdraw only after a controlled-store port proves byte deletion."""
 
         record = self._records.get(participant_id)
         if record is None:
             raise EnrollmentError("unknown participant; refusing to infer enrollment state")
-        withdrawn = record.model_copy(update={"consent": record.consent.withdraw(at=at)})
+        requested = record.consent.withdraw(at=at)
+        if not deletion_port.delete_participant(record):
+            raise EnrollmentError(
+                "participant deletion could not be verified; enrollment remains held"
+            )
+        withdrawn = record.model_copy(
+            update={"consent": requested.confirm_deletion(at=at)}
+        )
         self._records.pop(participant_id, None)
         return withdrawn
 
@@ -224,10 +243,7 @@ def enroll_participant(
     contract: SuccessContract | None,
     *,
     at: datetime | None = None,
-    require_red_team: bool = True,
 ) -> EnrollmentRecord:
     """Convenience wrapper around :class:`EnrollmentGate`."""
 
-    return EnrollmentGate(protocol, require_red_team=require_red_team).enroll(
-        consent, contract, at=at
-    )
+    return EnrollmentGate(protocol).enroll(consent, contract, at=at)

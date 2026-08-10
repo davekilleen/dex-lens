@@ -3920,25 +3920,15 @@ fields:
     deletion: not-stored
     audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
 
-  PilotProtocol.red_team_result_ids:
-    description: "M6 pilot PilotProtocol red_team_result_ids metadata"
-    collection: "recorded locally by the pilot tooling"
-    derivation: "validated by the closed M6 schema; raw private content is not accepted"
+  PilotProtocol.pilot_gate_report:
+    description: "exact-build executable gate report bound into the protocol hash"
+    collection: "attached only as a validated PilotBuildGateReport"
+    derivation: "nested gate evidence declarations apply; absent keeps enrollment closed"
     display: "shown only in the local pilot evidence review"
     storage: none
     sharing: never
     deletion: not-stored
-    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
-
-  PilotProtocol.red_team_complete:
-    description: "M6 pilot PilotProtocol red_team_complete metadata"
-    collection: "recorded locally by the pilot tooling"
-    derivation: "validated by the closed M6 schema; raw private content is not accepted"
-    display: "shown only in the local pilot evidence review"
-    storage: none
-    sharing: never
-    deletion: not-stored
-    audit: "ephemeral metadata for the M6 protocol, measurement, analysis, or completeness check"
+    audit: "protocol-hash-bound release evidence"
 
   PilotProtocol.created_at:
     description: "M6 pilot PilotProtocol created_at metadata"
@@ -4139,3 +4129,195 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral protocol metadata"
+
+  PilotGateEvidence.gate:
+    description: "named exact-build gate whose real suite was executed"
+    collection: "assigned from the closed G1-G6 plus R3 gate registry"
+    derivation: "none"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.test_ids:
+    description: "exact pytest paths executed for one gate"
+    collection: "copied from the closed pilot gate registry"
+    derivation: "none; empty suites are rejected"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.outcome:
+    description: "pass, fail, or execution-error result"
+    collection: "derived from the real pytest process exit"
+    derivation: "exit zero is pass; nonzero is fail; exception is error"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.commit:
+    description: "full Git SHA of the exact tested build"
+    collection: "supplied by the trusted CI checkout context"
+    derivation: "validated as 40 lowercase hexadecimal characters"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.output_sha256:
+    description: "hash of captured suite output without storing raw output"
+    collection: "derived from stdout and stderr of the real pytest process"
+    derivation: "SHA-256"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.exit_code:
+    description: "real suite process exit code"
+    collection: "captured from the pytest child process"
+    derivation: "none"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotGateEvidence.observed_at:
+    description: "timezone-aware execution time"
+    collection: "recorded by the exact-build gate"
+    derivation: "none"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "commit-bound release evidence"
+
+  PilotBuildGateReport.commit:
+    description: "full Git SHA shared by every gate result"
+    collection: "supplied by the trusted CI checkout context"
+    derivation: "validated against every nested evidence record"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.evidence:
+    description: "one ordered result for every required gate"
+    collection: "assembled only by executing the closed gate registry"
+    derivation: "nested PilotGateEvidence declarations apply"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.exact_build_verified:
+    description: "whether all evidence matches one exact commit and closed test registry"
+    collection: "derived from nested evidence"
+    derivation: "cannot be caller-overridden"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.all_six_gates_green:
+    description: "whether G1 through G6 all passed"
+    collection: "derived from nested evidence"
+    derivation: "closed set inclusion over real pass results"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.r6_redteam_green:
+    description: "whether G1-G4 and R3 synthetic hostile suites passed"
+    collection: "derived from nested evidence"
+    derivation: "closed set inclusion over real pass results"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.pilot_start_allowed:
+    description: "fail-closed exact-build pilot start decision"
+    collection: "derived from all six gates plus R3"
+    derivation: "true only when every required executable result passes"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.guided_downgrade_available:
+    description: "whether G1 alone failed while every other gate passed"
+    collection: "derived from nested evidence"
+    derivation: "no other failure permits the downgrade"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.explanation:
+    description: "bounded honest explanation of the exact-build verdict"
+    collection: "derived from the closed verdict branch"
+    derivation: "never includes raw suite output"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"
+
+  PilotBuildGateReport.content_hash:
+    description: "canonical hash of the entire exact-build gate report"
+    collection: "derived after all gate execution"
+    derivation: "SHA-256 over canonical report fields excluding this field"
+    display: "shown in the pilot-build evidence artifact"
+    storage:
+      location: "local pilot gate JSON artifact"
+      duration: "until release evidence is deleted"
+    sharing: never
+    deletion: delete-pilot-gate-evidence
+    audit: "release-blocking evidence"

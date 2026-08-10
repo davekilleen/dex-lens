@@ -2,12 +2,21 @@ from datetime import UTC, datetime
 
 import pytest
 
+from capability_exchange.pilot.gate import GateRun, execute_pilot_gate
 from capability_exchange.pilot.protocol import (
     ConsentRecord,
     PilotProtocol,
     ProtocolClause,
     ProtocolStratum,
 )
+
+
+def gate_report():
+    return execute_pilot_gate(
+        commit="a" * 40,
+        observed_at=datetime(2026, 8, 10, 10, 0, tzinfo=UTC),
+        runner=lambda test_ids: GateRun(exit_code=0, output="passed:" + test_ids[0]),
+    )
 
 
 def protocol(*, red_team_complete: bool = True) -> PilotProtocol:
@@ -18,7 +27,7 @@ def protocol(*, red_team_complete: bool = True) -> PilotProtocol:
         evidence=("consent",),
         exit_criteria=("recorded",),
     )
-    return PilotProtocol(
+    value = PilotProtocol(
         version="m6-v1",
         strata=(
             ProtocolStratum(
@@ -38,9 +47,8 @@ def protocol(*, red_team_complete: bool = True) -> PilotProtocol:
         deletion=clause,
         adverse_event_reporting=clause,
         incident_response=clause,
-        red_team_complete=red_team_complete,
-        red_team_result_ids=("redteam-1",) if red_team_complete else (),
     )
+    return value.attach_red_team(gate_report()) if red_team_complete else value
 
 
 def test_protocol_hash_is_canonical_and_changes_on_substantive_edit() -> None:
@@ -79,3 +87,16 @@ def test_protocol_requires_unique_valid_strata() -> None:
                 )
             }
         )
+
+
+def test_protocol_binds_the_exact_executed_gate_report() -> None:
+    current = protocol()
+    assert current.pilot_gate_report is not None
+    assert current.pilot_gate_report.commit == "a" * 40
+    assert current.pilot_gate_report.content_hash
+    current.assert_red_team_ready()
+
+
+def test_protocol_without_executed_gate_report_cannot_touch_participants() -> None:
+    with pytest.raises(ValueError, match="exact-build gate"):
+        protocol(red_team_complete=False).assert_red_team_ready()

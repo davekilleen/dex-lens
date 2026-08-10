@@ -50,6 +50,14 @@ from capability_exchange.pilot.evidence import (
     MeasurementEvidence,
     PilotEvidence,
 )
+from capability_exchange.pilot.gate import (
+    PILOT_GATE_TESTS,
+    REQUIRED_PILOT_GATES,
+    PilotBuildGateReport,
+    PilotGateEvidence,
+    PilotGateOutcome,
+    execute_pilot_gate,
+)
 from capability_exchange.pilot.learning import LearningOutput, normalize_learning
 from capability_exchange.pilot.measurement import (
     LockedMeasurementPlan,
@@ -96,6 +104,11 @@ __all__ = [
     "EvidenceTemplate",
     "PilotEvidence",
     "LearningOutput",
+    "PILOT_GATE_TESTS",
+    "REQUIRED_PILOT_GATES",
+    "PilotBuildGateReport",
+    "PilotGateEvidence",
+    "PilotGateOutcome",
     "MeasurementEvidence",
     "MeasurementPlan",
     "LockedMeasurementPlan",
@@ -129,6 +142,7 @@ __all__ = [
     "TabletopResult",
     "analyze_pilot",
     "canonical_plan_hash",
+    "execute_pilot_gate",
     "canonical_protocol_hash",
     "enroll_participant",
     "normalize_learning",

@@ -52,3 +52,35 @@ def test_enrollment_accepts_matching_consent_contract() -> None:
     current = protocol()
     result = EnrollmentGate(current).enroll(consent(current.protocol_hash), contract())
     assert result.contract_id == "weekly-review"
+
+
+def test_enrollment_has_no_red_team_bypass_switch() -> None:
+    current = protocol(red_team_complete=False)
+    with pytest.raises(TypeError):
+        EnrollmentGate(current, require_red_team=False)  # type: ignore[call-arg]
+
+
+class DeletionPort:
+    def __init__(self, verified: bool) -> None:
+        self.verified = verified
+        self.calls = 0
+
+    def delete_participant(self, record) -> bool:
+        self.calls += 1
+        return self.verified
+
+
+def test_withdrawal_requires_verified_controlled_store_deletion() -> None:
+    current = protocol()
+    gate = EnrollmentGate(current)
+    enrolled = gate.enroll(consent(current.protocol_hash), contract())
+    failing = DeletionPort(False)
+    with pytest.raises(EnrollmentError, match="deletion could not be verified"):
+        gate.withdraw(enrolled.participant_id, deletion_port=failing)
+    assert gate.records == (enrolled,)
+
+    verified = DeletionPort(True)
+    withdrawn = gate.withdraw(enrolled.participant_id, deletion_port=verified)
+    assert withdrawn.consent.status == "withdrawn"
+    assert withdrawn.consent.deletion_confirmed_at is not None
+    assert gate.records == ()

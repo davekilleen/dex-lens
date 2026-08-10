@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -207,6 +209,22 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _artifact_is_parseable(path: Path) -> bool:
+    """Parse the actual artifact bytes; never trust a manifest checkbox."""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+        if not text.strip():
+            return False
+        if path.suffix == ".json":
+            json.loads(text)
+        elif path.suffix == ".py":
+            ast.parse(text, filename=str(path))
+    except (OSError, UnicodeDecodeError, ValueError, SyntaxError, json.JSONDecodeError):
+        return False
+    return True
+
+
 def _load_manifest(
     value: R7Manifest | str | Path,
     root: Path | None,
@@ -226,6 +244,7 @@ def verify_r7_manifest(
     manifest: R7Manifest | str | Path,
     *,
     root: Path | None = None,
+    signoff_verifier: Callable[[R7Signoff], bool] | None = None,
 ) -> CompletenessReport:
     """Return exact missing/invalid conditions; never infer a complete pack."""
 
@@ -235,6 +254,8 @@ def verify_r7_manifest(
         return CompletenessReport(complete=False, issues=(str(exc),))
     issues: list[str] = []
     verified: list[str] = []
+    if base is None:
+        issues.append("a filesystem root is required; in-memory flags are not evidence")
     by_id: dict[str, R7Artifact] = {}
     for artifact in value.artifacts:
         if artifact.artifact_id in by_id:
@@ -248,7 +269,10 @@ def verify_r7_manifest(
         if not artifact.present or not artifact.parseable:
             issues.append(f"artifact is missing or unparseable: {required}")
             continue
-        if base is not None and artifact.path:
+        if artifact.path is None:
+            issues.append(f"artifact path is missing: {required}")
+            continue
+        if base is not None:
             path = (base / artifact.path).resolve()
             try:
                 path.relative_to(base.resolve())
@@ -261,8 +285,10 @@ def verify_r7_manifest(
             if artifact.content_hash is None or artifact.content_hash != _hash_file(path):
                 issues.append(f"artifact content hash is missing or invalid: {required}")
                 continue
-        elif artifact.content_hash is None:
-            issues.append(f"artifact content hash is missing: {required}")
+            if not _artifact_is_parseable(path):
+                issues.append(f"artifact is not actually parseable: {required}")
+                continue
+        else:
             continue
         verified.append(required)
 
@@ -271,8 +297,15 @@ def verify_r7_manifest(
             issues.append(f"risk has no named owner: {risk.risk_id}")
     named_risk_owners = bool(value.risks) and all(bool(risk.owner) for risk in value.risks)
 
-    observed = value.observed_evidence_status is R7EvidenceStatus.OBSERVED and bool(
-        value.observed_pilot_evidence
+    observed_artifact = by_id.get("observed-pilot-evidence")
+    observed = bool(
+        value.observed_evidence_status is R7EvidenceStatus.OBSERVED
+        and observed_artifact is not None
+        and observed_artifact.artifact_id in verified
+        and observed_artifact.observed
+        and not observed_artifact.synthetic_only
+        and observed_artifact.content_hash
+        and observed_artifact.content_hash in value.observed_pilot_evidence
     )
     if not observed:
         issues.append("observed real-pilot evidence is absent (synthetic evidence is not enough)")
@@ -298,6 +331,8 @@ def verify_r7_manifest(
         and value.independent_signoff.independent
         and value.content_hash
         and value.independent_signoff.manifest_hash == value.content_hash
+        and signoff_verifier is not None
+        and signoff_verifier(value.independent_signoff)
     )
     if not signoff_ok:
         issues.append("independent signoff is missing or is not bound to manifest hash")
@@ -320,11 +355,21 @@ verify_manifest = verify_r7_manifest
 class R7CompletenessVerifier:
     """Small object wrapper for callers that prefer an explicit verifier."""
 
-    def __init__(self, *, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        root: Path | None = None,
+        signoff_verifier: Callable[[R7Signoff], bool] | None = None,
+    ) -> None:
         self.root = root
+        self.signoff_verifier = signoff_verifier
 
     def verify(self, manifest: R7Manifest | str | Path) -> CompletenessReport:
-        return verify_r7_manifest(manifest, root=self.root)
+        return verify_r7_manifest(
+            manifest,
+            root=self.root,
+            signoff_verifier=self.signoff_verifier,
+        )
 
 
 R7ManifestVerifier = R7CompletenessVerifier

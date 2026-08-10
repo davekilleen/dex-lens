@@ -150,3 +150,32 @@ jobs:
           name: g1-bind-mount-evidence
           path: g1-bind-mount-artifact/
           if-no-files-found: error
+
+  pilot-build-gate:
+    name: Exact pilot-build release gate (G1-G6 + R3)
+    needs: [test, m3-egress-gate, g1-bind-mount-gate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact pilot build
+        run: python -m pip install -e ".[dev]"
+
+      - name: Execute all six gates and R3 on this commit
+        run: |
+          mkdir -p pilot-gate-artifact
+          python scripts/pilot_gate.py \
+            --commit "${GITHUB_SHA}" \
+            --output pilot-gate-artifact/pilot-build-gate.json
+
+      - name: Upload exact pilot-build gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-build-gate-${{ github.sha }}
+          path: pilot-gate-artifact/
+          if-no-files-found: error
