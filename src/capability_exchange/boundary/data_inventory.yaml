@@ -1024,6 +1024,72 @@ fields:
     audit: "the crash-log file itself is the only record; no other copy exists"
 
   # ------------------------------------------------------------------
+  # M3 browser/session state (R3/G2).  These fields are an explicit,
+  # memory-only view: raw bearer tokens never enter this model, and session
+  # termination erases the in-memory source values and private draft store.
+  # ------------------------------------------------------------------
+
+  ConciergeSessionState.session_token_digest:
+    description: "one-way digest reference for the in-memory session bearer token"
+    collection: "derived locally when a browser/session state view is requested"
+    derivation: "SHA-256 digest only; the raw bearer token is never represented"
+    display: "never displayed; retained only for boundary auditing"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "memory-only; raw token is erased by session termination"
+
+  ConciergeSessionState.csrf_token_digest:
+    description: "one-way digest reference for the in-memory CSRF token"
+    collection: "derived locally when a browser/session state view is requested"
+    derivation: "SHA-256 digest only; the raw CSRF token is never represented"
+    display: "never displayed; retained only for boundary auditing"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "memory-only; raw token is erased by session termination"
+
+  ConciergeSessionState.cookie_metadata:
+    description: "non-secret cookie policy metadata (name, path, HttpOnly, SameSite)"
+    collection: "declared by the local browser doorway"
+    derivation: "fixed product policy; contains no cookie value"
+    display: "reflected in the browser session policy, not user content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral browser policy; no cookie value is persisted"
+
+  ConciergeSessionState.approved_scope_references:
+    description: "non-raw digest references for the roots approved for this session"
+    collection: "derived from the explicit inspection scope at session start"
+    derivation: "scope locators/digests only; raw local paths are not serialized"
+    display: "used to audit the approved scope without exposing a local path"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "memory-only; discarded when the session closes"
+
+  ConciergeSessionState.expires_at:
+    description: "timezone-aware expiry instant for the local browser session"
+    collection: "set from the session TTL at doorway creation"
+    derivation: "none; expiry is enforced by the security state"
+    display: "used to refuse expired requests"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "memory-only session control; discarded on close"
+
+  ConciergeSessionState.journey_state:
+    description: "closed local journey stage for the current session"
+    collection: "updated by explicit local journey transitions"
+    derivation: "copied from the machine-readable ConciergeStage value"
+    display: "drives the local page; never sent as telemetry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "memory-only; private draft and stage state are deleted on close"
+
+  # ------------------------------------------------------------------
   # M2 module M-C: Job Map / Success Contract engine (gates.md R1).
   # Success Contracts and proposals are ephemeral at this milestone;
   # the only stored artifact is the local Inspection-job record, which

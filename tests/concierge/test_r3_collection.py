@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import threading
 import time
 from datetime import UTC, datetime
@@ -10,6 +12,13 @@ from pathlib import Path
 import pytest
 
 from capability_exchange.adapter import AdapterResultEnvelope, InstrumentHealth, ProbeResult
+from capability_exchange.adapters.claude_code import containment
+from capability_exchange.adapters.claude_code.containment import (
+    CollectionFailedError,
+    CollectionRequest,
+    LinuxStrategy,
+)
+from capability_exchange.adapters.claude_code.snapshot import CollectionBounds
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
@@ -158,3 +167,53 @@ def test_containment_fallback_is_not_verified() -> None:
         for item in probe.evidence
     )
     assert "never Verified" in result.message
+
+
+@pytest.mark.skipif(os.sys.platform != "linux", reason="real contained child requires Linux")
+def test_real_contained_child_is_killed_on_cancel_before_partial_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3 cancellation must stop the actual child, not only publication."""
+    root = tmp_path / "scope"
+    root.mkdir()
+    (root / "CLAUDE.md").write_text("read barrier fixture\n")
+    barrier = tmp_path / "read-barrier"
+    os.mkfifo(barrier)
+    child_started = threading.Event()
+    child_terminated = threading.Event()
+    cancel_event = threading.Event()
+    original_popen = subprocess.Popen
+
+    def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        child_started.set()
+        return original_popen(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(containment.subprocess, "Popen", tracking_popen)
+    monkeypatch.setenv("DEX_LENS_TEST_READ_BARRIER", str(barrier))
+    request = CollectionRequest(
+        approved_roots=(str(root),),
+        bounds=CollectionBounds(max_file_count=16, max_file_bytes=1024, max_total_bytes=4096),
+        timeout_seconds=10,
+        child_terminated=child_terminated,
+    )
+    failures: list[BaseException] = []
+
+    def collect() -> None:
+        try:
+            LinuxStrategy().collect_contained(request, cancel_event=cancel_event)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=collect)
+    worker.start()
+    assert child_started.wait(timeout=2)
+    cancel_started = time.monotonic()
+    cancel_event.set()
+    worker.join(timeout=2)
+    elapsed = time.monotonic() - cancel_started
+
+    assert not worker.is_alive()
+    assert child_terminated.wait(timeout=0.1)
+    assert elapsed < 1.0
+    assert failures and isinstance(failures[0], CollectionFailedError)
+    assert list(root.glob("partial*")) == []

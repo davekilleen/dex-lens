@@ -317,6 +317,20 @@ def prove_containment() -> tuple[str, ...]:
     )
 
 
+def _wait_for_test_read_barrier() -> None:
+    """Hold the real child before target reads for cancellation integration tests."""
+
+    barrier = os.environ.get("DEX_LENS_TEST_READ_BARRIER")
+    if not barrier or not os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    # The test creates a FIFO and never opens its write end.  A blocking,
+    # read-only open is therefore a genuine child-side read barrier; the
+    # parent must kill this process to prove cancellation, rather than merely
+    # declining to publish its eventual result.
+    fd = os.open(barrier, os.O_RDONLY)
+    os.close(fd)
+
+
 # ---------------------------------------------------------------------------
 # Child entry point
 # ---------------------------------------------------------------------------
@@ -375,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CONTAINMENT_UNAVAILABLE
 
     try:
+        _wait_for_test_read_barrier()
         roots = [str(root) for root in request["approved_roots"]]  # type: ignore[index]
         bounds_payload = request.get("bounds") or {}
         bounds = CollectionBounds(**bounds_payload)  # type: ignore[arg-type]

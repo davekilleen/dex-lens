@@ -47,6 +47,21 @@ class TestScriptOnRealTree:
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
+    def test_concierge_session_fields_are_explicitly_inventoried(self) -> None:
+        """Browser/session state is a G2 boundary, not an untracked cache."""
+        from capability_exchange.boundary.inventory import active_inventory
+
+        expected = {
+            "ConciergeSessionState.session_token_digest",
+            "ConciergeSessionState.csrf_token_digest",
+            "ConciergeSessionState.cookie_metadata",
+            "ConciergeSessionState.approved_scope_references",
+            "ConciergeSessionState.expires_at",
+            "ConciergeSessionState.journey_state",
+        }
+        missing = expected - active_inventory().fields.keys()
+        assert not missing, f"concierge session fields missing from inventory: {sorted(missing)}"
+
 
 class TestProblemDetection:
     def test_uninventoried_model_field_is_a_problem(self, check_inventory, fake_module) -> None:

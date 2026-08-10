@@ -35,7 +35,7 @@ matrix.
    Closing G1 honestly requires a dedicated, isolated Linux runner with that
    narrow privilege; the skip remains loud until one is available.
 
-## Implemented and CI-verified in draft PR #4
+## Implemented and merged in PR #4
 
 3. **M3 — the local browser concierge.** The source alpha now has the trusted
    `dex-lens` doorway; fail-closed loopback session security; cancellable,
@@ -56,11 +56,17 @@ matrix.
    `--network none` namespace, captures the loopback traffic, and fails on DNS,
    proxy use, non-loopback packets, unparsed packets, or canary leakage.
 
-   **Not formally closed yet:** the host-level bind-mount proof above still
-   needs its dedicated isolated Linux runner, and macOS provides connect-time
-   denial rather than socket-object denial. Until those boundaries are closed
-   or explicitly accepted, call this a read-only source alpha, not a completed
-   M3 release.
+   **Closure status:** the bind-mount proof now has a dedicated Docker CI gate
+   (`g1-bind-mount-gate`) that runs the hostile module with only `SYS_ADMIN`,
+   no network, a read-only root, and bounded writable `/tmp`; its JSON report is
+   uploaded as `g1-bind-mount-evidence`. Ordinary local/matrix runs still skip
+   loudly when the host cannot create the mount. On macOS the deep adapter now
+   fails closed unless socket creation itself is runtime-proven; runners that
+   prove only connect-time denial use the guided/export-assisted path.
+
+   Until a green privileged CI artifact and a macOS socket-creation proof are
+   observed, call this a read-only source alpha with explicit boundaries, not
+   a completed M3 release.
 
    **Build authorization is recorded:** HANDOFF D0 was posted on Dex issue
    #347 on 7 August against the signed pack hash
@@ -83,7 +89,9 @@ matrix.
 
 ## Rough shape of remaining effort
 
-M3 is the first usable surface and is now in draft PR review.
+M3 is the first usable surface and its baseline is merged in PR #4; closure
+evidence is tracked by the dedicated privileged bind-mount gate and the
+fail-closed macOS selection test.
 M4 is the most safety-critical. M5 and M6 depend on decisions in
 `DAVE-DECISIONS.md` (moderation host, pilot recruits, consent review) more
 than on code. The two M1 loose ends are small but one needs Dave's call.

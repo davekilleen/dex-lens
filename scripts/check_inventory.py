@@ -40,6 +40,11 @@ ALLOWED_PLAIN_MODELS = {
     "capability_exchange.boundary.inventory.Inventory",
 }
 
+# Browser/session state is a first-class G2 surface. Keeping the required
+# model name here makes removal or replacement of that declaration a CI
+# failure instead of allowing a dataclass field to become an untracked cache.
+REQUIRED_CONCIERGE_MODELS = {"ConciergeSessionState"}
+
 PACKAGE = "capability_exchange"
 
 
@@ -110,6 +115,13 @@ def collect_problems() -> list[str]:
                 f"{qualified}: pydantic model does not subclass InventoriedModel; "
                 f"models outside the typed serialization boundary may not exist in "
                 f"this package (allowlisting is a reviewed G2 decision)"
+            )
+
+    for model_name in sorted(REQUIRED_CONCIERGE_MODELS):
+        if model_name not in inventoried_models:
+            problems.append(
+                f"{model_name}: required concierge/session state model is not "
+                "inside the InventoriedModel boundary"
             )
 
     # Every model field needs an inventory entry (uninventoried => build fails).

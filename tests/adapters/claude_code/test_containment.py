@@ -65,6 +65,32 @@ class TestStrategySelection:
         available, reason = MacOSStrategy().availability()
         assert not available
 
+    def test_default_strategy_refuses_macos_without_socket_creation_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A connect-time denial is not the G1 socket-creation guarantee.
+
+        GitHub's macOS runners currently allocate AF_INET sockets under the
+        shipped Seatbelt profile.  The deep adapter must therefore disable
+        itself before any target read when the runtime probe cannot prove
+        ``socket()`` is denied, while retaining the guided fallback.
+        """
+        monkeypatch.setattr(containment.sys, "platform", "darwin")
+        monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
+        monkeypatch.setattr(
+            containment,
+            "_probe_macos_runtime_proofs",
+            lambda _sandbox_exec: ("connect-denied", "write-open-denied", "exec-denied"),
+            raising=False,
+        )
+
+        with pytest.raises(ContainmentUnavailableError) as caught:
+            default_strategy()
+
+        assert "socket creation" in caught.value.reason.lower()
+        assert caught.value.fallback_guidance == GUIDED_FALLBACK_MESSAGE
+        assert "guided, export-assisted" in str(caught.value)
+
     def test_cancellable_child_drains_output_larger_than_pipe_capacity(
         self, claude_root: Path
     ) -> None:

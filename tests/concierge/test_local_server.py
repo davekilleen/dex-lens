@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import inspect
+import os
 import tempfile
 import threading
 from collections.abc import Callable
@@ -53,6 +55,23 @@ def envelope() -> AdapterResultEnvelope:
             ),
         ),
     )
+
+
+def complete_tree_manifest(root: Path) -> tuple[tuple[str, int, int, str], ...]:
+    """Capture every entry and file byte digest under an approved root."""
+    entries: list[tuple[str, int, int, str]] = []
+    for path in sorted(root.rglob("*")):
+        stat_result = path.lstat()
+        if path.is_symlink():
+            digest = hashlib.sha256(os.readlink(path).encode()).hexdigest()
+        elif path.is_file():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        else:
+            digest = ""
+        entries.append(
+            (str(path.relative_to(root)), stat_result.st_mode, stat_result.st_mtime_ns, digest)
+        )
+    return tuple(entries)
 
 
 class RunningServer(AbstractContextManager["RunningServer"]):
@@ -221,6 +240,73 @@ class TestSessionSecurity:
 
 
 class TestStagesOneToSix:
+    @pytest.mark.parametrize("exit_stage", (1, 2, 3, 4, 5, 6))
+    def test_decline_at_every_stage_preserves_complete_approved_tree(
+        self, exit_stage: int
+    ) -> None:
+        """A stage exit never writes, removes, or rewrites inspected bytes."""
+        collection_started = threading.Event()
+
+        def blocked_collection(cancel_event: threading.Event) -> AdapterResultEnvelope:
+            collection_started.set()
+            cancel_event.wait(timeout=2)
+            raise ValueError("collection cancelled for stage-exit proof")
+
+        collector = blocked_collection if exit_stage == 2 else envelope
+        with RunningServer(collector) as running:
+            root = running.approved_root
+            (root / "nested").mkdir()
+            (root / "CLAUDE.md").write_text("standing instructions\n")
+            (root / "nested" / "notes.md").write_text("weekly notes\n")
+            before = complete_tree_manifest(root)
+
+            running.bootstrap()
+            if exit_stage == 1:
+                # Permission screen: decline before collection is approved.
+                running.post("/decline")
+            elif exit_stage == 2:
+                # Collecting screen: cancel the real in-flight worker, then
+                # wait for the cancellation path to close the session.
+                status, _, body = running.post("/approve")
+                assert status == 200
+                assert collection_started.wait(timeout=2)
+                assert "Cancel inspection" in body
+                running.post("/cancel")
+                running.wait_for_collection()
+            else:
+                running.post("/approve")
+                if exit_stage == 3:
+                    # Job map: leave before any draft confirmation.
+                    running.post("/decline")
+                else:
+                    confirm = {
+                        "job_id": "instruction-guided-work",
+                        "success_evidence": "the instruction-guided output is ready",
+                        "privacy_limits": "stay in the approved scope",
+                        "approval_limits": "ask before external action",
+                        "autonomy_limits": "do not change files",
+                        "importance": "medium",
+                        "cadence": "weekly",
+                    }
+                    running.post("/jobs/confirm", body=urlencode(confirm))
+                    if exit_stage == 4:
+                        # Confirmation stage: leave after confirming one draft.
+                        running.post("/decline")
+                    else:
+                        running.post(
+                            "/jobs/discard",
+                            body=urlencode({"job_id": "recurring-skill-workflows"}),
+                        )
+                        if exit_stage == 5:
+                            # Discard stage: leave after deleting the second draft.
+                            running.post("/decline")
+                        else:
+                            running.post("/diagnose")
+                            # Capability-map stage: leave after diagnosis.
+                            running.post("/decline")
+
+            assert complete_tree_manifest(root) == before
+
     def test_collection_starts_only_after_approval(self) -> None:
         with RunningServer(envelope) as running:
             running.bootstrap()

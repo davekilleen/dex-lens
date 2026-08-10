@@ -9,6 +9,7 @@ discarded instead of trying an unauthenticated or stale-scope fallback.
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import threading
 from collections.abc import Callable
@@ -16,12 +17,82 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
+from pydantic import ConfigDict, Field, field_validator
+
+from capability_exchange.boundary.serialization import InventoriedModel
+
 __all__ = [
+    "ConciergeSessionState",
+    "COOKIE_METADATA",
     "SessionSecurity",
     "SecurityFailure",
     "ensure_loopback_bind_address",
     "expected_loopback_origin",
 ]
+
+
+# The cookie value and bearer tokens stay in memory only.  This metadata is
+# safe to inventory because it describes the browser contract, never a value
+# that can authenticate a session.
+COOKIE_METADATA: tuple[str, ...] = (
+    "name:dex_lens_session",
+    "http-only",
+    "same-site:strict",
+    "path:/",
+)
+
+
+def _secret_digest(value: str) -> str:
+    """Return a non-reversible reference for an in-memory bearer secret."""
+
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+class ConciergeSessionState(InventoriedModel):
+    """The browser/session fields that may be represented at the G2 boundary.
+
+    Raw bearer tokens are deliberately absent from this model.  Their
+    digests, cookie policy, scope references, expiry, and journey state are
+    still explicit and inventory-checked, so a future browser/session field
+    cannot become an accidental persistence or transmission path.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    session_token_digest: str = Field(min_length=64, max_length=64)
+    csrf_token_digest: str = Field(min_length=64, max_length=64)
+    cookie_metadata: tuple[str, ...] = Field(min_length=1)
+    approved_scope_references: tuple[str, ...] = Field(min_length=1)
+    expires_at: datetime
+    journey_state: str = Field(min_length=1, max_length=64)
+
+    @field_validator("session_token_digest", "csrf_token_digest")
+    @classmethod
+    def _hex_digest(cls, value: str) -> str:
+        if any(char not in "0123456789abcdef" for char in value.lower()):
+            raise ValueError("session digests must be lowercase hexadecimal references")
+        return value.lower()
+
+    @field_validator("cookie_metadata")
+    @classmethod
+    def _metadata_lines(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() for item in value):
+            raise ValueError("cookie metadata entries must be non-empty")
+        return tuple(value)
+
+    @field_validator("approved_scope_references")
+    @classmethod
+    def _scope_references(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.startswith("scope:") for item in value):
+            raise ValueError("approved scope references must be non-raw scope locators")
+        return tuple(value)
+
+    @field_validator("expires_at")
+    @classmethod
+    def _aware_expiry(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            raise ValueError("session expiry must be timezone-aware")
+        return value
 
 
 class SecurityFailure(ValueError):
@@ -78,6 +149,23 @@ class SessionSecurity:
         """Whether the session has reached its expiry, using the supplied clock."""
 
         return self.now() >= self.expires_at
+
+    def inventory_state(
+        self,
+        *,
+        approved_scope_references: tuple[str, ...],
+        journey_state: str,
+    ) -> ConciergeSessionState:
+        """Return the inventoried browser state without exposing secrets."""
+
+        return ConciergeSessionState(
+            session_token_digest=_secret_digest(self.session_token),
+            csrf_token_digest=_secret_digest(self.csrf_token),
+            cookie_metadata=COOKIE_METADATA,
+            approved_scope_references=approved_scope_references,
+            expires_at=self.expires_at,
+            journey_state=journey_state,
+        )
 
     def terminate(self) -> None:
         """Atomically close the session and erase all bearer credentials."""

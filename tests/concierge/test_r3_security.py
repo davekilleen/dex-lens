@@ -133,6 +133,31 @@ def test_security_failures_terminate_and_discard() -> None:
     assert security.csrf_token == ""
 
 
+def test_session_inventory_state_digests_secrets_and_carries_browser_metadata() -> None:
+    """Only non-secret session references cross the typed G2 boundary."""
+    security = SessionSecurity(
+        bootstrap_token="bootstrap",
+        session_token="session-secret",
+        csrf_token="csrf-secret",
+        expires_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    builder = getattr(security, "inventory_state", None)
+    assert callable(builder), "SessionSecurity must expose an inventoried state view"
+
+    state = builder(
+        approved_scope_references=("scope:sha256:approved",),
+        journey_state="permission",
+    )
+
+    assert state.session_token_digest != "session-secret"
+    assert state.csrf_token_digest != "csrf-secret"
+    assert state.approved_scope_references == ("scope:sha256:approved",)
+    assert state.journey_state == "permission"
+    assert state.cookie_metadata
+    assert "session-secret" not in state.model_dump_json()
+    assert "csrf-secret" not in state.model_dump_json()
+
+
 def test_session_expiry_automatically_discards_state(tmp_path: Path) -> None:
     root = tmp_path / "scope"
     root.mkdir()

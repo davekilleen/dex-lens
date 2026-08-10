@@ -78,11 +78,18 @@ fallback that accepts only bounded user-entered or export-assisted evidence
 when operating-system containment is unavailable. Next on the roadmap: the
 adaptation transaction layer, the contribution flow, and a small pilot.
 
+The M3 baseline is merged in PR #4. Closure evidence is deliberately
+host-specific: macOS disables the deep adapter unless socket creation itself
+is runtime-proven (connect-time denial alone takes the guided path), and the
+bind-mount hostile fixture is proven only by the dedicated privileged Linux CI
+gate, which uploads a JSON report under `g1-bind-mount-evidence`.
+
 The current alpha does **not** claim that every M3 safety gate is closed. In
-particular, the macOS sandbox can prove network use is denied but cannot prove
-socket creation itself is denied; and the bind-mount hostile fixture still
-needs an isolated CI host with the privilege required to execute it. Those
-limits are recorded rather than smoothed over.
+particular, a macOS host that cannot prove socket creation is denied is
+explicitly downgraded to guided/export-assisted evidence, and a local host
+without mount privilege cannot establish the bind-mount fixture. Those limits
+are recorded rather than smoothed over; only the privileged CI artifact can
+close the bind-mount proof.
 
 ## Try the source alpha
 

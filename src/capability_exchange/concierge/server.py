@@ -8,6 +8,7 @@ single-use bootstrap token, a session cookie, Origin checking, and CSRF.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import secrets
 import tempfile
@@ -41,6 +42,7 @@ from capability_exchange.concierge.journey import (
     PermissionMetadata,
 )
 from capability_exchange.concierge.security import (
+    ConciergeSessionState,
     SessionSecurity,
     ensure_loopback_bind_address,
 )
@@ -171,6 +173,19 @@ class ConciergeSession:
         """The shared, lock-protected session security state."""
 
         return self._security
+
+    @property
+    def inventory_state(self) -> ConciergeSessionState:
+        """Return the non-secret, inventory-checked browser/session view."""
+
+        references = tuple(
+            "scope:" + hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
+            for root in self.approved_roots
+        )
+        return self._security.inventory_state(
+            approved_scope_references=references,
+            journey_state=self.journey.stage.value,
+        )
 
     def expired(self) -> bool:
         return self._security.expired()
