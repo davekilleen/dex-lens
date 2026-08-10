@@ -8,7 +8,8 @@ from typing import Protocol
 
 from capability_exchange.cards.disclosure import DisclosureManifest
 from capability_exchange.cards.model import CapabilityCard
-from capability_exchange.contribution.consent import ConsentLedger, PermissionSet
+from capability_exchange.cards.validation import CardValidationError, require_valid_card
+from capability_exchange.contribution.consent import ConsentError, ConsentLedger, PermissionSet
 from capability_exchange.contribution.provenance import VersionProvenance, build_provenance
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "PermissionDenied",
     "InMemoryStore",
     "StorePort",
+    "ModerationTrustPort",
     "ContributionLifecycleService",
     "SyntheticStore",
 ]
@@ -49,12 +51,21 @@ class PermissionDenied(ValueError):
 
 class StorePort(Protocol):
     name: str
+    recallable: bool
 
     def put(self, version_hash: str, payload: bytes) -> None: ...
 
     def withdraw(self, version_hash: str) -> None: ...
 
     def quarantine(self, version_hash: str) -> None: ...
+
+    def mark_non_recallable(self, version_hash: str) -> None: ...
+
+
+class ModerationTrustPort(Protocol):
+    """Read-only trust seam for immutable, signed moderation attestations."""
+
+    def is_trusted(self, card: CapabilityCard) -> bool: ...
 
 
 @dataclass(slots=True)
@@ -63,9 +74,17 @@ class InMemoryStore:
 
     name: str
     fail_withdraw: bool = False
+    recallable: bool | None = None
     payloads: dict[str, bytes] = field(default_factory=dict)
     withdrawn_versions: set[str] = field(default_factory=set)
     quarantined_versions: set[str] = field(default_factory=set)
+    non_recallable_versions: set[str] = field(default_factory=set)
+
+    def __post_init__(self) -> None:
+        # A shipped Core release is outside Exchange control.  Keep its bytes
+        # and record the honest non-recallable boundary on withdrawal.
+        if self.recallable is None:
+            self.recallable = self.name != "core-release"
 
     def put(self, version_hash: str, payload: bytes) -> None:
         if version_hash not in self.withdrawn_versions:
@@ -74,12 +93,18 @@ class InMemoryStore:
     def withdraw(self, version_hash: str) -> None:
         if self.fail_withdraw:
             raise RuntimeError(f"{self.name} withdrawal propagation failed")
+        if self.recallable is False:
+            self.mark_non_recallable(version_hash)
+            return
         self.payloads.pop(version_hash, None)
         self.withdrawn_versions.add(version_hash)
 
     def quarantine(self, version_hash: str) -> None:
         self.payloads.pop(version_hash, None)
         self.quarantined_versions.add(version_hash)
+
+    def mark_non_recallable(self, version_hash: str) -> None:
+        self.non_recallable_versions.add(version_hash)
 
     def can_use(self, version_hash: str) -> bool:
         return (
@@ -121,7 +146,6 @@ _ALLOWED: dict[ContributionState, frozenset[ContributionState]] = {
             ContributionState.REVIEWED,
             ContributionState.CHANGES_REQUESTED,
             ContributionState.REJECTED,
-            ContributionState.ELIGIBLE,
             ContributionState.WITHDRAWN,
         }
     ),
@@ -145,9 +169,25 @@ _ALLOWED: dict[ContributionState, frozenset[ContributionState]] = {
 class ContributionLifecycle:
     """State machine coordinating consent and synthetic controlled stores."""
 
-    def __init__(self, *, stores: list[StorePort], consent: ConsentLedger) -> None:
+    def __init__(
+        self,
+        *,
+        stores: list[StorePort],
+        consent: ConsentLedger,
+        moderation: ModerationTrustPort | None = None,
+        moderation_service: ModerationTrustPort | None = None,
+    ) -> None:
+        if moderation is not None and moderation_service is not None:
+            raise ValueError("provide only one moderation trust port")
         self.stores = tuple(stores)
         self.consent = consent
+        self._moderation = moderation if moderation is not None else moderation_service
+
+    @property
+    def moderation(self) -> ModerationTrustPort | None:
+        """Read-only moderation trust dependency."""
+
+        return self._moderation
 
     def draft(
         self,
@@ -156,7 +196,13 @@ class ContributionLifecycle:
         *,
         contributor_secret: bytes,
     ) -> Contribution:
-        record = self.consent.require(card, manifest)
+        try:
+            require_valid_card(card)
+            record = self.consent.require(card, manifest)
+        except CardValidationError as exc:
+            raise CardValidationError(exc.issues) from exc
+        except ConsentError:
+            raise
         provenance = build_provenance(
             local_secret=contributor_secret,
             card_version_hash=card.version_hash,
@@ -182,18 +228,55 @@ class ContributionLifecycle:
         contribution.state = target
         contribution.audit_events.append(target.value)
 
+    def _assert_transition(self, contribution: Contribution, target: ContributionState) -> None:
+        if target not in _ALLOWED[contribution.state]:
+            raise IllegalTransition(
+                f"cannot transition contribution from {contribution.state.value} to {target.value}"
+            )
+
+    def _require_active_consent(self, contribution: Contribution) -> None:
+        if contribution.state is ContributionState.WITHDRAWN:
+            raise IllegalTransition("withdrawn Card versions cannot be used again")
+        try:
+            require_valid_card(contribution.card)
+            self.consent.require(contribution.card, contribution.manifest)
+        except CardValidationError as exc:
+            self._revoke_and_withdraw(contribution, "Card validation failed")
+            raise CardValidationError(exc.issues) from exc
+        except ConsentError as exc:
+            self._revoke_and_withdraw(contribution, "consent was withdrawn")
+            raise ConsentError(
+                "withdrawn Card versions cannot be redrafted or resubmitted"
+            ) from exc
+
+    def _require_moderation_attestation(self, contribution: Contribution) -> None:
+        if self._moderation is None:
+            raise PermissionDenied("immutable moderation attestation is required before review")
+        try:
+            trusted = self._moderation.is_trusted(contribution.card)
+        except Exception:  # noqa: BLE001 - trust ports fail closed
+            trusted = False
+        if not trusted:
+            raise PermissionDenied(
+                "scanner pass and a verifier-approved moderation attestation are required"
+            )
+
     def submit(self, contribution: Contribution) -> Contribution:
+        self._require_active_consent(contribution)
         if contribution.permissions.is_unresolvable or contribution.permissions.review is not True:
             # Unknown permission state is not a prompt to ask for more access;
             # it is fully withdrawn and cannot reach review.
-            self._transition(contribution, ContributionState.WITHDRAWN)
-            contribution.withdrawal_reason = (
+            reason = (
                 "permission state was unresolvable"
                 if contribution.permissions.is_unresolvable
                 else "review permission was not granted"
             )
-            self._propagate_withdrawal(contribution)
+            self._revoke_and_withdraw(contribution, reason)
             return contribution
+        # Consent may be valid while a caller hands us a forged manifest or a
+        # Card changed through a bypass route.  Re-check before any store.put.
+        if not contribution.manifest.verify_card(contribution.card):
+            raise ConsentError("disclosure manifest no longer matches this Card version")
         self._transition(contribution, ContributionState.SUBMITTED)
         for store in self.stores:
             if contribution.permissions.storage is True:
@@ -201,6 +284,7 @@ class ContributionLifecycle:
         return contribution
 
     def quarantine(self, contribution: Contribution, reason: str) -> Contribution:
+        self._require_active_consent(contribution)
         self._transition(contribution, ContributionState.QUARANTINED)
         contribution.audit_events.append("quarantine:" + _safe_reason(reason))
         for store in self.stores:
@@ -208,22 +292,34 @@ class ContributionLifecycle:
         return contribution
 
     def mark_reviewed(self, contribution: Contribution) -> Contribution:
+        self._assert_transition(contribution, ContributionState.REVIEWED)
+        self._require_active_consent(contribution)
         if contribution.permissions.moderation is not True:
             raise PermissionDenied("moderation permission is not granted for this Card version")
+        self._require_moderation_attestation(contribution)
         self._transition(contribution, ContributionState.REVIEWED)
         return contribution
 
     def request_changes(self, contribution: Contribution, reason: str) -> Contribution:
+        self._assert_transition(contribution, ContributionState.CHANGES_REQUESTED)
+        self._require_active_consent(contribution)
+        self._require_moderation_attestation(contribution)
         self._transition(contribution, ContributionState.CHANGES_REQUESTED)
         contribution.audit_events.append("changes:" + _safe_reason(reason))
         return contribution
 
     def reject(self, contribution: Contribution, reason: str) -> Contribution:
+        self._assert_transition(contribution, ContributionState.REJECTED)
+        self._require_active_consent(contribution)
+        self._require_moderation_attestation(contribution)
         self._transition(contribution, ContributionState.REJECTED)
         contribution.audit_events.append("rejection:" + _safe_reason(reason))
         return contribution
 
     def mark_eligible(self, contribution: Contribution) -> Contribution:
+        self._assert_transition(contribution, ContributionState.ELIGIBLE)
+        self._require_active_consent(contribution)
+        self._require_moderation_attestation(contribution)
         if contribution.permissions.reuse is not True:
             raise PermissionDenied("reuse permission is not granted for this Card version")
         if contribution.permissions.distribution is not True:
@@ -232,14 +328,30 @@ class ContributionLifecycle:
         return contribution
 
     def withdraw(self, contribution: Contribution, *, reason: str) -> Contribution:
+        self.consent.withdraw(contribution.card, contribution.manifest)
         if contribution.state is not ContributionState.WITHDRAWN:
             self._transition(contribution, ContributionState.WITHDRAWN)
         contribution.withdrawal_reason = _safe_reason(reason)
+        contribution.permissions = contribution.permissions.withdraw_all()
         self._propagate_withdrawal(contribution)
         return contribution
 
+    def _revoke_and_withdraw(self, contribution: Contribution, reason: str) -> None:
+        self.consent.withdraw(contribution.card, contribution.manifest)
+        if contribution.state is not ContributionState.WITHDRAWN:
+            self._transition(contribution, ContributionState.WITHDRAWN)
+        contribution.withdrawal_reason = _safe_reason(reason)
+        contribution.permissions = contribution.permissions.withdraw_all()
+        self._propagate_withdrawal(contribution)
+
     def _propagate_withdrawal(self, contribution: Contribution) -> None:
         for store in self.stores:
+            if getattr(store, "recallable", True) is False:
+                marker = getattr(store, "mark_non_recallable", None)
+                if callable(marker):
+                    marker(contribution.version_hash)
+                contribution.audit_events.append("withdrawal-non-recallable:" + store.name)
+                continue
             try:
                 store.withdraw(contribution.version_hash)
             except Exception:  # noqa: BLE001 - a failed controlled port quarantines its copy

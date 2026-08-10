@@ -2111,6 +2111,36 @@ fields:
     deletion: not-stored
     audit: "minimal moderation audit"
 
+  ModerationAttestation.scanner_passed:
+    description: "immutable pre-review scanner pass bound to one Card version"
+    collection: "copied from the scanner result at moderation approval"
+    derivation: "scanner status must be scanner-passed"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.signature:
+    description: "signature over the version-bound moderation attestation"
+    collection: "issued by the moderation signing trust port"
+    derivation: "verified by the injected moderation verifier"
+    display: "shown as verification status, not as trust by itself"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
+  ModerationAttestation.key_id:
+    description: "key identifier for one moderation attestation signature"
+    collection: "selected by the moderation signing trust port"
+    derivation: "unknown key identity fails verification"
+    display: "shown in moderation audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "minimal moderation audit"
+
   ModerationAttestation.attestation_id:
     description: "stable local id for one moderation attestation"
     collection: "derived from Card version and reviewer id"

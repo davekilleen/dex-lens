@@ -143,15 +143,27 @@ class CatalogVerifier:
     """Stateful local consumer retaining only the last verified catalog."""
 
     def __init__(self, verifier: SignatureVerifier) -> None:
-        self.verifier = verifier
-        self.last_verified: CapabilityCatalog | None = None
+        self._verifier = verifier
+        self._last_verified: CapabilityCatalog | None = None
+
+    @property
+    def verifier(self) -> SignatureVerifier:
+        """Read-only signature trust port."""
+
+        return self._verifier
+
+    @property
+    def last_verified(self) -> CapabilityCatalog | None:
+        """Read-only last verified value; callers cannot self-assert trust."""
+
+        return self._last_verified
 
     def verify(self, signed: SignedCatalog) -> CatalogResult:
         result = verify_catalog(
             signed,
-            self.verifier,
-            last_verified=self.last_verified,
+            self._verifier,
+            last_verified=self._last_verified,
         )
         if result.status is CatalogStatus.VERIFIED:
-            self.last_verified = result.catalog
+            self._last_verified = result.catalog
         return result

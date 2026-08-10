@@ -11,6 +11,7 @@ from pydantic import ConfigDict
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.cards.disclosure import DisclosureManifest
 from capability_exchange.cards.model import CapabilityCard
+from capability_exchange.cards.validation import CardValidationError, require_valid_card
 
 __all__ = [
     "ConsentError",
@@ -111,6 +112,7 @@ class ConsentRecord(InventoriedModel):
         manifest: DisclosureManifest,
         permissions: PermissionSet,
     ) -> ConsentRecord:
+        require_valid_card(card)
         return cls(
             card_id=card.card_id,
             card_version_hash=card.version_hash,
@@ -132,6 +134,12 @@ class ConsentLedger:
         manifest: DisclosureManifest,
         permissions: PermissionSet,
     ) -> ConsentRecord:
+        try:
+            require_valid_card(card)
+        except CardValidationError as exc:
+            raise ConsentError(
+                "Card validation failed before consent: " + ", ".join(exc.reason_codes)
+            ) from exc
         if not manifest.verify_card(card):
             raise ConsentError("disclosure manifest does not match this Card version")
         if not card.rights.rights_attested:
@@ -141,6 +149,10 @@ class ConsentLedger:
         return record
 
     def is_current(self, card: CapabilityCard, manifest: DisclosureManifest) -> bool:
+        try:
+            require_valid_card(card)
+        except CardValidationError:
+            return False
         record = self._records.get((card.version_hash, manifest.byte_hash))
         return bool(record and not record.withdrawn and manifest.verify_card(card))
 
@@ -156,7 +168,9 @@ class ConsentLedger:
         record = self._records.get(key)
         if record is None:
             return
-        self._records[key] = record.model_copy(update={"withdrawn": True})
+        self._records[key] = record.model_copy(
+            update={"withdrawn": True, "permissions": record.permissions.withdraw_all()}
+        )
 
 
 VersionConsent = ConsentRecord

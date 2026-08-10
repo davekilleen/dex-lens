@@ -21,7 +21,9 @@ from capability_exchange.cards.validation import (
     CardValidationError,
     ReasonCode,
     ValidationIssue,
+    require_valid_card,
     scan_card,
+    scan_text,
     validate_card,
 )
 
@@ -39,7 +41,9 @@ __all__ = [
     "DisclosureError",
     "DisclosureManifest",
     "ReasonCode",
+    "require_valid_card",
     "scan_card",
+    "scan_text",
     "ValidationIssue",
     "build_disclosure_manifest",
     "canonical_card_bytes",

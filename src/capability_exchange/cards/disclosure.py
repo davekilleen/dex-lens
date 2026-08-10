@@ -6,10 +6,15 @@ import hashlib
 import json
 from typing import Any, final
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.cards.model import CapabilityCard
+from capability_exchange.cards.validation import (
+    CardValidationError,
+    require_valid_card,
+    scan_text,
+)
 
 __all__ = [
     "DisclosureError",
@@ -32,6 +37,7 @@ def _canonical_json(value: Any) -> bytes:
 def canonical_card_bytes(card: CapabilityCard) -> bytes:
     """Canonical bytes for a complete immutable Card version."""
 
+    require_valid_card(card)
     return _canonical_json(card.model_dump(mode="json"))
 
 
@@ -51,6 +57,35 @@ class DisclosureManifest(InventoriedModel):
     approved_fields: tuple[str, ...]
     byte_hash: str
     display_text: str
+
+    @field_validator("approved_fields")
+    @classmethod
+    def _validate_fields(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        fields = tuple(value)
+        if not fields:
+            raise ValueError("disclosure must select at least one Card field")
+        if len(set(fields)) != len(fields):
+            raise ValueError("approved disclosure fields must be unique")
+        unknown = set(fields) - set(CapabilityCard.model_fields)
+        if unknown:
+            raise ValueError("approved disclosure contains an unknown Card field")
+        return fields
+
+    @model_validator(mode="after")
+    def _validate_payload(self) -> DisclosureManifest:
+        try:
+            parsed = json.loads(self.display_text)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("disclosure payload must be canonical JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("disclosure payload must be a JSON object")
+        issues = scan_text(parsed, path="disclosure")
+        if issues:
+            reasons = ", ".join(dict.fromkeys(issue.reason.value for issue in issues))
+            raise ValueError(f"disclosure payload rejected: {reasons}")
+        if self.byte_hash != _sha256(self.payload_bytes):
+            raise ValueError("disclosure bytes do not match their manifest hash")
+        return self
 
     @property
     def payload_bytes(self) -> bytes:
@@ -78,13 +113,14 @@ class DisclosureManifest(InventoriedModel):
         return self.payload_bytes
 
     def verify_card(self, card: CapabilityCard) -> bool:
-        if self.card_version_hash != card.version_hash:
-            return False
-        if self.byte_hash != _sha256(self.payload_bytes):
-            return False
         try:
+            require_valid_card(card)
+            if self.card_version_hash != card.version_hash:
+                return False
+            if self.byte_hash != _sha256(self.payload_bytes):
+                return False
             expected = build_disclosure_manifest(card, approved_fields=self.approved_fields)
-        except DisclosureError:
+        except (CardValidationError, DisclosureError):
             return False
         return expected.display_text == self.display_text and expected.byte_hash == self.byte_hash
 
@@ -101,6 +137,11 @@ def build_disclosure_manifest(
     No fields are selected implicitly.  The manifest payload is a canonical
     JSON object containing only the selected top-level Card fields.
     """
+
+    try:
+        require_valid_card(card)
+    except CardValidationError as exc:
+        raise DisclosureError(f"Card validation failed: {', '.join(exc.reason_codes)}") from exc
 
     fields = tuple(approved_fields)
     if not fields:

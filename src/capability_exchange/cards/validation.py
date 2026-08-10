@@ -17,6 +17,8 @@ __all__ = [
     "ReasonCode",
     "ValidationIssue",
     "scan_card",
+    "scan_text",
+    "require_valid_card",
     "validate_card",
 ]
 
@@ -84,6 +86,10 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\b(?:bearer|token|password|passwd|secret)\s*[:=]\s*\S+", re.I),
+    # Credential-shaped high-entropy tokens are rejected even when their
+    # vendor prefix is unknown.  The token must be compact and varied so
+    # ordinary prose does not become a secret finding by accident.
+    re.compile(r"\b[A-Za-z0-9+/=_-]{32,}\b"),
 )
 _PII_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b[\w.+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}\b"),
@@ -97,6 +103,8 @@ _PII_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 _PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"/(?:Users|home|var/folders)/[^\s/]+(?:/[^\s]*)?", re.I),
+    re.compile(r"(?:^|[\s(])~/(?:[^\s)]+)", re.I),
+    re.compile(r"/(?:private|tmp|etc|srv|opt|Volumes|mnt|root)/[^\s/]+(?:/[^\s]*)?", re.I),
     re.compile(r"\b[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s]+", re.I),
 )
 _CONFIDENTIAL_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -107,6 +115,16 @@ _CONFIDENTIAL_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.I,
     ),
     re.compile(r"\b(?:client|customer|third-party)\s+(?:data|material|boilerplate)\b", re.I),
+    re.compile(
+        r"\b(?:client|customer|third[- ]party|vendor|partner|employer)\b"
+        r"[^.\n]{0,80}\b(?:confidential|proprietary|internal|nda)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:confidential|proprietary|internal|nda)\b"
+        r"[^.\n]{0,80}\b(?:client|customer|third[- ]party|vendor|partner|employer)\b",
+        re.I,
+    ),
 )
 _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bignore\s+(?:(?:all|any|the)\s+)?(?:previous|prior|above) instructions\b", re.I),
@@ -172,7 +190,10 @@ def _structural_issues(payload: object) -> tuple[CapabilityCard | None, list[Val
         )
     if issues:
         # Keep mapping errors visible, but a partially supplied object cannot
-        # be safely scanned as Card content.
+        # be safely scanned as a Card.  Still scan every supplied string so a
+        # hostile value receives its specific reason rather than hiding behind
+        # an unrelated missing/forbidden-field finding.
+        issues.extend(_scan_strings(_flatten_strings(payload)))
         try:
             card = CapabilityCard.model_validate(payload)
         except ValidationError:
@@ -189,11 +210,10 @@ def _structural_issues(payload: object) -> tuple[CapabilityCard | None, list[Val
         return None, issues
 
 
-def _scan_content(card: CapabilityCard) -> list[ValidationIssue]:
+def _scan_strings(values: list[tuple[str, str]]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    fields = card.model_dump(mode="python")
     seen: set[tuple[str, ReasonCode]] = set()
-    for path, text in _flatten_strings(fields):
+    for path, text in values:
         checks = (
             (_SECRET_PATTERNS, ReasonCode.SECRET, "secret-shaped content is not allowed"),
             (_PII_PATTERNS, ReasonCode.PII, "personally identifying content is not allowed"),
@@ -232,6 +252,16 @@ def _scan_content(card: CapabilityCard) -> list[ValidationIssue]:
     return issues
 
 
+def _scan_content(card: CapabilityCard) -> list[ValidationIssue]:
+    return _scan_strings(_flatten_strings(card.model_dump(mode="python")))
+
+
+def scan_text(value: Any, *, path: str = "payload") -> tuple[ValidationIssue, ...]:
+    """Scan partial disclosure text before it can be sent independently."""
+
+    return tuple(_scan_strings(_flatten_strings(value, path)))
+
+
 def validate_card(
     payload: CapabilityCard | Mapping[str, Any], *, raise_on_error: bool = False
 ) -> tuple[ValidationIssue, ...]:
@@ -253,6 +283,25 @@ def validate_card(
 
 
 scan_card = validate_card
+
+
+def require_valid_card(payload: CapabilityCard | Mapping[str, Any]) -> CapabilityCard:
+    """Return a Card only when schema and hostile-content checks both pass.
+
+    This is the mandatory boundary used by disclosure, consent, moderation,
+    and lifecycle code.  It deliberately raises the same reason-coded error
+    as ``validate_card(..., raise_on_error=True)`` so no caller can accidentally
+    turn a warning into an outbound or persisted Card.
+    """
+
+    issues = validate_card(payload)
+    if issues:
+        raise CardValidationError(issues)
+    if isinstance(payload, CapabilityCard):
+        return payload
+    # ``validate_card`` has already parsed a mapping; parsing once more keeps
+    # this helper's return type explicit without retaining untrusted input.
+    return CapabilityCard.model_validate(payload)
 
 
 class CardScanner:
