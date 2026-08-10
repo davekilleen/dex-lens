@@ -351,6 +351,292 @@ fields:
     deletion: not-stored
     audit: "ephemeral structural limits; no approve-all state exists"
 
+  RecoveryPoint.recovery_id:
+    description: "local identity of the validated recovery point"
+    collection: "derived from the preview digest before mutation"
+    derivation: "first 32 hexadecimal digest characters"
+    display: "shown in local transaction history"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "stored in canonical checksummed JSON"
+
+  RecoveryPoint.preview_digest:
+    description: "exact preview identity covered by the recovery point"
+    collection: "copied from the approved preview"
+    derivation: "none"
+    display: "shown in local recovery history"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "stored in canonical checksummed JSON"
+
+  RecoveryPoint.target_path:
+    description: "private exact local target whose absent state is recoverable"
+    collection: "copied from the approved preview"
+    derivation: "none after path-jail validation"
+    display: "shown in local recovery history"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "stored locally; never transmitted"
+
+  RecoveryPoint.prior_state:
+    description: "closed pre-change state restored by this recovery point"
+    collection: "observed before mutation"
+    derivation: "create-only operation requires absent"
+    display: "shown as the recovery promise"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "stored in canonical checksummed JSON"
+
+  RecoveryPoint.created_at:
+    description: "timezone-aware recovery creation time"
+    collection: "recorded locally before mutation"
+    derivation: "none; naive timestamps rejected"
+    display: "shown in local recovery history"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "stored in canonical checksummed JSON"
+
+  RecoveryPoint.manifest_path:
+    description: "user-controlled local path of the checksummed recovery manifest"
+    collection: "selected from the caller-provided state directory"
+    derivation: "deterministic recovery filename"
+    display: "shown before apply and in the receipt"
+    storage:
+      location: "user-controlled Dex Lens recovery manifest directory"
+      duration: "until verified undo or user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-recovery
+    audit: "self-identifying path in canonical JSON"
+
+  TransactionReceipt.transaction_id:
+    description: "stable local identity of one completed adaptation transaction"
+    collection: "generated locally by the transaction engine"
+    derivation: "random or preview-bound 32-character hexadecimal id"
+    display: "shown in local receipt history"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.preview_digest:
+    description: "exact preview identity applied by the transaction"
+    collection: "copied from the approved preview"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.approval_id:
+    description: "non-secret identity of the fresh approval consumed"
+    collection: "copied from the consumed approval record"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field; bearer token excluded"
+
+  TransactionReceipt.operation:
+    description: "closed allowlisted operation that completed"
+    collection: "copied from the approved preview"
+    derivation: "validated through OperationKind"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.target_path:
+    description: "private exact local target changed by the transaction"
+    collection: "copied from the approved preview"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local private path; never transmitted"
+
+  TransactionReceipt.content_sha256:
+    description: "digest of applied bytes without the private content itself"
+    collection: "copied from the approved preview"
+    derivation: "SHA-256"
+    display: "shown as exact change identity"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable digest; source content excluded"
+
+  TransactionReceipt.adapter_id:
+    description: "host adapter identity that performed the operation"
+    collection: "copied from the proven mutation contract"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.adapter_version:
+    description: "host mutation contract version used for the operation"
+    collection: "copied from the proven mutation contract"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.recovery_manifest_path:
+    description: "user-controlled local recovery manifest used before apply"
+    collection: "copied from the validated recovery point"
+    derivation: "none"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local private path; never transmitted"
+
+  TransactionReceipt.applied_at:
+    description: "timezone-aware time the exact change completed"
+    collection: "recorded locally after atomic apply"
+    derivation: "none; naive timestamps rejected"
+    display: "shown in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  TransactionReceipt.verification_verdict:
+    description: "closed Working Partial Not-demonstrated or Unknown outcome"
+    collection: "copied from the Success-Contract verifier"
+    derivation: "none"
+    display: "shown prominently in the receipt"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable honest outcome; Unknown never becomes Working"
+
+  TransactionReceipt.evidence_level:
+    description: "R2-derived evidence level for the verification verdict"
+    collection: "copied from the verification result"
+    derivation: "total R2 state to Evidence Level mapping"
+    display: "shown independently from the outcome verdict"
+    storage:
+      location: "user-controlled Dex Lens receipt directory as standard JSON"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-adaptation-receipts
+    audit: "durable local receipt field"
+
+  VerificationResult.verdict:
+    description: "closed operation verification verdict"
+    collection: "assigned locally by the operation verifier"
+    derivation: "based on exact bytes plus declared Success Contract signal"
+    display: "shown immediately after apply"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied structurally into the receipt"
+
+  VerificationResult.capability_state:
+    description: "Capability State axis corresponding to this operation outcome"
+    collection: "assigned locally by the verifier"
+    derivation: "closed T7 mapping"
+    display: "shown independently from Evidence Level"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result"
+
+  VerificationResult.evidence_state:
+    description: "closed R2 evidence state produced by verification"
+    collection: "assigned locally from exact verifier observations"
+    derivation: "failures map to unverified or other non-supporting states"
+    display: "used to derive and explain Evidence Level"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result"
+
+  VerificationResult.evidence_level:
+    description: "total R2-derived evidence level for verification"
+    collection: "derived locally from evidence_state"
+    derivation: "shared total R2 mapping"
+    display: "shown independently from verdict"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result copied to receipt"
+
+  VerificationResult.observable_signal:
+    description: "exact Success Contract signal the verifier evaluated"
+    collection: "selected from the confirmed Success Contract"
+    derivation: "none"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded contract text"
+
+  VerificationResult.detail:
+    description: "bounded honest explanation of the verification result"
+    collection: "authored by the deterministic verifier branch"
+    derivation: "no source values included"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural explanation"
+
+  VerificationResult.verified_at:
+    description: "timezone-aware time verification ran"
+    collection: "recorded locally when verification completes"
+    derivation: "none; naive timestamps rejected"
+    display: "shown with the outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral result timestamp"
+
   EvidenceItem.state:
     description: "closed R2 evidence-state vocabulary value for one evidence item"
     collection: "assigned locally by the adapter/diagnosis pipeline that produced the item"

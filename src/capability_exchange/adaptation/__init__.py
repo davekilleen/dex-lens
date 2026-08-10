@@ -30,6 +30,24 @@ from capability_exchange.adaptation.preview import (
     assert_preview_current,
     build_preview,
 )
+from capability_exchange.adaptation.receipt import (
+    TransactionReceipt,
+    read_receipt,
+    write_receipt,
+)
+from capability_exchange.adaptation.recovery import (
+    RecoveryConflictError,
+    RecoveryPoint,
+    RecoveryUnavailableError,
+    create_recovery_point,
+    restore_absent_target,
+    validate_recovery_point,
+)
+from capability_exchange.adaptation.verification import (
+    VerificationResult,
+    VerificationVerdict,
+    verify_created_skill,
+)
 
 __all__ = [
     "ALLOWED_OPERATIONS",
@@ -49,9 +67,21 @@ __all__ = [
     "IssuedApproval",
     "PreviewDriftError",
     "PreviewMismatchError",
+    "RecoveryConflictError",
+    "RecoveryPoint",
+    "RecoveryUnavailableError",
     "RefusalCode",
+    "TransactionReceipt",
+    "VerificationResult",
+    "VerificationVerdict",
     "assess_operation",
     "assert_preview_current",
     "build_preview",
     "canonical_target",
+    "create_recovery_point",
+    "read_receipt",
+    "restore_absent_target",
+    "validate_recovery_point",
+    "verify_created_skill",
+    "write_receipt",
 ]

@@ -97,6 +97,8 @@ def _remove_file_verified(path: Path) -> None:
 
 #: Glob for crash-log files written by capability_exchange.boundary.crashlog.
 CRASH_LOG_GLOB = "crashlog-*.json"
+ADAPTATION_RECEIPT_GLOB = "receipt-*.json"
+ADAPTATION_RECOVERY_GLOB = "recovery-*.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -116,3 +118,29 @@ def delete_crash_logs(directory: Path) -> list[Path]:
 
 
 register_deletion_path("delete-crash-logs", delete_crash_logs)
+
+
+def _delete_matching(directory: Path, pattern: str) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    removed: list[Path] = []
+    for path in sorted(directory.glob(pattern)):
+        _remove_file_verified(path)
+        removed.append(path)
+    return removed
+
+
+def delete_adaptation_receipts(directory: Path) -> list[Path]:
+    """Remove every standard local M4 receipt under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_RECEIPT_GLOB)
+
+
+def delete_adaptation_recovery(directory: Path) -> list[Path]:
+    """Remove every M4 recovery manifest under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_RECOVERY_GLOB)
+
+
+register_deletion_path("delete-adaptation-receipts", delete_adaptation_receipts)
+register_deletion_path("delete-adaptation-recovery", delete_adaptation_recovery)
