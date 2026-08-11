@@ -98,6 +98,9 @@ def _remove_file_verified(path: Path) -> None:
 #: Glob for crash-log files written by capability_exchange.boundary.crashlog.
 CRASH_LOG_GLOB = "crashlog-*.json"
 
+#: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
+LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
+
 
 def delete_crash_logs(directory: Path) -> list[Path]:
     """Deletion path ``delete-crash-logs``: remove all crash-log files.
@@ -116,3 +119,17 @@ def delete_crash_logs(directory: Path) -> list[Path]:
 
 
 register_deletion_path("delete-crash-logs", delete_crash_logs)
+
+
+def delete_lens_catalogue_cache(directory: Path) -> list[Path]:
+    """Deletion path ``delete-lens-catalogue-cache``: remove the verified catalogue cache."""
+    if not directory.is_dir():
+        return []
+    path = directory / LENS_CATALOGUE_CACHE_FILE
+    if not path.exists():
+        return []
+    _remove_file_verified(path)
+    return [path]
+
+
+register_deletion_path("delete-lens-catalogue-cache", delete_lens_catalogue_cache)
