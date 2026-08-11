@@ -19,9 +19,10 @@ from typing import Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
+from capability_exchange.diagnosis.foundations import FoundationCapability
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -98,6 +99,7 @@ class CatalogueMetadataV2(InventoriedModel):
     produced_at: datetime
     expires_at: datetime
     producer: str = Field(min_length=1, max_length=120)
+    core_release: str = Field(min_length=1, max_length=120)
     key_id: str = Field(min_length=1, max_length=120)
 
     @field_validator("produced_at", "expires_at")
@@ -142,6 +144,17 @@ class CapabilityCompatibilityV2(InventoriedModel):
                 raise ValueError(f"{value!r} is not a catalogue id")
         if len(set(values)) != len(values):
             raise ValueError("duplicate compatibility id")
+        return values
+
+    @field_validator("foundation_capabilities")
+    @classmethod
+    def _foundation_capabilities_are_known(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        known = {capability.value for capability in FoundationCapability}
+        unknown = sorted(set(values) - known)
+        if unknown:
+            raise ValueError(f"unknown foundation capability id: {', '.join(unknown)}")
         return values
 
 
@@ -293,7 +306,10 @@ def verify_catalogue_envelope(
     """
     envelope = _parse_envelope(raw_json)
     _verify_signature(envelope, keyring)
-    verified = SignedCatalogueEnvelopeV2.model_validate(envelope)
+    try:
+        verified = SignedCatalogueEnvelopeV2.model_validate(envelope)
+    except ValidationError as exc:
+        raise CatalogueVerificationError("catalogue schema validation failed") from exc
     current_time = now or _utcnow()
     if current_time.tzinfo is None or current_time.utcoffset() is None:
         raise CatalogueVerificationError("verification time must be timezone-aware")
@@ -353,8 +369,14 @@ class VerifiedCatalogueStore:
             raise CatalogueVerificationError("stored catalogue cache is unreadable") from exc
         return cache.highest_catalog_version
 
+    def _highest_verified_catalog_version_for_save(self) -> int | None:
+        try:
+            return self.highest_verified_catalog_version()
+        except CatalogueVerificationError:
+            return None
+
     def save_verified(self, verified: SignedCatalogueEnvelopeV2) -> None:
-        highest = self.highest_verified_catalog_version()
+        highest = self._highest_verified_catalog_version_for_save()
         if highest is not None and verified.metadata.catalog_version < highest:
             raise CatalogueVerificationError(
                 f"catalogue rollback refused: version {verified.metadata.catalog_version} "
