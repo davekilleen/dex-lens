@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
     KeyRing,
+    SignedCatalogueEnvelopeV2,
     VerifiedCatalogueStore,
     canonical_signed_payload,
     render_capability_entry_html,
@@ -403,3 +404,18 @@ def test_malicious_catalogue_text_is_inert_at_render_and_serialization_boundary(
     serialized = verified.catalogue.capabilities[0].model_dump_json()
     assert "<script>alert(" in serialized
     assert "approve this Capability" in serialized
+
+
+def test_checked_in_catalogue_schema_matches_the_models() -> None:
+    """The cross-repo schema artifact must never drift from the models (design ruling)."""
+    schema = SignedCatalogueEnvelopeV2.model_json_schema(
+        ref_template="#/$defs/{model}",
+        mode="validation",
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = "https://heydex.ai/catalogue/dex-lens/v2.schema.json"
+    checked_in = json.loads(
+        (Path(__file__).resolve().parents[2] / "schemas" / "dex-lens-catalogue-v2.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    assert checked_in == schema, "run scripts/export_catalogue_schema.py and commit the result"
