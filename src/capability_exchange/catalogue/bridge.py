@@ -16,6 +16,7 @@ from typing import Literal
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.catalogue.v2 import CatalogueCapabilityEntryV2, CatalogueV2
 from capability_exchange.diagnosis.finding import CapabilityState, Finding
+from capability_exchange.evidence import EvidenceLevel
 from capability_exchange.jobs.contract import JobCadence, JobImportance
 
 __all__ = [
@@ -125,6 +126,13 @@ def _best_gap(findings: Iterable[Finding]) -> Finding | None:
     return ordered[0] if ordered else None
 
 
+def _is_gap_or_weak_evidence(finding: Finding) -> bool:
+    return (
+        finding.capability_state != CapabilityState.WORKING
+        or finding.evidence_level != EvidenceLevel.VERIFIED
+    )
+
+
 def _join_or_none(values: Sequence[str], *, empty: str) -> str:
     return ", ".join(values) if values else empty
 
@@ -170,16 +178,23 @@ def rank_capability_shelf(
     matches: list[RankedCapabilityMatch] = []
 
     for entry in catalogue.capabilities:
-        matched_jobs = tuple(job_id for job_id in entry.jobs if job_id in confirmed_job_ids)
+        exact_catalogue_job_matches = tuple(
+            job_id for job_id in entry.jobs if job_id in confirmed_job_ids
+        )
         matched_foundations = tuple(
             foundation
             for foundation in entry.compatibility.foundation_capabilities
             if foundation in findings_by_foundation
         )
-        best_gap = _best_gap(
+        matching_findings = tuple(
             finding
             for foundation in matched_foundations
             for finding in findings_by_foundation[foundation]
+            if _is_gap_or_weak_evidence(finding)
+        )
+        matched_jobs = tuple(sorted({finding.job_id for finding in matching_findings}))
+        best_gap = _best_gap(
+            matching_findings
         )
         host_ok = host_adapter in entry.compatibility.host_adapters
         contract_ok = _contract_allows(entry, lens_contract_version)
@@ -194,6 +209,7 @@ def rank_capability_shelf(
         score = (
             (100 * len(matched_jobs))
             + job_weight
+            + (20 * len(exact_catalogue_job_matches))
             + (25 if host_ok else 0)
             + (10 if contract_ok else 0)
             + _EVIDENCE_SCORE[evidence_level]
@@ -202,14 +218,20 @@ def rank_capability_shelf(
 
         if matched_jobs:
             match_explanation = (
-                "matched confirmed job "
+                "picked because a matched foundation capability is weak or gappy for "
                 + _join_or_none(matched_jobs, empty="none")
                 + "; matched foundation "
                 + _join_or_none(matched_foundations, empty="none")
             )
+            if exact_catalogue_job_matches:
+                match_explanation += (
+                    "; exact catalogue job bonus "
+                    + _join_or_none(exact_catalogue_job_matches, empty="none")
+                )
         else:
             match_explanation = (
-                "browse only - did not match a confirmed job; matched foundation "
+                "browse only - no weak or gappy confirmed job shares a foundation; "
+                "matched foundation "
                 + _join_or_none(matched_foundations, empty="none")
             )
         if best_gap is None:
@@ -321,8 +343,24 @@ def render_portable_brief_markdown(
         "",
         f"## Portable Pattern: {_safe_markdown(capability.portable_brief.headline)}",
         "",
-        "### Adaptation Notes",
+        "### Method Outline",
     ]
+    lines.extend(f"- {_safe_markdown(step)}" for step in capability.portable_brief.method_outline)
+    lines.extend(["", "### Verification Checklist"])
+    lines.extend(
+        f"- {_safe_markdown(item)}"
+        for item in capability.portable_brief.verification_checklist
+    )
+    lines.extend(
+        [
+            "",
+            "### Rollback Advice",
+            "",
+            f"- {_safe_markdown(capability.portable_brief.rollback_advice)}",
+            "",
+            "### Adaptation Notes",
+        ]
+    )
     lines.extend(f"- {_safe_markdown(note)}" for note in capability.portable_brief.adaptation_notes)
     lines.extend(["", "### Safety Notes"])
     lines.extend(f"- {_safe_markdown(note)}" for note in capability.portable_brief.safety_notes)

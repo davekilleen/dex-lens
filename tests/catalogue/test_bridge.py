@@ -51,6 +51,15 @@ def _entry(
                 f"Study the pattern behind {title}; do not import Dex internals.",
             ),
             "safety_notes": ("Keep this as advice for the user's own AI, not an action.",),
+            "method_outline": (
+                f"Identify the reusable operating pattern in {title}.",
+                "Adapt it inside the person's own confirmed boundaries.",
+            ),
+            "verification_checklist": (
+                "The person can preview the change before using it.",
+                "The host AI can prove the outcome without sending data to Dex.",
+            ),
+            "rollback_advice": "Park this pattern by removing the local command or note.",
         },
     }
 
@@ -60,28 +69,28 @@ def _catalogue() -> CatalogueV2:
         {
             "jobs_taxonomy": (
                 {
-                    "job_id": "weekly-report",
-                    "label": "Weekly report",
-                    "description": "Finish a trusted weekly report.",
+                    "job_id": "plan-my-work",
+                    "label": "Plan my work",
+                    "description": "Choose a realistic plan from current commitments.",
                     "confirmed_gap_signals": (
                         "no recent real example demonstrates this outcome",
                     ),
                 },
                 {
-                    "job_id": "memory-upkeep",
-                    "label": "Memory upkeep",
+                    "job_id": "maintain-context",
+                    "label": "Maintain context",
                     "description": "Keep useful context durable.",
                     "confirmed_gap_signals": ("the system forgets decisions",),
                 },
                 {
-                    "job_id": "workflow-control",
-                    "label": "Workflow control",
+                    "job_id": "keep-human-control",
+                    "label": "Keep human control",
                     "description": "Keep approval boundaries visible.",
                     "confirmed_gap_signals": ("approval is unclear",),
                 },
                 {
-                    "job_id": "health-checks",
-                    "label": "Health checks",
+                    "job_id": "check-system-health",
+                    "label": "Check system health",
                     "description": "Know whether the system is working.",
                     "confirmed_gap_signals": ("health is unknown",),
                 },
@@ -90,28 +99,28 @@ def _catalogue() -> CatalogueV2:
                 _entry(
                     "durable-memory-boost",
                     "Durable Memory Boost",
-                    jobs=("weekly-report", "memory-upkeep"),
+                    jobs=("plan-my-work", "maintain-context"),
                     foundations=("durable-memory-provenance",),
                     evidence_level="verified",
                 ),
                 _entry(
                     "approval-boundary-helper",
                     "Approval Boundary Helper",
-                    jobs=("weekly-report", "workflow-control"),
+                    jobs=("plan-my-work", "keep-human-control"),
                     foundations=("scoped-agency-human-control",),
                     evidence_level="supported",
                 ),
                 _entry(
                     "health-observer",
                     "Health Observer",
-                    jobs=("health-checks",),
+                    jobs=("check-system-health",),
                     foundations=("honest-health-observability",),
                     evidence_level="reported",
                 ),
                 _entry(
                     "portable-export-helper",
                     "Portable Export Helper",
-                    jobs=("memory-upkeep",),
+                    jobs=("maintain-context",),
                     foundations=("ownership-portability",),
                     evidence_level="unknown",
                     host_adapters=("other-host",),
@@ -138,22 +147,40 @@ def test_ranked_shelf_scores_the_full_catalogue_without_a_three_item_cap() -> No
 
     assert [match.capability_id for match in shelf] == [
         "durable-memory-boost",
-        "approval-boundary-helper",
         "health-observer",
+        "approval-boundary-helper",
         "portable-export-helper",
     ]
     assert len(shelf) == 4
-    assert shelf[0].score > shelf[1].score > shelf[2].score > shelf[3].score
+    assert shelf[0].score >= shelf[1].score > shelf[2].score > shelf[3].score
     assert [match.shelf_section for match in shelf] == [
         "picked",
         "picked",
-        "browse",
-        "browse",
+        "picked",
+        "picked",
     ]
-    assert "matched confirmed job weekly-report" in shelf[0].match_explanation
-    assert "browse only - did not match a confirmed job" in shelf[2].match_explanation
+    assert "weak or gappy for weekly-report" in shelf[0].match_explanation
+    assert "matched foundation durable-memory-provenance" in shelf[0].match_explanation
     assert "verified - direct Dex evidence" in shelf[0].evidence_explanation
     assert "unknown" in shelf[0].gap_explanation
+
+
+def test_picked_shelf_uses_foundation_gaps_when_job_ids_do_not_overlap() -> None:
+    capability_map = assess([contract("weekly-report")], presence_only_envelope())
+
+    shelf = rank_capability_shelf(
+        _catalogue(),
+        capability_map,
+        host_adapter="claude-code",
+        lens_contract_version="0.1.0",
+    )
+
+    picked = [match for match in shelf if match.shelf_section == "picked"]
+
+    assert picked
+    assert all("weekly-report" in match.matched_job_ids for match in picked)
+    assert all("weekly-report" not in _capability.jobs for _capability in _catalogue().capabilities)
+    assert "weekly-report" in picked[0].gap_explanation
 
 
 def test_match_explanations_use_all_evidence_language_levels() -> None:
@@ -210,5 +237,11 @@ def test_portable_brief_markdown_is_safe_advice_for_the_selected_capability() ->
     ) in markdown
     assert "&lt;script&gt;" in markdown
     assert "<script>" not in markdown
-    assert "matched confirmed job weekly-report" in markdown
+    assert "weak or gappy for weekly-report" in markdown
     assert "verified - direct Dex evidence" in markdown
+    assert "### Method Outline" in markdown
+    assert "Identify the reusable operating pattern in Durable Memory Boost." in markdown
+    assert "### Verification Checklist" in markdown
+    assert "The person can preview the change before using it." in markdown
+    assert "### Rollback Advice" in markdown
+    assert "Park this pattern by removing the local command or note." in markdown
