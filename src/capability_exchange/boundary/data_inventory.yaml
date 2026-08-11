@@ -5542,6 +5542,46 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  CapabilityCompatibilityV2.platforms:
+    description: "public closed platform list for a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated against the closed macos/linux/windows vocabulary"
+    display: "used locally to filter and explain compatibility"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.needs_hooks:
+    description: "public boolean flag for whether a capability needs hook support"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a boolean, never parsed from prose"
+    display: "used locally to filter and explain compatibility"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.needs_mcp:
+    description: "public boolean flag for whether a capability needs MCP support"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a boolean, never parsed from prose"
+    display: "used locally to filter and explain compatibility"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.host_requirements:
+    description: "public host requirement ids needed by a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique kebab-case ids"
+    display: "used locally to filter and explain compatibility"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
   CapabilityCompatibilityV2.limitations:
     description: "public compatibility limitations for a Dex capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
@@ -5552,20 +5592,10 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CapabilityPortableBriefV2.headline:
-    description: "public headline for the portable brief section of one capability"
+  CapabilityPortableBriefV2.goal:
+    description: "public goal for the portable brief section of one capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty text; rendered as escaped text"
-    display: "included in the local portable brief"
-    storage: none
-    sharing: never
-    deletion: not-stored
-    audit: "public product data; contains no personal system data"
-
-  CapabilityPortableBriefV2.adaptation_notes:
-    description: "public notes the person's own AI can use after the person exports a brief"
-    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
-    derivation: "bounded tuple of text; kept inert until the person explicitly exports"
     display: "included in the local portable brief"
     storage: none
     sharing: never

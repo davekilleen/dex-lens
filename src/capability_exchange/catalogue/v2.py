@@ -134,6 +134,12 @@ class CapabilityCompatibilityV2(InventoriedModel):
     host_adapters: tuple[str, ...] = Field(min_length=1, max_length=20)
     foundation_capabilities: tuple[str, ...] = Field(min_length=1, max_length=20)
     minimum_lens_contract: str = Field(pattern=_SEMVER_RE.pattern)
+    platforms: tuple[Literal["macos", "linux", "windows"], ...] = Field(
+        min_length=1, max_length=3
+    )
+    needs_hooks: bool
+    needs_mcp: bool
+    host_requirements: tuple[str, ...] = Field(min_length=1, max_length=20)
     limitations: tuple[str, ...] = Field(min_length=1, max_length=20)
 
     @field_validator("host_adapters", "foundation_capabilities")
@@ -157,14 +163,23 @@ class CapabilityCompatibilityV2(InventoriedModel):
             raise ValueError(f"unknown foundation capability id: {', '.join(unknown)}")
         return values
 
+    @field_validator("host_requirements")
+    @classmethod
+    def _host_requirements_are_kebab_case(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            if not _ID_RE.match(value):
+                raise ValueError(f"{value!r} is not a host requirement id")
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate host requirement id")
+        return values
+
 
 class CapabilityPortableBriefV2(InventoriedModel):
-    headline: str = Field(min_length=1, max_length=200)
-    adaptation_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
-    safety_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
+    goal: str = Field(min_length=1, max_length=200)
     method_outline: tuple[str, ...] = Field(min_length=1, max_length=20)
     verification_checklist: tuple[str, ...] = Field(min_length=1, max_length=20)
     rollback_advice: str = Field(min_length=1, max_length=1000)
+    safety_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
 
 
 class CatalogueCapabilityEntryV2(InventoriedModel):
@@ -342,13 +357,13 @@ def render_capability_entry_html(entry: CatalogueCapabilityEntryV2) -> str:
         for item in entry.evidence
     )
     notes = "".join(
-        f"<li>{html.escape(note)}</li>" for note in entry.portable_brief.adaptation_notes
+        f"<li>{html.escape(note)}</li>" for note in entry.portable_brief.method_outline
     )
     return (
         "<article>"
         f"<h2>{html.escape(entry.title)}</h2>"
         f"<p>{html.escape(entry.summary)}</p>"
-        f"<h3>{html.escape(entry.portable_brief.headline)}</h3>"
+        f"<h3>{html.escape(entry.portable_brief.goal)}</h3>"
         f"<ul>{evidence}</ul>"
         f"<ol>{notes}</ol>"
         "</article>"
