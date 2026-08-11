@@ -39,6 +39,10 @@ def _entry(
             "host_adapters": host_adapters,
             "foundation_capabilities": foundations,
             "minimum_lens_contract": "0.1.0",
+            "platforms": ("macos", "linux", "windows"),
+            "needs_hooks": False,
+            "needs_mcp": True,
+            "host_requirements": ("skills-directory",),
             "limitations": ("Brief only; Lens does not apply changes.",),
         },
         "docs_url": f"https://heydex.ai/catalogue/{capability_id}",
@@ -46,11 +50,7 @@ def _entry(
         "changed_in": ("1.80.0",),
         "release_provenance": "core-release",
         "portable_brief": {
-            "headline": f"Adapt from {title} without copying private data.",
-            "adaptation_notes": (
-                f"Study the pattern behind {title}; do not import Dex internals.",
-            ),
-            "safety_notes": ("Keep this as advice for the user's own AI, not an action.",),
+            "goal": f"Adapt from {title} without copying private data.",
             "method_outline": (
                 f"Identify the reusable operating pattern in {title}.",
                 "Adapt it inside the person's own confirmed boundaries.",
@@ -60,6 +60,7 @@ def _entry(
                 "The host AI can prove the outcome without sending data to Dex.",
             ),
             "rollback_advice": "Park this pattern by removing the local command or note.",
+            "safety_notes": ("Keep this as advice for the user's own AI, not an action.",),
         },
     }
 

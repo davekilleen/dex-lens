@@ -341,7 +341,7 @@ def render_portable_brief_markdown(
         "",
         f"> {_safe_markdown(capability.summary)}",
         "",
-        f"## Portable Pattern: {_safe_markdown(capability.portable_brief.headline)}",
+        f"## Portable Pattern: {_safe_markdown(capability.portable_brief.goal)}",
         "",
         "### Method Outline",
     ]
@@ -361,7 +361,6 @@ def render_portable_brief_markdown(
             "### Adaptation Notes",
         ]
     )
-    lines.extend(f"- {_safe_markdown(note)}" for note in capability.portable_brief.adaptation_notes)
     lines.extend(["", "### Safety Notes"])
     lines.extend(f"- {_safe_markdown(note)}" for note in capability.portable_brief.safety_notes)
     lines.extend(
