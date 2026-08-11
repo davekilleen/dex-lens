@@ -5412,6 +5412,16 @@ fields:
     deletion: not-stored
     audit: "public product metadata; re-verified from the stored envelope when loaded"
 
+  CatalogueMetadataV2.core_release:
+    description: "public Dex Core release tag that produced this catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty string; used as release provenance for stale/offline display"
+    display: "shown in local catalogue diagnostics and stale/offline states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
   CatalogueMetadataV2.key_id:
     description: "id of the pinned Dex public key used to verify this catalogue"
     collection: "authored by the Dex Core release pipeline and checked against Lens pinned keys"
