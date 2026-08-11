@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map as render_map_markdown
 from capability_exchange.cards import canonical_card_bytes
+from capability_exchange.catalogue.fetch import CONSENT_STATEMENT, DEFAULT_CATALOGUE_URL
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
@@ -220,6 +221,51 @@ def render_job_map(jobs: Iterable[InspectionJob], csrf_token: str) -> str:
     return _document("Confirm your Job Map", body)
 
 
+def _catalogue_fetch_panel(journey: ConciergeJourney, csrf_token: str) -> str:
+    if not journey.catalogue_fetch_available and journey.catalogue_fetch_result is None:
+        return ""
+    result = journey.catalogue_fetch_result
+    status = ""
+    if result is not None:
+        if result.status.value == "verified":
+            status = (
+                f"<p><strong>Catalogue verified locally.</strong> Version "
+                f"{_escape(result.catalog_version or 'unknown')} is available for the "
+                "next local bridge stage.</p>"
+            )
+        elif result.status.value == "stale-cache":
+            version = _escape(result.catalog_version or "unknown")
+            status = (
+                f"<p><strong>Catalogue is stale.</strong> Lens found a previously "
+                f"verified public catalogue version {version}, but it is not treated "
+                "as fresh.</p>"
+            )
+        elif result.status.value == "offline":
+            status = "<p><strong>Catalogue fetch is offline.</strong> No catalogue is usable.</p>"
+        else:
+            status = "<p><strong>Catalogue refused.</strong> No catalogue is usable.</p>"
+        status += f"<p class=\"muted\">{_escape(result.message)}</p>"
+    return f"""
+      <div class="panel">
+        <h2>Optional Dex catalogue check</h2>
+        <p>Fetch the public signed Dex catalogue only if you want Lens to compare
+        your confirmed jobs with Dex capabilities in a later local step. Nothing
+        about this system is sent to Dex; this is one anonymous static GET for
+        the same public JSON file everyone receives.</p>
+        {status}
+        <form method="post" action="/catalogue/fetch">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="catalogue_url" value="{_escape(DEFAULT_CATALOGUE_URL)}">
+          <label><input type="checkbox" name="catalogue_consent"
+            value="{_escape(CONSENT_STATEMENT)}" required>
+            I want Lens to fetch the public signed Dex catalogue now.
+          </label>
+          <div class="actions"><button type="submit">Fetch public Dex catalogue</button></div>
+        </form>
+      </div>
+    """
+
+
 def _fallback_level(item: FallbackEvidence) -> str:
     level = item.level
     if level is EvidenceLevel.SUPPORTED:
@@ -379,6 +425,7 @@ def render_capability_map(
     body = f"""
       <h1>Capability Map</h1>
       <pre>{_escape(markdown)}</pre>
+      {_catalogue_fetch_panel(journey, csrf_token) if journey is not None else ""}
       {adaptation}
       {contribution}
       <form method="post" action="/close">
@@ -739,7 +786,11 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
         ConciergeStage.JOB_MAP,
         ConciergeStage.DIAGNOSIS,
     }:
-        return render_job_map(journey.inspection_jobs, csrf_token=csrf_token)
+        page = render_job_map(journey.inspection_jobs, csrf_token=csrf_token)
+        panel = _catalogue_fetch_panel(journey, csrf_token)
+        if panel:
+            return page.replace("</main></body>", f"{panel}</main></body>")
+        return page
     return _document("Session closed", "<h1>Session closed</h1><p>No inspection is running.</p>")
 
 

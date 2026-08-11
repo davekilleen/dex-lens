@@ -3,9 +3,11 @@
 G1: any request to an external model requires a separate, explicit consent
 distinct from inspection consent. The M1 build has **no model client at
 all** — so the strongest possible assertion holds: no call path exists.
-These tests prove it structurally (no network/model-client import anywhere
-in the package; the contained child gets no network configuration) and
-behaviorally (a fixture demanding model calls changes nothing).
+These tests prove it structurally (no model-client import anywhere in the
+package, and only the M3 consented catalogue fetcher may import a network
+client for the pinned public Dex catalogue GET; the contained child gets no
+network configuration) and behaviorally (a fixture demanding model calls
+changes nothing).
 """
 
 from __future__ import annotations
@@ -28,8 +30,9 @@ from tests.fixtures.hostile.pipeline import (
 import capability_exchange
 from capability_exchange.adapters.claude_code.containment import _child_environment
 
-#: Modules that would constitute a model client or an egress path. None may
-#: be imported anywhere in the capability_exchange package.
+#: Modules that would constitute a model client or a general egress path. None
+#: may be imported anywhere in the capability_exchange package except for the
+#: explicit M3 public-catalogue fetch allowance below.
 FORBIDDEN_IMPORTS: frozenset[str] = frozenset(
     {
         "aiohttp",
@@ -58,6 +61,10 @@ FORBIDDEN_IMPORTS: frozenset[str] = frozenset(
 #: which uses it solely to PROVE the network is denied before any read.
 SOCKET_ALLOWED_IN = "capability_exchange/adapters/claude_code/contained.py"
 
+EGRESS_IMPORT_ALLOWED_IN: dict[str, str] = {
+    "urllib.request": "capability_exchange/catalogue/fetch.py",
+}
+
 
 def _package_sources() -> list[Path]:
     package_root = Path(capability_exchange.__file__).resolve().parent
@@ -84,9 +91,14 @@ def test_g1_no_model_client_or_egress_import_exists_in_the_package() -> None:
                 for bad in FORBIDDEN_IMPORTS
                 if name == bad or name.startswith(bad + ".")
             ]
+            hits = [
+                bad
+                for bad in hits
+                if not str(source_path).endswith(EGRESS_IMPORT_ALLOWED_IN.get(bad, "\0"))
+            ]
             assert not hits, (
-                f"{source_path} imports {hits}: the M1 build must contain no "
-                f"model client and no egress path (G1 item f)"
+                f"{source_path} imports {hits}: the build must contain no "
+                f"model client and no unreviewed egress path (G1 item f)"
             )
 
 

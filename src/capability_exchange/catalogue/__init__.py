@@ -8,6 +8,7 @@ from capability_exchange.catalogue.v2 import (
     default_keyring,
     render_capability_entry_html,
     verify_catalogue_envelope,
+    verify_catalogue_envelope_for_stale_display,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "default_keyring",
     "render_capability_entry_html",
     "verify_catalogue_envelope",
+    "verify_catalogue_envelope_for_stale_display",
 ]
