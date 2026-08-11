@@ -38,6 +38,14 @@ from capability_exchange.adapters.claude_code.containment import contained_inspe
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.boundary.deletion import DeletionError
 from capability_exchange.cards import CapabilityCard
+from capability_exchange.catalogue.fetch import (
+    DEFAULT_CATALOGUE_URL,
+    CatalogueFetchConsent,
+    CatalogueFetchResult,
+    CatalogueFetchStatus,
+    ConsentedCatalogueFetcher,
+)
+from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
@@ -144,6 +152,10 @@ class ConciergeSession:
     contribution_intake: ContributionIntakePort | None = None
     contribution_stores: tuple[StorePort, ...] = ()
     adapter_contract: AdapterContract | None = None
+    catalogue_url: str = DEFAULT_CATALOGUE_URL
+    catalogue_store: VerifiedCatalogueStore | None = None
+    catalogue_keyring: KeyRing | None = None
+    catalogue_fetcher: ConsentedCatalogueFetcher | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -165,6 +177,16 @@ class ConciergeSession:
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
+        if self.catalogue_store is None:
+            self.catalogue_store = VerifiedCatalogueStore(
+                Path(self.tempdir.name) / "catalogue-cache"
+            )
+        if self.catalogue_fetcher is None:
+            self.catalogue_fetcher = ConsentedCatalogueFetcher(
+                store=self.catalogue_store,
+                keyring=self.catalogue_keyring,
+                now=self.now,
+            )
         contract = self.adapter_contract or claude_code_contract(
             tuple(str(root) for root in self.approved_roots)
         )
@@ -500,6 +522,34 @@ class ConciergeSession:
                 self.configure_contribution()
             self._sync_journey()
 
+    def fetch_catalogue(self, form: dict[str, list[str]]) -> CatalogueFetchResult:
+        with self._state_lock:
+            if self.closed or self.expired():
+                raise ValueError("session is closed or expired")
+            statement = _optional(form, "catalogue_consent") or ""
+            url = _optional(form, "catalogue_url") or self.catalogue_url
+            try:
+                consent = CatalogueFetchConsent(
+                    catalogue_url=url,
+                    requested_at=self.now(),
+                    statement=statement,
+                )
+            except ValueError as exc:
+                result = CatalogueFetchResult(
+                    status=CatalogueFetchStatus.REFUSED,
+                    message=str(exc),
+                    catalog_version=None,
+                    verified=None,
+                    stale=None,
+                    fetched_at=self.now(),
+                )
+                self.journey.record_catalogue_fetch(result)
+                return result
+            assert self.catalogue_fetcher is not None
+            result = self.catalogue_fetcher.fetch(consent)
+            self.journey.record_catalogue_fetch(result)
+            return result
+
     # M4 stages 7-8 stay behind the same narrow session boundary as the M3
     # journey.  HTTP handlers only parse bounded form fields and call these
     # methods; preview, approval, apply, receipt, verification, and undo all
@@ -617,6 +667,10 @@ def new_session(
     contribution_intake: ContributionIntakePort | None = None,
     contribution_stores: tuple[StorePort, ...] = (),
     adapter_contract: AdapterContract | None = None,
+    catalogue_url: str = DEFAULT_CATALOGUE_URL,
+    catalogue_store: VerifiedCatalogueStore | None = None,
+    catalogue_keyring: KeyRing | None = None,
+    catalogue_fetcher: ConsentedCatalogueFetcher | None = None,
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
     return ConciergeSession(
@@ -628,6 +682,10 @@ def new_session(
         contribution_intake=contribution_intake,
         contribution_stores=contribution_stores,
         adapter_contract=adapter_contract,
+        catalogue_url=catalogue_url,
+        catalogue_store=catalogue_store,
+        catalogue_keyring=catalogue_keyring,
+        catalogue_fetcher=catalogue_fetcher,
     )
 
 
@@ -752,6 +810,12 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/diagnose":
             self._journey_action(lambda ignored: self.server.session.diagnose(), form)
+            return
+        if parsed.path == "/catalogue/fetch":
+            self._journey_action(
+                lambda submitted: self.server.session.fetch_catalogue(submitted),
+                form,
+            )
             return
         if parsed.path in {"/adaptation/select", "/adapt/select"}:
             self._journey_action(self.server.session.select_adaptation, form)

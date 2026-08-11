@@ -36,6 +36,7 @@ from capability_exchange.cards import (
     canonical_card_bytes,
     require_valid_card,
 )
+from capability_exchange.catalogue.fetch import CatalogueFetchResult
 from capability_exchange.contribution import (
     ConsentLedger,
     Contribution,
@@ -594,6 +595,7 @@ class ConciergeJourney:
         self._selected: set[str] = set()
         self.capability_map: CapabilityMap | None = None
         self.capability_map_markdown = ""
+        self.catalogue_fetch_result: CatalogueFetchResult | None = None
 
         # Adaptation state is deliberately ephemeral in the journey.  The
         # transaction engine owns durable journals, recovery manifests, and
@@ -1142,6 +1144,22 @@ class ConciergeJourney:
         self.capability_map_markdown = render_capability_map(self.capability_map)
         self.stage = ConciergeStage.CAPABILITY_MAP
         return self.capability_map
+
+    @property
+    def catalogue_fetch_available(self) -> bool:
+        """Show the public-catalogue doorway after confirmed jobs or the Capability Map."""
+
+        return self.stage in {
+            ConciergeStage.JOB_MAP,
+            ConciergeStage.CAPABILITY_MAP,
+        } and bool(self._confirmed)
+
+    def record_catalogue_fetch(self, result: CatalogueFetchResult) -> CatalogueFetchResult:
+        """Record local bridge fetch state without advancing to shelf/brief UI."""
+
+        self._require(ConciergeStage.JOB_MAP, ConciergeStage.CAPABILITY_MAP)
+        self.catalogue_fetch_result = result
+        return result
 
     # ------------------------------------------------------------------
     # M4 adaptation stages (7-8)

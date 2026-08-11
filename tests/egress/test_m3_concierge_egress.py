@@ -16,6 +16,7 @@ from tests.fixtures.hostile.catalog import assert_no_canary_leak
 
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
+from capability_exchange.catalogue.fetch import DEFAULT_CATALOGUE_URL
 
 
 @pytest.mark.skipif(
@@ -76,8 +77,9 @@ def test_full_read_only_journey_has_only_loopback_parent_traffic_and_no_leak(
         assert destinations
         assert_no_canary_leak(joined, EGRESS_CANARIES, context="M3 browser pages")
         lowered = joined.lower()
+        assert lowered.count(DEFAULT_CATALOGUE_URL) >= 1
+        assert "https://" not in lowered.replace(DEFAULT_CATALOGUE_URL, "")
         for forbidden in (
-            "https://",
             "<script",
             "<iframe",
             "<img",
