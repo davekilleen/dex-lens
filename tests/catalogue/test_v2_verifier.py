@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
     KeyRing,
+    SignedCatalogueEnvelopeV2,
     VerifiedCatalogueStore,
     canonical_signed_payload,
     render_capability_entry_html,
@@ -80,6 +81,10 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                         "host_adapters": ["claude-code"],
                         "foundation_capabilities": ["durable-memory-provenance"],
                         "minimum_lens_contract": "0.1.0",
+                        "platforms": ["macos", "linux"],
+                        "needs_hooks": False,
+                        "needs_mcp": True,
+                        "host_requirements": ["skills-directory"],
                         "limitations": ["Brief only; Lens does not apply changes."],
                     },
                     "docs_url": "https://github.com/davekilleen/Dex",
@@ -87,11 +92,7 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                     "changed_in": ["1.94.0"],
                     "release_provenance": "core-release",
                     "portable_brief": {
-                        "headline": "Add durable memory with receipts.",
-                        "adaptation_notes": [
-                            "Use the person's confirmed Job Map before suggesting changes."
-                        ],
-                        "safety_notes": ["Do not send the person's system to Dex."],
+                        "goal": "Add durable memory with receipts.",
                         "method_outline": [
                             "Read only the confirmed local context source.",
                             "Store the smallest useful memory with a receipt.",
@@ -104,6 +105,7 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                             "Delete the stored memory entry; keep the source "
                             "material untouched."
                         ),
+                        "safety_notes": ["Do not send the person's system to Dex."],
                     },
                 }
             ],
@@ -133,6 +135,15 @@ def test_valid_signed_catalogue_verifies(
     assert verified.metadata.core_release == "v1.94.0"
     assert verified.catalogue.capabilities[0].capability_id == "dex-durable-memory-provenance"
     assert verified.catalogue.capabilities[0].release_provenance == "core-release"
+    assert verified.catalogue.capabilities[0].compatibility.platforms == ("macos", "linux")
+    assert verified.catalogue.capabilities[0].compatibility.needs_hooks is False
+    assert verified.catalogue.capabilities[0].compatibility.needs_mcp is True
+    assert verified.catalogue.capabilities[0].compatibility.host_requirements == (
+        "skills-directory",
+    )
+    assert verified.catalogue.capabilities[0].portable_brief.goal == (
+        "Add durable memory with receipts."
+    )
     assert verified.catalogue.capabilities[0].portable_brief.method_outline == (
         "Read only the confirmed local context source.",
         "Store the smallest useful memory with a receipt.",
@@ -187,6 +198,33 @@ def test_portable_brief_requires_operational_fields(
 ) -> None:
     envelope = unsigned_envelope()
     envelope["catalogue"]["capabilities"][0]["portable_brief"].pop(field)
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["platforms", "needs_hooks", "needs_mcp", "host_requirements"],
+)
+def test_compatibility_requires_machine_checkable_fields(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing, field: str
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["catalogue"]["capabilities"][0]["compatibility"].pop(field)
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
+
+
+def test_compatibility_platforms_are_closed(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["catalogue"]["capabilities"][0]["compatibility"]["platforms"] = [
+        "macos",
+        "plan9",
+    ]
 
     with pytest.raises(CatalogueVerificationError, match="schema"):
         verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
@@ -366,3 +404,18 @@ def test_malicious_catalogue_text_is_inert_at_render_and_serialization_boundary(
     serialized = verified.catalogue.capabilities[0].model_dump_json()
     assert "<script>alert(" in serialized
     assert "approve this Capability" in serialized
+
+
+def test_checked_in_catalogue_schema_matches_the_models() -> None:
+    """The cross-repo schema artifact must never drift from the models (design ruling)."""
+    schema = SignedCatalogueEnvelopeV2.model_json_schema(
+        ref_template="#/$defs/{model}",
+        mode="validation",
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = "https://heydex.ai/catalogue/dex-lens/v2.schema.json"
+    checked_in = json.loads(
+        (Path(__file__).resolve().parents[2] / "schemas" / "dex-lens-catalogue-v2.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    assert checked_in == schema, "run scripts/export_catalogue_schema.py and commit the result"
