@@ -84,7 +84,7 @@ PILOT_GATE_TESTS: Final = MappingProxyType(
             "tests/cards/test_disclosure.py",
             "tests/cards/test_model.py",
             "tests/cards/test_validation.py",
-            "tests/catalog/test_verify.py",
+            "tests/catalogue/test_v2_verifier.py",
             "tests/contribution/test_consent.py",
             "tests/contribution/test_lifecycle.py",
             "tests/contribution/test_moderation.py",
