@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from pydantic import ValidationError
 
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
@@ -43,6 +42,7 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
             "produced_at": NOW.isoformat().replace("+00:00", "Z"),
             "expires_at": (NOW + timedelta(days=30)).isoformat().replace("+00:00", "Z"),
             "producer": "Dex Core release pipeline",
+            "core_release": "v1.94.0",
             "key_id": key_id,
         },
         "catalogue": {
@@ -118,6 +118,7 @@ def test_valid_signed_catalogue_verifies(
     verified = verify_catalogue_envelope(raw, keyring=keyring, now=NOW)
 
     assert verified.metadata.catalog_version == 7
+    assert verified.metadata.core_release == "v1.94.0"
     assert verified.catalogue.capabilities[0].capability_id == "dex-durable-memory-provenance"
     assert verified.catalogue.capabilities[0].release_provenance == "core-release"
 
@@ -140,7 +141,29 @@ def test_catalogue_entries_require_approved_human_and_release_fields(
     envelope = unsigned_envelope()
     envelope["catalogue"]["capabilities"][0].pop(field)
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(CatalogueVerificationError):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
+
+
+def test_catalogue_metadata_requires_core_release(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["metadata"].pop("core_release")
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
+
+
+def test_foundation_capabilities_are_closed_to_lens_foundation_enum(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["catalogue"]["capabilities"][0]["compatibility"]["foundation_capabilities"] = [
+        "syntactically-valid-but-unknown"
+    ]
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
         verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
 
 
@@ -161,12 +184,22 @@ def test_bad_catalogues_fail_closed(
     decoded = json.loads(raw)
     mutate(decoded)
 
-    with pytest.raises((CatalogueVerificationError, ValidationError)):
+    with pytest.raises(CatalogueVerificationError):
         verify_catalogue_envelope(
             json.dumps(decoded, sort_keys=True, separators=(",", ":")),
             keyring=keyring,
             now=NOW,
         )
+
+
+def test_schema_errors_are_normalized_to_catalogue_verification_error(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["metadata"]["catalog_version"] = "not-an-int"
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
 
 
 def test_tampered_signed_catalogue_fails_closed(
@@ -217,6 +250,22 @@ def test_store_refuses_to_overwrite_higher_verified_catalogue_with_older_one(
 
     with pytest.raises(CatalogueVerificationError, match="rollback"):
         store.save_verified(older)
+
+
+def test_corrupt_cache_does_not_block_saving_freshly_verified_catalogue(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing, tmp_path: Path
+) -> None:
+    store = VerifiedCatalogueStore(tmp_path)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "lens-catalogue-v2-cache.json").write_text("{not-json", encoding="utf-8")
+    verified = verify_catalogue_envelope(
+        sign_envelope(unsigned_envelope(8), signing_key), keyring=keyring, now=NOW
+    )
+
+    store.save_verified(verified)
+
+    loaded = store.load_last_verified(keyring=keyring, now=NOW)
+    assert loaded.metadata.catalog_version == 8
 
 
 def test_last_verified_catalogue_is_persisted_and_reverified_on_load(
