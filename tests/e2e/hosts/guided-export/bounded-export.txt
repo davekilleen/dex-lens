@@ -1,0 +1,13 @@
+# Guided Export
+
+This fixture represents a host that cannot be inspected directly. The user has
+provided a bounded export instead.
+
+The assistant supports daily planning and meeting follow-up. It has lightweight
+rules for grouping urgent tasks and capturing open questions, but no clear
+verification checklist, no rollback habit, and no explicit rule for when to park a
+suggested improvement.
+
+Confirmed user job: stay clear about what to do today.
+Observed gap: planning help exists, but evidence quality is weak and the workflow
+does not yet make changes reversible.
