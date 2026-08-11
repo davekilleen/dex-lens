@@ -1147,9 +1147,12 @@ class ConciergeJourney:
 
     @property
     def catalogue_fetch_available(self) -> bool:
-        """Show the public-catalogue doorway only after at least one confirmed job."""
+        """Show the public-catalogue doorway after confirmed jobs or the Capability Map."""
 
-        return self.stage is ConciergeStage.JOB_MAP and bool(self._confirmed)
+        return self.stage in {
+            ConciergeStage.JOB_MAP,
+            ConciergeStage.CAPABILITY_MAP,
+        } and bool(self._confirmed)
 
     def record_catalogue_fetch(self, result: CatalogueFetchResult) -> CatalogueFetchResult:
         """Record local bridge fetch state without advancing to shelf/brief UI."""

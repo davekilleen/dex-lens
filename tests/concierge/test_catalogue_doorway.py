@@ -66,6 +66,29 @@ def test_catalogue_button_appears_after_job_confirmation_without_fetching(tmp_pa
     assert "Fetch public Dex catalogue" in after_confirmation
     assert "public signed Dex catalogue" in after_confirmation
     assert "system is sent to Dex" in after_confirmation
+    assert "https://heydex.ai/catalogue/dex-lens/v2.json" in after_confirmation
+
+
+def test_catalogue_button_appears_on_capability_map_without_fetching(
+    tmp_path: Path,
+) -> None:
+    fetcher = RecordingFetcher()
+    session = new_session(
+        approved_roots=(tmp_path,),
+        collector=envelope,
+        now=lambda: NOW,
+        catalogue_fetcher=fetcher,
+    )
+    _confirm_only_job(session)
+
+    session.diagnose()
+    capability_map_page = render_journey(session.journey, session.csrf_token)
+
+    assert fetcher.calls == 0
+    assert "Capability Map" in capability_map_page
+    assert "Fetch public Dex catalogue" in capability_map_page
+    assert "Exact URL Lens will request" in capability_map_page
+    assert "https://heydex.ai/catalogue/dex-lens/v2.json" in capability_map_page
 
 
 def test_catalogue_fetch_requires_explicit_consent_statement(tmp_path: Path) -> None:

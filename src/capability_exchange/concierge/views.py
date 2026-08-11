@@ -252,6 +252,7 @@ def _catalogue_fetch_panel(journey: ConciergeJourney, csrf_token: str) -> str:
         your confirmed jobs with Dex capabilities in a later local step. Nothing
         about this system is sent to Dex; this is one anonymous static GET for
         the same public JSON file everyone receives.</p>
+        <p>Exact URL Lens will request: <code>{_escape(DEFAULT_CATALOGUE_URL)}</code></p>
         {status}
         <form method="post" action="/catalogue/fetch">
           {_csrf(csrf_token)}
