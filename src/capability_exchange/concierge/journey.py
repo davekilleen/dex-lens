@@ -36,7 +36,14 @@ from capability_exchange.cards import (
     canonical_card_bytes,
     require_valid_card,
 )
+from capability_exchange.catalogue.bridge import (
+    RankedCapabilityMatch,
+    rank_capability_shelf,
+    render_portable_brief_markdown,
+)
 from capability_exchange.catalogue.fetch import CatalogueFetchResult
+from capability_exchange.catalogue.subscription import CatalogueSubscriptionRecord
+from capability_exchange.catalogue.v2 import CatalogueV2
 from capability_exchange.contribution import (
     ConsentLedger,
     Contribution,
@@ -202,6 +209,8 @@ class ConciergeStage(StrEnum):
     JOB_CONFIRMATION = "job-map"  # integration-friendly alias
     DIAGNOSIS = "diagnosis"
     CAPABILITY_MAP = "capability-map"
+    CATALOGUE_SHELF = "catalogue-shelf"
+    CATALOGUE_BRIEF = "catalogue-brief"
     FALLBACK = "fallback"
     CLOSED = "closed"
     ADAPTATION_SELECT = "adaptation-select"
@@ -596,6 +605,11 @@ class ConciergeJourney:
         self.capability_map: CapabilityMap | None = None
         self.capability_map_markdown = ""
         self.catalogue_fetch_result: CatalogueFetchResult | None = None
+        self.catalogue_shelf: tuple[RankedCapabilityMatch, ...] = ()
+        self.catalogue_brief_markdown = ""
+        self.selected_catalogue_capability_id = ""
+        self.selected_catalogue_job_id = ""
+        self.catalogue_subscription_record: CatalogueSubscriptionRecord | None = None
 
         # Adaptation state is deliberately ephemeral in the journey.  The
         # transaction engine owns durable journals, recovery manifests, and
@@ -1157,9 +1171,92 @@ class ConciergeJourney:
     def record_catalogue_fetch(self, result: CatalogueFetchResult) -> CatalogueFetchResult:
         """Record local bridge fetch state without advancing to shelf/brief UI."""
 
-        self._require(ConciergeStage.JOB_MAP, ConciergeStage.CAPABILITY_MAP)
+        self._require(
+            ConciergeStage.JOB_MAP,
+            ConciergeStage.CAPABILITY_MAP,
+            ConciergeStage.CATALOGUE_SHELF,
+            ConciergeStage.CATALOGUE_BRIEF,
+        )
         self.catalogue_fetch_result = result
         return result
+
+    def _display_catalogue(self) -> CatalogueV2:
+        result = self.catalogue_fetch_result
+        if result is None:
+            raise JourneyStateError("fetch or load a verified Dex catalogue first")
+        catalogue = result.display_catalogue
+        if catalogue is None:
+            raise JourneyStateError("no verified or stale catalogue is available to display")
+        return catalogue
+
+    def open_catalogue_shelf(
+        self,
+        *,
+        host_adapter: str | None = None,
+        lens_contract_version: str | None = None,
+    ) -> tuple[RankedCapabilityMatch, ...]:
+        """Enter the read-only full shelf after the Capability Map."""
+
+        self._require(ConciergeStage.CAPABILITY_MAP)
+        if self.capability_map is None:
+            raise JourneyStateError("capability shelf requires the Capability Map")
+        catalogue = self._display_catalogue()
+        self.catalogue_shelf = rank_capability_shelf(
+            catalogue,
+            self.capability_map,
+            host_adapter=host_adapter or self.permission.adapter_id,
+            lens_contract_version=lens_contract_version or self.permission.adapter_version,
+        )
+        self.catalogue_brief_markdown = ""
+        self.selected_catalogue_capability_id = ""
+        self.selected_catalogue_job_id = ""
+        self.stage = ConciergeStage.CATALOGUE_SHELF
+        return self.catalogue_shelf
+
+    def select_catalogue_brief(
+        self,
+        form: dict[str, list[str]] | None = None,
+        *,
+        capability_id: str | None = None,
+        job_id: str | None = None,
+    ) -> str:
+        """Render one portable brief for the person's own AI system."""
+
+        self._require(ConciergeStage.CATALOGUE_SHELF)
+        submitted = form or {}
+        selected_capability_id = (
+            capability_id
+            if capability_id is not None
+            else next(iter(submitted.get("capability_id", ())), "")
+        ).strip()
+        selected_job_id = (
+            job_id
+            if job_id is not None
+            else next(iter(submitted.get("job_id", ())), "")
+        ).strip()
+        if not selected_capability_id:
+            raise ValueError("capability id is required")
+        if not selected_job_id:
+            raise ValueError("job id is required")
+        if self.capability_map is None:
+            raise JourneyStateError("portable brief requires the Capability Map")
+        catalogue = self._display_catalogue()
+        brief = render_portable_brief_markdown(
+            catalogue,
+            self.capability_map,
+            self.catalogue_shelf,
+            selected_capability_id=selected_capability_id,
+            selected_job_id=selected_job_id,
+        )
+        self.selected_catalogue_capability_id = selected_capability_id
+        self.selected_catalogue_job_id = selected_job_id
+        self.catalogue_brief_markdown = brief
+        self.stage = ConciergeStage.CATALOGUE_BRIEF
+        return brief
+
+    def return_to_catalogue_shelf(self) -> None:
+        self._require(ConciergeStage.CATALOGUE_BRIEF)
+        self.stage = ConciergeStage.CATALOGUE_SHELF
 
     # ------------------------------------------------------------------
     # M4 adaptation stages (7-8)

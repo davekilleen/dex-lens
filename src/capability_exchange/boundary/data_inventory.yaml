@@ -5799,8 +5799,8 @@ fields:
     derivation: "serialized from SignedCatalogueEnvelopeV2 after signature verification; re-verified on every load"
     display: "not displayed raw; parsed locally to show catalogue age and entries"
     storage:
-      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
-      duration: "until the local Lens session directory is removed or the cache deletion path runs"
+      location: "Dex Lens app storage file lens-catalogue-v2-cache.json outside inspected roots"
+      duration: "until the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "public Dex catalogue data only; no fields from the person's system are included"
@@ -5811,8 +5811,8 @@ fields:
     derivation: "copied from verified metadata.catalog_version and used to refuse rollback"
     display: "shown in local diagnostics if catalogue rollback or cache state matters"
     storage:
-      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
-      duration: "until the local Lens session directory is removed or the cache deletion path runs"
+      location: "Dex Lens app storage file lens-catalogue-v2-cache.json outside inspected roots"
+      duration: "until the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "public version metadata only; no fields from the person's system are included"
@@ -5823,11 +5823,83 @@ fields:
     derivation: "current local verification time; naive timestamps are rejected on load"
     display: "shown locally as catalogue cache age"
     storage:
-      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
-      duration: "until the local Lens session directory is removed or the cache deletion path runs"
+      location: "Dex Lens app storage file lens-catalogue-v2-cache.json outside inspected roots"
+      duration: "until the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "local cache metadata only; no fields from the person's system are included"
+
+  CatalogueSubscriptionRecord.subscribed:
+    description: "whether the person opted into one public catalogue update check per Lens run"
+    collection: "set only by the local subscribe or revoke form"
+    derivation: "boolean; false when no durable subscription file exists"
+    display: "used to show subscribed, revoked, or update prompt state"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "opt-in public-catalogue state only; no fields from the person's system are included"
+
+  CatalogueSubscriptionRecord.catalogue_url:
+    description: "static public Dex catalogue JSON URL used by subscribed update checks"
+    collection: "copied from the explicit local subscribe form"
+    derivation: "same public Dex HTTPS URL used by the consented fetch doorway"
+    display: "available in local diagnostics and hidden form fields"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "public URL only; no personal system content"
+
+  CatalogueSubscriptionRecord.created_at:
+    description: "timezone-aware local moment when catalogue update subscription was first created"
+    collection: "recorded locally when the subscribe form is submitted"
+    derivation: "naive timestamps are rejected"
+    display: "available for local diagnostics"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "local opt-in metadata only; no personal system content"
+
+  CatalogueSubscriptionRecord.updated_at:
+    description: "timezone-aware local moment when subscription state last changed"
+    collection: "recorded locally on subscribe, look, park, or revoke actions"
+    derivation: "naive timestamps are rejected"
+    display: "available for local diagnostics"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "local opt-in metadata only; no personal system content"
+
+  CatalogueSubscriptionRecord.last_seen_catalog_version:
+    description: "highest public catalogue version the person explicitly looked at through the subscription prompt"
+    collection: "set locally only when the person chooses to look at updates"
+    derivation: "positive integer copied from the verified or stale public catalogue version"
+    display: "shown as the last-seen marker in the returning update prompt"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "public version marker only; no personal system content"
+
+  CatalogueSubscriptionRecord.parked_catalog_version:
+    description: "public catalogue version the person parked so Lens suppresses the same update prompt"
+    collection: "set locally only when the person chooses to park an update"
+    derivation: "positive integer copied from the verified or stale public catalogue version"
+    display: "shown as the parked marker instead of repeating the prompt"
+    storage:
+      location: "Dex Lens app storage file lens-catalogue-v2-subscription.json outside inspected roots"
+      duration: "until the subscription deletion path runs or the person revokes updates"
+    sharing: never
+    deletion: delete-lens-catalogue-subscription
+    audit: "public version marker only; no personal system content"
 
   CatalogueFetchConsent.catalogue_url:
     description: "static public Dex catalogue JSON URL the person explicitly chose to fetch"
