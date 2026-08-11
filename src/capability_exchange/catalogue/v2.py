@@ -162,6 +162,9 @@ class CapabilityPortableBriefV2(InventoriedModel):
     headline: str = Field(min_length=1, max_length=200)
     adaptation_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
     safety_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
+    method_outline: tuple[str, ...] = Field(min_length=1, max_length=20)
+    verification_checklist: tuple[str, ...] = Field(min_length=1, max_length=20)
+    rollback_advice: str = Field(min_length=1, max_length=1000)
 
 
 class CatalogueCapabilityEntryV2(InventoriedModel):

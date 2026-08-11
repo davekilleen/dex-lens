@@ -5582,6 +5582,36 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  CapabilityPortableBriefV2.method_outline:
+    description: "public step outline for adapting one capability in the person's own AI"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of text; rendered as escaped text"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityPortableBriefV2.verification_checklist:
+    description: "public checklist for verifying an adapted capability in the host system"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of text; rendered as escaped text"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityPortableBriefV2.rollback_advice:
+    description: "public rollback advice for undoing or parking an adapted capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded text; rendered as escaped text"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
   CatalogueCapabilityEntryV2.capability_id:
     description: "stable public Dex capability id"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
@@ -5818,8 +5848,8 @@ fields:
     derivation: "serialized from SignedCatalogueEnvelopeV2 after signature verification; re-verified on every load"
     display: "not displayed raw; parsed locally to show catalogue age and entries"
     storage:
-      location: "Lens app storage file lens-catalogue-v2-cache.json"
-      duration: "until the person clears Lens app storage or the cache deletion path runs"
+      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
+      duration: "until the local Lens session directory is removed or the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "public Dex catalogue data only; no fields from the person's system are included"
@@ -5830,8 +5860,8 @@ fields:
     derivation: "copied from verified metadata.catalog_version and used to refuse rollback"
     display: "shown in local diagnostics if catalogue rollback or cache state matters"
     storage:
-      location: "Lens app storage file lens-catalogue-v2-cache.json"
-      duration: "until the person clears Lens app storage or the cache deletion path runs"
+      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
+      duration: "until the local Lens session directory is removed or the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "public version metadata only; no fields from the person's system are included"
@@ -5842,8 +5872,8 @@ fields:
     derivation: "current local verification time; naive timestamps are rejected on load"
     display: "shown locally as catalogue cache age"
     storage:
-      location: "Lens app storage file lens-catalogue-v2-cache.json"
-      duration: "until the person clears Lens app storage or the cache deletion path runs"
+      location: "session-scoped Lens cache file lens-catalogue-v2-cache.json"
+      duration: "until the local Lens session directory is removed or the cache deletion path runs"
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "local cache metadata only; no fields from the person's system are included"
