@@ -155,9 +155,16 @@ class CatalogueCapabilityEntryV2(InventoriedModel):
     capability_id: str = Field(pattern=_ID_RE.pattern)
     title: str = Field(min_length=1, max_length=140)
     summary: str = Field(min_length=1, max_length=1200)
+    value: str = Field(min_length=1, max_length=1200)
     jobs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
+    trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
     evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
     compatibility: CapabilityCompatibilityV2
+    docs_url: str = Field(min_length=1, max_length=300)
+    since_release: str = Field(pattern=_SEMVER_RE.pattern)
+    changed_in: tuple[str, ...] = Field(max_length=40)
+    release_provenance: Literal["core-release"]
     portable_brief: CapabilityPortableBriefV2
 
     @field_validator("jobs")
@@ -168,6 +175,16 @@ class CatalogueCapabilityEntryV2(InventoriedModel):
         for value in values:
             if not _ID_RE.match(value):
                 raise ValueError(f"{value!r} is not a catalogue job id")
+        return values
+
+    @field_validator("changed_in")
+    @classmethod
+    def _changed_versions_are_unique_semver(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate changed_in version")
+        for value in values:
+            if not _SEMVER_RE.match(value):
+                raise ValueError(f"{value!r} is not a semantic version")
         return values
 
 
@@ -220,6 +237,13 @@ class VerifiedCatalogueCacheV2(InventoriedModel):
         return value
 
 
+@dataclass(frozen=True)
+class VerifiedCatalogueStateV2:
+    status: Literal["verified", "stale"]
+    catalogue: SignedCatalogueEnvelopeV2 | None
+    message: str
+
+
 def _parse_envelope(raw_json: str) -> dict[str, Any]:
     try:
         parsed = json.loads(raw_json)
@@ -259,6 +283,7 @@ def verify_catalogue_envelope(
     keyring: KeyRing,
     now: datetime | None = None,
     highest_verified_catalog_version: int | None = None,
+    allow_expired: bool = False,
 ) -> SignedCatalogueEnvelopeV2:
     """Verify and parse a signed Catalogue v2 envelope.
 
@@ -274,7 +299,7 @@ def verify_catalogue_envelope(
         raise CatalogueVerificationError("verification time must be timezone-aware")
     if verified.metadata.contract_version != _CONTRACT_VERSION:
         raise CatalogueVerificationError("catalogue contract version is not supported")
-    if verified.metadata.expires_at < current_time:
+    if verified.metadata.expires_at < current_time and not allow_expired:
         raise CatalogueVerificationError("catalogue has expired")
     if (
         highest_verified_catalog_version is not None
@@ -393,15 +418,44 @@ class VerifiedCatalogueStore:
 
     def load_last_verified_stale(self, *, keyring: KeyRing) -> SignedCatalogueEnvelopeV2:
         """Load a signed cached catalogue for labelled stale/offline display."""
-        if not self.cache_path.exists():
+        state = self.load_last_verified_state(keyring=keyring)
+        if state.catalogue is None:
             raise CatalogueVerificationError("no stored verified catalogue")
+        return state.catalogue
+
+    def load_last_verified_state(
+        self, *, keyring: KeyRing, now: datetime | None = None
+    ) -> VerifiedCatalogueStateV2:
+        if not self.cache_path.exists():
+            return VerifiedCatalogueStateV2(
+                status="stale",
+                catalogue=None,
+                message="No Dex catalogue has ever been verified on this machine.",
+            )
         try:
             payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
             cache = VerifiedCatalogueCacheV2.model_validate(payload)
         except Exception as exc:
             raise CatalogueVerificationError("stored catalogue cache is unreadable") from exc
-        return verify_catalogue_envelope_for_stale_display(
+        current_time = now or _utcnow()
+        verified = verify_catalogue_envelope(
             cache.verified_envelope_json,
             keyring=keyring,
+            now=current_time,
             highest_verified_catalog_version=cache.highest_catalog_version,
+            allow_expired=True,
+        )
+        if verified.metadata.expires_at < current_time:
+            return VerifiedCatalogueStateV2(
+                status="stale",
+                catalogue=verified,
+                message=(
+                    "Dex catalogue signature is still valid, but the catalogue has expired; "
+                    "showing it as stale until Lens can refresh."
+                ),
+            )
+        return VerifiedCatalogueStateV2(
+            status="verified",
+            catalogue=verified,
+            message="Dex catalogue is verified and current.",
         )

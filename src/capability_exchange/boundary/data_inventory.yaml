@@ -5602,11 +5602,41 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  CatalogueCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
   CatalogueCapabilityEntryV2.jobs:
     description: "public job taxonomy ids this capability can help with"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
     display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adapting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
     storage: none
     sharing: never
     deletion: not-stored
@@ -5627,6 +5657,46 @@ fields:
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated structurally before the capability can be shown"
     display: "used locally for ranking and explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.docs_url:
+    description: "public documentation URL for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as an inert link target by local views"
+    display: "shown locally as a documentation reference"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.since_release:
+    description: "public Core release version that first published this capability"
+    collection: "derived by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining new or changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.changed_in:
+    description: "public Core release versions where this capability materially changed"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "set by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
     storage: none
     sharing: never
     deletion: not-stored
