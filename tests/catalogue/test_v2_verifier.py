@@ -61,7 +61,13 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                     "capability_id": "dex-durable-memory-provenance",
                     "title": "Durable Memory & Provenance",
                     "summary": "Keeps important context with receipts the person can inspect.",
+                    "value": (
+                        "Helps the system remember important context without asking the "
+                        "person to repeat it."
+                    ),
                     "jobs": ["remember-what-matters"],
+                    "prerequisites": ["A durable local note or memory store."],
+                    "trade_offs": ["Old context can become noisy unless the person can prune it."],
                     "evidence": [
                         {
                             "level": "verified",
@@ -76,6 +82,10 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                         "minimum_lens_contract": "0.1.0",
                         "limitations": ["Brief only; Lens does not apply changes."],
                     },
+                    "docs_url": "https://github.com/davekilleen/Dex",
+                    "since_release": "1.94.0",
+                    "changed_in": ["1.94.0"],
+                    "release_provenance": "core-release",
                     "portable_brief": {
                         "headline": "Add durable memory with receipts.",
                         "adaptation_notes": [
@@ -109,6 +119,29 @@ def test_valid_signed_catalogue_verifies(
 
     assert verified.metadata.catalog_version == 7
     assert verified.catalogue.capabilities[0].capability_id == "dex-durable-memory-provenance"
+    assert verified.catalogue.capabilities[0].release_provenance == "core-release"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "value",
+        "prerequisites",
+        "trade_offs",
+        "docs_url",
+        "since_release",
+        "changed_in",
+        "release_provenance",
+    ],
+)
+def test_catalogue_entries_require_approved_human_and_release_fields(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing, field: str
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["catalogue"]["capabilities"][0].pop(field)
+
+    with pytest.raises(ValidationError):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
 
 
 @pytest.mark.parametrize(
@@ -209,6 +242,26 @@ def test_last_verified_catalogue_is_persisted_and_reverified_on_load(
 
     with pytest.raises(CatalogueVerificationError, match="signature"):
         store.load_last_verified(keyring=keyring, now=NOW)
+
+
+def test_expired_cached_catalogue_loads_as_labelled_stale_state(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing, tmp_path: Path
+) -> None:
+    store = VerifiedCatalogueStore(tmp_path)
+    verified = verify_catalogue_envelope(
+        sign_envelope(unsigned_envelope(7), signing_key), keyring=keyring, now=NOW
+    )
+    store.save_verified(verified)
+
+    state = store.load_last_verified_state(
+        keyring=keyring,
+        now=NOW + timedelta(days=31),
+    )
+
+    assert state.status == "stale"
+    assert state.catalogue is not None
+    assert state.catalogue.metadata.catalog_version == 7
+    assert "expired" in state.message
 
 
 def test_malicious_catalogue_text_is_inert_at_render_and_serialization_boundary(
