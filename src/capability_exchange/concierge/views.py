@@ -415,9 +415,12 @@ def render_catalogue_brief(journey: ConciergeJourney, csrf_token: str) -> str:
         <label>Copy portable brief
           <textarea readonly>{_escape(journey.catalogue_brief_markdown)}</textarea>
         </label>
+        <p class="muted">Select the text above and copy it for your AI.</p>
         <div class="actions">
-          <button type="button">Copy portable brief</button>
-          <button class="secondary" type="button">Save portable brief</button>
+          <form method="post" action="/catalogue/brief/download">
+            {_csrf(csrf_token)}
+            <button class="secondary" type="submit">Save portable brief</button>
+          </form>
         </div>
       </div>
     """

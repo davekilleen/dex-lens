@@ -260,6 +260,34 @@ class RunningCatalogueServer(AbstractContextManager["RunningCatalogueServer"]):
         conn.close()
         return status, text
 
+    def post_raw(
+        self,
+        path: str,
+        body: dict[str, str],
+        *,
+        csrf: str | None = None,
+    ) -> tuple[int, dict[str, str], str]:
+        payload = urlencode(body)
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        conn.request(
+            "POST",
+            path,
+            body=payload,
+            headers={
+                "Host": f"127.0.0.1:{self.server.server_port}",
+                "Cookie": self.cookie,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.origin,
+                "X-CSRF-Token": csrf or "",
+            },
+        )
+        response = conn.getresponse()
+        text = response.read().decode("utf-8", "replace")
+        status = response.status
+        headers = {key.lower(): value for key, value in response.getheaders()}
+        conn.close()
+        return status, headers, text
+
 
 def test_catalogue_forms_require_csrf(tmp_path: Path) -> None:
     with RunningCatalogueServer(tmp_path) as running:
@@ -284,3 +312,36 @@ def test_catalogue_forms_require_csrf(tmp_path: Path) -> None:
         )
         assert status == 200
         assert "Portable brief for your AI" in body
+
+
+def test_portable_brief_save_downloads_exact_markdown_without_script(
+    tmp_path: Path,
+) -> None:
+    with RunningCatalogueServer(tmp_path) as running:
+        capability_id = "durable-memory-boost"
+        job_id = running.session.journey.catalogue_shelf[0].matched_job_ids[0]
+        status, body = running.post(
+            "/catalogue/brief",
+            {
+                "capability_id": capability_id,
+                "job_id": job_id,
+            },
+            csrf=running.session.csrf_token,
+        )
+        assert status == 200
+        assert "Select the text above and copy it for your AI." in body
+        assert "Copy portable brief</button>" not in body
+
+        status, headers, markdown = running.post_raw(
+            "/catalogue/brief/download",
+            {},
+            csrf=running.session.csrf_token,
+        )
+
+        assert status == 200
+        assert headers["content-type"] == "text/markdown; charset=utf-8"
+        assert (
+            headers["content-disposition"]
+            == 'attachment; filename="dex-brief-durable-memory-boost.md"'
+        )
+        assert markdown == running.session.journey.catalogue_brief_markdown

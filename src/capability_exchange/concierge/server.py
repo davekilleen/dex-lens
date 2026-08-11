@@ -599,6 +599,21 @@ class ConciergeSession:
         with self._state_lock:
             self.journey.select_catalogue_brief(form)
 
+    def catalogue_brief_download(self) -> tuple[str, str]:
+        """Return the selected portable brief and a safe attachment filename."""
+
+        with self._state_lock:
+            capability_id = self.journey.selected_catalogue_capability_id
+            markdown = self.journey.catalogue_brief_markdown
+            if not capability_id or not markdown:
+                raise ValueError("select a catalogue brief before downloading")
+            safe_id = "".join(
+                character
+                for character in capability_id
+                if character.isalnum() or character == "-"
+            ).strip("-")
+            return markdown, f"dex-brief-{safe_id or 'capability'}.md"
+
     def subscribe_catalogue_updates(self, form: dict[str, list[str]]) -> None:
         with self._state_lock:
             assert self.catalogue_subscription_store is not None
@@ -927,6 +942,9 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/catalogue/brief":
             self._journey_action(self.server.session.select_catalogue_brief, form)
             return
+        if parsed.path == "/catalogue/brief/download":
+            self._catalogue_brief_download()
+            return
         if parsed.path == "/catalogue/subscribe":
             self._journey_action(self.server.session.subscribe_catalogue_updates, form)
             return
@@ -1094,6 +1112,21 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             self._send_page(_render_session(self.server.session), status=HTTPStatus.BAD_REQUEST)
             return
         self._send_page(_render_session(self.server.session))
+
+    def _catalogue_brief_download(self) -> None:
+        try:
+            markdown, filename = self.server.session.catalogue_brief_download()
+        except ValueError as exc:
+            self._bad_request(str(exc))
+            return
+        payload = markdown.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/markdown; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self._security_headers()
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _valid_session_cookie(self) -> bool:
         return self.server.session.security.validate_cookie(self.headers.get("Cookie", ""))
