@@ -1,19 +1,24 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-10. Plain-language companion to
+Last updated: 2026-08-11. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
 ## The short version
 
-The six-milestone product candidate is built. M1–M3 are merged to `main`;
-M4–M6 and their final security remediation are integrated on
-`programme/m3-m6-completion` in draft PR #5. The current branch passes the
-complete local suite; the exact GitHub candidate must pass the Linux/macOS
-matrix and every formal security evidence gate before merge.
+The six-milestone product candidate is built and merged. M1–M3 merged first;
+M4–M6 and their final security remediation merged to `main` in PR #5 on
+2026-08-10 (`e139242`) after the Linux/macOS matrix, 1,291 local tests, lint,
+packaging and data-inventory verification were green on the exact candidate.
 
 This does **not** mean Dex Lens is released or that the pilot has happened.
 There is no supported participant setup package, no published release, no
 observed participant evidence, and no completed independent sign-off.
+
+The next programme of work is the **live capability bridge** — the deliberate,
+user-invoked connection from a person's own system to Dex's signed release
+catalogue. Its design is in
+`docs/superpowers/specs/2026-08-11-dex-lens-live-capability-bridge-design.md`
+and is awaiting Dave's approval; none of it is built yet.
 
 ## Milestones
 
@@ -25,15 +30,15 @@ observed participant evidence, and no completed independent sign-off.
    journey, editable confirmation, session security, cancellation, guided
    fallback, and formal egress evidence are built. Deep inspection fails closed
    to the guided path when macOS cannot prove the stronger containment claim.
-4. **M4 — safe adaptation boundary: built, not merged or released.** Preview,
+4. **M4 — safe adaptation boundary: merged in PR #5, not released.** Preview,
    approval, recovery, receipt, and undo are exercised on isolated synthetic
    files. Real-user automation refuses because Lens cannot yet observe the job
    outcome after real use; diagnosis and guidance remain available.
-5. **M5 — optional contribution: built, not merged or connected to a live
+5. **M5 — optional contribution: merged in PR #5, not connected to a live
    intake.** Capability Cards, exact disclosure, fresh per-version consent,
    moderation, catalogue trust, withdrawal, and stage-nine user control are in
    place. Nothing is selected for sharing by default.
-6. **M6 — pilot machinery: built; real pilot not run.** Enrolment, locked
+6. **M6 — pilot machinery: merged in PR #5; real pilot not run.** Enrolment, locked
    measurement, runbooks, red-team executors, exact-build release gates, and a
    fail-closed R7 completeness verifier exist. The verifier deliberately
    reports incomplete until real participant evidence and independent sign-off
@@ -41,21 +46,17 @@ observed participant evidence, and no completed independent sign-off.
 
 ## Verification state
 
-- M3 is green on merged-main GitHub CI across Linux and macOS.
-- The combined M3–M6 candidate passes the complete local test suite, lint, and
-  the data inventory on the Devbox.
-- PR #5 is the authoritative exact-build record. Its Linux/macOS matrix,
-  privileged bind-mount proof, M3/M4 offline-egress proof, M5 exact-byte
-  egress proof, and combined G1–G6 plus R3 release gate must all be green on
-  the exact merge candidate.
+- The full merged candidate is green on GitHub CI across Linux and macOS:
+  PR #5 merged with eight green checks covering the matrix, the privileged
+  bind-mount proof, the M3/M4 offline-egress proof, the M5 exact-byte egress
+  proof, and the combined G1–G6 plus R3 release gate on the exact candidate.
 - A local skip is recorded as **unproven**, never silently treated as a pass.
 
 ## What remains before invited testing
 
-1. Complete exact-build CI and merge only after explicit approval.
-2. Prepare the supported tester handoff rather than asking participants to
+1. Prepare the supported tester handoff rather than asking participants to
    interpret developer instructions unaided.
-3. Keep automated real-user adaptation disabled until a genuine later-use
+2. Keep automated real-user adaptation disabled until a genuine later-use
    Success Contract outcome procedure exists; configuration presence is not
    outcome proof.
 
