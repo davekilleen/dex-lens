@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,7 @@ def request_for(root: Path) -> CollectionRequest:
 
 
 class TestStrategySelection:
+    @linux_only
     def test_default_strategy_is_os_enforced(self) -> None:
         strategy = default_strategy()
         assert strategy.os_enforced
@@ -63,6 +65,59 @@ class TestStrategySelection:
         monkeypatch.setattr(containment.sys, "platform", "linux")
         available, reason = MacOSStrategy().availability()
         assert not available
+
+    def test_default_strategy_refuses_macos_without_socket_creation_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A connect-time denial is not the G1 socket-creation guarantee.
+
+        GitHub's macOS runners currently allocate AF_INET sockets under the
+        shipped Seatbelt profile.  The deep adapter must therefore disable
+        itself before any target read when the runtime probe cannot prove
+        ``socket()`` is denied, while retaining the guided fallback.
+        """
+        monkeypatch.setattr(containment.sys, "platform", "darwin")
+        monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
+        monkeypatch.setattr(
+            containment,
+            "_probe_macos_runtime_proofs",
+            lambda _sandbox_exec: ("connect-denied", "write-open-denied", "exec-denied"),
+            raising=False,
+        )
+
+        with pytest.raises(ContainmentUnavailableError) as caught:
+            default_strategy()
+
+        assert "socket creation" in caught.value.reason.lower()
+        assert caught.value.fallback_guidance == GUIDED_FALLBACK_MESSAGE
+        assert "guided, export-assisted" in str(caught.value)
+
+    def test_cancellable_child_drains_output_larger_than_pipe_capacity(
+        self, claude_root: Path
+    ) -> None:
+        envelope = TestStrategy().collect_contained(request_for(claude_root)).envelope
+        response = {
+            "schema": containment.contained.RESULT_SCHEMA,
+            "envelope": envelope.model_dump(mode="json"),
+            "layers": ["test-output-drain"],
+            "proofs": ["large-output-completed"],
+        }
+        script = (
+            "import json,sys; sys.stdin.buffer.read(); "
+            f"payload=json.loads({json.dumps(json.dumps(response))}); "
+            "payload['padding']='x'*262144; sys.stdout.write(json.dumps(payload))"
+        )
+
+        result = containment._launch_contained_child(
+            [sys.executable, "-c", script],
+            request_for(claude_root),
+            layer_reason="test output draining",
+            os_enforced=False,
+            cancel_event=threading.Event(),
+        )
+
+        assert result.envelope == envelope
+        assert result.outcome.proofs == ("large-output-completed",)
 
 
 class TestTestStrategyDiscipline:

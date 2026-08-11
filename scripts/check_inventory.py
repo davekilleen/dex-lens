@@ -40,6 +40,11 @@ ALLOWED_PLAIN_MODELS = {
     "capability_exchange.boundary.inventory.Inventory",
 }
 
+# Browser/session state is a first-class G2 surface. Keeping the required
+# model name here makes removal or replacement of that declaration a CI
+# failure instead of allowing a dataclass field to become an untracked cache.
+REQUIRED_CONCIERGE_MODELS = {"ConciergeSessionState"}
+
 PACKAGE = "capability_exchange"
 
 
@@ -112,6 +117,13 @@ def collect_problems() -> list[str]:
                 f"this package (allowlisting is a reviewed G2 decision)"
             )
 
+    for model_name in sorted(REQUIRED_CONCIERGE_MODELS):
+        if model_name not in inventoried_models:
+            problems.append(
+                f"{model_name}: required concierge/session state model is not "
+                "inside the InventoriedModel boundary"
+            )
+
     # Every model field needs an inventory entry (uninventoried => build fails).
     for model_name, cls in sorted(inventoried_models.items()):
         for field_name in cls.model_fields:
@@ -158,9 +170,11 @@ def main() -> int:
 
     inventory = active_inventory()
     stored = sum(1 for entry in inventory.fields.values() if entry.stores)
+    transmitted = sum(1 for entry in inventory.fields.values() if entry.shares)
     print(
         f"g2-inventory-check: OK — {len(inventory.fields)} inventoried field(s), "
-        f"{stored} stored (all with registered deletion paths), 0 transmitted."
+        f"{stored} stored (all with registered deletion paths), "
+        f"{transmitted} transmitted through closed reviewed paths."
     )
     return 0
 

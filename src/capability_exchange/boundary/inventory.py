@@ -14,9 +14,10 @@ YAML dependency for this file, and the narrow grammar fails closed: anything
 outside the subset raises :class:`InventoryError` rather than being guessed
 at. Schema validation itself is pydantic.
 
-M1 posture: ``sharing`` only admits ``never``. Diagnosis is telemetry-free
-and ephemeral by default; the first approved network flow (catalog refresh,
-HANDOFF D8) requires widening this schema, which reopens G2 review.
+Diagnosis remains telemetry-free and ephemeral by default. M5 adds one closed
+sharing declaration: the exact, user-previewed ``DisclosureManifest`` bytes
+may cross only the contribution-intake port. No envelope or other field is
+transmissible.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ class FieldEntry(BaseModel):
     derivation: str = Field(min_length=1)
     display: str = Field(min_length=1)
     storage: StorageDeclaration | None
-    sharing: Literal["never"]
+    sharing: Literal["never", "contribution-intake-exact-manifest"]
     deletion: str = Field(min_length=1)
     audit: str = Field(min_length=1)
 
@@ -119,6 +120,14 @@ class Inventory(BaseModel):
                 raise ValueError(
                     f"inventory key {key!r} must be '<ModelName>.<field_name>'"
                 )
+        permitted_shared = {"DisclosureManifest.display_text"}
+        shared = {key for key, entry in self.fields.items() if entry.shares}
+        if not shared <= permitted_shared:
+            unexpected = ", ".join(sorted(shared - permitted_shared))
+            raise ValueError(
+                "only DisclosureManifest.display_text may cross the exact "
+                f"contribution-intake boundary; found {unexpected}"
+            )
         return self
 
 

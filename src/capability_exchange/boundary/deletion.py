@@ -97,6 +97,12 @@ def _remove_file_verified(path: Path) -> None:
 
 #: Glob for crash-log files written by capability_exchange.boundary.crashlog.
 CRASH_LOG_GLOB = "crashlog-*.json"
+ADAPTATION_RECEIPT_GLOB = "receipt-*.json"
+ADAPTATION_RECOVERY_GLOB = "recovery-*.json"
+ADAPTATION_JOURNAL_GLOB = "transaction-*.json"
+ADAPTATION_OUTCOME_EVIDENCE_GLOB = "outcome-*.json"
+PILOT_GATE_EVIDENCE_GLOB = "pilot-build-gate*.json"
+TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 
 #: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
 LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
@@ -121,15 +127,69 @@ def delete_crash_logs(directory: Path) -> list[Path]:
 register_deletion_path("delete-crash-logs", delete_crash_logs)
 
 
-def delete_lens_catalogue_cache(directory: Path) -> list[Path]:
-    """Deletion path ``delete-lens-catalogue-cache``: remove the verified catalogue cache."""
+def _delete_matching(directory: Path, pattern: str) -> list[Path]:
     if not directory.is_dir():
         return []
-    path = directory / LENS_CATALOGUE_CACHE_FILE
-    if not path.exists():
-        return []
-    _remove_file_verified(path)
-    return [path]
+    removed: list[Path] = []
+    for path in sorted(directory.glob(pattern)):
+        _remove_file_verified(path)
+        removed.append(path)
+    return removed
+
+
+def delete_adaptation_receipts(directory: Path) -> list[Path]:
+    """Remove every standard local M4 receipt under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_RECEIPT_GLOB)
+
+
+def delete_adaptation_recovery(directory: Path) -> list[Path]:
+    """Remove every M4 recovery manifest under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_RECOVERY_GLOB)
+
+
+def delete_adaptation_journals(directory: Path) -> list[Path]:
+    """Remove every M4 crash-recovery journal under ``directory``."""
+
+    return _delete_matching(directory, ADAPTATION_JOURNAL_GLOB)
+
+
+def delete_adaptation_state(directory: Path) -> list[Path]:
+    """Remove core-owned T7 outcome evidence under ``directory``."""
+
+    evidence = directory / "outcome-evidence"
+    return _delete_matching(evidence, ADAPTATION_OUTCOME_EVIDENCE_GLOB)
+
+
+register_deletion_path("delete-adaptation-receipts", delete_adaptation_receipts)
+register_deletion_path("delete-adaptation-recovery", delete_adaptation_recovery)
+register_deletion_path("delete-adaptation-journals", delete_adaptation_journals)
+register_deletion_path("delete-adaptation-state", delete_adaptation_state)
+
+
+def delete_pilot_gate_evidence(directory: Path) -> list[Path]:
+    """Remove exact-build pilot gate evidence artifacts."""
+
+    return _delete_matching(directory, PILOT_GATE_EVIDENCE_GLOB)
+
+
+register_deletion_path("delete-pilot-gate-evidence", delete_pilot_gate_evidence)
+
+
+def delete_tabletop_evidence(directory: Path) -> list[Path]:
+    """Remove persisted synthetic recovery tabletop evidence."""
+
+    return _delete_matching(directory, TABLETOP_EVIDENCE_GLOB)
+
+
+register_deletion_path("delete-tabletop-evidence", delete_tabletop_evidence)
+
+
+def delete_lens_catalogue_cache(directory: Path) -> list[Path]:
+    """Remove the verified public Dex catalogue cache."""
+
+    return _delete_matching(directory, LENS_CATALOGUE_CACHE_FILE)
 
 
 register_deletion_path("delete-lens-catalogue-cache", delete_lens_catalogue_cache)

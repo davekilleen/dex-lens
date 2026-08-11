@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# util-linux supplies the ordinary matrix's namespace probe; the CI gate
+# itself uses the container's narrow CAP_SYS_ADMIN directly so no nested user
+# namespace privilege is required.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/dex-lens
+COPY . .
+RUN python -m pip install --no-cache-dir ".[dev]"
+
+ENTRYPOINT ["python", "scripts/g1_bind_mount_gate.py"]

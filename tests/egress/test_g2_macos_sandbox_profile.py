@@ -24,6 +24,7 @@ import pytest
 from tests.egress.harness import build_canary_system
 from tests.fixtures.hostile.catalog import assert_no_canary_leak
 
+from capability_exchange.adapters.claude_code import containment
 from capability_exchange.adapters.claude_code.containment import (
     _MACOS_PROFILE_PATH,
     CollectionRequest,
@@ -168,6 +169,23 @@ class TestProfileExecSetIsEnumerated:
         assert values, "no interpreter literals supplied"
         for value in values:
             assert "python" in Path(value).name.lower(), f"non-interpreter exec literal: {value}"
+
+    def test_g1_strategy_disables_deep_adapter_without_socket_creation_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A profile that proves only connect denial must use guided fallback."""
+        monkeypatch.setattr(containment.sys, "platform", "darwin")
+        monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
+        monkeypatch.setattr(
+            containment,
+            "_probe_macos_runtime_proofs",
+            lambda _sandbox_exec: ("connect-denied", "write-open-denied", "exec-denied"),
+        )
+
+        available, reason = MacOSStrategy().availability()
+
+        assert not available
+        assert "socket creation" in reason.lower()
 
 
 @darwin_only

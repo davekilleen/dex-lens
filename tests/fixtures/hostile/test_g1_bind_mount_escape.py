@@ -22,6 +22,7 @@ be audible rather than indistinguishable from a passing one.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -44,6 +45,11 @@ def _namespace_unavailable_reason() -> str | None:
     """None when this host can host the fixture; else why it cannot."""
     if sys.platform != "linux":
         return f"bind mounts are a Linux facility; this host is {sys.platform!r}"
+    if os.environ.get("G1_BIND_MOUNT_DIRECT") == "1":
+        # The dedicated CI image grants the child CAP_SYS_ADMIN directly, so
+        # it does not need a nested user namespace. Ordinary matrix runs keep
+        # the unshare probe below and remain loudly skipped when unavailable.
+        return None
     if shutil.which("unshare") is None:
         return "util-linux `unshare` is not installed on this host"
     probe = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -68,6 +74,34 @@ _UNPROVEN_WARNING = (
 )
 
 
+def test_g1_bind_mount_gate_rejects_skips_missing_reports_and_failed_assertions(
+    tmp_path: Path,
+) -> None:
+    """The privileged gate must never turn an unproven fixture green."""
+    gate_path = _REPO_ROOT / "scripts" / "g1_bind_mount_gate.py"
+    assert gate_path.is_file(), "the CI gate script must be shipped"
+    spec = importlib.util.spec_from_file_location("g1_bind_mount_gate", gate_path)
+    assert spec is not None and spec.loader is not None
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    validate = getattr(gate, "validate_gate_evidence", None)
+    assert callable(validate), "gate must expose a fail-closed evidence validator"
+
+    missing_report = tmp_path / "missing.json"
+    with pytest.raises(gate.GateFailure, match="missing child report"):
+        validate(returncode=0, output="1 passed", report_path=missing_report)
+
+    skipped_report = tmp_path / "skipped.json"
+    for output in ("1 skipped", "1 xpassed", "2 passed, 1 deselected", "no tests ran"):
+        with pytest.raises(gate.GateFailure, match="skipped|unproven"):
+            validate(returncode=0, output=output, report_path=skipped_report)
+
+    failed_report = tmp_path / "failed.json"
+    failed_report.write_text(json.dumps({"escape": {"canary_readable_through_mount": False}}))
+    with pytest.raises(gate.GateFailure, match="containment"):
+        validate(returncode=0, output="1 passed", report_path=failed_report)
+
+
 def test_g1_bind_mount_fixture_is_never_silently_skipped() -> None:
     """Always runs. Makes an unrunnable hostile fixture audible.
 
@@ -88,10 +122,16 @@ def bind_mount_report(tmp_path_factory: pytest.TempPathFactory) -> dict:
     if _UNAVAILABLE is not None:
         pytest.skip(_UNPROVEN_WARNING)
     base = tmp_path_factory.mktemp("bind-mount-escape")
+    prefix = [] if os.environ.get("G1_BIND_MOUNT_DIRECT") == "1" else _UNSHARE_ARGS
     completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        [*_UNSHARE_ARGS, sys.executable, "-m", _CHILD_MODULE, str(base)],
+        [*prefix, sys.executable, "-m", _CHILD_MODULE, str(base)],
         cwd=_REPO_ROOT,
-        env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                (str(_REPO_ROOT / "src"), str(_REPO_ROOT), os.environ.get("PYTHONPATH", ""))
+            ),
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -106,7 +146,11 @@ def bind_mount_report(tmp_path_factory: pytest.TempPathFactory) -> dict:
         f"the bind-mount fixture child failed (exit {completed.returncode}):\n"
         f"{completed.stderr}"
     )
-    return json.loads(completed.stdout)
+    report = json.loads(completed.stdout)
+    artifact = os.environ.get("G1_BIND_MOUNT_REPORT")
+    if artifact:
+        Path(artifact).write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
+    return report
 
 
 def test_g1_bind_mount_fixture_really_reproduces_the_hole(bind_mount_report: dict) -> None:

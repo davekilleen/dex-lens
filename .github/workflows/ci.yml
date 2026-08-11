@@ -35,20 +35,39 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: M3 doorway + clean-wheel evidence
+        # Covers the shipped console entry point, loopback doorway lifecycle,
+        # and a non-editable install of the real wheel artifact.
+        run: python -m pytest -rs tests/concierge tests/test_packaging.py
+
+      - name: M5 exact contribution egress
+        # Stage 9 may send one value only: bytes freshly authorized from the
+        # exact approved DisclosureManifest. Identity remains outside stages 1-8.
+        run: python -m pytest -rs tests/concierge/test_contribution_journey.py tests/egress/test_m5_contribution_egress.py
+
       - name: Test (pytest)
         # -rs so a hostile fixture that skipped (e.g. bind-mount-escape where
         # user namespaces are unavailable) is visible in the log rather than
         # silently absent from a green run.
         run: python -m pytest -rs
 
-      - name: adapter-conformance-claude-code
+      - name: adapter-conformance-claude-code (Linux containment gate)
+        if: matrix.os == 'ubuntu-latest'
         # HANDOFF 5.4: the runnable Host Adapter conformance suite, run
-        # against the claude_code deep adapter under the host's real
-        # OS-enforced containment (seccomp on Linux, sandbox-exec on macOS).
+        # against the claude_code deep adapter under Linux's real
+        # OS-enforced containment (seccomp).
         # --require-os-enforcement makes an honest refusal exit non-zero:
         # "the adapter declined to run" is correct product behaviour but is
-        # not a passing gate.
+        # not a passing Linux proof gate.
         run: python -m capability_exchange.conformance --adapter claude-code-local --self-check --require-os-enforcement
+
+      - name: adapter-conformance-claude-code (macOS honest fallback)
+        if: matrix.os == 'macos-14'
+        # Seatbelt's current runner proof is connect-time only.  The adapter
+        # therefore refuses deep inspection and keeps the guided path; this
+        # leg verifies that refusal remains conformant without pretending it
+        # is OS-enforced evidence.
+        run: python -m capability_exchange.conformance --adapter claude-code-local --self-check --no-require-os-enforcement
 
       - name: g2-inventory-check
         # G2 field-level data boundary: schema-validates data_inventory.yaml,
@@ -57,3 +76,171 @@ jobs:
         # the typed serialization boundary, and on any stored field without a
         # registered deletion path.
         run: python scripts/check_inventory.py
+
+  m3-egress-gate:
+    name: M3 packet + DNS + proxy egress gate (Linux)
+    # The evidence leg is isolated to a disposable Docker network namespace.
+    # The container has no network interfaces except loopback.  Every default
+    # capability is dropped before only NET_ADMIN (bring loopback up) and
+    # NET_RAW (AF_PACKET/tcpdump) are added.  No host sudo or SYS_ADMIN is used.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build isolated evidence image
+        run: docker build -f scripts/Dockerfile.m3-egress -t dex-lens-m3-egress .
+
+      - name: M3 full journey OS egress evidence
+        run: |
+          install -d -m 0777 m3-egress-artifact
+          docker run --rm \
+            --network none \
+            --cap-drop=ALL \
+            --cap-add=NET_ADMIN \
+            --cap-add=NET_RAW \
+            --security-opt no-new-privileges=true \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m \
+            --pids-limit 256 \
+            --memory 1g \
+            --cpus 2 \
+            -e M3_EGRESS_NETWORK_ISOLATED=1 \
+            -e M3_EGRESS_ARTIFACT_DIR=/evidence \
+            -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
+            -v "${PWD}/m3-egress-artifact:/evidence" \
+            dex-lens-m3-egress
+
+      - name: Upload M3 egress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-egress-evidence
+          path: m3-egress-artifact/
+          if-no-files-found: error
+
+  g1-bind-mount-gate:
+    name: G1 privileged bind-mount containment proof (Linux)
+    # The normal matrix must keep skipping loudly when user namespaces are
+    # unavailable. This disposable image is the exact narrow-privilege proof
+    # leg: only SYS_ADMIN is added, and the gate rejects any skip/unproven
+    # warning or incomplete child report.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build disposable bind-mount gate image
+        run: docker build -f scripts/Dockerfile.g1-bind-mount -t dex-lens-g1-bind-mount .
+
+      - name: Run privileged bind-mount hostile fixture
+        run: |
+          install -d -m 0777 g1-bind-mount-artifact
+          # GitHub's Docker AppArmor profile denies mount(2) even when the
+          # container has SYS_ADMIN. This disposable, networkless fixture
+          # must create the hostile mount before it can prove Lens refuses it.
+          docker run --rm \
+            --network none \
+            --cap-drop=ALL \
+            --cap-add=SYS_ADMIN \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
+            --security-opt no-new-privileges=true \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m \
+            --pids-limit 256 \
+            --memory 1g \
+            --cpus 2 \
+            -e G1_BIND_MOUNT_EVIDENCE_DIR=/evidence \
+            -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
+            -v "${PWD}/g1-bind-mount-artifact:/evidence" \
+            dex-lens-g1-bind-mount
+
+      - name: Upload G1 bind-mount evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-bind-mount-evidence
+          path: g1-bind-mount-artifact/
+          if-no-files-found: error
+
+  m5-egress-gate:
+    name: M5 exact contribution-byte egress evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact M5 build
+        run: python -m pip install -e ".[dev]"
+
+      - name: Execute M5 exact-byte egress gate
+        env:
+          DEX_LENS_BUILD_COMMIT: ${{ github.sha }}
+        run: >-
+          python scripts/m5_egress_gate.py
+          --output /tmp/m5-egress-evidence/evidence.json
+
+      - name: Upload M5 egress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-egress-evidence
+          path: /tmp/m5-egress-evidence/
+          if-no-files-found: error
+
+  pilot-build-gate:
+    name: Exact pilot-build release gate (G1-G6 + R3)
+    needs: [test, m3-egress-gate, g1-bind-mount-gate, m5-egress-gate]
+    if: >-
+      ${{ always() && needs.test.result == 'success' &&
+          needs.g1-bind-mount-gate.result == 'success' &&
+          needs.m3-egress-gate.result == 'success' &&
+          needs.m5-egress-gate.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact pilot build
+        run: python -m pip install -e ".[dev]"
+
+      - name: Download G1 bind-mount evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: g1-bind-mount-evidence
+          path: /tmp/g1-bind-mount-evidence
+
+      - name: Download M3-M4 egress evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: m3-egress-evidence
+          path: /tmp/m3-m4-egress-evidence
+
+      - name: Download M5 contribution evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: m5-egress-evidence
+          path: /tmp/m5-egress-evidence
+
+      - name: Execute all six gates and R3 on this commit
+        run: |
+          mkdir -p pilot-gate-artifact
+          python scripts/pilot_gate.py \
+            --commit "${GITHUB_SHA}" \
+            --formal-evidence /tmp/g1-bind-mount-evidence/g1-bind-mount-gate.json \
+            --formal-evidence /tmp/m3-m4-egress-evidence/evidence.json \
+            --formal-evidence /tmp/m5-egress-evidence/evidence.json \
+            --output pilot-gate-artifact/pilot-build-gate.json
+
+      - name: Upload exact pilot-build gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-build-gate-${{ github.sha }}
+          path: pilot-gate-artifact/
+          if-no-files-found: error

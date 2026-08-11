@@ -19,6 +19,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from capability_exchange.adaptation.allowlist import ALLOWED_OPERATIONS
+from capability_exchange.adaptation.contract import Guarantee
 from capability_exchange.adapter import (
     AdapterContract,
     AdapterMode,
@@ -38,6 +40,7 @@ __all__ = [
     "CheckOutcome",
     "CheckResult",
     "check_contract_declaration_completeness",
+    "check_adaptation_gate_evidence",
     "check_honest_fallback",
     "check_result_envelope_conformance",
     "check_snapshot_semantics",
@@ -80,6 +83,42 @@ def _passed(check_id: str, gate: str, detail: str) -> CheckResult:
 
 def _failed(check_id: str, gate: str, detail: str) -> CheckResult:
     return CheckResult(check_id=check_id, gate=gate, outcome=CheckOutcome.FAILED, detail=detail)
+
+
+def check_adaptation_gate_evidence(
+    contract: AdapterContract,
+    *,
+    gate: str,
+    required_test_id: str,
+    passed_test_ids: frozenset[str],
+    required_guarantees: frozenset[Guarantee],
+) -> CheckResult:
+    """Evaluate one M4 release gate from declarations plus executed evidence."""
+
+    mutation = contract.mutation_contract
+    declared_guarantees = (
+        frozenset(mutation.guarantees) if mutation is not None else frozenset()
+    )
+    declared_operations = tuple(mutation.operations) if mutation is not None else ()
+    missing_guarantees = required_guarantees - declared_guarantees
+    problems: list[str] = []
+    if contract.mode is not AdapterMode.ADAPT_CAPABLE or mutation is None:
+        problems.append("adapter is not backed by an Adapt-capable mutation contract")
+    if missing_guarantees:
+        problems.append(
+            "missing guarantee(s): "
+            + ", ".join(sorted(item.value for item in missing_guarantees))
+        )
+    if any(operation not in ALLOWED_OPERATIONS for operation in declared_operations):
+        problems.append("contract declares an operation outside the G3 allowlist")
+    if not declared_operations:
+        problems.append("contract declares no constructable local operation")
+    if required_test_id not in passed_test_ids:
+        problems.append(f"required executable evidence did not pass: {required_test_id}")
+    check_id = f"m4-{gate.lower()}-evidence"
+    if problems:
+        return _failed(check_id, gate, "; ".join(problems))
+    return _passed(check_id, gate, f"passed executable evidence {required_test_id}")
 
 
 # ---------------------------------------------------------------------------

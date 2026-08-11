@@ -1,11 +1,11 @@
-# Dave's task board — Outward Dex
+# Dave's task board — Dex Lens
 
 Things only Dave can do. Everything else is the build team's problem.
 
 Plain language on purpose. The formal versions live in `docs/handoff/HANDOFF.md`
 Section 6 (D0–D9) — this file is the working list.
 
-Last updated: 2026-08-07
+Last updated: 2026-08-10
 
 ---
 
@@ -25,14 +25,14 @@ The mix matters: **4–5 people who don't use Dex at all**, and 2–3 who do (or
 have heavily customised Claude Code). The whole point is proving this works for
 people outside the Dex world.
 
-Why it's urgent despite the code not being ready: recruiting takes weeks, and the
-build can't start the pilot without them.
+Why it is urgent now: the pilot candidate is built and moving through delivery
+review, while recruiting still takes longer than the remaining engineering work.
 
 ---
 
 ## Do before anyone's real machine is touched
 
-### 3. Get the pilot consent terms reviewed
+### 2. Get the pilot consent terms reviewed
 **Blocks:** the pilot starting.
 
 Somebody needs to look over the consent wording, the data-deletion promise, what
@@ -41,14 +41,14 @@ withdraw anything, any time" disclosures. Doesn't need a law firm — it needs a
 decision on *who reviews it and to what standard*, recorded before anyone is
 enrolled.
 
-### 4. Decide who signs off the safety gates
+### 3. Decide who signs off the safety gates
 **Blocks:** letting the product make any automatic change on a real person's machine.
 
 Six safety gates have to be proven before that happens. Somebody independent has
 to review the evidence and say "yes, that holds." Options: a second Fable review,
 an outside reviewer, or Dave. Needs to be recorded, not assumed.
 
-### 5. Name an owner for each unresolved risk
+### 4. Name an owner for each unresolved risk
 Any risk left open at the end needs a name against it. With a team of one, the
 realistic answer is probably "Dave owns all of them" — but that has to be stated
 explicitly rather than left blank.
@@ -78,7 +78,7 @@ explicitly rather than left blank.
 | Who moderates shared cards | AI-led review, Dave gives final one-click approval | Dex#347, 2026-08-07 12:10 |
 | Catalogue generator + signing in Core | Approved | Dex#347, 2026-08-07 12:06 |
 | Does diagnosis phone out to a cloud AI? | No — fully local for now. Revisit before the job-proposal step ships | Chat, 2026-08-07 |
-| **Public name** | **Dex Lens** | Chat, 2026-08-07 |
+| **Public name and trusted command** | **Dex Lens**, launched with `dex-lens` | Chat, 2026-08-07; implemented in repo |
 | Repo public or private during build | Public, renamed `dex-lens` | Chat, 2026-08-08 |
 
 ### On the name
@@ -86,8 +86,6 @@ explicitly rather than left blank.
 **Dex Lens** is the public name. "Dex Capability Exchange" stays as the internal
 / formal name for the contribution machinery; "Outward Dex" is retired.
 
-Not yet done, and needed before any user-facing copy is written:
-
-- Decide how the name is used in the one trusted command the person types.
-- Check the vocabulary table in `HANDOFF.md` Section 1.5 still reads correctly
-  with "Lens" in play — nothing there conflicts today, but UI copy will touch it.
+The trusted command is now `dex-lens`. The vocabulary table in `HANDOFF.md`
+still uses Capability Exchange for the internal contribution machinery and does
+not conflict with the public Dex Lens name.
