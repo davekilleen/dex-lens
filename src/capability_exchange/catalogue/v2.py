@@ -346,6 +346,34 @@ def verify_catalogue_envelope(
     return verified
 
 
+def verify_catalogue_envelope_for_stale_display(
+    raw_json: str,
+    *,
+    keyring: KeyRing,
+    highest_verified_catalog_version: int | None = None,
+) -> SignedCatalogueEnvelopeV2:
+    """Verify a cached envelope for stale/offline display only.
+
+    This deliberately does not enforce ``expires_at`` because its caller is
+    already labelling the result stale and non-usable. Signature, schema,
+    contract version, and rollback checks still fail closed.
+    """
+    envelope = _parse_envelope(raw_json)
+    _verify_signature(envelope, keyring)
+    verified = SignedCatalogueEnvelopeV2.model_validate(envelope)
+    if verified.metadata.contract_version != _CONTRACT_VERSION:
+        raise CatalogueVerificationError("catalogue contract version is not supported")
+    if (
+        highest_verified_catalog_version is not None
+        and verified.metadata.catalog_version < highest_verified_catalog_version
+    ):
+        raise CatalogueVerificationError(
+            f"catalogue rollback refused: version {verified.metadata.catalog_version} "
+            f"is older than highest verified version {highest_verified_catalog_version}"
+        )
+    return verified
+
+
 def render_capability_entry_html(entry: CatalogueCapabilityEntryV2) -> str:
     """Render a catalogue entry as inert HTML text for local Lens pages."""
     evidence = "".join(
@@ -427,6 +455,13 @@ class VerifiedCatalogueStore:
             now=now,
             highest_verified_catalog_version=cache.highest_catalog_version,
         )
+
+    def load_last_verified_stale(self, *, keyring: KeyRing) -> SignedCatalogueEnvelopeV2:
+        """Load a signed cached catalogue for labelled stale/offline display."""
+        state = self.load_last_verified_state(keyring=keyring)
+        if state.catalogue is None:
+            raise CatalogueVerificationError("no stored verified catalogue")
+        return state.catalogue
 
     def load_last_verified_state(
         self, *, keyring: KeyRing, now: datetime | None = None

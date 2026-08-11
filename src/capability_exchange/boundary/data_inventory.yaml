@@ -5907,3 +5907,83 @@ fields:
     sharing: never
     deletion: delete-lens-catalogue-cache
     audit: "local cache metadata only; no fields from the person's system are included"
+
+  CatalogueFetchConsent.catalogue_url:
+    description: "static public Dex catalogue JSON URL the person explicitly chose to fetch"
+    collection: "fixed by the local Lens catalogue button after confirmed-job review"
+    derivation: "validated as an HTTPS static JSON URL on the public Dex host"
+    display: "shown in the optional catalogue fetch consent panel"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public URL only; no fields from the person's system are included"
+
+  CatalogueFetchConsent.requested_at:
+    description: "timezone-aware local moment when the person asked Lens to fetch the public catalogue"
+    collection: "recorded locally when the optional catalogue fetch button is submitted"
+    derivation: "naive timestamps are rejected"
+    display: "available for local diagnostics if a fetch result is shown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "local consent metadata only; no personal system content"
+
+  CatalogueFetchConsent.statement:
+    description: "closed consent statement proving the public catalogue GET was explicit"
+    collection: "submitted by the required checkbox in the local Lens page"
+    derivation: "must exactly match the public-catalogue fetch statement before any request"
+    display: "shown as the checkbox text in the consent panel"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "local consent metadata only; refuses accidental/background fetches"
+
+  CatalogueFetchRecord.status:
+    description: "local outcome of one explicit public catalogue fetch attempt"
+    collection: "set after the consented fetcher verifies, refuses, or degrades offline/stale"
+    derivation: "closed status vocabulary; verified is the only usable fresh state"
+    display: "shown in the local catalogue consent panel"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "local bridge state only; no personal system content"
+
+  CatalogueFetchRecord.message:
+    description: "bounded local explanation of the catalogue fetch result"
+    collection: "created by Lens after verification, network failure, or refusal"
+    derivation: "bounded text; rendered escaped in local pages"
+    display: "shown in the local catalogue consent panel"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "local bridge state only; may mention public catalogue verification status"
+
+  CatalogueFetchRecord.catalogue_url:
+    description: "public Dex catalogue URL associated with the fetch result"
+    collection: "copied from the explicit consent record"
+    derivation: "inherits the static public Dex HTTPS validation from consent"
+    display: "available for local diagnostics"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public URL only; no personal system content"
+
+  CatalogueFetchRecord.catalog_version:
+    description: "public catalogue version verified fresh or found in a stale verified cache"
+    collection: "copied from signed catalogue metadata after local signature verification"
+    derivation: "positive integer when present; absent for refused/offline without cache"
+    display: "shown in local verified or stale catalogue status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public version metadata only"
+
+  CatalogueFetchRecord.fetched_at:
+    description: "timezone-aware local moment the explicit catalogue fetch attempt completed"
+    collection: "recorded locally by Lens at fetch time"
+    derivation: "naive timestamps are rejected"
+    display: "available for local diagnostics"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "local bridge state only; no personal system content"
