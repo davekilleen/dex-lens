@@ -1,106 +1,235 @@
 # Dex Lens
 
-**Understand what your Claude Code setup can really do — without replacing it, scoring it, or sending your private setup away.**
+## A private second opinion on your personal AI operating system
 
-Dex Lens is a local second opinion for people who already use Claude Code on a
-Mac. You choose a setup folder, confirm the real work you use it for, and Lens
-shows what appears to work, what the evidence actually supports, and where the
-picture is still uncertain.
+Your AI assistant is no longer just a chat window. Over time, its instructions,
+skills, tools, permissions and routines become a personal operating system for
+how you work — the brain behind an AI assistant or chief of staff.
 
-You do not need to use Dex. There is no account or analytics, you keep your
-existing system, and there is no hidden comparison with somebody else's setup.
+But as that system grows, a basic question becomes surprisingly difficult to
+answer:
 
-> **Current status:** the source code is a pilot candidate, not a supported
-> download or finished public release. The first real participant pilot has not
-> run yet.
+> **What can I genuinely trust it to do?**
 
-## What you get
+Dex Lens helps you answer that question. It privately examines the AI system
+you already use and gives you a clear view of:
 
-- A map of the real jobs you say matter, which you can correct before Lens uses it.
-- A plain-English view of your setup's strengths, gaps, and unnecessarily broad access.
-- An explanation of how each finding is known — never a made-up overall score.
-- A guided preview of one possible improvement, without adopting Dex or silently
-  changing the setup you already own.
-- The option to share a carefully limited recipe back, only after seeing and
-  approving the exact information that would leave your machine.
+- the real work it appears equipped to handle;
+- what is backed by evidence and what is still an assumption;
+- where instructions, tools or access may be missing, conflicting or
+  unnecessarily broad; and
+- the most useful improvement to consider next.
 
-## What a session feels like
+And understanding your system is only half of the promise. Lens is also being
+built into a **bridge to Dex**: a way to see which proven Dex capabilities
+could strengthen the system you already own, and — when you choose — to give
+your own AI a clear, safe brief for bringing a capability across. You keep
+your system. Nothing about it is uploaded, and nothing changes without you.
 
-1. **Choose the folder.** Lens reads only the Claude Code setup folder you approve.
-2. **Confirm the purpose.** You edit the list of jobs Lens thinks you use the setup for.
-3. **Review the evidence.** Lens separates what it can verify from what is merely
-   configured, reported by you, or still unknown.
-4. **Decide what happens next.** Diagnosis does not change anything. Lens can
-   explain and preview a possible improvement, but the real-user pilot does not
-   automate it until the agreed job outcome can genuinely be checked.
-5. **Keep or share the result.** Your findings stay local. Sharing a sanitized
-   Capability Card is optional, off by default, and asks for fresh approval.
+It does not ask you to move to Dex, replace your existing system or accept a
+made-up score. The first diagnosis is read-only: Lens explains what it finds
+and leaves every decision with you.
 
-## What Lens reads, changes, and sends
+> **The current pilot candidate supports personal AI systems built in Claude
+> Code on a Mac.** Claude Code is simply where the system currently lives; Dex
+> Lens is assessing the whole personal AI operating system built around your
+> work.
 
-| Boundary | Plain-English promise |
+## Why this matters
+
+A personal AI system can look impressive while still being difficult to rely
+on.
+
+It may be excellent at researching a market but inconsistent at remembering
+commitments. It may draft strong meeting preparation but have no safe way to
+check whether a follow-up was actually sent. It may have powerful tools with
+broader access than the job requires. Or it may contain valuable capabilities
+that you have forgotten are there.
+
+For a product leader, founder or executive, the goal is not to collect more AI
+features. The goal is to know where the system is dependable enough to
+delegate to, where human judgment still belongs, and what would make it more
+useful without surrendering control.
+
+Dex Lens turns that invisible setup into something you can understand and act
+on.
+
+## How Dex Lens works
+
+### The journey at a glance
+
+**Your real work** → **A private local check** → **Clear strengths and gaps**
+→ **One improvement preview** → **You decide what happens**
+
+### 1. Name the work that matters
+
+Lens starts with the outcomes you expect from your AI system: preparing for
+meetings, tracking commitments, researching a market, helping with decisions,
+drafting follow-ups, running routines or other work that matters to you.
+
+You review and correct that list. Lens does not decide what “good” means
+without you.
+
+### 2. Choose what Lens may inspect
+
+You select the local folder containing the instructions, skills, tools and
+configuration behind your AI system. Lens stays inside the boundary you
+approve; it does not silently widen its search.
+
+### 3. Run a private, read-only check
+
+Lens maps how your system is assembled and compares it with the work you
+expect it to do. The diagnosis runs on your Mac, requires no account and does
+not change your files.
+
+### 4. See what holds up — and what does not
+
+Instead of giving your system a simplistic score, Lens shows:
+
+- what it checked directly;
+- what has supporting evidence;
+- what is based only on your report; and
+- what remains unknown.
+
+You see strengths, gaps, conflicting instructions and access that appears
+broader than the work requires. Every conclusion shows why Lens reached it.
+
+### 5. Preview one useful improvement
+
+Lens can explain a small, concrete improvement that may make the system safer
+or more capable. You see the proposed change before anything happens.
+
+During the first real-user pilot, Lens will not automatically alter a
+participant’s system. We will only introduce automation after Lens can verify
+that the person’s real work improved — not merely that a file changed.
+
+### 6. Keep control of the result
+
+You can keep the diagnosis private, make a change yourself or leave the system
+exactly as it is.
+
+If you discover a useful capability that could help Dex improve, you may
+separately choose to share a limited summary. Lens shows the exact information
+first, selects nothing by default and asks for fresh approval before anything
+leaves your Mac.
+
+## Keep what you built — and still benefit from Dex
+
+Many people built their own personal AI system after seeing what Dex made
+possible. They should not have to choose between the system they own and the
+capabilities Dex keeps developing.
+
+That is the bridge Dex Lens is being built into:
+
+- **See what Dex offers, ranked for your system.** Dex will publish a signed
+  catalogue of its capabilities, generated only from real releases. Lens
+  compares it — entirely on your machine — with the work you confirmed and the
+  gaps it found, and shows what would genuinely help, with the reason stated
+  for every suggestion.
+- **Understand before you act.** Each capability comes with a plain-English
+  explanation: what it does, what it needs, honest trade-offs, and the
+  evidence that Dex itself ships and uses it.
+- **Let your own AI do the adapting.** When you choose a capability, Lens
+  produces a portable brief written for *your* AI to recreate the idea inside
+  *your* architecture. Lens never applies changes itself, and nothing about
+  your system is ever sent to Dex — the catalogue download is identical for
+  every person in the world.
+
+> **Where this stands today:** the live catalogue connection is designed and
+> in founder review — it is **not** part of the current pilot candidate. Today
+> Lens gives you the private diagnosis and a guided improvement preview; this
+> page will change when the bridge is genuinely live, not before.
+
+## What you receive
+
+- **A map of the work your AI system is meant to support**, checked and
+  corrected by you.
+- **A plain-English view of its strengths and gaps**, connected to that real
+  work.
+- **A confidence label for every finding**, so an assumption never masquerades
+  as proof.
+- **A review of tools and access**, including permissions that may be broader
+  than necessary.
+- **A prioritized improvement preview**, without a silent edit or forced
+  migration.
+- **An optional, carefully limited way to contribute**, only when you
+  explicitly choose to.
+
+## The trust boundary
+
+| Your question | Dex Lens promise |
 | --- | --- |
-| **Reads** | Supported setup files inside the folder you select, such as instructions, skills, and configuration. It does not silently widen that folder. |
-| **Changes during diagnosis** | Nothing. The diagnosis is read-only. |
-| **Changes after a separate approval** | None in the first real-user pilot. The recovery machinery is tested on isolated synthetic files, but Lens will not confuse “a file was created” with “your real job improved.” |
-| **Sends during diagnosis or adaptation** | Nothing. Those stages require no account and make no external connection. |
-| **Sends if you choose to contribute** | Only the exact sanitized Capability Card and disclosure bytes shown to you for approval. No sharing is selected by default. |
+| **Does diagnosis change my system?** | No. Diagnosis is read-only. |
+| **Does it upload my setup?** | No. The diagnosis runs locally on your Mac. |
+| **Do I need an account?** | No. There is no account or analytics in the diagnosis. |
+| **Can it inspect anything it wants?** | No. You choose the folder, and Lens does not silently widen that boundary. |
+| **Will it automatically “fix” my system?** | Not in the first participant pilot. Lens can explain and preview an improvement, but it does not apply it. |
+| **Can anything be shared?** | Only if you choose to contribute, review the exact limited summary and approve that specific information. Nothing is selected by default. |
+| **What happens if the safety boundary cannot be proven?** | The deeper check stays unavailable. Lens uses a more limited guided route rather than hoping for the best. |
 
-## Safety in plain English
+## Evidence without theatre
 
-Lens uses operating-system controls, not a polite promise, to keep deep
-inspection read-only and offline. A **sandbox** is a restricted process that the
-operating system prevents from writing files, contacting the internet, or
-launching other commands.
+AI products often sound more certain than their evidence allows. Dex Lens
+deliberately uses four levels:
 
-If the Mac cannot prove that stronger sandbox is available, Lens does not carry
-on and hope for the best. It switches to a more limited guided path where you
-provide bounded evidence yourself. This is what **fail closed** means: when a
-safety claim cannot be proven, the risky route stays unavailable.
+- **Verified** — Lens directly demonstrated it with a supported check.
+- **Supported** — good evidence exists, but the full real-world job was not
+  demonstrated.
+- **Reported** — you told Lens it works; Lens has not independently proved it.
+- **Unknown** — the available evidence does not justify a stronger claim.
 
-Lens also keeps four evidence levels separate:
+There is no overall score. A single number would hide the difference between a
+well-configured tool, a capability that has been observed working and an
+outcome that has genuinely improved someone’s work.
 
-- **Verified:** directly demonstrated by a supported check.
-- **Supported:** good evidence exists, but the full job was not directly demonstrated.
-- **Reported:** you told Lens it works; Lens has not independently proved it.
-- **Unknown:** the available evidence cannot support a stronger claim.
+## What Dex Lens is — and is not
 
-The test suite includes deliberately hostile setup files, planted secrets,
-path escapes, prompt injection, sabotaged verification, interrupted changes,
-and withdrawal failures. The technical evidence and remaining limitations live
-in [the build status](docs/STATUS.md) and [risk register](docs/RISK-REGISTER.md).
+**Dex Lens is:**
 
-## What is available now
+- an independent second opinion on the personal AI system you already own;
+- a way to understand capability, evidence, access and gaps in human terms;
+- private and read-only during diagnosis;
+- a bridge for deliberately bringing selected Dex capabilities into your own
+  system, on your terms (in design and build now); and
+- designed to help you make a better decision about what to trust or improve.
 
-The pilot candidate contains the complete local journey:
+**Dex Lens is not:**
 
-- private diagnosis and editable Job Map;
-- evidence-backed Capability Map;
-- a guided improvement preview, plus isolated synthetic tests of approval,
-  recovery, receipts, and undo (real-user automation remains unavailable);
-- optional Capability Card review, disclosure, consent, submission, and withdrawal;
-- pilot enrolment, measurement, safety-gate, runbook, and evidence-pack machinery.
+- a requirement to adopt Dex;
+- a migration tool disguised as an assessment;
+- a public leaderboard or comparison with somebody else’s system;
+- background surveillance or analytics; or
+- an autonomous repair agent with permission to change your system silently.
 
-M3, the read-only source alpha, is merged in [PR #4](https://github.com/davekilleen/dex-lens/pull/4).
-The M4–M6 pilot candidate is in [draft PR #5](https://github.com/davekilleen/dex-lens/pull/5),
-where the Linux/macOS test matrix and exact-build safety gates are required
-before merge. It remains unmerged and unreleased while delivery review completes.
+## Current status
 
-## What is not complete
+The complete pilot candidate is merged, but Dex Lens is **not yet a supported
+download or finished public release**.
 
-- There is no supported participant setup package or published Dex Lens release yet.
-- No real participant pilot has run, so there is no real-world outcome evidence.
-- Consent wording still needs human review before anyone enrols.
-- The final evidence pack still needs named risk owners and independent safety sign-off.
-- A Mac that cannot prove deep-inspection containment uses the guided path instead.
-- Automated real-user improvements remain unavailable until Lens has a genuine
-  way to observe the Success Contract outcome after real use.
+- No real participant pilot has run yet, so we do not claim real-world outcome
+  evidence.
+- The first pilot will be deliberately small: 6–8 people who use a personal AI
+  system regularly on a Mac.
+- Consent wording will receive human review before enrolment.
+- Named risk owners and an independent safety reviewer are required before the
+  pilot begins.
+- Real-user automation remains unavailable until Lens can observe whether an
+  agreed work outcome genuinely improved.
+- The live bridge to Dex’s capability catalogue is designed and in founder
+  review; it is not yet connected.
 
-## Try the source build
+This is the honest boundary: the code and safety gates are ready for pilot
+delivery preparation, but the evidence that matters next must come from real
+people using it for real work.
 
-This is for developers and invited testers who are comfortable running a local
-source build. Installing it does not scan anything; the first browser screen
-asks which folder may be read.
+## For invited testers and technical evaluators
+
+There is no one-click participant installer yet. Invited testers will receive
+a supported, guided handoff.
+
+Technical evaluators who are comfortable running a local source build can
+inspect the current experience now. Installing it does not scan anything; the
+first browser screen asks which folder may be read.
 
 ```sh
 git clone https://github.com/davekilleen/dex-lens.git
@@ -110,9 +239,33 @@ python3 -m venv .venv
 .venv/bin/dex-lens --no-open /path/to/your/approved-folder
 ```
 
-Open the printed `127.0.0.1` address in a browser. That address means the page is
-served only from your own machine. Press `Ctrl-C` in the terminal to close the
-session.
+Open the printed `127.0.0.1` address in a browser. That address means the page
+is served only from your own machine. Press `Ctrl-C` in the terminal to close
+the session.
+
+## Technical evidence
+
+The plain-English promises above are backed by operating-system controls and
+deliberately hostile testing — not only by application copy.
+
+If the Mac cannot prove that the stronger read-only boundary is available,
+Lens refuses the deeper inspection route. The test suite covers hostile setup
+files, planted secrets, attempts to escape the approved folder, instructions
+that try to manipulate the assessor, interrupted changes and failed
+withdrawals.
+
+The deeper evidence and known limitations are documented in:
+
+- [Build status](./docs/STATUS.md)
+- [Risk register](./docs/RISK-REGISTER.md)
+- [Architecture](./docs/architecture.md)
+- [Pilot handoff and safety gates](./docs/handoff/)
+
+The read-only source alpha merged in
+[PR #4](https://github.com/davekilleen/dex-lens/pull/4). The complete pilot
+candidate merged in
+[PR #5](https://github.com/davekilleen/dex-lens/pull/5) after the Linux and
+macOS checks and the exact-build safety gates passed.
 
 ## Development
 
@@ -123,18 +276,21 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. The binding safety
-gates live in [docs/handoff](docs/handoff/), with deeper architecture notes in
-[docs/architecture.md](docs/architecture.md).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before changing code.
 
 ## Background
 
 Dex Lens grew from a public product-design effort in the Dex repository
 ([issue #347](https://github.com/davekilleen/Dex/issues/347) and #348–#357).
-Internally, the optional contribution machinery is called the Dex Capability
-Exchange. The public product name is **Dex Lens**.
+
+Internally, the optional contribution mechanism is called the Dex Capability
+Exchange. The public product is **Dex Lens**: the independent lens through
+which you understand the personal AI operating system you already use.
+
+Learn more about Dex at [heydex.ai](https://heydex.ai).
 
 ## License
 
-A licence has not been chosen yet. Until one is added, all rights are reserved.
-The code is public so its safety claims can be inspected rather than taken on trust.
+A licence has not been chosen yet. Until one is added, all rights are
+reserved. The code is public so its safety claims can be inspected rather than
+taken on trust.
