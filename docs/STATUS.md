@@ -16,8 +16,11 @@ observed participant evidence, and no completed independent sign-off.
 
 The next programme of work is the **live capability bridge** — the consented
 connection from a person's own system to Dex's signed release catalogue. Its
-design document is in founder review on a working branch; none of it is built
-yet.
+design was approved by Dave on 2026-08-11
+(`docs/superpowers/specs/2026-08-11-dex-lens-live-capability-bridge-design.md`)
+and the build is starting under
+`docs/superpowers/plans/2026-08-11-live-capability-bridge-plan.md`; none of it
+is built or connected yet, and the public README says so.
 
 ## Milestones
 
