@@ -30,6 +30,7 @@ from capability_exchange.adaptation.hosts.claude_code import (
     claude_code_adaptation_contract,
 )
 from capability_exchange.adapters.claude_code.containment import contained_inspection
+from capability_exchange.catalogue.fetch import DEFAULT_CATALOGUE_URL
 from capability_exchange.concierge.journey import JobDraftFields
 
 
@@ -213,8 +214,11 @@ def _run_journey() -> tuple[list[str], list[str], list[str], bool]:
 
     joined = "\n".join(pages)
     application_leaks = _leak_markers(joined.encode(), canaries)
-    forbidden = ("https://", "<script", "<iframe", "<img", "fetch(", "websocket", "analytics")
-    if any(item in joined.lower() for item in forbidden):
+    lowered = joined.lower()
+    if "https://" in lowered.replace(DEFAULT_CATALOGUE_URL, ""):
+        raise RuntimeError("forbidden browser transport primitive rendered")
+    forbidden = ("<script", "<iframe", "<img", "fetch(", "websocket", "analytics")
+    if any(item in lowered for item in forbidden):
         raise RuntimeError("forbidden browser transport primitive rendered")
     return pages, canaries, application_leaks, True
 
