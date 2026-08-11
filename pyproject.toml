@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 dependencies = [
+    "cryptography>=43",
     "pydantic>=2",
 ]
 

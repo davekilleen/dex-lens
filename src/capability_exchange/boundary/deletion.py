@@ -104,6 +104,9 @@ ADAPTATION_OUTCOME_EVIDENCE_GLOB = "outcome-*.json"
 PILOT_GATE_EVIDENCE_GLOB = "pilot-build-gate*.json"
 TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 
+#: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
+LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
+
 
 def delete_crash_logs(directory: Path) -> list[Path]:
     """Deletion path ``delete-crash-logs``: remove all crash-log files.
@@ -181,3 +184,12 @@ def delete_tabletop_evidence(directory: Path) -> list[Path]:
 
 
 register_deletion_path("delete-tabletop-evidence", delete_tabletop_evidence)
+
+
+def delete_lens_catalogue_cache(directory: Path) -> list[Path]:
+    """Remove the verified public Dex catalogue cache."""
+
+    return _delete_matching(directory, LENS_CATALOGUE_CACHE_FILE)
+
+
+register_deletion_path("delete-lens-catalogue-cache", delete_lens_catalogue_cache)

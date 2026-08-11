@@ -1,4 +1,9 @@
-"""Signed Capability Catalog verification with fail-closed fallback (R4)."""
+"""Legacy Card/Core release-entry catalogue verifier.
+
+The live Dex Lens bridge uses ``capability_exchange.catalogue.v2`` for its
+jobs/evidence/compatibility/portable-brief contract. This module remains the
+older Card/Core ``SignedCatalog`` verifier for release-entry payloads only.
+"""
 
 from __future__ import annotations
 

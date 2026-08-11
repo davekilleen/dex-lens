@@ -5361,3 +5361,489 @@ fields:
     sharing: never
     deletion: delete-tabletop-evidence
     audit: "durable local R7 recovery provenance"
+
+  CatalogueMetadataV2.contract_version:
+    description: "closed Lens catalogue contract version for a public Dex catalogue envelope"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as the exact v2 contract string before the catalogue is used"
+    display: "shown in local catalogue diagnostics, not sent anywhere"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  CatalogueMetadataV2.catalog_version:
+    description: "monotonic public Dex catalogue version used for rollback refusal"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a positive integer; compared against the highest locally verified version"
+    display: "shown in local catalogue diagnostics and stale/offline states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; highest seen value is stored separately in VerifiedCatalogueCacheV2"
+
+  CatalogueMetadataV2.produced_at:
+    description: "timezone-aware timestamp for when Dex Core produced the public catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "naive timestamps are rejected; used with expires_at for freshness"
+    display: "shown as catalogue age in local diagnostics and offline fallback states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  CatalogueMetadataV2.expires_at:
+    description: "timezone-aware timestamp after which Lens refuses the public catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "must be after produced_at and after local verification time"
+    display: "shown as catalogue freshness limit in local diagnostics and offline fallback states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  CatalogueMetadataV2.producer:
+    description: "plain identity of the catalogue-producing Dex release process"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty string"
+    display: "shown in local catalogue diagnostics so the source is understandable"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  CatalogueMetadataV2.core_release:
+    description: "public Dex Core release tag that produced this catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty string; used as release provenance for stale/offline display"
+    display: "shown in local catalogue diagnostics and stale/offline states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  CatalogueMetadataV2.key_id:
+    description: "id of the pinned Dex public key used to verify this catalogue"
+    collection: "authored by the Dex Core release pipeline and checked against Lens pinned keys"
+    derivation: "verification refuses unknown key ids before catalogue use"
+    display: "shown in local catalogue diagnostics for support and audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; re-verified from the stored envelope when loaded"
+
+  JobTaxonomyEntryV2.job_id:
+    description: "stable public Dex job taxonomy id used by catalogue entries"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and cross-checked against capability job references"
+    display: "used to organize the local full shelf by confirmed jobs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  JobTaxonomyEntryV2.label:
+    description: "human-readable label for a public Dex job taxonomy entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown in the local catalogue shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  JobTaxonomyEntryV2.description:
+    description: "plain description of a public Dex job taxonomy entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown in the local catalogue shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  JobTaxonomyEntryV2.confirmed_gap_signals:
+    description: "public examples of confirmed job gaps that may match a user's private map locally"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple; matching happens locally and never leaves Lens"
+    display: "used locally to explain why a capability may be relevant"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityEvidenceV2.level:
+    description: "Evidence Level for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline from release evidence"
+    derivation: "validated against the closed Evidence Level vocabulary used by Lens"
+    display: "shown with the capability entry so proof is not overstated"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityEvidenceV2.source:
+    description: "non-secret public source label for one capability evidence item"
+    collection: "authored by the Dex Core release pipeline from public release evidence"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown with the capability entry so the person can understand the source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityEvidenceV2.summary:
+    description: "plain public evidence summary for a Dex capability"
+    collection: "authored by the Dex Core release pipeline from public release evidence"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityEvidenceV2.limitations:
+    description: "plain public limitation statement for one capability evidence item"
+    collection: "authored by the Dex Core release pipeline from public release evidence"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown with the capability entry to avoid overstating Dex capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.host_adapters:
+    description: "public list of Host Adapter ids a capability entry says it can speak to"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique kebab-case ids"
+    display: "used locally to filter and explain compatibility"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.foundation_capabilities:
+    description: "public Foundation Capability ids a Dex capability can support"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique kebab-case ids"
+    display: "used locally for ranking and explanation against the private Capability Map"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.minimum_lens_contract:
+    description: "minimum Lens contract version required for this public capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as semver"
+    display: "used locally to avoid presenting entries this Lens cannot explain safely"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityCompatibilityV2.limitations:
+    description: "public compatibility limitations for a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of text; rendered as escaped text"
+    display: "shown locally so compatibility is not overstated"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityPortableBriefV2.headline:
+    description: "public headline for the portable brief section of one capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityPortableBriefV2.adaptation_notes:
+    description: "public notes the person's own AI can use after the person exports a brief"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of text; kept inert until the person explicitly exports"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityPortableBriefV2.safety_notes:
+    description: "public safety notes for adapting one capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of text; rendered as escaped text"
+    display: "included in the local portable brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.capability_id:
+    description: "stable public Dex capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and unique inside the catalogue"
+    display: "used locally to identify capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.title:
+    description: "human-readable title for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.summary:
+    description: "plain public summary of a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.jobs:
+    description: "public job taxonomy ids this capability can help with"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adapting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.evidence:
+    description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a non-empty bounded tuple"
+    display: "shown locally with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.compatibility:
+    description: "public compatibility declaration for this capability (nested CapabilityCompatibilityV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated structurally before the capability can be shown"
+    display: "used locally for ranking and explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.docs_url:
+    description: "public documentation URL for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as an inert link target by local views"
+    display: "shown locally as a documentation reference"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.since_release:
+    description: "public Core release version that first published this capability"
+    collection: "derived by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining new or changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.changed_in:
+    description: "public Core release versions where this capability materially changed"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "set by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.portable_brief:
+    description: "public portable brief content for this capability (nested CapabilityPortableBriefV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated structurally and rendered as text"
+    display: "included in the local portable brief the person can export"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  PortableBriefContractV2.format:
+    description: "closed output format for the portable brief contract"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as markdown only"
+    display: "used locally by the brief exporter"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  PortableBriefContractV2.audience:
+    description: "closed audience declaration for the portable brief"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as the person's own AI system"
+    display: "shown locally so the brief purpose is clear"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  PortableBriefContractV2.safety_boundary:
+    description: "public safety boundary for portable brief use"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally before export"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueV2.jobs_taxonomy:
+    description: "public Dex jobs taxonomy carried by the signed catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique job entries and cross-checked against capabilities"
+    display: "used locally to organize the full capability shelf"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueV2.capabilities:
+    description: "public Dex capability entries carried by the signed catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique entries against the closed catalogue contract"
+    display: "used locally to rank and browse Dex capabilities"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueV2.portable_brief:
+    description: "public portable brief contract for the catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated structurally before any brief can be exported"
+    display: "used locally by the portable brief exporter"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SignedCatalogueEnvelopeV2.metadata:
+    description: "public signed catalogue metadata (nested CatalogueMetadataV2 entries apply)"
+    collection: "loaded from a consented public Dex catalogue fetch or local verified cache"
+    derivation: "signature verified with a pinned public key before catalogue use"
+    display: "used locally for catalogue diagnostics and freshness states"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  SignedCatalogueEnvelopeV2.catalogue:
+    description: "public Dex catalogue body (nested CatalogueV2 entries apply)"
+    collection: "loaded from a consented public Dex catalogue fetch or local verified cache"
+    derivation: "signature verified with a pinned public key before catalogue use"
+    display: "used locally for the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SignedCatalogueEnvelopeV2.signature:
+    description: "base64 Ed25519 signature over metadata and catalogue"
+    collection: "authored by the Dex Core release pipeline and checked locally by Lens"
+    derivation: "decoded as base64 and verified against Lens pinned public keys"
+    display: "shown only in local diagnostics/support if needed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public integrity metadata; contains no personal system data"
+
+  VerifiedCatalogueCacheV2.verified_envelope_json:
+    description: "last verified public Dex catalogue envelope JSON, stored after local signature verification"
+    collection: "written locally only after Lens verifies a consent-fetched public catalogue"
+    derivation: "serialized from SignedCatalogueEnvelopeV2 after signature verification; re-verified on every load"
+    display: "not displayed raw; parsed locally to show catalogue age and entries"
+    storage:
+      location: "Lens app storage file lens-catalogue-v2-cache.json"
+      duration: "until the person clears Lens app storage or the cache deletion path runs"
+    sharing: never
+    deletion: delete-lens-catalogue-cache
+    audit: "public Dex catalogue data only; no fields from the person's system are included"
+
+  VerifiedCatalogueCacheV2.highest_catalog_version:
+    description: "highest public Dex catalogue version Lens has verified locally"
+    collection: "written locally after successful signature verification"
+    derivation: "copied from verified metadata.catalog_version and used to refuse rollback"
+    display: "shown in local diagnostics if catalogue rollback or cache state matters"
+    storage:
+      location: "Lens app storage file lens-catalogue-v2-cache.json"
+      duration: "until the person clears Lens app storage or the cache deletion path runs"
+    sharing: never
+    deletion: delete-lens-catalogue-cache
+    audit: "public version metadata only; no fields from the person's system are included"
+
+  VerifiedCatalogueCacheV2.verified_at:
+    description: "timezone-aware local timestamp for when the cached catalogue last verified"
+    collection: "recorded locally when Lens saves a verified public catalogue"
+    derivation: "current local verification time; naive timestamps are rejected on load"
+    display: "shown locally as catalogue cache age"
+    storage:
+      location: "Lens app storage file lens-catalogue-v2-cache.json"
+      duration: "until the person clears Lens app storage or the cache deletion path runs"
+    sharing: never
+    deletion: delete-lens-catalogue-cache
+    audit: "local cache metadata only; no fields from the person's system are included"
