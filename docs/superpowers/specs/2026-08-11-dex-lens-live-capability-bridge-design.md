@@ -1,5 +1,5 @@
 # Dex Lens live capability bridge — design
-Status: DRAFT, revision 2, for Dave's review (Roughdraft). Nothing here is built. Implementation starts only after Dave approves this document.
+Status: **APPROVED — Dave Killeen, 2026-08-11**, relayed via the Front Desk after his Roughdraft review ("all looks good"). Revision 2 incorporates all seven of his review comments from the first pass. If any additional annotations surface from his review session, they will be folded in as tracked amendments. Nothing here is built yet; implementation proceeds under the companion plan in `docs/superpowers/plans/`.
 
 Date: 2026-08-11. Author: Fable 5 session (thread thr_25m7xetm6a), continuing the design brainstorm Dave started. Revision 2 incorporates Dave's seven review comments from the first Roughdraft pass. Binding prior material: `docs/handoff/HANDOFF.md` (gates G1–G6, R1–R7) and the Build Card `dex-lens-live-capability-bridge` (dex-cards PR #31).
 
