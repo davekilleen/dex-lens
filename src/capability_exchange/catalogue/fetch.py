@@ -22,6 +22,7 @@ from pydantic import Field, field_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.catalogue.v2 import (
+    CatalogueV2,
     CatalogueVerificationError,
     KeyRing,
     SignedCatalogueEnvelopeV2,
@@ -112,10 +113,23 @@ class CatalogueFetchResult:
     verified: SignedCatalogueEnvelopeV2 | None
     stale: SignedCatalogueEnvelopeV2 | None
     fetched_at: datetime
+    catalogue: CatalogueV2 | None = None
 
     @property
     def usable(self) -> bool:
-        return self.status is CatalogueFetchStatus.VERIFIED and self.verified is not None
+        return self.status is CatalogueFetchStatus.VERIFIED and (
+            self.verified is not None or self.catalogue is not None
+        )
+
+    @property
+    def display_catalogue(self) -> CatalogueV2 | None:
+        if self.catalogue is not None:
+            return self.catalogue
+        if self.verified is not None:
+            return self.verified.catalogue
+        if self.stale is not None:
+            return self.stale.catalogue
+        return None
 
     def record(self, consent: CatalogueFetchConsent) -> CatalogueFetchRecord:
         return CatalogueFetchRecord(
@@ -182,6 +196,7 @@ class ConsentedCatalogueFetcher:
             verified=verified,
             stale=None,
             fetched_at=fetched_at,
+            catalogue=verified.catalogue,
         )
 
     def _offline_result(self, fetched_at: datetime, message: str) -> CatalogueFetchResult:
@@ -203,4 +218,5 @@ class ConsentedCatalogueFetcher:
             verified=None,
             stale=stale,
             fetched_at=fetched_at,
+            catalogue=stale.catalogue,
         )

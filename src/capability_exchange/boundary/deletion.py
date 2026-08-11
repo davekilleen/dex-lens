@@ -106,6 +106,7 @@ TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 
 #: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
 LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
+LENS_CATALOGUE_SUBSCRIPTION_FILE = "lens-catalogue-v2-subscription.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -193,3 +194,15 @@ def delete_lens_catalogue_cache(directory: Path) -> list[Path]:
 
 
 register_deletion_path("delete-lens-catalogue-cache", delete_lens_catalogue_cache)
+
+
+def delete_lens_catalogue_subscription(directory: Path) -> list[Path]:
+    """Remove the durable public-catalogue update subscription record."""
+
+    return _delete_matching(directory, LENS_CATALOGUE_SUBSCRIPTION_FILE)
+
+
+register_deletion_path(
+    "delete-lens-catalogue-subscription",
+    delete_lens_catalogue_subscription,
+)

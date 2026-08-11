@@ -39,11 +39,17 @@ from capability_exchange.adapters.claude_code.contract import claude_code_contra
 from capability_exchange.boundary.deletion import DeletionError
 from capability_exchange.cards import CapabilityCard
 from capability_exchange.catalogue.fetch import (
+    CONSENT_STATEMENT,
     DEFAULT_CATALOGUE_URL,
     CatalogueFetchConsent,
     CatalogueFetchResult,
     CatalogueFetchStatus,
     ConsentedCatalogueFetcher,
+)
+from capability_exchange.catalogue.subscription import (
+    CatalogueSubscriptionStore,
+    default_lens_app_storage,
+    require_app_storage_outside_roots,
 )
 from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 from capability_exchange.concierge.collection import (
@@ -156,6 +162,9 @@ class ConciergeSession:
     catalogue_store: VerifiedCatalogueStore | None = None
     catalogue_keyring: KeyRing | None = None
     catalogue_fetcher: ConsentedCatalogueFetcher | None = None
+    app_storage: Path | None = None
+    catalogue_subscription_store: CatalogueSubscriptionStore | None = None
+    startup_catalogue_fetch_result: CatalogueFetchResult | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -177,9 +186,16 @@ class ConciergeSession:
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
+        if self.app_storage is None:
+            self.app_storage = default_lens_app_storage(self.approved_roots)
+        require_app_storage_outside_roots(self.app_storage, self.approved_roots)
         if self.catalogue_store is None:
             self.catalogue_store = VerifiedCatalogueStore(
-                Path(self.tempdir.name) / "catalogue-cache"
+                self.app_storage
+            )
+        if self.catalogue_subscription_store is None:
+            self.catalogue_subscription_store = CatalogueSubscriptionStore(
+                self.app_storage
             )
         if self.catalogue_fetcher is None:
             self.catalogue_fetcher = ConsentedCatalogueFetcher(
@@ -206,6 +222,11 @@ class ConciergeSession:
             now=self.now,
             adapter_contract=contract,
         )
+        assert self.catalogue_subscription_store is not None
+        self.journey.catalogue_subscription_record = (
+            self.catalogue_subscription_store.load()
+        )
+        self._fetch_subscribed_catalogue_once()
         self._security = SessionSecurity(
             bootstrap_token=self.bootstrap_token,
             session_token=self.session_token,
@@ -220,6 +241,22 @@ class ConciergeSession:
         self._expiry_timer = threading.Timer(delay, self.terminate_and_wait)
         self._expiry_timer.daemon = True
         self._expiry_timer.start()
+
+    def _fetch_subscribed_catalogue_once(self) -> None:
+        assert self.catalogue_subscription_store is not None
+        assert self.catalogue_fetcher is not None
+        subscription = self.catalogue_subscription_store.load()
+        if not subscription.subscribed:
+            return
+        try:
+            consent = CatalogueFetchConsent(
+                catalogue_url=subscription.catalogue_url,
+                requested_at=self.now(),
+                statement=CONSENT_STATEMENT,
+            )
+        except ValueError:
+            return
+        self.startup_catalogue_fetch_result = self.catalogue_fetcher.fetch(consent)
 
     @property
     def security(self) -> SessionSecurity:
@@ -514,6 +551,10 @@ class ConciergeSession:
     def diagnose(self) -> None:
         with self._state_lock:
             self.journey.diagnose()
+            if self.startup_catalogue_fetch_result is not None:
+                self.journey.record_catalogue_fetch(self.startup_catalogue_fetch_result)
+                if self.startup_catalogue_fetch_result.display_catalogue is not None:
+                    self.journey.open_catalogue_shelf()
             if (
                 self.contribution_identity is not None
                 and self.contribution_intake is not None
@@ -549,6 +590,63 @@ class ConciergeSession:
             result = self.catalogue_fetcher.fetch(consent)
             self.journey.record_catalogue_fetch(result)
             return result
+
+    def open_catalogue_shelf(self) -> None:
+        with self._state_lock:
+            self.journey.open_catalogue_shelf()
+
+    def select_catalogue_brief(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.select_catalogue_brief(form)
+
+    def subscribe_catalogue_updates(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            assert self.catalogue_subscription_store is not None
+            url = _optional(form, "catalogue_url") or self.catalogue_url
+            self.catalogue_subscription_store.subscribe(
+                catalogue_url=url,
+                now=self.now(),
+            )
+            self.journey.catalogue_subscription_record = (
+                self.catalogue_subscription_store.load()
+            )
+
+    def revoke_catalogue_updates(self) -> None:
+        with self._state_lock:
+            assert self.catalogue_subscription_store is not None
+            self.catalogue_subscription_store.revoke(now=self.now())
+            self.journey.catalogue_subscription_record = (
+                self.catalogue_subscription_store.load()
+            )
+
+    def look_catalogue_updates(self) -> None:
+        with self._state_lock:
+            assert self.catalogue_subscription_store is not None
+            result = self.journey.catalogue_fetch_result
+            if result is not None and result.catalog_version is not None:
+                self.catalogue_subscription_store.mark_seen(
+                    catalog_version=result.catalog_version,
+                    now=self.now(),
+                )
+            self.journey.catalogue_subscription_record = (
+                self.catalogue_subscription_store.load()
+            )
+            if self.journey.stage is ConciergeStage.CAPABILITY_MAP:
+                self.journey.open_catalogue_shelf()
+
+    def park_catalogue_updates(self) -> None:
+        with self._state_lock:
+            assert self.catalogue_subscription_store is not None
+            result = self.journey.catalogue_fetch_result
+            if result is None or result.catalog_version is None:
+                raise ValueError("no catalogue update is available to park")
+            self.catalogue_subscription_store.park(
+                catalog_version=result.catalog_version,
+                now=self.now(),
+            )
+            self.journey.catalogue_subscription_record = (
+                self.catalogue_subscription_store.load()
+            )
 
     # M4 stages 7-8 stay behind the same narrow session boundary as the M3
     # journey.  HTTP handlers only parse bounded form fields and call these
@@ -671,6 +769,8 @@ def new_session(
     catalogue_store: VerifiedCatalogueStore | None = None,
     catalogue_keyring: KeyRing | None = None,
     catalogue_fetcher: ConsentedCatalogueFetcher | None = None,
+    app_storage: Path | None = None,
+    catalogue_subscription_store: CatalogueSubscriptionStore | None = None,
 ) -> ConciergeSession:
     """Create a session with expiry derived from the supplied clock."""
     return ConciergeSession(
@@ -686,6 +786,8 @@ def new_session(
         catalogue_store=catalogue_store,
         catalogue_keyring=catalogue_keyring,
         catalogue_fetcher=catalogue_fetcher,
+        app_storage=app_storage,
+        catalogue_subscription_store=catalogue_subscription_store,
     )
 
 
@@ -815,6 +917,32 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             self._journey_action(
                 lambda submitted: self.server.session.fetch_catalogue(submitted),
                 form,
+            )
+            return
+        if parsed.path == "/catalogue/shelf":
+            self._journey_action(
+                lambda ignored: self.server.session.open_catalogue_shelf(), form
+            )
+            return
+        if parsed.path == "/catalogue/brief":
+            self._journey_action(self.server.session.select_catalogue_brief, form)
+            return
+        if parsed.path == "/catalogue/subscribe":
+            self._journey_action(self.server.session.subscribe_catalogue_updates, form)
+            return
+        if parsed.path == "/catalogue/revoke":
+            self._journey_action(
+                lambda ignored: self.server.session.revoke_catalogue_updates(), form
+            )
+            return
+        if parsed.path == "/catalogue/updates/look":
+            self._journey_action(
+                lambda ignored: self.server.session.look_catalogue_updates(), form
+            )
+            return
+        if parsed.path == "/catalogue/updates/park":
+            self._journey_action(
+                lambda ignored: self.server.session.park_catalogue_updates(), form
             )
             return
         if parsed.path in {"/adaptation/select", "/adapt/select"}:

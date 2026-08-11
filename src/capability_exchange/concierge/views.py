@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from capability_exchange.capmap.model import CapabilityMap
 from capability_exchange.capmap.render import render_capability_map as render_map_markdown
 from capability_exchange.cards import canonical_card_bytes
+from capability_exchange.catalogue.bridge import RankedCapabilityMatch
 from capability_exchange.catalogue.fetch import CONSENT_STATEMENT, DEFAULT_CATALOGUE_URL
 from capability_exchange.concierge.journey import (
     CollectionFallback,
@@ -30,6 +31,8 @@ from capability_exchange.jobs import InspectionJob
 __all__ = [
     "render_capability_map",
     "render_capability_map_view",
+    "render_catalogue_brief",
+    "render_catalogue_shelf",
     "render_collecting",
     "render_fallback",
     "render_fallback_view",
@@ -233,6 +236,13 @@ def _catalogue_fetch_panel(journey: ConciergeJourney, csrf_token: str) -> str:
                 f"{_escape(result.catalog_version or 'unknown')} is available for the "
                 "next local bridge stage.</p>"
             )
+            if result.display_catalogue is not None:
+                status += f"""
+        <form method="post" action="/catalogue/shelf">
+          {_csrf(csrf_token)}
+          <div class="actions"><button type="submit">Show full Dex capability shelf</button></div>
+        </form>
+        """
         elif result.status.value == "stale-cache":
             version = _escape(result.catalog_version or "unknown")
             status = (
@@ -240,6 +250,13 @@ def _catalogue_fetch_panel(journey: ConciergeJourney, csrf_token: str) -> str:
                 f"verified public catalogue version {version}, but it is not treated "
                 "as fresh.</p>"
             )
+            if result.display_catalogue is not None:
+                status += f"""
+        <form method="post" action="/catalogue/shelf">
+          {_csrf(csrf_token)}
+          <div class="actions"><button type="submit">Browse stale catalogue</button></div>
+        </form>
+        """
         elif result.status.value == "offline":
             status = "<p><strong>Catalogue fetch is offline.</strong> No catalogue is usable.</p>"
         else:
@@ -263,8 +280,148 @@ def _catalogue_fetch_panel(journey: ConciergeJourney, csrf_token: str) -> str:
           </label>
           <div class="actions"><button type="submit">Fetch public Dex catalogue</button></div>
         </form>
+        <form method="post" action="/catalogue/subscribe">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="catalogue_url" value="{_escape(DEFAULT_CATALOGUE_URL)}">
+          <div class="actions">
+            <button class="secondary" type="submit">Subscribe to public catalogue updates</button>
+          </div>
+        </form>
       </div>
     """
+
+
+def _subscription_update_panel(journey: ConciergeJourney, csrf_token: str) -> str:
+    record = journey.catalogue_subscription_record
+    result = journey.catalogue_fetch_result
+    if record is None or not record.subscribed:
+        return ""
+    if result is None or result.catalog_version is None:
+        return "<p class=\"muted\">Subscribed to public catalogue updates.</p>"
+    parked = ""
+    if record.parked_catalog_version == result.catalog_version:
+        parked = (
+            f'<p class="muted">Parked catalogue update: '
+            f"{_escape(result.catalog_version)}</p>"
+        )
+    last_seen = record.last_seen_catalog_version
+    if (
+        last_seen is not None
+        and result.catalog_version > last_seen
+        and record.parked_catalog_version != result.catalog_version
+    ):
+        return f"""
+      <div class="panel">
+        <h2>Dex catalogue updates are available</h2>
+        <p>Last seen catalogue: {_escape(last_seen)}.
+        New since: {_escape(result.catalog_version)}.</p>
+        <p>This is still just the public signed catalogue; nothing private is sent to Dex.</p>
+        <div class="actions">
+          <form method="post" action="/catalogue/updates/look">
+            {_csrf(csrf_token)}
+            <button type="submit">Look at updates</button>
+          </form>
+          <form method="post" action="/catalogue/updates/park">
+            {_csrf(csrf_token)}
+            <button class="secondary" type="submit">Park this update</button>
+          </form>
+        </div>
+      </div>
+    """
+    return parked
+
+
+def _shelf_items(
+    matches: Iterable[RankedCapabilityMatch],
+    csrf_token: str,
+    *,
+    empty: str,
+) -> str:
+    rendered = ""
+    for match in matches:
+        job_options = "".join(
+            f'<option value="{_escape(job_id)}">{_escape(job_id)}</option>'
+            for job_id in match.matched_job_ids
+        )
+        if not job_options:
+            job_options = '<option value="">No matched job available</option>'
+        rendered += f"""
+      <article class="panel">
+        <h3>{_escape(match.title)}</h3>
+        <p>{_escape(match.match_explanation)}</p>
+        <p>{_escape(match.gap_explanation)}</p>
+        <p>{_escape(match.evidence_explanation)}</p>
+        <p>{_escape(match.compatibility_explanation)}</p>
+        <form method="post" action="/catalogue/brief">
+          {_csrf(csrf_token)}
+          <input type="hidden" name="capability_id" value="{_escape(match.capability_id)}">
+          <label>Confirmed job<select name="job_id" required>{job_options}</select></label>
+          <button type="submit">Open portable brief</button>
+        </form>
+      </article>
+    """
+    return rendered or f'<p class="muted">{_escape(empty)}</p>'
+
+
+def render_catalogue_shelf(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render the read-only bridge shelf after a verified or stale catalogue."""
+
+    result = journey.catalogue_fetch_result
+    status = ""
+    if result is not None and result.status.value == "stale-cache":
+        status = (
+            "<p><strong>Catalogue is stale/offline.</strong> This catalogue is "
+            "not treated as fresh or live; it is shown only as last verified guidance.</p>"
+        )
+    elif result is not None:
+        status = (
+            f'<p class="muted">Catalogue version '
+            f"{_escape(result.catalog_version or 'unknown')}.</p>"
+        )
+    picked = tuple(
+        match for match in journey.catalogue_shelf if match.shelf_section == "picked"
+    )
+    browse = tuple(
+        match for match in journey.catalogue_shelf if match.shelf_section == "browse"
+    )
+    body = f"""
+      <h1>Dex capability shelf</h1>
+      {status}
+      {_subscription_update_panel(journey, csrf_token)}
+      <h2>Picked for your confirmed jobs</h2>
+      {_shelf_items(picked, csrf_token, empty="No picked capabilities for these jobs.")}
+      <h2>Browse the full catalogue</h2>
+      {_shelf_items(
+        browse,
+        csrf_token,
+        empty="Every catalogue capability is already picked above.",
+      )}
+      <form method="post" action="/catalogue/revoke">
+        {_csrf(csrf_token)}
+        <button class="secondary" type="submit">Stop catalogue update subscription</button>
+      </form>
+    """
+    return _document("Dex capability shelf", body)
+
+
+def render_catalogue_brief(journey: ConciergeJourney, csrf_token: str) -> str:
+    """Render one portable brief with copy/save affordances only."""
+
+    body = f"""
+      <h1>Portable brief for your AI</h1>
+      <div class="panel">
+        <p>This brief is advice for your own AI system. It does not grant Lens
+        permission to read, write, send, install, or apply anything.</p>
+        <label>Copy portable brief
+          <textarea readonly>{_escape(journey.catalogue_brief_markdown)}</textarea>
+        </label>
+        <div class="actions">
+          <button type="button">Copy portable brief</button>
+          <button class="secondary" type="button">Save portable brief</button>
+        </div>
+      </div>
+    """
+    return _document("Portable brief", body)
 
 
 def _fallback_level(item: FallbackEvidence) -> str:
@@ -762,6 +919,10 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
             csrf_token=csrf_token,
             journey=journey,
         )
+    if journey.stage is ConciergeStage.CATALOGUE_SHELF:
+        return render_catalogue_shelf(journey, csrf_token=csrf_token)
+    if journey.stage is ConciergeStage.CATALOGUE_BRIEF:
+        return render_catalogue_brief(journey, csrf_token=csrf_token)
     if journey.stage in {
         ConciergeStage.ADAPTATION_SELECT,
         ConciergeStage.ADAPTATION_PREVIEW,
@@ -800,5 +961,7 @@ render_permission_view = render_permission
 render_job_map_view = render_job_map
 render_fallback_view = render_fallback
 render_capability_map_view = render_capability_map
+render_catalogue_shelf_view = render_catalogue_shelf
+render_catalogue_brief_view = render_catalogue_brief
 render_adaptation_view = render_adaptation
 render_contribution_view = render_contribution
