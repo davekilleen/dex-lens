@@ -92,6 +92,18 @@ def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -
                             "Use the person's confirmed Job Map before suggesting changes."
                         ],
                         "safety_notes": ["Do not send the person's system to Dex."],
+                        "method_outline": [
+                            "Read only the confirmed local context source.",
+                            "Store the smallest useful memory with a receipt.",
+                        ],
+                        "verification_checklist": [
+                            "The person can see where the memory came from.",
+                            "The memory can be removed without changing source files.",
+                        ],
+                        "rollback_advice": (
+                            "Delete the stored memory entry; keep the source "
+                            "material untouched."
+                        ),
                     },
                 }
             ],
@@ -121,6 +133,17 @@ def test_valid_signed_catalogue_verifies(
     assert verified.metadata.core_release == "v1.94.0"
     assert verified.catalogue.capabilities[0].capability_id == "dex-durable-memory-provenance"
     assert verified.catalogue.capabilities[0].release_provenance == "core-release"
+    assert verified.catalogue.capabilities[0].portable_brief.method_outline == (
+        "Read only the confirmed local context source.",
+        "Store the smallest useful memory with a receipt.",
+    )
+    assert verified.catalogue.capabilities[0].portable_brief.verification_checklist == (
+        "The person can see where the memory came from.",
+        "The memory can be removed without changing source files.",
+    )
+    assert verified.catalogue.capabilities[0].portable_brief.rollback_advice == (
+        "Delete the stored memory entry; keep the source material untouched."
+    )
 
 
 @pytest.mark.parametrize(
@@ -150,6 +173,20 @@ def test_catalogue_metadata_requires_core_release(
 ) -> None:
     envelope = unsigned_envelope()
     envelope["metadata"].pop("core_release")
+
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["method_outline", "verification_checklist", "rollback_advice"],
+)
+def test_portable_brief_requires_operational_fields(
+    signing_key: Ed25519PrivateKey, keyring: KeyRing, field: str
+) -> None:
+    envelope = unsigned_envelope()
+    envelope["catalogue"]["capabilities"][0]["portable_brief"].pop(field)
 
     with pytest.raises(CatalogueVerificationError, match="schema"):
         verify_catalogue_envelope(sign_envelope(envelope, signing_key), keyring=keyring, now=NOW)
