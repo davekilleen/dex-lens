@@ -23,7 +23,10 @@ def _entry(
         "capability_id": capability_id,
         "title": title,
         "summary": f"{title} strengthens the person's own AI system.",
+        "value": f"{title} helps with the selected local job without replacing the system.",
         "jobs": jobs,
+        "prerequisites": ("The person has confirmed the matching job.",),
+        "trade_offs": ("The brief is guidance only; the person's own AI must adapt it.",),
         "evidence": (
             {
                 "level": evidence_level,
@@ -38,6 +41,10 @@ def _entry(
             "minimum_lens_contract": "0.1.0",
             "limitations": ("Brief only; Lens does not apply changes.",),
         },
+        "docs_url": f"https://heydex.ai/catalogue/{capability_id}",
+        "since_release": "1.80.0",
+        "changed_in": ("1.80.0",),
+        "release_provenance": "core-release",
         "portable_brief": {
             "headline": f"Adapt from {title} without copying private data.",
             "adaptation_notes": (
