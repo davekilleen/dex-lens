@@ -38,11 +38,11 @@ passing run attached.
 | Guided/export-assisted host gets a shelf and brief | Passed live in `tests/e2e/test_bridge_golden_path.py::test_section6_live_golden_path_uses_real_heydex_catalogue` and `scripts/section6_live_bridge_proof.py` | Attached in PR #18 live-proof run 31589662751, artifact 9138582059 |
 | Three briefs are host-appropriate | Passed live: minimal, customised, and guided/export briefs contain host-specific context and are non-identical | Attached in PR #18 live-proof run 31589662751, artifact 9138582059 |
 | Subscription loop across runs | Passed live in `scripts/section6_live_bridge_proof.py`: subscribe, returning one-fetch prompt, park suppression, revoke, and unsubscribed zero-fetch posture | Attached in PR #18 live-proof run 31589662751, artifact 9138582059 |
-| Public copy remains honest | Passing by inspection today | README/About/status still say designed or not connected until proof passes |
+| Public copy remains honest | Passed by inspection after Dave's 2026-08-12 approval: public copy says the bridge is available for the six published capabilities and names Wave 2 as in progress | Public copy shipped in dex-lens `736674b`; verified live in pixels |
 | Signing key exists | Passed by source inspection: `dex-core-lens-1` is pinned in Lens main after Dave returned the public key, and GitHub reports the expected Core secret name exists without exposing the secret value | Key-correspondence still requires the real signed-catalogue proof row above |
 | Initial capability tranche exists | Passed live: the real catalogue carries Dave's approved six entries — Daily Plan, Week Plan, Process Meetings, Dex Doctor, Relationship Radar, Save Insight | Attached in PR #18 live-proof run |
 | Live catalogue deploy | Passed live: heydex.ai serves the signed catalogue from the canonical URL | Attach byte-identity proof against the Core release asset |
-| Public live claim remains held | Passing by inspection today: no README/About/status copy says the bridge is available | Design-owner sign-off, then Dave's final approval before public copy changes |
+| Public live claim approved and shipped | Passed after Dave approved the public availability claim: README and status copy flipped in the same delivery transaction and stayed scoped to six published capabilities | Public copy shipped in dex-lens `736674b`; Wave 2 expansion remains explicitly in progress |
 
 ## Public Copy Approval (hold released)
 
@@ -50,6 +50,12 @@ passing run attached.
   explicitly approved changing README/About/status copy. The proof passing did not
   approve that announcement — Dave did, on 2026-08-12, and the flip shipped at
   dex-lens `736674b`, scoped to the six published capabilities.
+
+## Remaining Programme Work
+
+- Wave 2 expansion: in progress under the ruled nineteen-entry scope. It must keep the
+  same evidence bar: hand-verified evidence per entry, with runtime-path-only entries
+  labelled at the lower support level.
 
 ## Evidence Notes
 

@@ -673,6 +673,9 @@ def test_section6_evidence_pack_records_approval_and_proof_lineage() -> None:
     assert "Only one catalogue version exists" in text
     assert "explicitly approved changing README/About/status copy" in text
     assert "The proof passing did not" in text
+    assert "Public live claim approved and shipped" in text
+    assert "Public copy shipped in dex-lens `736674b`" in text
+    assert "Wave 2 expansion remains explicitly in progress" in text
     assert "Passed in Core PR #473" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
