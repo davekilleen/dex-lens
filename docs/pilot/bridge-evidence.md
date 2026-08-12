@@ -25,9 +25,12 @@ passing run attached.
 | Real catalogue URL is reachable | Not passed | real heydex.ai catalogue URL fetch from `https://heydex.ai/catalogue/dex-lens/v2.json` |
 | Signed catalogue verifies locally | Prepared with local signed fixture | Real Core-signed catalogue verified by Lens |
 | Tampered catalogue fails closed | Prepared with local signed fixture | Formal adversarial run recorded here |
+| Broken Core catalogue refuses release publication | Not passed | Core release-pipeline failure proof for a deliberately broken catalogue entry |
+| Sabotage cases fail safely | Not passed | Adversarial run covering bad signature, rollback, stale cache, private-looking data, wrong host, and refused consent |
 | Minimal first-time host gets a shelf and brief | Prepared with local host fixture | Passing e2e run recorded here |
 | Customised Claude host gets a shelf and brief | Prepared with local host fixture | Passing e2e run recorded here |
 | Guided/export-assisted host gets a shelf and brief | Prepared with local host fixture | Passing e2e run recorded here |
+| Three briefs are host-appropriate | Prepared with local host fixtures | Evidence that the minimal, customised, and guided/export briefs differ for real host context rather than sharing boilerplate |
 | Public copy remains honest | Passing by inspection today | README/About/status still say designed or not connected until proof passes |
 | Release gate remains held | Passing by inspection today | Dave signing-key ceremony and initial tranche decision completed before gate-on |
 

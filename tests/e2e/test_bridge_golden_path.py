@@ -206,3 +206,6 @@ def test_section6_evidence_pack_names_live_gates_that_are_not_proven_yet() -> No
     assert "real heydex.ai catalogue URL fetch" in text
     assert "subscribed-posture packet-level egress" in text
     assert "Dave signing-key ceremony" in text
+    assert "Core release-pipeline failure proof" in text
+    assert "Sabotage cases fail safely" in text
+    assert "Three briefs are host-appropriate" in text
