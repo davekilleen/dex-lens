@@ -1,14 +1,16 @@
 # Dex Lens Live Capability Bridge Evidence Pack
 
-Status: SECTION-6 PROOF PASSED, PUBLIC COPY HELD. Local Lens-side proof rows are
-marked passed only where automated tests prove them. Live rows are marked passed
-only where the real `https://heydex.ai/catalogue/dex-lens/v2.json` catalogue was
-fetched and verified.
+Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE
+(2026-08-12) AND SHIPPED at dex-lens `736674b`, verified live in pixels. Local
+Lens-side proof rows are marked passed only where automated tests prove them.
+Live rows are marked passed only where the real
+`https://heydex.ai/catalogue/dex-lens/v2.json` catalogue was fetched and verified.
 
-Plain-English summary: the real signed Dex catalogue is now served from the
-approved heydex.ai URL and Lens verifies it against Dave's pinned public key. The
-section-6 proof has passed; the remaining hold before any public "live" claim is
-Dave's explicit approval to change public copy.
+Plain-English summary: the real signed Dex catalogue is served from the approved
+heydex.ai URL and Lens verifies it against Dave's pinned public key. The
+section-6 proof has passed, Dave approved the public availability wording, and
+the public README/status flip shipped the same hour, scoped to the six published
+capabilities with the Wave 2 expansion honestly marked in progress.
 
 ## What This Evidence Pack Is For
 
