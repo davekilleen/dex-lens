@@ -668,6 +668,9 @@ def test_section6_evidence_pack_keeps_public_copy_hold_visible() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
 
     assert "Status: SECTION-6 PROOF PASSED, PUBLIC COPY HELD" in text
+    assert "run 31589662751, artifact 9138582059" in text
+    assert "`subscribed_prompt_rendered: false`" in text
+    assert "Only one catalogue version exists" in text
     assert "Dave explicitly approves changing README/About/status copy" in text
     assert "The proof passing does not approve that announcement" in text
     assert "Passed in Core PR #473" in text
