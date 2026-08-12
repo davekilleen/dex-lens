@@ -44,10 +44,12 @@ passing run attached.
 | Live catalogue deploy | Passed live: heydex.ai serves the signed catalogue from the canonical URL | Attach byte-identity proof against the Core release asset |
 | Public live claim remains held | Passing by inspection today: no README/About/status copy says the bridge is available | Design-owner sign-off, then Dave's final approval before public copy changes |
 
-## Remaining Hold
+## Public Copy Approval (hold released)
 
-- Public copy: held until Dave explicitly approves changing README/About/status copy to
-  say the bridge is available. The proof passing does not approve that announcement.
+- The hold worked as designed: public copy stayed at designed/not-connected until Dave
+  explicitly approved changing README/About/status copy. The proof passing did not
+  approve that announcement — Dave did, on 2026-08-12, and the flip shipped at
+  dex-lens `736674b`, scoped to the six published capabilities.
 
 ## Evidence Notes
 
