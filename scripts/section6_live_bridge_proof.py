@@ -103,7 +103,10 @@ class _ReleaseValidatingResponse:
         return self
 
     def __exit__(self, *args: object) -> object:
-        return self._response.__exit__(*args)
+        try:
+            return self._response.__exit__(*args)
+        finally:
+            self._entered = None
 
     def read(self) -> bytes:
         if self._entered is None:
@@ -466,15 +469,25 @@ def _stop_capture(
     if capture is None:
         return False, ""
     process, stream = capture
-    if process.poll() is None:
-        process.send_signal(signal.SIGINT)
     try:
-        _, capture_stderr = process.communicate(timeout=10)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        _, capture_stderr = process.communicate()
-    stream.close()
-    return process.returncode == 0, capture_stderr
+        if process.poll() is None:
+            process.send_signal(signal.SIGINT)
+        try:
+            _, capture_stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            _, capture_stderr = process.communicate()
+        return process.returncode == 0, capture_stderr
+    except BaseException:
+        try:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+        except BaseException:
+            pass
+        raise
+    finally:
+        stream.close()
 
 
 def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
@@ -547,21 +560,26 @@ def main() -> int:
 
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
     pcap = args.artifact_dir / "section6-live.pcap"
-    capture = _start_capture(pcap)
+    capture: tuple[subprocess.Popen[str], Any] | None = None
     capture_ready = False
+    capture_clean_exit = False
     capture_stderr = ""
-    if capture is not None:
-        capture_ready = _capture_ready(capture[0])
-
     journey: dict[str, Any] | None = None
     failure: dict[str, str] | None = None
     try:
+        capture = _start_capture(pcap)
+        if capture is not None:
+            capture_ready = _capture_ready(capture[0])
         with tempfile.TemporaryDirectory(prefix="dex-section6-live-") as tmp:
             journey = _run_live_journey(Path(tmp), expected)
     except Exception as error:
         failure = {"type": type(error).__name__, "message": str(error)}
-
-    capture_clean_exit, capture_stderr = _stop_capture(capture)
+    finally:
+        try:
+            capture_clean_exit, capture_stderr = _stop_capture(capture)
+        except Exception as error:
+            if failure is None:
+                failure = {"type": type(error).__name__, "message": str(error)}
     packet: dict[str, Any] = {}
     if capture_ready and pcap.is_file():
         try:

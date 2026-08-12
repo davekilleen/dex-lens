@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 from dataclasses import replace
@@ -20,7 +21,9 @@ from capability_exchange.catalogue.release_acceptance import (
 from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
 
 
-def _release() -> tuple[bytes, object, CatalogueReleaseExpectation]:
+def _release(
+    capability_ids: tuple[str, ...] = ("dex-durable-memory-provenance",),
+) -> tuple[bytes, object, CatalogueReleaseExpectation]:
     signing_key = Ed25519PrivateKey.from_private_bytes(
         b"dex-lens-catalogue-v2-test-key!!"
     )
@@ -29,6 +32,13 @@ def _release() -> tuple[bytes, object, CatalogueReleaseExpectation]:
         PublicFormat.Raw,
     )
     envelope = unsigned_envelope()
+    template = envelope["catalogue"]["capabilities"][0]
+    envelope["catalogue"]["capabilities"] = []
+    for capability_id in capability_ids:
+        capability = copy.deepcopy(template)
+        capability["capability_id"] = capability_id
+        capability["title"] = capability_id.replace("-", " ").title()
+        envelope["catalogue"]["capabilities"].append(capability)
     raw = sign_envelope(envelope, signing_key).encode("utf-8")
     verified = verify_catalogue_envelope(
         raw.decode("utf-8"),
@@ -46,9 +56,9 @@ def _release() -> tuple[bytes, object, CatalogueReleaseExpectation]:
         key_id="dex-core-2026-08-test",
         raw_sha256=hashlib.sha256(raw).hexdigest(),
         catalog_version=7,
-        capability_count=1,
+        capability_count=len(capability_ids),
         job_count=1,
-        capability_ids=("dex-durable-memory-provenance",),
+        capability_ids=capability_ids,
     )
 
 
@@ -62,6 +72,23 @@ def test_exact_release_expectation_accepts_the_matching_signed_bytes() -> None:
     assert observed.catalog_version == expected.catalog_version
     assert observed.capability_ids == expected.capability_ids
     assert observed.job_count == expected.job_count
+
+
+def test_release_acceptance_preserves_complete_capability_order() -> None:
+    raw, verified, expected = _release(
+        ("dex-durable-memory-provenance", "second-capability")
+    )
+
+    assert assert_catalogue_release(raw, verified, expected).capability_ids == (
+        "dex-durable-memory-provenance",
+        "second-capability",
+    )
+    with pytest.raises(CatalogueReleaseMismatch, match="capability ids"):
+        assert_catalogue_release(
+            raw,
+            verified,
+            replace(expected, capability_ids=tuple(reversed(expected.capability_ids))),
+        )
 
 
 @pytest.mark.parametrize(
@@ -157,4 +184,32 @@ def test_release_manifest_refuses_unknown_or_missing_contract_fields(
     )
 
     with pytest.raises(ValueError, match="manifest fields"):
+        load_catalogue_release_expectation(manifest)
+
+
+def test_release_manifest_refuses_duplicate_json_keys(tmp_path: Path) -> None:
+    manifest = tmp_path / "release.json"
+    source = Path("docs/pilot/live-catalogue-release.json").read_text(encoding="utf-8")
+    manifest.write_text(
+        source.replace(
+            '"schema_version": 1,',
+            '"schema_version": 1,\n  "schema_version": 1,',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate.*schema_version"):
+        load_catalogue_release_expectation(manifest)
+
+
+def test_release_manifest_refuses_boolean_schema_version(tmp_path: Path) -> None:
+    manifest = tmp_path / "release.json"
+    value = json.loads(
+        Path("docs/pilot/live-catalogue-release.json").read_text(encoding="utf-8")
+    )
+    value["schema_version"] = True
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version"):
         load_catalogue_release_expectation(manifest)

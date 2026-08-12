@@ -31,6 +31,15 @@ _MANIFEST_FIELDS = {
 }
 
 
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON key: {key}")
+        value[key] = item
+    return value
+
+
 class CatalogueReleaseMismatch(RuntimeError):
     """A valid signed catalogue is not the exact release being certified."""
 
@@ -91,7 +100,10 @@ def load_catalogue_release_expectation(path: Path) -> CatalogueReleaseExpectatio
     """Load one strict, versioned release expectation manifest."""
 
     try:
-        value: Any = json.loads(path.read_text(encoding="utf-8"))
+        value: Any = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_json_object,
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"release expectation manifest is unreadable: {error}") from error
     if not isinstance(value, dict):
@@ -103,7 +115,7 @@ def load_catalogue_release_expectation(path: Path) -> CatalogueReleaseExpectatio
         raise ValueError(
             f"release expectation manifest fields mismatch: missing={missing}, unknown={unknown}"
         )
-    if value["schema_version"] != 1:
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
         raise ValueError("release expectation manifest schema_version must be 1")
     capability_ids = value["capability_ids"]
     if not isinstance(capability_ids, list):

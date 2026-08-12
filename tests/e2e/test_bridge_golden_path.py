@@ -684,6 +684,8 @@ def test_section6_response_wrapper_validates_before_returning_bytes(
 
     with proof._ReleaseValidatingResponse(_Response(raw_catalogue), expected) as response:
         assert response.read() == raw_bytes
+    with pytest.raises(RuntimeError, match="outside its context"):
+        response.read()
 
     with proof._ReleaseValidatingResponse(
         _Response(raw_catalogue), replace(expected, core_release="v9.9.9")
@@ -711,30 +713,7 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
             )
         ),
     )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "section6_live_bridge_proof.py",
-            "--artifact-dir",
-            str(artifact_dir),
-            "--expected-core-release",
-            expected.core_release,
-            "--expected-key-id",
-            expected.key_id,
-            "--expected-sha256",
-            expected.raw_sha256,
-            "--expected-catalog-version",
-            str(expected.catalog_version),
-            "--expected-capability-count",
-            str(expected.capability_count),
-            "--expected-job-count",
-            str(expected.job_count),
-            "--expected-capability-ids",
-            ",".join(expected.capability_ids),
-            "--allow-no-packet",
-        ],
-    )
+    monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
 
     assert proof.main() == 1
     receipt = json.loads(
@@ -748,6 +727,63 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
         "message": "unexpected core release: expected 'v9.9.9', observed 'v1.95.2'",
     }
     assert "journey" not in receipt
+
+
+@pytest.mark.parametrize("failure_point", ("readiness", "shutdown"))
+def test_section6_capture_failures_clean_up_and_write_a_failure_receipt(
+    failure_point: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    expected = _release_expectation_for_bridge_catalogue()
+    artifact_dir = tmp_path / "evidence"
+    fake_capture = (object(), object())
+    stopped: list[object] = []
+    monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "capture-failure-build")
+    monkeypatch.setattr(proof, "_start_capture", lambda _path: fake_capture)
+    monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
+
+    if failure_point == "readiness":
+        monkeypatch.setattr(
+            proof,
+            "_capture_ready",
+            lambda _process: (_ for _ in ()).throw(
+                RuntimeError("capture readiness exploded")
+            ),
+        )
+        monkeypatch.setattr(
+            proof,
+            "_stop_capture",
+            lambda capture: (stopped.append(capture) or (False, "")),
+        )
+        expected_message = "capture readiness exploded"
+    else:
+        monkeypatch.setattr(proof, "_capture_ready", lambda _process: True)
+        monkeypatch.setattr(
+            proof,
+            "_run_live_journey",
+            lambda _tmp, _expected: _passing_journey(),
+        )
+
+        def fail_stop(capture: object) -> tuple[bool, str]:
+            stopped.append(capture)
+            raise RuntimeError("capture shutdown exploded")
+
+        monkeypatch.setattr(proof, "_stop_capture", fail_stop)
+        expected_message = "capture shutdown exploded"
+
+    assert proof.main() == 1
+    receipt = json.loads(
+        (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
+    )
+    assert stopped == [fake_capture]
+    assert receipt["status"] == "failed"
+    assert receipt["failure"] == {
+        "type": "RuntimeError",
+        "message": expected_message,
+    }
 
 
 def _release_expectation_for_bridge_catalogue() -> CatalogueReleaseExpectation:
@@ -765,3 +801,46 @@ def _release_expectation_for_bridge_catalogue() -> CatalogueReleaseExpectation:
         job_count=len(verified.catalogue.jobs_taxonomy),
         capability_ids=capability_ids,
     )
+
+
+def _proof_argv(
+    artifact_dir: Path,
+    expected: CatalogueReleaseExpectation,
+) -> list[str]:
+    return [
+        "section6_live_bridge_proof.py",
+        "--artifact-dir",
+        str(artifact_dir),
+        "--expected-core-release",
+        expected.core_release,
+        "--expected-key-id",
+        expected.key_id,
+        "--expected-sha256",
+        expected.raw_sha256,
+        "--expected-catalog-version",
+        str(expected.catalog_version),
+        "--expected-capability-count",
+        str(expected.capability_count),
+        "--expected-job-count",
+        str(expected.job_count),
+        "--expected-capability-ids",
+        ",".join(expected.capability_ids),
+        "--allow-no-packet",
+    ]
+
+
+def _passing_journey() -> dict[str, object]:
+    return {
+        "subscription": {
+            "subscribed_returning_fetch_requests": 1,
+            "unsubscribed_returning_fetch_requests": 0,
+        },
+        "minimal_fetch_requests": 1,
+        "customised_fetch_requests": 1,
+        "shelf_contains_expected_catalogue": True,
+        "briefs_non_identical": True,
+        "minimal_brief_host_specific": True,
+        "customised_brief_host_specific": True,
+        "guided_brief_host_specific": True,
+        "tamper_refused": True,
+    }
