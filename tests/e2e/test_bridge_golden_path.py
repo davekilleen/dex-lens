@@ -664,15 +664,16 @@ def test_section6_local_adversarial_catalogue_cases_fail_safely(
     assert "stale" in stale_result.message
 
 
-def test_section6_evidence_pack_keeps_public_copy_hold_visible() -> None:
+def test_section6_evidence_pack_records_public_claim_and_proof() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
 
-    assert "Status: SECTION-6 PROOF PASSED, PUBLIC COPY HELD" in text
+    assert "Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE" in text
     assert "run 31589662751, artifact 9138582059" in text
     assert "`subscribed_prompt_rendered: false`" in text
     assert "Only one catalogue version exists" in text
-    assert "Dave explicitly approves changing README/About/status copy" in text
-    assert "The proof passing does not approve that announcement" in text
+    assert "Public live claim approved and shipped" in text
+    assert "Public copy shipped in dex-lens `736674b`" in text
+    assert "Wave 2 expansion remains explicitly in progress" in text
     assert "Passed in Core PR #473" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
