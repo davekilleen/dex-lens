@@ -553,7 +553,7 @@ def test_section6_evidence_pack_records_public_claim_and_proof() -> None:
     prose = " ".join(text.split())
 
     assert "Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE" in text
-    assert "run 31618570194, artifact 9150282037" in text
+    assert "run 31620154658, artifact 9150895971" in text
     assert "`subscribed_prompt_rendered: false`" in text
     assert "current public catalogue is version 1" in prose
     assert "Public live claim approved and shipped" in text
