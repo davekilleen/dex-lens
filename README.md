@@ -136,13 +136,14 @@ That bridge is now live. Here is what it does:
   every person in the world.
 
 > **Where this stands today:** the connection is available and verified end
-> to end for the first six published capabilities — Daily Plan, Week Plan,
-> Process Meetings, Dex Doctor, Relationship Radar and Save Insight. Every
-> catalogue is cryptographically signed by Dex and checked on your machine
-> before anything is shown. The catalogue grows release by release: nineteen
-> further capabilities are being prepared. Still true, and always will be:
-> no account, nothing about your system is ever sent anywhere, and Lens
-> changes nothing without you.
+> to end for Wave 2's 25 approved everyday capabilities, spanning daily and
+> weekly planning, meetings, commitments, projects, decisions, product work,
+> reflection, search, diagnostics, and backup/recovery. Every catalogue is
+> cryptographically signed by Dex and checked on your machine before anything
+> is shown. The catalogue grows release by release; role packs and optional
+> capabilities are the next expansion. Still true, and always will be: no
+> account, nothing about your system is ever sent anywhere, and Lens changes
+> nothing without you.
 
 ## What you receive
 
@@ -194,7 +195,7 @@ outcome that has genuinely improved someone’s work.
 - a way to understand capability, evidence, access and gaps in human terms;
 - private and read-only during diagnosis;
 - a bridge for deliberately bringing selected Dex capabilities into your own
-  system, on your terms (live for the first six published capabilities); and
+  system, on your terms (live for 25 approved everyday capabilities); and
 - designed to help you make a better decision about what to trust or improve.
 
 **Dex Lens is not:**
@@ -220,8 +221,8 @@ download or finished public release**.
 - Real-user automation remains unavailable until Lens can observe whether an
   agreed work outcome genuinely improved.
 - The live bridge to Dex's capability catalogue is available and verified end
-  to end for the six published capabilities; the catalogue expansion (nineteen
-  further capabilities) is in progress.
+  to end for all 25 Wave 2 everyday capabilities. Role-pack and optional
+  capabilities remain the next catalogue expansion.
 
 This is the honest boundary: the code and safety gates are ready for pilot
 delivery preparation, but the evidence that matters next must come from real
