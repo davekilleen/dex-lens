@@ -29,9 +29,11 @@ _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
 
-# Release-owned Dex Core signing keys. M2 will add the real production key id
-# after Front Desk/Dave approve signing-key setup; tests inject a local keyring.
-PINNED_PUBLIC_KEYS_BY_KEY_ID: dict[str, str] = {}
+# Release-owned Dex Core signing keys. Private keys live only in the Dex release
+# environment; Lens ships public keys so catalogues verify locally.
+PINNED_PUBLIC_KEYS_BY_KEY_ID: dict[str, str] = {
+    "dex-core-lens-1": "+0CGlXczAUI8FKeEi0ekfRb1ajc/mFsm2xM17hOU1+o=",
+}
 
 
 class CatalogueVerificationError(Exception):

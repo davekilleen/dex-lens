@@ -15,6 +15,7 @@ from capability_exchange.catalogue.v2 import (
     SignedCatalogueEnvelopeV2,
     VerifiedCatalogueStore,
     canonical_signed_payload,
+    default_keyring,
     render_capability_entry_html,
     verify_catalogue_envelope,
 )
@@ -33,6 +34,16 @@ def signing_key() -> Ed25519PrivateKey:
 def keyring(signing_key: Ed25519PrivateKey) -> KeyRing:
     public_key = signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     return KeyRing({"dex-core-2026-08-test": base64.b64encode(public_key).decode("ascii")})
+
+
+def test_default_keyring_pins_dave_approved_core_key() -> None:
+    """The shipped keyring must carry the Dave-approved Dex Core catalogue key."""
+    public_key = default_keyring().public_key("dex-core-lens-1")
+    raw_key = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+    assert base64.b64encode(raw_key).decode("ascii") == (
+        "+0CGlXczAUI8FKeEi0ekfRb1ajc/mFsm2xM17hOU1+o="
+    )
 
 
 def unsigned_envelope(version: int = 7, key_id: str = "dex-core-2026-08-test") -> dict:
