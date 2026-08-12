@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -13,6 +15,7 @@ from capability_exchange.catalogue.release_acceptance import (
     CatalogueReleaseExpectation,
     CatalogueReleaseMismatch,
     assert_catalogue_release,
+    load_catalogue_release_expectation,
 )
 from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
 
@@ -114,3 +117,44 @@ def test_expected_capability_ids_must_be_non_empty_and_unique(
             capability_count=len(capability_ids),
             capability_ids=capability_ids,
         )
+
+
+def test_checked_in_live_release_manifest_is_the_exact_wave_2_identity() -> None:
+    expected = load_catalogue_release_expectation(
+        Path("docs/pilot/live-catalogue-release.json")
+    )
+
+    assert expected.core_release == "v1.95.2"
+    assert expected.key_id == "dex-core-lens-1"
+    assert expected.raw_sha256 == (
+        "79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6"
+    )
+    assert expected.catalog_version == 1
+    assert expected.capability_count == 25
+    assert expected.job_count == 9
+    assert len(expected.capability_ids) == expected.capability_count
+
+
+def test_release_manifest_refuses_unknown_or_missing_contract_fields(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "release.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "core_release": "v1.0.0",
+                "key_id": "release-key",
+                "raw_sha256": "0" * 64,
+                "catalog_version": 1,
+                "capability_count": 1,
+                "job_count": 1,
+                "capability_ids": ["one-capability"],
+                "unexpected": "field",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifest fields"):
+        load_catalogue_release_expectation(manifest)

@@ -17,13 +17,13 @@ observed participant evidence, and no completed independent sign-off.
 The **live capability bridge** — the consented connection from a person's own
 system to Dex's signed release catalogue — is built, merged, and proven live.
 The section-6 evidence pack (`docs/pilot/bridge-evidence.md`) records the full
-proof: the signed catalogue from Core release v1.95.1 is served at
+proof: the signed catalogue from Core release v1.95.2 is served at
 `https://heydex.ai/catalogue/dex-lens/v2.json`, verified on-machine against the
 pinned production key, exercised end to end by three representative non-Dex
 host fixtures, with packet-level evidence that a fresh install makes zero
 requests and a subscribed one makes exactly one per run. Dave approved the
-public availability claim on 2026-08-12. Six capabilities are published;
-the nineteen-entry Wave 2 expansion is in progress
+public availability claim on 2026-08-12. All 25 Wave 2 everyday capabilities
+are published and accepted by Lens; role-pack and optional capabilities are next
 (design: `docs/superpowers/specs/2026-08-11-dex-lens-live-capability-bridge-design.md`).
 
 ## Milestones

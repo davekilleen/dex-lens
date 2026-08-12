@@ -4,6 +4,8 @@ import base64
 import hashlib
 import importlib
 import json
+import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -25,6 +27,7 @@ from capability_exchange.catalogue.fetch import (
 from capability_exchange.catalogue.release_acceptance import (
     CatalogueReleaseExpectation,
     CatalogueReleaseMismatch,
+    load_catalogue_release_expectation,
 )
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore
 from capability_exchange.catalogue.v2 import (
@@ -547,17 +550,32 @@ def test_section6_local_adversarial_catalogue_cases_fail_safely(
 
 def test_section6_evidence_pack_records_public_claim_and_proof() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
+    prose = " ".join(text.split())
 
     assert "Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE" in text
-    assert "run 31589662751, artifact 9138582059" in text
+    assert "run 31618570194, artifact 9150282037" in text
     assert "`subscribed_prompt_rendered: false`" in text
-    assert "Only one catalogue version exists" in text
+    assert "current public catalogue is version 1" in prose
     assert "Public live claim approved and shipped" in text
-    assert "Public copy shipped in dex-lens `736674b`" in text
-    assert "Wave 2 expansion remains explicitly in progress" in text
+    assert "Wave 2 catalogue is live" in text
+    assert "25 approved everyday capabilities" in prose
     assert "Passed in Core PR #473" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
+    assert "test_section6_live_golden_path_uses_real_heydex_catalogue" not in text
+
+
+def test_public_status_copy_matches_the_live_wave_2_catalogue() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    status = Path("docs/STATUS.md").read_text(encoding="utf-8")
+
+    for text in (readme, status):
+        assert "25" in text
+        assert "v1.95.1" not in text
+        assert "Wave 2 expansion is in progress" not in text
+        assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
+    assert "Core release v1.95.2" in status
+    assert "25 approved everyday capabilities" in readme
 
 
 def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
@@ -582,6 +600,9 @@ def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
 def test_section6_live_release_expectations_are_runtime_inputs_not_script_constants() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     script = Path("scripts/section6_live_bridge_proof.py").read_text(encoding="utf-8")
+    expected = load_catalogue_release_expectation(
+        Path("docs/pilot/live-catalogue-release.json")
+    )
 
     for dispatch_input in (
         "expected_core_release:",
@@ -593,11 +614,13 @@ def test_section6_live_release_expectations_are_runtime_inputs_not_script_consta
         "expected_capability_ids:",
     ):
         assert dispatch_input in workflow
-    assert 'DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release' in workflow
-    assert 'DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256' in workflow
-    assert "v1.95.2" in workflow
-    assert "79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6" in workflow
-    assert ",".join(WAVE_2_CAPABILITY_IDS) in workflow
+    assert "--expectation-manifest" in workflow
+    assert "docs/pilot/live-catalogue-release.json" in workflow
+    assert 'DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release }}' in workflow
+    assert 'DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}' in workflow
+    assert expected.core_release not in workflow
+    assert expected.raw_sha256 not in workflow
+    assert ",".join(expected.capability_ids) not in workflow
 
     assert "v1.95.1" not in script
     assert "v1.95.2" not in script
@@ -636,3 +659,109 @@ def test_section6_canonical_entrypoint_refuses_a_release_identity_mismatch(
 
     with pytest.raises(CatalogueReleaseMismatch, match="core release"):
         proof._read_live_catalogue(expected)
+
+
+def test_section6_response_wrapper_validates_before_returning_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
+    raw_bytes = raw_catalogue.encode("utf-8")
+    verified = verify_catalogue_envelope(raw_catalogue, keyring=keyring, now=NOW)
+    capability_ids = tuple(
+        capability.capability_id for capability in verified.catalogue.capabilities
+    )
+    expected = CatalogueReleaseExpectation(
+        core_release=verified.metadata.core_release,
+        key_id=verified.metadata.key_id,
+        raw_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        catalog_version=verified.metadata.catalog_version,
+        capability_count=len(capability_ids),
+        job_count=len(verified.catalogue.jobs_taxonomy),
+        capability_ids=capability_ids,
+    )
+    monkeypatch.setattr(proof, "default_keyring", lambda: keyring)
+
+    with proof._ReleaseValidatingResponse(_Response(raw_catalogue), expected) as response:
+        assert response.read() == raw_bytes
+
+    with proof._ReleaseValidatingResponse(
+        _Response(raw_catalogue), replace(expected, core_release="v9.9.9")
+    ) as response:
+        with pytest.raises(CatalogueReleaseMismatch, match="core release"):
+            response.read()
+
+
+def test_section6_release_mismatch_writes_a_structured_failure_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    expected = _release_expectation_for_bridge_catalogue()
+    artifact_dir = tmp_path / "evidence"
+    monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "test-build-commit")
+    monkeypatch.setattr(proof, "_start_capture", lambda _path: None)
+    monkeypatch.setattr(
+        proof,
+        "_run_live_journey",
+        lambda _tmp, _expected: (_ for _ in ()).throw(
+            CatalogueReleaseMismatch(
+                "unexpected core release: expected 'v9.9.9', observed 'v1.95.2'"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "section6_live_bridge_proof.py",
+            "--artifact-dir",
+            str(artifact_dir),
+            "--expected-core-release",
+            expected.core_release,
+            "--expected-key-id",
+            expected.key_id,
+            "--expected-sha256",
+            expected.raw_sha256,
+            "--expected-catalog-version",
+            str(expected.catalog_version),
+            "--expected-capability-count",
+            str(expected.capability_count),
+            "--expected-job-count",
+            str(expected.job_count),
+            "--expected-capability-ids",
+            ",".join(expected.capability_ids),
+            "--allow-no-packet",
+        ],
+    )
+
+    assert proof.main() == 1
+    receipt = json.loads(
+        (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
+    )
+    assert receipt["status"] == "failed"
+    assert receipt["commit"] == "test-build-commit"
+    assert receipt["expected"]["core_release"] == expected.core_release
+    assert receipt["failure"] == {
+        "type": "CatalogueReleaseMismatch",
+        "message": "unexpected core release: expected 'v9.9.9', observed 'v1.95.2'",
+    }
+    assert "journey" not in receipt
+
+
+def _release_expectation_for_bridge_catalogue() -> CatalogueReleaseExpectation:
+    raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
+    verified = verify_catalogue_envelope(raw_catalogue, keyring=keyring, now=NOW)
+    capability_ids = tuple(
+        capability.capability_id for capability in verified.catalogue.capabilities
+    )
+    return CatalogueReleaseExpectation(
+        core_release=verified.metadata.core_release,
+        key_id=verified.metadata.key_id,
+        raw_sha256=hashlib.sha256(raw_catalogue.encode("utf-8")).hexdigest(),
+        catalog_version=verified.metadata.catalog_version,
+        capability_count=len(capability_ids),
+        job_count=len(verified.catalogue.jobs_taxonomy),
+        capability_ids=capability_ids,
+    )

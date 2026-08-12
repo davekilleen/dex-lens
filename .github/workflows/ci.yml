@@ -152,13 +152,14 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     env:
-      DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release || 'v1.95.2' }}
-      DEX_LENS_EXPECTED_KEY_ID: ${{ inputs.expected_key_id || 'dex-core-lens-1' }}
-      DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256 || '79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6' }}
-      DEX_LENS_EXPECTED_CATALOG_VERSION: ${{ inputs.expected_catalog_version || '1' }}
-      DEX_LENS_EXPECTED_CAPABILITY_COUNT: ${{ inputs.expected_capability_count || '25' }}
-      DEX_LENS_EXPECTED_JOB_COUNT: ${{ inputs.expected_job_count || '9' }}
-      DEX_LENS_EXPECTED_CAPABILITY_IDS: ${{ inputs.expected_capability_ids || 'daily-plan,week-plan,process-meetings,dex-doctor,relationship-radar,save-insight,daily-review,week-review,meeting-prep,meeting-closeout,commitments,delegate-check,triage,project-health,decision-log,initiative-kickoff,product-brief,industry-truths,identity-snapshot,weekly-reflection,enable-semantic-search,xray,backup-setup,backup-now,backup-restore' }}
+      DEX_LENS_EVENT_NAME: ${{ github.event_name }}
+      DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release }}
+      DEX_LENS_EXPECTED_KEY_ID: ${{ inputs.expected_key_id }}
+      DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      DEX_LENS_EXPECTED_CATALOG_VERSION: ${{ inputs.expected_catalog_version }}
+      DEX_LENS_EXPECTED_CAPABILITY_COUNT: ${{ inputs.expected_capability_count }}
+      DEX_LENS_EXPECTED_JOB_COUNT: ${{ inputs.expected_job_count }}
+      DEX_LENS_EXPECTED_CAPABILITY_IDS: ${{ inputs.expected_capability_ids }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,7 +174,7 @@ jobs:
           fi
           git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD \
             > "$RUNNER_TEMP/section6-live-changed-files.txt"
-          if grep -E '^(\.github/workflows/ci\.yml|scripts/section6_live_bridge_proof\.py|docs/pilot/bridge-evidence\.md|tests/e2e/test_bridge_golden_path\.py|src/capability_exchange/(catalogue|concierge)/)' \
+          if grep -E '^(\.github/workflows/ci\.yml|scripts/section6_live_bridge_proof\.py|docs/pilot/(bridge-evidence\.md|live-catalogue-release\.json)|tests/e2e/test_bridge_golden_path\.py|src/capability_exchange/(catalogue|concierge)/)' \
             "$RUNNER_TEMP/section6-live-changed-files.txt"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
@@ -189,6 +190,20 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: |
           install -d -m 0777 section6-live-evidence
+          release_args=(
+            --expectation-manifest docs/pilot/live-catalogue-release.json
+          )
+          if [ "${DEX_LENS_EVENT_NAME}" = "workflow_dispatch" ]; then
+            release_args=(
+              --expected-core-release "${DEX_LENS_EXPECTED_CORE_RELEASE}"
+              --expected-key-id "${DEX_LENS_EXPECTED_KEY_ID}"
+              --expected-sha256 "${DEX_LENS_EXPECTED_SHA256}"
+              --expected-catalog-version "${DEX_LENS_EXPECTED_CATALOG_VERSION}"
+              --expected-capability-count "${DEX_LENS_EXPECTED_CAPABILITY_COUNT}"
+              --expected-job-count "${DEX_LENS_EXPECTED_JOB_COUNT}"
+              --expected-capability-ids "${DEX_LENS_EXPECTED_CAPABILITY_IDS}"
+            )
+          fi
           docker run --rm \
             --cap-drop=ALL \
             --cap-add=NET_RAW \
@@ -203,13 +218,7 @@ jobs:
             dex-lens-section6-live \
             scripts/section6_live_bridge_proof.py \
             --artifact-dir /evidence \
-            --expected-core-release "${DEX_LENS_EXPECTED_CORE_RELEASE}" \
-            --expected-key-id "${DEX_LENS_EXPECTED_KEY_ID}" \
-            --expected-sha256 "${DEX_LENS_EXPECTED_SHA256}" \
-            --expected-catalog-version "${DEX_LENS_EXPECTED_CATALOG_VERSION}" \
-            --expected-capability-count "${DEX_LENS_EXPECTED_CAPABILITY_COUNT}" \
-            --expected-job-count "${DEX_LENS_EXPECTED_JOB_COUNT}" \
-            --expected-capability-ids "${DEX_LENS_EXPECTED_CAPABILITY_IDS}"
+            "${release_args[@]}"
 
       - name: Upload section-6 live bridge evidence
         if: always() && steps.changes.outputs.changed == 'true'

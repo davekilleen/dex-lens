@@ -9,13 +9,26 @@ that the caller intended to certify.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from capability_exchange.catalogue.v2 import SignedCatalogueEnvelopeV2
 
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CATALOGUE_ID = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
+_MANIFEST_FIELDS = {
+    "schema_version",
+    "core_release",
+    "key_id",
+    "raw_sha256",
+    "catalog_version",
+    "capability_count",
+    "job_count",
+    "capability_ids",
+}
 
 
 class CatalogueReleaseMismatch(RuntimeError):
@@ -35,11 +48,13 @@ class CatalogueReleaseExpectation:
     capability_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if not self.core_release.strip():
+        if not isinstance(self.core_release, str) or not self.core_release.strip():
             raise ValueError("core_release must be non-empty")
-        if not self.key_id.strip():
+        if not isinstance(self.key_id, str) or not self.key_id.strip():
             raise ValueError("key_id must be non-empty")
-        if _HEX_SHA256.fullmatch(self.raw_sha256) is None:
+        if not isinstance(self.raw_sha256, str) or _HEX_SHA256.fullmatch(
+            self.raw_sha256
+        ) is None:
             raise ValueError("raw_sha256 must be a lowercase sha256 digest")
         if type(self.catalog_version) is not int or self.catalog_version <= 0:
             raise ValueError("catalog_version must be a positive integer")
@@ -47,10 +62,13 @@ class CatalogueReleaseExpectation:
             raise ValueError("job_count must be a positive integer")
         if not self.capability_ids:
             raise ValueError("capability_ids must be non-empty")
+        if any(
+            not isinstance(item, str) or _CATALOGUE_ID.fullmatch(item) is None
+            for item in self.capability_ids
+        ):
+            raise ValueError("capability_ids must contain catalogue ids")
         if len(set(self.capability_ids)) != len(self.capability_ids):
             raise ValueError("capability_ids must be unique")
-        if any(_CATALOGUE_ID.fullmatch(item) is None for item in self.capability_ids):
-            raise ValueError("capability_ids must contain catalogue ids")
         if type(self.capability_count) is not int or self.capability_count <= 0:
             raise ValueError("capability_count must be a positive integer")
         if len(self.capability_ids) != self.capability_count:
@@ -67,6 +85,38 @@ class CatalogueReleaseObservation:
     catalog_version: int
     capability_ids: tuple[str, ...]
     job_count: int
+
+
+def load_catalogue_release_expectation(path: Path) -> CatalogueReleaseExpectation:
+    """Load one strict, versioned release expectation manifest."""
+
+    try:
+        value: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"release expectation manifest is unreadable: {error}") from error
+    if not isinstance(value, dict):
+        raise ValueError("release expectation manifest must be an object")
+    actual_fields = set(value)
+    if actual_fields != _MANIFEST_FIELDS:
+        missing = sorted(_MANIFEST_FIELDS - actual_fields)
+        unknown = sorted(actual_fields - _MANIFEST_FIELDS)
+        raise ValueError(
+            f"release expectation manifest fields mismatch: missing={missing}, unknown={unknown}"
+        )
+    if value["schema_version"] != 1:
+        raise ValueError("release expectation manifest schema_version must be 1")
+    capability_ids = value["capability_ids"]
+    if not isinstance(capability_ids, list):
+        raise ValueError("release expectation manifest capability_ids must be an array")
+    return CatalogueReleaseExpectation(
+        core_release=value["core_release"],
+        key_id=value["key_id"],
+        raw_sha256=value["raw_sha256"],
+        catalog_version=value["catalog_version"],
+        capability_count=value["capability_count"],
+        job_count=value["job_count"],
+        capability_ids=tuple(capability_ids),
+    )
 
 
 def _mismatch(label: str, expected: object, observed: object) -> CatalogueReleaseMismatch:

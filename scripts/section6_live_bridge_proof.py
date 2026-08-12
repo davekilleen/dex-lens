@@ -46,6 +46,7 @@ from capability_exchange.catalogue.release_acceptance import (  # noqa: E402
     CatalogueReleaseExpectation,
     CatalogueReleaseObservation,
     assert_catalogue_release,
+    load_catalogue_release_expectation,
 )
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore  # noqa: E402
 from capability_exchange.catalogue.v2 import (  # noqa: E402
@@ -411,35 +412,132 @@ def _packet_summary(pcap: Path, capture_stderr: str) -> dict[str, Any]:
     }
 
 
+def _resolve_release_expectation(args: argparse.Namespace) -> CatalogueReleaseExpectation:
+    direct_values = {
+        "core_release": args.expected_core_release,
+        "key_id": args.expected_key_id,
+        "raw_sha256": args.expected_sha256,
+        "catalog_version": args.expected_catalog_version,
+        "capability_count": args.expected_capability_count,
+        "job_count": args.expected_job_count,
+        "capability_ids": args.expected_capability_ids,
+    }
+    supplied = {name for name, value in direct_values.items() if value is not None}
+    if args.expectation_manifest is not None:
+        if supplied:
+            raise ValueError(
+                "expectation manifest cannot be combined with direct release expectations"
+            )
+        return load_catalogue_release_expectation(args.expectation_manifest)
+    missing = sorted(set(direct_values) - supplied)
+    if missing:
+        raise ValueError(
+            "direct release expectations must supply every field; "
+            f"missing={missing}"
+        )
+    return CatalogueReleaseExpectation(
+        core_release=direct_values["core_release"],
+        key_id=direct_values["key_id"],
+        raw_sha256=direct_values["raw_sha256"],
+        catalog_version=direct_values["catalog_version"],
+        capability_count=direct_values["capability_count"],
+        job_count=direct_values["job_count"],
+        capability_ids=tuple(
+            item.strip() for item in direct_values["capability_ids"].split(",")
+        ),
+    )
+
+
+def _expected_evidence(expected: CatalogueReleaseExpectation) -> dict[str, Any]:
+    return {
+        "core_release": expected.core_release,
+        "key_id": expected.key_id,
+        "raw_sha256": expected.raw_sha256,
+        "catalog_version": expected.catalog_version,
+        "capability_count": expected.capability_count,
+        "job_count": expected.job_count,
+        "capability_ids": list(expected.capability_ids),
+    }
+
+
+def _stop_capture(
+    capture: tuple[subprocess.Popen[str], Any] | None,
+) -> tuple[bool, str]:
+    if capture is None:
+        return False, ""
+    process, stream = capture
+    if process.poll() is None:
+        process.send_signal(signal.SIGINT)
+    try:
+        _, capture_stderr = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _, capture_stderr = process.communicate()
+    stream.close()
+    return process.returncode == 0, capture_stderr
+
+
+def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
+    subscription = journey["subscription"]
+    if subscription["subscribed_returning_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "subscribed returning run did not make exactly one fetch",
+        }
+    if subscription["unsubscribed_returning_fetch_requests"] != 0:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "unsubscribed returning run made a fetch",
+        }
+    if journey["minimal_fetch_requests"] != 1 or journey["customised_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "consented host run did not make exactly one catalogue fetch",
+        }
+    if not journey["shelf_contains_expected_catalogue"] or not journey["briefs_non_identical"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "live journey did not satisfy section-6 shelf/brief proof",
+        }
+    if not all(
+        journey[key]
+        for key in (
+            "minimal_brief_host_specific",
+            "customised_brief_host_specific",
+            "guided_brief_host_specific",
+        )
+    ):
+        return {
+            "type": "JourneyProofFailure",
+            "message": "live journey briefs were not host-specific",
+        }
+    if not journey["tamper_refused"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "tampered live catalogue verified unexpectedly",
+        }
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
-    parser.add_argument("--expected-core-release", required=True)
-    parser.add_argument("--expected-key-id", required=True)
-    parser.add_argument("--expected-sha256", required=True)
-    parser.add_argument("--expected-catalog-version", type=int, required=True)
-    parser.add_argument("--expected-capability-count", type=int, required=True)
-    parser.add_argument("--expected-job-count", type=int, required=True)
+    parser.add_argument("--expectation-manifest", type=Path)
+    parser.add_argument("--expected-core-release")
+    parser.add_argument("--expected-key-id")
+    parser.add_argument("--expected-sha256")
+    parser.add_argument("--expected-catalog-version", type=int)
+    parser.add_argument("--expected-capability-count", type=int)
+    parser.add_argument("--expected-job-count", type=int)
     parser.add_argument(
         "--expected-capability-ids",
-        required=True,
         help="Comma-separated complete capability id list in release order.",
     )
     parser.add_argument("--allow-no-packet", action="store_true")
     args = parser.parse_args()
 
     try:
-        expected = CatalogueReleaseExpectation(
-            core_release=args.expected_core_release,
-            key_id=args.expected_key_id,
-            raw_sha256=args.expected_sha256,
-            catalog_version=args.expected_catalog_version,
-            capability_count=args.expected_capability_count,
-            job_count=args.expected_job_count,
-            capability_ids=tuple(
-                item.strip() for item in args.expected_capability_ids.split(",")
-            ),
-        )
+        expected = _resolve_release_expectation(args)
     except ValueError as error:
         parser.error(str(error))
 
@@ -455,70 +553,90 @@ def main() -> int:
     if capture is not None:
         capture_ready = _capture_ready(capture[0])
 
-    with tempfile.TemporaryDirectory(prefix="dex-section6-live-") as tmp:
-        journey = _run_live_journey(Path(tmp), expected)
+    journey: dict[str, Any] | None = None
+    failure: dict[str, str] | None = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="dex-section6-live-") as tmp:
+            journey = _run_live_journey(Path(tmp), expected)
+    except Exception as error:
+        failure = {"type": type(error).__name__, "message": str(error)}
 
-    capture_clean_exit = False
-    if capture is not None:
-        process, stream = capture
-        if process.poll() is None:
-            process.send_signal(signal.SIGINT)
+    capture_clean_exit, capture_stderr = _stop_capture(capture)
+    packet: dict[str, Any] = {}
+    if capture_ready and pcap.is_file():
         try:
-            _, capture_stderr = process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            _, capture_stderr = process.communicate()
-        stream.close()
-        capture_clean_exit = process.returncode == 0
-    packet = _packet_summary(pcap, capture_stderr) if capture_ready and pcap.is_file() else {}
+            packet = _packet_summary(pcap, capture_stderr)
+        except Exception as error:
+            if failure is None:
+                failure = {"type": type(error).__name__, "message": str(error)}
     commit = os.environ.get("DEX_LENS_BUILD_COMMIT")
     if not commit:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
+    if failure is None:
+        if journey is None:
+            failure = {
+                "type": "JourneyProofFailure",
+                "message": "live journey returned no observation",
+            }
+        else:
+            failure = _journey_failure(journey)
+    if (
+        failure is None
+        and capture_ready
+        and capture_clean_exit
+        and packet.get("non_loopback_packet_count", 0) <= 0
+    ):
+        failure = {
+            "type": "PacketProofFailure",
+            "message": "packet capture did not record live egress",
+        }
+
+    if failure is not None:
+        status = "failed"
+        exit_code = 1
+    elif not capture_ready or not capture_clean_exit:
+        status = "journey-proven-packet-not-proven"
+        exit_code = 0 if args.allow_no_packet else 2
+    else:
+        status = "proven"
+        exit_code = 0
+
     evidence = {
         "schema_version": 1,
-        "status": "proven"
-        if capture_ready and capture_clean_exit
-        else "journey-proven-packet-not-proven",
+        "status": status,
         "commit": commit,
         "run_id": f"section6-live-{uuid.uuid4().hex}",
-        "journey": journey,
+        "expected": _expected_evidence(expected),
         "packet": {
             "capture_ready": capture_ready,
             "capture_clean_exit": capture_clean_exit,
             **packet,
         },
     }
+    if journey is not None:
+        evidence["journey"] = journey
+    if failure is not None:
+        evidence["failure"] = failure
     (args.artifact_dir / "section6-live-evidence.json").write_text(
         json.dumps(evidence, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    if journey["subscription"]["subscribed_returning_fetch_requests"] != 1:
-        print("subscribed returning run did not make exactly one fetch", file=sys.stderr)
-        return 1
-    if journey["subscription"]["unsubscribed_returning_fetch_requests"] != 0:
-        print("unsubscribed returning run made a fetch", file=sys.stderr)
-        return 1
-    if (
-        not journey["shelf_contains_expected_catalogue"]
-        or not journey["briefs_non_identical"]
-    ):
-        print("live journey did not satisfy section-6 shelf/brief proof", file=sys.stderr)
-        return 1
-    if not journey["tamper_refused"]:
-        print("tampered live catalogue verified unexpectedly", file=sys.stderr)
-        return 1
-    if not capture_ready or not capture_clean_exit:
-        if args.allow_no_packet:
-            print("SECTION6 LIVE JOURNEY PROVEN; packet capture not proven on this host")
-            return 0
+
+    if failure is not None:
+        print(
+            f"SECTION6 LIVE BRIDGE PROOF FAILED: {failure['type']}: {failure['message']}",
+            file=sys.stderr,
+        )
+        return exit_code
+    if exit_code == 2:
         print("section-6 packet evidence was not proven", file=sys.stderr)
-        return 2
-    if evidence["packet"].get("non_loopback_packet_count", 0) <= 0:
-        print("packet capture did not record live egress", file=sys.stderr)
-        return 1
+        return exit_code
+    if status == "journey-proven-packet-not-proven":
+        print("SECTION6 LIVE JOURNEY PROVEN; packet capture not proven on this host")
+        return exit_code
     print("SECTION6 LIVE BRIDGE PROOF PASSED")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
