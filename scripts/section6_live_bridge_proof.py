@@ -27,7 +27,6 @@ from tests.concierge.test_local_server import envelope  # noqa: E402
 from tests.e2e.test_bridge_golden_path import (  # noqa: E402
     CATALOGUE_URL,
     HOST_FIXTURE_ROOT,
-    TRANCHE_1_CAPABILITY_IDS,
     _confirm_session_jobs,
 )
 from tests.egress.namespace_probe import (  # noqa: E402
@@ -42,6 +41,11 @@ from capability_exchange.catalogue.fetch import (  # noqa: E402
     CatalogueFetchResult,
     CatalogueFetchStatus,
     ConsentedCatalogueFetcher,
+)
+from capability_exchange.catalogue.release_acceptance import (  # noqa: E402
+    CatalogueReleaseExpectation,
+    CatalogueReleaseObservation,
+    assert_catalogue_release,
 )
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore  # noqa: E402
 from capability_exchange.catalogue.v2 import (  # noqa: E402
@@ -64,6 +68,7 @@ NOW = datetime(2026, 8, 12, 10, 45, tzinfo=UTC)
 
 @dataclass
 class CountedUrlOpen:
+    expected: CatalogueReleaseExpectation
     count: int = 0
     urls: list[str] | None = None
 
@@ -74,7 +79,54 @@ class CountedUrlOpen:
         self.count += 1
         assert self.urls is not None
         self.urls.append(request.full_url)
-        return urlopen(request, timeout=timeout)
+        return _ReleaseValidatingResponse(
+            urlopen(request, timeout=timeout),
+            self.expected,
+        )
+
+
+class _ReleaseValidatingResponse:
+    """Validate the exact raw release bytes before a fetcher can consume them."""
+
+    def __init__(
+        self,
+        response: object,
+        expected: CatalogueReleaseExpectation,
+    ) -> None:
+        self._response = response
+        self._entered: object | None = None
+        self._expected = expected
+
+    def __enter__(self) -> _ReleaseValidatingResponse:
+        self._entered = self._response.__enter__()
+        return self
+
+    def __exit__(self, *args: object) -> object:
+        return self._response.__exit__(*args)
+
+    def read(self) -> bytes:
+        if self._entered is None:
+            raise RuntimeError("catalogue response was read outside its context")
+        raw = self._entered.read()
+        verified = verify_catalogue_envelope(
+            raw.decode("utf-8"),
+            keyring=default_keyring(),
+        )
+        assert_catalogue_release(raw, verified, self._expected)
+        return raw
+
+
+def _read_live_catalogue(
+    expected: CatalogueReleaseExpectation,
+) -> tuple[bytes, object, CatalogueReleaseObservation]:
+    with urlopen(CATALOGUE_URL, timeout=10) as response:
+        raw = response.read()
+    verified = verify_catalogue_envelope(
+        raw.decode("utf-8"),
+        keyring=default_keyring(),
+    )
+    observed = assert_catalogue_release(raw, verified, expected)
+    return raw, verified, observed
 
 
 def _fetcher(
@@ -89,8 +141,12 @@ def _fetcher(
     )
 
 
-def _live_deep_host_brief(host_root: Path, tmp_path: Path) -> tuple[str, tuple[str, ...], int]:
-    counter = CountedUrlOpen()
+def _live_deep_host_brief(
+    host_root: Path,
+    tmp_path: Path,
+    expected: CatalogueReleaseExpectation,
+) -> tuple[str, tuple[str, ...], int]:
+    counter = CountedUrlOpen(expected)
     session = new_session(
         approved_roots=(host_root,),
         collector=envelope,
@@ -111,7 +167,6 @@ def _live_deep_host_brief(host_root: Path, tmp_path: Path) -> tuple[str, tuple[s
     )
     if result.status is not CatalogueFetchStatus.VERIFIED or result.verified is None:
         raise RuntimeError(f"live catalogue fetch failed: {result.status} {result.message}")
-    _assert_live_catalogue(result.verified)
     session.open_catalogue_shelf()
     first = session.journey.catalogue_shelf[0]
     session.select_catalogue_brief(
@@ -127,10 +182,11 @@ def _live_deep_host_brief(host_root: Path, tmp_path: Path) -> tuple[str, tuple[s
     )
 
 
-def _live_guided_brief(tmp_path: Path) -> str:
-    raw = urlopen(CATALOGUE_URL, timeout=10).read().decode("utf-8")
-    verified = verify_catalogue_envelope(raw, keyring=default_keyring())
-    _assert_live_catalogue(verified)
+def _live_guided_brief(
+    tmp_path: Path,
+    expected: CatalogueReleaseExpectation,
+) -> str:
+    _raw, verified, _observed = _read_live_catalogue(expected)
     host_root = HOST_FIXTURE_ROOT / "guided-export"
     journey = ConciergeJourney(
         permission=_permission(),
@@ -187,24 +243,14 @@ def _live_guided_brief(tmp_path: Path) -> str:
     )
     return journey.catalogue_brief_markdown
 
-
-def _assert_live_catalogue(verified: object) -> None:
-    metadata = verified.metadata
-    catalogue = verified.catalogue
-    if metadata.core_release != "v1.95.1":
-        raise RuntimeError(f"unexpected Core release: {metadata.core_release}")
-    if metadata.key_id != "dex-core-lens-1":
-        raise RuntimeError(f"unexpected key id: {metadata.key_id}")
-    capability_ids = tuple(capability.capability_id for capability in catalogue.capabilities)
-    if capability_ids != TRANCHE_1_CAPABILITY_IDS:
-        raise RuntimeError(f"unexpected capability tranche: {capability_ids}")
-
-
-def _prove_subscription_postures(tmp_path: Path) -> dict[str, Any]:
+def _prove_subscription_postures(
+    tmp_path: Path,
+    expected: CatalogueReleaseExpectation,
+) -> dict[str, Any]:
     app_storage = tmp_path / "live-subscription-app-storage"
     store = CatalogueSubscriptionStore(app_storage)
 
-    first_counter = CountedUrlOpen()
+    first_counter = CountedUrlOpen(expected)
     first = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
         collector=envelope,
@@ -224,7 +270,7 @@ def _prove_subscription_postures(tmp_path: Path) -> dict[str, Any]:
     first.subscribe_catalogue_updates({"catalogue_url": [CATALOGUE_URL]})
     first.look_catalogue_updates()
 
-    subscribed_counter = CountedUrlOpen()
+    subscribed_counter = CountedUrlOpen(expected)
     subscribed = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
         collector=envelope,
@@ -239,7 +285,7 @@ def _prove_subscription_postures(tmp_path: Path) -> dict[str, Any]:
     subscribed.park_catalogue_updates()
 
     subscribed.revoke_catalogue_updates()
-    unsubscribed_counter = CountedUrlOpen()
+    unsubscribed_counter = CountedUrlOpen(expected)
     unsubscribed = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
         collector=envelope,
@@ -262,11 +308,12 @@ def _prove_subscription_postures(tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def _run_live_journey(tmp_path: Path) -> dict[str, Any]:
-    live_raw = urlopen(CATALOGUE_URL, timeout=10).read().decode("utf-8")
-    verified = verify_catalogue_envelope(live_raw, keyring=default_keyring())
-    _assert_live_catalogue(verified)
-    tampered = live_raw.replace("Daily Plan", "Daily Plan!", 1)
+def _run_live_journey(
+    tmp_path: Path,
+    expected: CatalogueReleaseExpectation,
+) -> dict[str, Any]:
+    live_raw, verified, observed = _read_live_catalogue(expected)
+    tampered = live_raw.decode("utf-8").replace("Daily Plan", "Daily Plan!", 1)
     try:
         verify_catalogue_envelope(tampered, keyring=default_keyring())
     except CatalogueVerificationError:
@@ -275,28 +322,32 @@ def _run_live_journey(tmp_path: Path) -> dict[str, Any]:
         tamper_refused = False
 
     minimal_brief, minimal_shelf, minimal_requests = _live_deep_host_brief(
-        HOST_FIXTURE_ROOT / "minimal-claude", tmp_path
+        HOST_FIXTURE_ROOT / "minimal-claude", tmp_path, expected
     )
     customised_brief, customised_shelf, customised_requests = _live_deep_host_brief(
-        HOST_FIXTURE_ROOT / "customised-claude", tmp_path
+        HOST_FIXTURE_ROOT / "customised-claude", tmp_path, expected
     )
-    guided_brief = _live_guided_brief(tmp_path)
-    subscription = _prove_subscription_postures(tmp_path)
+    guided_brief = _live_guided_brief(tmp_path, expected)
+    subscription = _prove_subscription_postures(tmp_path, expected)
 
     return {
         "live_url": CATALOGUE_URL,
-        "core_release": verified.metadata.core_release,
-        "key_id": verified.metadata.key_id,
-        "catalog_version": verified.metadata.catalog_version,
-        "capability_ids": list(TRANCHE_1_CAPABILITY_IDS),
-        "job_count": len(verified.catalogue.jobs_taxonomy),
+        "core_release": observed.core_release,
+        "key_id": observed.key_id,
+        "raw_sha256": observed.raw_sha256,
+        "catalog_version": observed.catalog_version,
+        "capability_ids": list(observed.capability_ids),
+        "job_count": observed.job_count,
         "tamper_refused": tamper_refused,
         "minimal_fetch_requests": minimal_requests,
         "customised_fetch_requests": customised_requests,
         "minimal_shelf_count": len(minimal_shelf),
         "customised_shelf_count": len(customised_shelf),
-        "shelf_contains_full_tranche": set(minimal_shelf) == set(TRANCHE_1_CAPABILITY_IDS)
-        and set(customised_shelf) == set(TRANCHE_1_CAPABILITY_IDS),
+        "shelf_contains_expected_catalogue": len(minimal_shelf)
+        == expected.capability_count
+        and len(customised_shelf) == expected.capability_count
+        and set(minimal_shelf) == set(expected.capability_ids)
+        and set(customised_shelf) == set(expected.capability_ids),
         "briefs_non_identical": len({minimal_brief, customised_brief, guided_brief}) == 3,
         "minimal_brief_host_specific": "minimal host with one CLAUDE.md" in minimal_brief,
         "customised_brief_host_specific": "customised host with skills/hooks/subagents"
@@ -363,8 +414,34 @@ def _packet_summary(pcap: Path, capture_stderr: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
+    parser.add_argument("--expected-core-release", required=True)
+    parser.add_argument("--expected-key-id", required=True)
+    parser.add_argument("--expected-sha256", required=True)
+    parser.add_argument("--expected-catalog-version", type=int, required=True)
+    parser.add_argument("--expected-capability-count", type=int, required=True)
+    parser.add_argument("--expected-job-count", type=int, required=True)
+    parser.add_argument(
+        "--expected-capability-ids",
+        required=True,
+        help="Comma-separated complete capability id list in release order.",
+    )
     parser.add_argument("--allow-no-packet", action="store_true")
     args = parser.parse_args()
+
+    try:
+        expected = CatalogueReleaseExpectation(
+            core_release=args.expected_core_release,
+            key_id=args.expected_key_id,
+            raw_sha256=args.expected_sha256,
+            catalog_version=args.expected_catalog_version,
+            capability_count=args.expected_capability_count,
+            job_count=args.expected_job_count,
+            capability_ids=tuple(
+                item.strip() for item in args.expected_capability_ids.split(",")
+            ),
+        )
+    except ValueError as error:
+        parser.error(str(error))
 
     if os.environ.get("DEX_LENS_SECTION6_LIVE") != "1":
         print("section-6 live proof requires DEX_LENS_SECTION6_LIVE=1", file=sys.stderr)
@@ -379,7 +456,7 @@ def main() -> int:
         capture_ready = _capture_ready(capture[0])
 
     with tempfile.TemporaryDirectory(prefix="dex-section6-live-") as tmp:
-        journey = _run_live_journey(Path(tmp))
+        journey = _run_live_journey(Path(tmp), expected)
 
     capture_clean_exit = False
     if capture is not None:
@@ -422,7 +499,10 @@ def main() -> int:
     if journey["subscription"]["unsubscribed_returning_fetch_requests"] != 0:
         print("unsubscribed returning run made a fetch", file=sys.stderr)
         return 1
-    if not journey["shelf_contains_full_tranche"] or not journey["briefs_non_identical"]:
+    if (
+        not journey["shelf_contains_expected_catalogue"]
+        or not journey["briefs_non_identical"]
+    ):
         print("live journey did not satisfy section-6 shelf/brief proof", file=sys.stderr)
         return 1
     if not journey["tamper_refused"]:

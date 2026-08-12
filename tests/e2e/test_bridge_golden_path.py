@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import importlib
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -18,16 +19,17 @@ from tests.concierge.test_local_server import envelope
 from capability_exchange.catalogue.fetch import (
     CONSENT_STATEMENT,
     CatalogueFetchConsent,
-    CatalogueFetchResult,
     CatalogueFetchStatus,
     ConsentedCatalogueFetcher,
 )
+from capability_exchange.catalogue.release_acceptance import (
+    CatalogueReleaseExpectation,
+    CatalogueReleaseMismatch,
+)
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore
 from capability_exchange.catalogue.v2 import (
-    CatalogueVerificationError,
     KeyRing,
     VerifiedCatalogueStore,
-    default_keyring,
     render_capability_entry_html,
     verify_catalogue_envelope,
 )
@@ -49,6 +51,28 @@ TRANCHE_1_CAPABILITY_IDS = (
     "dex-doctor",
     "relationship-radar",
     "save-insight",
+)
+WAVE_2_CAPABILITY_IDS = (
+    *TRANCHE_1_CAPABILITY_IDS,
+    "daily-review",
+    "week-review",
+    "meeting-prep",
+    "meeting-closeout",
+    "commitments",
+    "delegate-check",
+    "triage",
+    "project-health",
+    "decision-log",
+    "initiative-kickoff",
+    "product-brief",
+    "industry-truths",
+    "identity-snapshot",
+    "weekly-reflection",
+    "enable-semantic-search",
+    "xray",
+    "backup-setup",
+    "backup-now",
+    "backup-restore",
 )
 
 
@@ -232,110 +256,6 @@ def _brief_from_guided_host(host_root: Path, tmp_path: Path) -> str:
     return journey.catalogue_brief_markdown
 
 
-def _live_brief_from_deep_host(
-    host_root: Path, tmp_path: Path
-) -> tuple[str, tuple[str, ...]]:
-    session = new_session(
-        approved_roots=(host_root,),
-        collector=envelope,
-        app_storage=tmp_path / f"{host_root.name}-live-app",
-    )
-    marker = (
-        "customised host with skills/hooks/subagents"
-        if host_root.name == "customised-claude"
-        else "minimal host with one CLAUDE.md"
-    )
-    _confirm_session_jobs(session, marker=marker)
-    result = session.fetch_catalogue(
-        {
-            "catalogue_consent": [CONSENT_STATEMENT],
-            "catalogue_url": [CATALOGUE_URL],
-        }
-    )
-
-    assert result.status is CatalogueFetchStatus.VERIFIED
-    assert result.verified is not None
-    assert result.verified.metadata.core_release == "v1.95.1"
-    assert result.verified.metadata.key_id == "dex-core-lens-1"
-    assert tuple(
-        capability.capability_id for capability in result.verified.catalogue.capabilities
-    ) == TRANCHE_1_CAPABILITY_IDS
-
-    session.open_catalogue_shelf()
-    assert len(session.journey.catalogue_shelf) == len(TRANCHE_1_CAPABILITY_IDS)
-    first = session.journey.catalogue_shelf[0]
-    session.select_catalogue_brief(
-        {
-            "capability_id": [first.capability_id],
-            "job_id": [first.matched_job_ids[0]],
-        }
-    )
-    return session.journey.catalogue_brief_markdown, tuple(
-        match.capability_id for match in session.journey.catalogue_shelf
-    )
-
-
-def _live_brief_from_guided_host(host_root: Path, tmp_path: Path) -> str:
-    raw = __import__("urllib.request").request.urlopen(CATALOGUE_URL, timeout=10).read()
-    verified = verify_catalogue_envelope(raw.decode("utf-8"), keyring=default_keyring())
-    assert verified.metadata.core_release == "v1.95.1"
-    assert verified.metadata.key_id == "dex-core-lens-1"
-    journey = ConciergeJourney(
-        permission=_permission(),
-        collector=_fallback,
-        job_store=InspectionJobStore(tmp_path / "guided-live-jobs"),
-    )
-    journey.approve()
-    export_text = " ".join(
-        (host_root / "bounded-export.txt").read_text(encoding="utf-8").split()
-    )
-    journey.add_fallback_evidence(
-        FallbackEvidence(
-            label="guided fixture export",
-            level=EvidenceLevel.SUPPORTED,
-            detail=export_text[:480],
-            reference="export:guided-host#sha256=test-fixture",
-            probe_id="guided-export",
-        )
-    )
-    journey.continue_fallback()
-    draft = journey.add_job(
-        title="Review my work safely",
-        situation="When the host cannot be deeply inspected",
-        desired_outcome="The person still gets a bounded local brief",
-    )
-    journey.confirm_job(
-        draft.job_id,
-        success_evidence=("the next action is recorded",),
-        privacy_limits=("stay within the supplied export",),
-        approval_limits=("ask before external action",),
-        autonomy_limits=("do not change files",),
-        importance="medium",
-        cadence="weekly",
-        confirmed_at=NOW,
-    )
-    journey.diagnose()
-    journey.record_catalogue_fetch(
-        CatalogueFetchResult(
-            status=CatalogueFetchStatus.VERIFIED,
-            message="catalogue verified locally",
-            catalog_version=verified.metadata.catalog_version,
-            verified=verified,
-            stale=None,
-            fetched_at=NOW,
-            catalogue=verified.catalogue,
-        )
-    )
-    journey.open_catalogue_shelf()
-    assert len(journey.catalogue_shelf) == len(TRANCHE_1_CAPABILITY_IDS)
-    first = journey.catalogue_shelf[0]
-    journey.select_catalogue_brief(
-        capability_id=first.capability_id,
-        job_id=first.matched_job_ids[0],
-    )
-    return journey.catalogue_brief_markdown
-
-
 def test_section6_local_golden_path_scaffold_covers_three_host_fixtures(
     tmp_path: Path,
 ) -> None:
@@ -361,45 +281,6 @@ def test_section6_local_golden_path_scaffold_covers_three_host_fixtures(
     assert all("does not grant permission to read, write, send" in brief for brief in briefs)
     assert minimal_shelf == customised_shelf
     assert len(minimal_shelf) == len(bridge_catalogue().capabilities)
-    assert minimal_brief != customised_brief
-    assert customised_brief != guided_brief
-    assert "minimal host with one CLAUDE.md" in minimal_brief
-    assert "customised host with skills/hooks/subagents" in customised_brief
-    assert "When the host cannot be deeply inspected" in guided_brief
-
-
-@pytest.mark.skipif(
-    os.environ.get("DEX_LENS_LIVE_SECTION6") != "1",
-    reason="live section-6 proof runs only when explicitly requested",
-)
-def test_section6_live_golden_path_uses_real_heydex_catalogue(
-    tmp_path: Path,
-) -> None:
-    minimal = HOST_FIXTURE_ROOT / "minimal-claude"
-    customised = HOST_FIXTURE_ROOT / "customised-claude"
-    guided = HOST_FIXTURE_ROOT / "guided-export"
-
-    minimal_brief, minimal_shelf = _live_brief_from_deep_host(minimal, tmp_path)
-    customised_brief, customised_shelf = _live_brief_from_deep_host(
-        customised, tmp_path
-    )
-    guided_brief = _live_brief_from_guided_host(guided, tmp_path)
-    live_raw = __import__("urllib.request").request.urlopen(
-        CATALOGUE_URL, timeout=10
-    ).read().decode("utf-8")
-    tampered = live_raw.replace("Daily Plan", "Daily Plan!", 1)
-
-    with pytest.raises(CatalogueVerificationError, match="signature"):
-        verify_catalogue_envelope(tampered, keyring=default_keyring())
-
-    assert minimal_shelf == customised_shelf
-    assert set(minimal_shelf) == set(TRANCHE_1_CAPABILITY_IDS)
-    assert "# Portable Brief:" in minimal_brief
-    assert "# Portable Brief:" in customised_brief
-    assert "# Portable Brief:" in guided_brief
-    assert "This is guidance only" in minimal_brief
-    assert "This is guidance only" in customised_brief
-    assert "This is guidance only" in guided_brief
     assert minimal_brief != customised_brief
     assert customised_brief != guided_brief
     assert "minimal host with one CLAUDE.md" in minimal_brief
@@ -684,5 +565,74 @@ def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
     proof_step = workflow.split("Execute section-6 live bridge proof", maxsplit=1)[1]
     proof_step = proof_step.split("Upload section-6 live bridge evidence", maxsplit=1)[0]
 
-    assert "scripts/section6_live_bridge_proof.py --artifact-dir /evidence" in proof_step
+    assert "scripts/section6_live_bridge_proof.py" in proof_step
+    for required_flag in (
+        "--expected-core-release",
+        "--expected-key-id",
+        "--expected-sha256",
+        "--expected-catalog-version",
+        "--expected-capability-count",
+        "--expected-job-count",
+        "--expected-capability-ids",
+    ):
+        assert required_flag in proof_step
     assert "--allow-no-packet" not in proof_step
+
+
+def test_section6_live_release_expectations_are_runtime_inputs_not_script_constants() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    script = Path("scripts/section6_live_bridge_proof.py").read_text(encoding="utf-8")
+
+    for dispatch_input in (
+        "expected_core_release:",
+        "expected_key_id:",
+        "expected_sha256:",
+        "expected_catalog_version:",
+        "expected_capability_count:",
+        "expected_job_count:",
+        "expected_capability_ids:",
+    ):
+        assert dispatch_input in workflow
+    assert 'DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release' in workflow
+    assert 'DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256' in workflow
+    assert "v1.95.2" in workflow
+    assert "79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6" in workflow
+    assert ",".join(WAVE_2_CAPABILITY_IDS) in workflow
+
+    assert "v1.95.1" not in script
+    assert "v1.95.2" not in script
+    assert "TRANCHE_1_CAPABILITY_IDS" not in script
+
+
+def test_section6_has_one_canonical_live_acceptance_entrypoint() -> None:
+    test_source = Path(__file__).read_text(encoding="utf-8")
+
+    assert "_live_brief_from_" + "deep_host" not in test_source
+    assert "_live_brief_from_" + "guided_host" not in test_source
+    assert "DEX_LENS_LIVE_" + "SECTION6" not in test_source
+
+
+def test_section6_canonical_entrypoint_refuses_a_release_identity_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
+    raw_bytes = raw_catalogue.encode("utf-8")
+    verified = verify_catalogue_envelope(raw_catalogue, keyring=keyring, now=NOW)
+    capability_ids = tuple(
+        capability.capability_id for capability in verified.catalogue.capabilities
+    )
+    expected = CatalogueReleaseExpectation(
+        core_release="v9.9.9",
+        key_id=verified.metadata.key_id,
+        raw_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        catalog_version=verified.metadata.catalog_version,
+        capability_count=len(capability_ids),
+        job_count=len(verified.catalogue.jobs_taxonomy),
+        capability_ids=capability_ids,
+    )
+    monkeypatch.setattr(proof, "urlopen", StaticCatalogueHTTP(raw_catalogue))
+    monkeypatch.setattr(proof, "default_keyring", lambda: keyring)
+
+    with pytest.raises(CatalogueReleaseMismatch, match="core release"):
+        proof._read_live_catalogue(expected)

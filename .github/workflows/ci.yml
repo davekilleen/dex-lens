@@ -10,6 +10,35 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      expected_core_release:
+        description: Exact Dex Core release to certify, including the v prefix
+        required: true
+        type: string
+      expected_key_id:
+        description: Exact pinned catalogue signing key id
+        required: true
+        type: string
+      expected_sha256:
+        description: SHA-256 of the exact public catalogue release bytes
+        required: true
+        type: string
+      expected_catalog_version:
+        description: Exact monotonic catalogue version
+        required: true
+        type: string
+      expected_capability_count:
+        description: Exact number of catalogue capabilities
+        required: true
+        type: string
+      expected_job_count:
+        description: Exact number of catalogue jobs
+        required: true
+        type: string
+      expected_capability_ids:
+        description: Complete comma-separated capability ids in release order
+        required: true
+        type: string
 
 jobs:
   test:
@@ -122,6 +151,14 @@ jobs:
     name: Section-6 live bridge proof (Linux)
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    env:
+      DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release || 'v1.95.2' }}
+      DEX_LENS_EXPECTED_KEY_ID: ${{ inputs.expected_key_id || 'dex-core-lens-1' }}
+      DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256 || '79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6' }}
+      DEX_LENS_EXPECTED_CATALOG_VERSION: ${{ inputs.expected_catalog_version || '1' }}
+      DEX_LENS_EXPECTED_CAPABILITY_COUNT: ${{ inputs.expected_capability_count || '25' }}
+      DEX_LENS_EXPECTED_JOB_COUNT: ${{ inputs.expected_job_count || '9' }}
+      DEX_LENS_EXPECTED_CAPABILITY_IDS: ${{ inputs.expected_capability_ids || 'daily-plan,week-plan,process-meetings,dex-doctor,relationship-radar,save-insight,daily-review,week-review,meeting-prep,meeting-closeout,commitments,delegate-check,triage,project-health,decision-log,initiative-kickoff,product-brief,industry-truths,identity-snapshot,weekly-reflection,enable-semantic-search,xray,backup-setup,backup-now,backup-restore' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,7 +201,15 @@ jobs:
             -v "${PWD}/section6-live-evidence:/evidence" \
             --entrypoint python \
             dex-lens-section6-live \
-            scripts/section6_live_bridge_proof.py --artifact-dir /evidence
+            scripts/section6_live_bridge_proof.py \
+            --artifact-dir /evidence \
+            --expected-core-release "${DEX_LENS_EXPECTED_CORE_RELEASE}" \
+            --expected-key-id "${DEX_LENS_EXPECTED_KEY_ID}" \
+            --expected-sha256 "${DEX_LENS_EXPECTED_SHA256}" \
+            --expected-catalog-version "${DEX_LENS_EXPECTED_CATALOG_VERSION}" \
+            --expected-capability-count "${DEX_LENS_EXPECTED_CAPABILITY_COUNT}" \
+            --expected-job-count "${DEX_LENS_EXPECTED_JOB_COUNT}" \
+            --expected-capability-ids "${DEX_LENS_EXPECTED_CAPABILITY_IDS}"
 
       - name: Upload section-6 live bridge evidence
         if: always() && steps.changes.outputs.changed == 'true'
