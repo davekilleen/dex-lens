@@ -118,6 +118,62 @@ jobs:
           path: m3-egress-artifact/
           if-no-files-found: error
 
+  section6-live-bridge-proof:
+    name: Section-6 live bridge proof (Linux)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether the live bridge proof path changed
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD \
+            > "$RUNNER_TEMP/section6-live-changed-files.txt"
+          if grep -E '^(\.github/workflows/ci\.yml|scripts/section6_live_bridge_proof\.py|docs/pilot/bridge-evidence\.md|tests/e2e/test_bridge_golden_path\.py|src/capability_exchange/(catalogue|concierge)/)' \
+            "$RUNNER_TEMP/section6-live-changed-files.txt"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No live bridge proof-path changes; proof skipped."
+          fi
+
+      - name: Build live bridge evidence image
+        if: steps.changes.outputs.changed == 'true'
+        run: docker build -f scripts/Dockerfile.m3-egress -t dex-lens-section6-live .
+
+      - name: Execute section-6 live bridge proof
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          install -d -m 0777 section6-live-evidence
+          docker run --rm \
+            --cap-drop=ALL \
+            --cap-add=NET_RAW \
+            --security-opt no-new-privileges=true \
+            --pids-limit 256 \
+            --memory 1g \
+            --cpus 2 \
+            -e DEX_LENS_SECTION6_LIVE=1 \
+            -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
+            -v "${PWD}/section6-live-evidence:/evidence" \
+            --entrypoint python \
+            dex-lens-section6-live \
+            scripts/section6_live_bridge_proof.py --artifact-dir /evidence
+
+      - name: Upload section-6 live bridge evidence
+        if: always() && steps.changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: section6-live-bridge-evidence
+          path: section6-live-evidence/
+          if-no-files-found: error
+
   g1-bind-mount-gate:
     name: G1 privileged bind-mount containment proof (Linux)
     # The normal matrix must keep skipping loudly when user namespaces are

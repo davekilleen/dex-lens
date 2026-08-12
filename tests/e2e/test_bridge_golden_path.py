@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from tests.catalogue.test_bridge import _catalogue as bridge_catalogue
@@ -16,13 +18,16 @@ from tests.concierge.test_local_server import envelope
 from capability_exchange.catalogue.fetch import (
     CONSENT_STATEMENT,
     CatalogueFetchConsent,
+    CatalogueFetchResult,
     CatalogueFetchStatus,
     ConsentedCatalogueFetcher,
 )
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore
 from capability_exchange.catalogue.v2 import (
+    CatalogueVerificationError,
     KeyRing,
     VerifiedCatalogueStore,
+    default_keyring,
     render_capability_entry_html,
     verify_catalogue_envelope,
 )
@@ -35,7 +40,16 @@ from capability_exchange.jobs import InspectionJobStore
 NOW = datetime(2026, 8, 11, 19, 30, tzinfo=UTC)
 HOST_FIXTURE_ROOT = Path("tests/e2e/hosts").resolve()
 EVIDENCE_PACK = Path("docs/pilot/bridge-evidence.md")
+CI_WORKFLOW = Path(".github/workflows/ci.yml")
 CATALOGUE_URL = "https://heydex.ai/catalogue/dex-lens/v2.json"
+TRANCHE_1_CAPABILITY_IDS = (
+    "daily-plan",
+    "week-plan",
+    "process-meetings",
+    "dex-doctor",
+    "relationship-radar",
+    "save-insight",
+)
 
 
 class StaticCatalogueHTTP:
@@ -218,6 +232,110 @@ def _brief_from_guided_host(host_root: Path, tmp_path: Path) -> str:
     return journey.catalogue_brief_markdown
 
 
+def _live_brief_from_deep_host(
+    host_root: Path, tmp_path: Path
+) -> tuple[str, tuple[str, ...]]:
+    session = new_session(
+        approved_roots=(host_root,),
+        collector=envelope,
+        app_storage=tmp_path / f"{host_root.name}-live-app",
+    )
+    marker = (
+        "customised host with skills/hooks/subagents"
+        if host_root.name == "customised-claude"
+        else "minimal host with one CLAUDE.md"
+    )
+    _confirm_session_jobs(session, marker=marker)
+    result = session.fetch_catalogue(
+        {
+            "catalogue_consent": [CONSENT_STATEMENT],
+            "catalogue_url": [CATALOGUE_URL],
+        }
+    )
+
+    assert result.status is CatalogueFetchStatus.VERIFIED
+    assert result.verified is not None
+    assert result.verified.metadata.core_release == "v1.95.1"
+    assert result.verified.metadata.key_id == "dex-core-lens-1"
+    assert tuple(
+        capability.capability_id for capability in result.verified.catalogue.capabilities
+    ) == TRANCHE_1_CAPABILITY_IDS
+
+    session.open_catalogue_shelf()
+    assert len(session.journey.catalogue_shelf) == len(TRANCHE_1_CAPABILITY_IDS)
+    first = session.journey.catalogue_shelf[0]
+    session.select_catalogue_brief(
+        {
+            "capability_id": [first.capability_id],
+            "job_id": [first.matched_job_ids[0]],
+        }
+    )
+    return session.journey.catalogue_brief_markdown, tuple(
+        match.capability_id for match in session.journey.catalogue_shelf
+    )
+
+
+def _live_brief_from_guided_host(host_root: Path, tmp_path: Path) -> str:
+    raw = __import__("urllib.request").request.urlopen(CATALOGUE_URL, timeout=10).read()
+    verified = verify_catalogue_envelope(raw.decode("utf-8"), keyring=default_keyring())
+    assert verified.metadata.core_release == "v1.95.1"
+    assert verified.metadata.key_id == "dex-core-lens-1"
+    journey = ConciergeJourney(
+        permission=_permission(),
+        collector=_fallback,
+        job_store=InspectionJobStore(tmp_path / "guided-live-jobs"),
+    )
+    journey.approve()
+    export_text = " ".join(
+        (host_root / "bounded-export.txt").read_text(encoding="utf-8").split()
+    )
+    journey.add_fallback_evidence(
+        FallbackEvidence(
+            label="guided fixture export",
+            level=EvidenceLevel.SUPPORTED,
+            detail=export_text[:480],
+            reference="export:guided-host#sha256=test-fixture",
+            probe_id="guided-export",
+        )
+    )
+    journey.continue_fallback()
+    draft = journey.add_job(
+        title="Review my work safely",
+        situation="When the host cannot be deeply inspected",
+        desired_outcome="The person still gets a bounded local brief",
+    )
+    journey.confirm_job(
+        draft.job_id,
+        success_evidence=("the next action is recorded",),
+        privacy_limits=("stay within the supplied export",),
+        approval_limits=("ask before external action",),
+        autonomy_limits=("do not change files",),
+        importance="medium",
+        cadence="weekly",
+        confirmed_at=NOW,
+    )
+    journey.diagnose()
+    journey.record_catalogue_fetch(
+        CatalogueFetchResult(
+            status=CatalogueFetchStatus.VERIFIED,
+            message="catalogue verified locally",
+            catalog_version=verified.metadata.catalog_version,
+            verified=verified,
+            stale=None,
+            fetched_at=NOW,
+            catalogue=verified.catalogue,
+        )
+    )
+    journey.open_catalogue_shelf()
+    assert len(journey.catalogue_shelf) == len(TRANCHE_1_CAPABILITY_IDS)
+    first = journey.catalogue_shelf[0]
+    journey.select_catalogue_brief(
+        capability_id=first.capability_id,
+        job_id=first.matched_job_ids[0],
+    )
+    return journey.catalogue_brief_markdown
+
+
 def test_section6_local_golden_path_scaffold_covers_three_host_fixtures(
     tmp_path: Path,
 ) -> None:
@@ -243,6 +361,45 @@ def test_section6_local_golden_path_scaffold_covers_three_host_fixtures(
     assert all("does not grant permission to read, write, send" in brief for brief in briefs)
     assert minimal_shelf == customised_shelf
     assert len(minimal_shelf) == len(bridge_catalogue().capabilities)
+    assert minimal_brief != customised_brief
+    assert customised_brief != guided_brief
+    assert "minimal host with one CLAUDE.md" in minimal_brief
+    assert "customised host with skills/hooks/subagents" in customised_brief
+    assert "When the host cannot be deeply inspected" in guided_brief
+
+
+@pytest.mark.skipif(
+    os.environ.get("DEX_LENS_LIVE_SECTION6") != "1",
+    reason="live section-6 proof runs only when explicitly requested",
+)
+def test_section6_live_golden_path_uses_real_heydex_catalogue(
+    tmp_path: Path,
+) -> None:
+    minimal = HOST_FIXTURE_ROOT / "minimal-claude"
+    customised = HOST_FIXTURE_ROOT / "customised-claude"
+    guided = HOST_FIXTURE_ROOT / "guided-export"
+
+    minimal_brief, minimal_shelf = _live_brief_from_deep_host(minimal, tmp_path)
+    customised_brief, customised_shelf = _live_brief_from_deep_host(
+        customised, tmp_path
+    )
+    guided_brief = _live_brief_from_guided_host(guided, tmp_path)
+    live_raw = __import__("urllib.request").request.urlopen(
+        CATALOGUE_URL, timeout=10
+    ).read().decode("utf-8")
+    tampered = live_raw.replace("Daily Plan", "Daily Plan!", 1)
+
+    with pytest.raises(CatalogueVerificationError, match="signature"):
+        verify_catalogue_envelope(tampered, keyring=default_keyring())
+
+    assert minimal_shelf == customised_shelf
+    assert set(minimal_shelf) == set(TRANCHE_1_CAPABILITY_IDS)
+    assert "# Portable Brief:" in minimal_brief
+    assert "# Portable Brief:" in customised_brief
+    assert "# Portable Brief:" in guided_brief
+    assert "This is guidance only" in minimal_brief
+    assert "This is guidance only" in customised_brief
+    assert "This is guidance only" in guided_brief
     assert minimal_brief != customised_brief
     assert customised_brief != guided_brief
     assert "minimal host with one CLAUDE.md" in minimal_brief
@@ -507,13 +664,21 @@ def test_section6_local_adversarial_catalogue_cases_fail_safely(
     assert "stale" in stale_result.message
 
 
-def test_section6_evidence_pack_names_live_gates_that_are_not_proven_yet() -> None:
+def test_section6_evidence_pack_names_remaining_gates_that_are_not_proven_yet() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
 
-    assert "Status: PREPARED, NOT PASSED" in text
-    assert "real heydex.ai catalogue URL fetch" in text
+    assert "Status: LIVE URL PROVEN, PACKET PROOF PENDING" in text
     assert "subscribed-posture packet-level egress" in text
-    assert "Dave signing-key ceremony" in text
+    assert "Design-owner sign-off" in text
     assert "Core release-pipeline failure proof" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
+
+
+def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    proof_step = workflow.split("Execute section-6 live bridge proof", maxsplit=1)[1]
+    proof_step = proof_step.split("Upload section-6 live bridge evidence", maxsplit=1)[0]
+
+    assert "scripts/section6_live_bridge_proof.py --artifact-dir /evidence" in proof_step
+    assert "--allow-no-packet" not in proof_step
