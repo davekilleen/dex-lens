@@ -119,9 +119,9 @@ Many people built their own personal AI system after seeing what Dex made
 possible. They should not have to choose between the system they own and the
 capabilities Dex keeps developing.
 
-That is the bridge Dex Lens is being built into:
+That bridge is now live. Here is what it does:
 
-- **See what Dex offers, ranked for your system.** Dex will publish a signed
+- **See what Dex offers, ranked for your system.** Dex publishes a signed
   catalogue of its capabilities, generated only from real releases. Lens
   compares it — entirely on your machine — with the work you confirmed and the
   gaps it found, and shows what would genuinely help, with the reason stated
@@ -135,10 +135,14 @@ That is the bridge Dex Lens is being built into:
   your system is ever sent to Dex — the catalogue download is identical for
   every person in the world.
 
-> **Where this stands today:** the live catalogue connection is designed and
-> in founder review — it is **not** part of the current pilot candidate. Today
-> Lens gives you the private diagnosis and a guided improvement preview; this
-> page will change when the bridge is genuinely live, not before.
+> **Where this stands today:** the connection is available and verified end
+> to end for the first six published capabilities — Daily Plan, Week Plan,
+> Process Meetings, Dex Doctor, Relationship Radar and Save Insight. Every
+> catalogue is cryptographically signed by Dex and checked on your machine
+> before anything is shown. The catalogue grows release by release: nineteen
+> further capabilities are being prepared. Still true, and always will be:
+> no account, nothing about your system is ever sent anywhere, and Lens
+> changes nothing without you.
 
 ## What you receive
 
@@ -190,7 +194,7 @@ outcome that has genuinely improved someone’s work.
 - a way to understand capability, evidence, access and gaps in human terms;
 - private and read-only during diagnosis;
 - a bridge for deliberately bringing selected Dex capabilities into your own
-  system, on your terms (in design and build now); and
+  system, on your terms (live for the first six published capabilities); and
 - designed to help you make a better decision about what to trust or improve.
 
 **Dex Lens is not:**
@@ -215,8 +219,9 @@ download or finished public release**.
   pilot begins.
 - Real-user automation remains unavailable until Lens can observe whether an
   agreed work outcome genuinely improved.
-- The live bridge to Dex’s capability catalogue is designed and in founder
-  review; it is not yet connected.
+- The live bridge to Dex's capability catalogue is available and verified end
+  to end for the six published capabilities; the catalogue expansion (nineteen
+  further capabilities) is in progress.
 
 This is the honest boundary: the code and safety gates are ready for pilot
 delivery preparation, but the evidence that matters next must come from real
