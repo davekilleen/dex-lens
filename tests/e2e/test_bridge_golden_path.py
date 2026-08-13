@@ -552,8 +552,9 @@ def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> 
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
     prose = " ".join(text.split())
 
-    assert "Status: WAVE 2 ACCEPTED; WAVE 3 LIVE ACCEPTANCE IN PROGRESS" in text
+    assert "Status: SECTION-6 PROOF PASSED; WAVE 2 AND WAVE 3 ACCEPTED LIVE" in text
     assert "run 31620154658, artifact 9150895971" in text
+    assert "run 31657397872, artifact 9164892650" in text
     assert "`subscribed_prompt_rendered: false`" in text
     assert "Core v1.96.0 remains an immutable historical release" in prose
     assert "Public live claim approved and shipped" in text
