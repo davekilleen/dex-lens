@@ -496,7 +496,7 @@ git commit -m "Document folder chooser launch"
 - Verify only: tests/concierge/test_local_server.py
 - Verify only: tests/egress/test_m3_concierge_egress.py
 
-- [ ] **Step 1: Run the doorway and egress checks**
+- [x] **Step 1: Run the doorway and egress checks**
 
 Run:
 
@@ -506,7 +506,7 @@ python -m pytest -rs tests/concierge/test_cli.py tests/concierge/test_local_serv
 
 Expected: PASS, with any documented host-specific skip printed rather than hidden.
 
-- [ ] **Step 2: Run formatting and inventory checks**
+- [x] **Step 2: Run formatting and inventory checks**
 
 Run:
 
@@ -519,7 +519,7 @@ git diff --check origin/main...HEAD
 Expected: all commands exit zero. The inventory count remains unchanged because the
 chooser is ephemeral and does not serialize, persist or transmit a Vault path.
 
-- [ ] **Step 3: Review the final diff**
+- [x] **Step 3: Review the final diff**
 
 Run:
 
