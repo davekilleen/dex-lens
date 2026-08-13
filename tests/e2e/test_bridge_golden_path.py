@@ -4,6 +4,8 @@ import base64
 import hashlib
 import importlib
 import json
+import os
+import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -548,34 +550,41 @@ def test_section6_local_adversarial_catalogue_cases_fail_safely(
     assert "stale" in stale_result.message
 
 
-def test_section6_evidence_pack_records_public_claim_and_proof() -> None:
+def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
     prose = " ".join(text.split())
 
-    assert "Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE" in text
+    assert "Status: SECTION-6 PROOF PASSED; WAVE 2 AND WAVE 3 ACCEPTED LIVE" in text
     assert "run 31620154658, artifact 9150895971" in text
-    assert "`subscribed_prompt_rendered: false`" in text
-    assert "current public catalogue is version 1" in prose
+    assert "https://github.com/davekilleen/dex-lens/pull/22/checks" in text
+    assert "`section6-live-bridge-evidence`" in text
+    assert "required the capture drop counter to equal zero" in prose
+    assert "31658984041" not in text
+    assert "9165477743" not in text
+    assert "`subscribed_prompt_rendered: true`" in text
+    assert "`parked_version: 3`" in text
+    assert "`parked_prompt_suppressed: true`" in text
+    assert "Core v1.96.0 remains an immutable historical release" in prose
     assert "Public live claim approved and shipped" in text
-    assert "Wave 2 catalogue is live" in text
-    assert "25 approved everyday capabilities" in prose
-    assert "Passed in Core PR #473" in text
+    assert "Core release v1.96.1" in prose
+    assert "55 capabilities across 11 jobs" in prose
+    assert "Passed in Core PR #507" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
     assert "test_section6_live_golden_path_uses_real_heydex_catalogue" not in text
 
 
-def test_public_status_copy_matches_the_live_wave_2_catalogue() -> None:
+def test_public_status_copy_matches_the_live_complete_catalogue() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     status = Path("docs/STATUS.md").read_text(encoding="utf-8")
 
     for text in (readme, status):
-        assert "25" in text
+        assert "55" in text
         assert "v1.95.1" not in text
         assert "Wave 2 expansion is in progress" not in text
         assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
-    assert "Core release v1.95.2" in status
-    assert "25 approved everyday capabilities" in readme
+    assert "Core release v1.96.1" in status
+    assert "live for all 55 signed capabilities" in readme
 
 
 def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
@@ -595,6 +604,118 @@ def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
     ):
         assert required_flag in proof_step
     assert "--allow-no-packet" not in proof_step
+
+
+def test_section6_ci_runs_the_executable_commit_identity_guard() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    proof_step = workflow.split("Execute section-6 live bridge proof", maxsplit=1)[1]
+    proof_step = proof_step.split("Upload section-6 live bridge evidence", maxsplit=1)[0]
+
+    assert (
+        "DEX_LENS_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.sha || github.sha }}"
+    ) in workflow
+    assert "DEX_LENS_BUILD_COMMIT: ${{ github.sha }}" in workflow
+    assert "python scripts/section6_build_identity.py" in proof_step
+    assert '-e DEX_LENS_SOURCE_COMMIT="${DEX_LENS_SOURCE_COMMIT}"' in proof_step
+    assert '-e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}"' in proof_step
+
+
+def test_section6_commit_identity_guard_rejects_each_relationship_mutation(
+    tmp_path: Path,
+) -> None:
+    binding = importlib.import_module("scripts.section6_build_identity")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", *args], cwd=repo, text=True, stderr=subprocess.STDOUT
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Lens Test")
+    git("config", "user.email", "lens-test@example.com")
+    (repo / "base.txt").write_text("base\n", encoding="utf-8")
+    git("add", "base.txt")
+    git("commit", "-m", "base")
+    base_commit = git("rev-parse", "HEAD")
+    git("checkout", "-b", "reviewed")
+    (repo / "source.txt").write_text("source\n", encoding="utf-8")
+    git("add", "source.txt")
+    git("commit", "-m", "source")
+    source_commit = git("rev-parse", "HEAD")
+    git("checkout", "main")
+    git("merge", "--no-ff", "reviewed", "-m", "synthetic PR merge")
+    execution_commit = git("rev-parse", "HEAD")
+
+    script = Path("scripts/section6_build_identity.py").resolve()
+
+    def run_guard(event_name: str, source: str, execution: str) -> subprocess.CompletedProcess[str]:
+        env = {
+            **os.environ,
+            "DEX_LENS_EVENT_NAME": event_name,
+            "DEX_LENS_SOURCE_COMMIT": source,
+            "DEX_LENS_BUILD_COMMIT": execution,
+        }
+        return subprocess.run(
+            [sys.executable, str(script)],
+            cwd=repo,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    assert binding.verify_build_identity(
+        event_name="pull_request",
+        source_commit=source_commit,
+        execution_commit=execution_commit,
+        repo_root=repo,
+    ) == (source_commit, execution_commit)
+    assert binding.verify_build_identity(
+        event_name="workflow_dispatch",
+        source_commit=execution_commit,
+        execution_commit=execution_commit,
+        repo_root=repo,
+    ) == (execution_commit, execution_commit)
+    assert run_guard("pull_request", source_commit, execution_commit).returncode == 0
+    assert run_guard(
+        "workflow_dispatch", execution_commit, execution_commit
+    ).returncode == 0
+
+    with pytest.raises(binding.BuildIdentityError, match="checked-out commit"):
+        binding.verify_build_identity(
+            event_name="pull_request",
+            source_commit=source_commit,
+            execution_commit=source_commit,
+            repo_root=repo,
+        )
+    checked_out_mutation = run_guard("pull_request", source_commit, source_commit)
+    assert checked_out_mutation.returncode == 1
+    assert "checked-out commit" in checked_out_mutation.stderr
+    with pytest.raises(binding.BuildIdentityError, match="second parent"):
+        binding.verify_build_identity(
+            event_name="pull_request",
+            source_commit=base_commit,
+            execution_commit=execution_commit,
+            repo_root=repo,
+        )
+    parent_mutation = run_guard("pull_request", base_commit, execution_commit)
+    assert parent_mutation.returncode == 1
+    assert "second parent" in parent_mutation.stderr
+    with pytest.raises(binding.BuildIdentityError, match="dispatched source"):
+        binding.verify_build_identity(
+            event_name="workflow_dispatch",
+            source_commit=source_commit,
+            execution_commit=execution_commit,
+            repo_root=repo,
+        )
+    dispatch_mutation = run_guard(
+        "workflow_dispatch", source_commit, execution_commit
+    )
+    assert dispatch_mutation.returncode == 1
+    assert "dispatched source" in dispatch_mutation.stderr
 
 
 def test_section6_live_release_expectations_are_runtime_inputs_not_script_constants() -> None:
@@ -694,6 +815,62 @@ def test_section6_response_wrapper_validates_before_returning_bytes(
             response.read()
 
 
+def test_section6_subscription_proof_exercises_prompt_park_and_revoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
+    expected = _release_expectation_for_bridge_catalogue()
+    monkeypatch.setattr(
+        proof,
+        "urlopen",
+        StaticCatalogueHTTP(raw_catalogue, raw_catalogue, raw_catalogue),
+    )
+    monkeypatch.setattr(proof, "default_keyring", lambda: keyring)
+
+    observation = proof._prove_subscription_postures(tmp_path, expected)
+
+    assert observation == {
+        "manual_fetch_requests": 1,
+        "subscribed_returning_fetch_requests": 1,
+        "subscribed_prompt_rendered": True,
+        "parked_version": expected.catalog_version,
+        "parked_returning_fetch_requests": 1,
+        "parked_prompt_suppressed": True,
+        "unsubscribed_returning_fetch_requests": 0,
+        "subscribed_after_revoke": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_message"),
+    (
+        ("manual_fetch_requests", 0, "manual consent run did not make exactly one fetch"),
+        ("subscribed_prompt_rendered", False, "newer catalogue prompt was not rendered"),
+        ("parked_version", 6, "parked catalogue version did not match the live version"),
+        ("parked_returning_fetch_requests", 0, "parked returning run did not fetch once"),
+        ("parked_prompt_suppressed", False, "parked catalogue prompt was not suppressed"),
+        ("subscribed_after_revoke", True, "catalogue subscription survived revocation"),
+    ),
+)
+def test_section6_receipt_requires_complete_subscription_journey(
+    field: str,
+    bad_value: object,
+    expected_message: str,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    journey = _passing_journey()
+    subscription = journey["subscription"]
+    assert isinstance(subscription, dict)
+    subscription[field] = bad_value
+
+    assert proof._journey_failure(journey) == {
+        "type": "JourneyProofFailure",
+        "message": expected_message,
+    }
+
+
 def test_section6_release_mismatch_writes_a_structured_failure_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -701,8 +878,11 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
     proof = importlib.import_module("scripts.section6_live_bridge_proof")
     expected = _release_expectation_for_bridge_catalogue()
     artifact_dir = tmp_path / "evidence"
+    source_commit = "a" * 40
+    execution_commit = "b" * 40
     monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
-    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "test-build-commit")
+    monkeypatch.setenv("DEX_LENS_SOURCE_COMMIT", source_commit)
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", execution_commit)
     monkeypatch.setattr(proof, "_start_capture", lambda _path: None)
     monkeypatch.setattr(
         proof,
@@ -720,7 +900,8 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
         (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
     )
     assert receipt["status"] == "failed"
-    assert receipt["commit"] == "test-build-commit"
+    assert receipt["commit"] == source_commit
+    assert receipt["execution_commit"] == execution_commit
     assert receipt["expected"]["core_release"] == expected.core_release
     assert receipt["failure"] == {
         "type": "CatalogueReleaseMismatch",
@@ -741,7 +922,7 @@ def test_section6_capture_failures_clean_up_and_write_a_failure_receipt(
     fake_capture = (object(), object())
     stopped: list[object] = []
     monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
-    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "capture-failure-build")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "c" * 40)
     monkeypatch.setattr(proof, "_start_capture", lambda _path: fake_capture)
     monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
 
@@ -782,6 +963,63 @@ def test_section6_capture_failures_clean_up_and_write_a_failure_receipt(
     assert receipt["status"] == "failed"
     assert receipt["failure"] == {
         "type": "RuntimeError",
+        "message": expected_message,
+    }
+
+
+@pytest.mark.parametrize(
+    ("dropped_packets", "expected_message"),
+    (
+        (1, "packet capture dropped 1 packet(s)"),
+        (-1, "packet capture dropped-packet count is unavailable"),
+    ),
+)
+def test_section6_dropped_or_unknown_capture_packets_fail_closed(
+    dropped_packets: int,
+    expected_message: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    expected = _release_expectation_for_bridge_catalogue()
+    artifact_dir = tmp_path / "evidence"
+    fake_capture = (object(), object())
+    monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "d" * 40)
+
+    def start_capture(path: Path) -> tuple[object, object]:
+        path.write_bytes(b"synthetic capture")
+        return fake_capture
+
+    monkeypatch.setattr(proof, "_start_capture", start_capture)
+    monkeypatch.setattr(proof, "_capture_ready", lambda _process: True)
+    monkeypatch.setattr(
+        proof,
+        "_run_live_journey",
+        lambda _tmp, _expected: _passing_journey(),
+    )
+    monkeypatch.setattr(proof, "_stop_capture", lambda _capture: (True, ""))
+    monkeypatch.setattr(
+        proof,
+        "_packet_summary",
+        lambda _path, _stderr: {
+            "packet_count": 5,
+            "non_loopback_packet_count": 5,
+            "capture_packets_captured": 5,
+            "capture_packets_received": 6,
+            "capture_packets_dropped": dropped_packets,
+        },
+    )
+    monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
+
+    assert proof.main() == 1
+    receipt = json.loads(
+        (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
+    )
+    assert receipt["status"] == "failed"
+    assert receipt["packet"]["capture_packets_dropped"] == dropped_packets
+    assert receipt["failure"] == {
+        "type": "PacketProofFailure",
         "message": expected_message,
     }
 
@@ -831,9 +1069,16 @@ def _proof_argv(
 
 def _passing_journey() -> dict[str, object]:
     return {
+        "catalog_version": 7,
         "subscription": {
+            "manual_fetch_requests": 1,
             "subscribed_returning_fetch_requests": 1,
+            "subscribed_prompt_rendered": True,
+            "parked_version": 7,
+            "parked_returning_fetch_requests": 1,
+            "parked_prompt_suppressed": True,
             "unsubscribed_returning_fetch_requests": 0,
+            "subscribed_after_revoke": False,
         },
         "minimal_fetch_requests": 1,
         "customised_fetch_requests": 1,

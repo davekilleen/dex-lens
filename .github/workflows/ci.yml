@@ -153,6 +153,8 @@ jobs:
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     env:
       DEX_LENS_EVENT_NAME: ${{ github.event_name }}
+      DEX_LENS_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      DEX_LENS_BUILD_COMMIT: ${{ github.sha }}
       DEX_LENS_EXPECTED_CORE_RELEASE: ${{ inputs.expected_core_release }}
       DEX_LENS_EXPECTED_KEY_ID: ${{ inputs.expected_key_id }}
       DEX_LENS_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
@@ -174,7 +176,7 @@ jobs:
           fi
           git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD \
             > "$RUNNER_TEMP/section6-live-changed-files.txt"
-          if grep -E '^(\.github/workflows/ci\.yml|scripts/section6_live_bridge_proof\.py|docs/pilot/(bridge-evidence\.md|live-catalogue-release\.json)|tests/e2e/test_bridge_golden_path\.py|src/capability_exchange/(catalogue|concierge)/)' \
+          if grep -E '^(\.github/workflows/ci\.yml|scripts/section6_(live_bridge_proof|build_identity)\.py|docs/pilot/(bridge-evidence\.md|live-catalogue-release\.json)|tests/e2e/test_bridge_golden_path\.py|src/capability_exchange/(catalogue|concierge)/)' \
             "$RUNNER_TEMP/section6-live-changed-files.txt"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
@@ -189,6 +191,7 @@ jobs:
       - name: Execute section-6 live bridge proof
         if: steps.changes.outputs.changed == 'true'
         run: |
+          python scripts/section6_build_identity.py
           install -d -m 0777 section6-live-evidence
           release_args=(
             --expectation-manifest docs/pilot/live-catalogue-release.json
@@ -212,6 +215,7 @@ jobs:
             --memory 1g \
             --cpus 2 \
             -e DEX_LENS_SECTION6_LIVE=1 \
+            -e DEX_LENS_SOURCE_COMMIT="${DEX_LENS_SOURCE_COMMIT}" \
             -e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}" \
             -v "${PWD}/section6-live-evidence:/evidence" \
             --entrypoint python \

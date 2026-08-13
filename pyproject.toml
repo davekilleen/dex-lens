@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = { text = "Proprietary" }
 dependencies = [
     "cryptography>=43",
+    "jsonschema>=4.23,<5",
     "pydantic>=2",
 ]
 

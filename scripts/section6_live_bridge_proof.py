@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -65,6 +66,7 @@ from capability_exchange.evidence import EvidenceLevel  # noqa: E402
 from capability_exchange.jobs import InspectionJobStore  # noqa: E402
 
 NOW = datetime(2026, 8, 12, 10, 45, tzinfo=UTC)
+_GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass
@@ -251,16 +253,16 @@ def _prove_subscription_postures(
     tmp_path: Path,
     expected: CatalogueReleaseExpectation,
 ) -> dict[str, Any]:
-    app_storage = tmp_path / "live-subscription-app-storage"
-    store = CatalogueSubscriptionStore(app_storage)
-
+    if expected.catalog_version <= 1:
+        raise RuntimeError(
+            "subscription update proof requires a catalogue version after version 1"
+        )
     first_counter = CountedUrlOpen(expected)
     first = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
         collector=envelope,
         catalogue_fetcher=_fetcher(tmp_path, "live-subscription-first", first_counter),
-        app_storage=app_storage,
-        catalogue_subscription_store=store,
+        app_storage=tmp_path / "live-subscription-manual-app-storage",
     )
     _confirm_session_jobs(first, marker="live subscription first run")
     first_result = first.fetch_catalogue(
@@ -271,8 +273,11 @@ def _prove_subscription_postures(
     )
     if first_result.status is not CatalogueFetchStatus.VERIFIED:
         raise RuntimeError("first live subscription fetch failed")
-    first.subscribe_catalogue_updates({"catalogue_url": [CATALOGUE_URL]})
-    first.look_catalogue_updates()
+
+    app_storage = tmp_path / "live-subscription-app-storage"
+    store = CatalogueSubscriptionStore(app_storage)
+    store.subscribe(catalogue_url=CATALOGUE_URL, now=NOW)
+    store.mark_seen(catalog_version=expected.catalog_version - 1, now=NOW)
 
     subscribed_counter = CountedUrlOpen(expected)
     subscribed = new_session(
@@ -287,8 +292,20 @@ def _prove_subscription_postures(
     _confirm_session_jobs(subscribed, marker="live subscription returning run")
     subscribed_html = render_journey(subscribed.journey, subscribed.csrf_token)
     subscribed.park_catalogue_updates()
+    parked_record = store.load()
 
-    subscribed.revoke_catalogue_updates()
+    parked_counter = CountedUrlOpen(expected)
+    parked = new_session(
+        approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
+        collector=envelope,
+        catalogue_fetcher=_fetcher(tmp_path, "live-subscription-parked", parked_counter),
+        app_storage=app_storage,
+        catalogue_subscription_store=store,
+    )
+    _confirm_session_jobs(parked, marker="live subscription parked returning run")
+    parked_html = render_journey(parked.journey, parked.csrf_token)
+
+    parked.revoke_catalogue_updates()
     unsubscribed_counter = CountedUrlOpen(expected)
     unsubscribed = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
@@ -304,10 +321,14 @@ def _prove_subscription_postures(
     return {
         "manual_fetch_requests": first_counter.count,
         "subscribed_returning_fetch_requests": subscribed_counter.count,
-        "unsubscribed_returning_fetch_requests": unsubscribed_counter.count,
         "subscribed_prompt_rendered": "Dex catalogue updates are available"
         in subscribed_html,
-        "parked_version": store.load().parked_catalog_version,
+        "parked_version": parked_record.parked_catalog_version,
+        "parked_returning_fetch_requests": parked_counter.count,
+        "parked_prompt_suppressed": "Dex catalogue updates are available"
+        not in parked_html
+        and f"Parked catalogue update: {expected.catalog_version}" in parked_html,
+        "unsubscribed_returning_fetch_requests": unsubscribed_counter.count,
         "subscribed_after_revoke": store.load().subscribed,
     }
 
@@ -492,15 +513,45 @@ def _stop_capture(
 
 def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
     subscription = journey["subscription"]
+    if subscription["manual_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "manual consent run did not make exactly one fetch",
+        }
     if subscription["subscribed_returning_fetch_requests"] != 1:
         return {
             "type": "JourneyProofFailure",
             "message": "subscribed returning run did not make exactly one fetch",
         }
+    if not subscription["subscribed_prompt_rendered"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "newer catalogue prompt was not rendered",
+        }
+    if subscription["parked_version"] != journey["catalog_version"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked catalogue version did not match the live version",
+        }
+    if subscription["parked_returning_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked returning run did not fetch once",
+        }
+    if not subscription["parked_prompt_suppressed"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked catalogue prompt was not suppressed",
+        }
     if subscription["unsubscribed_returning_fetch_requests"] != 0:
         return {
             "type": "JourneyProofFailure",
             "message": "unsubscribed returning run made a fetch",
+        }
+    if subscription["subscribed_after_revoke"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "catalogue subscription survived revocation",
         }
     if journey["minimal_fetch_requests"] != 1 or journey["customised_fetch_requests"] != 1:
         return {
@@ -530,6 +581,21 @@ def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
             "message": "tampered live catalogue verified unexpectedly",
         }
     return None
+
+
+def _build_identity() -> tuple[str, str]:
+    """Return the reviewed source and actual execution commits, fail closed."""
+    execution_commit = os.environ.get("DEX_LENS_BUILD_COMMIT")
+    if not execution_commit:
+        execution_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+    source_commit = os.environ.get("DEX_LENS_SOURCE_COMMIT", execution_commit)
+    if not _GIT_SHA.fullmatch(source_commit):
+        raise ValueError("reviewed source commit must be an exact lowercase Git SHA")
+    if not _GIT_SHA.fullmatch(execution_commit):
+        raise ValueError("execution commit must be an exact lowercase Git SHA")
+    return source_commit, execution_commit
 
 
 def main() -> int:
@@ -566,7 +632,10 @@ def main() -> int:
     capture_stderr = ""
     journey: dict[str, Any] | None = None
     failure: dict[str, str] | None = None
+    source_commit = os.environ.get("DEX_LENS_SOURCE_COMMIT", "unavailable")
+    execution_commit = os.environ.get("DEX_LENS_BUILD_COMMIT", "unavailable")
     try:
+        source_commit, execution_commit = _build_identity()
         capture = _start_capture(pcap)
         if capture is not None:
             capture_ready = _capture_ready(capture[0])
@@ -587,10 +656,6 @@ def main() -> int:
         except Exception as error:
             if failure is None:
                 failure = {"type": type(error).__name__, "message": str(error)}
-    commit = os.environ.get("DEX_LENS_BUILD_COMMIT")
-    if not commit:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-
     if failure is None:
         if journey is None:
             failure = {
@@ -599,6 +664,18 @@ def main() -> int:
             }
         else:
             failure = _journey_failure(journey)
+    if failure is None and capture_ready and capture_clean_exit:
+        dropped_packets = packet.get("capture_packets_dropped")
+        if type(dropped_packets) is not int or dropped_packets < 0:
+            failure = {
+                "type": "PacketProofFailure",
+                "message": "packet capture dropped-packet count is unavailable",
+            }
+        elif dropped_packets > 0:
+            failure = {
+                "type": "PacketProofFailure",
+                "message": f"packet capture dropped {dropped_packets} packet(s)",
+            }
     if (
         failure is None
         and capture_ready
@@ -623,7 +700,8 @@ def main() -> int:
     evidence = {
         "schema_version": 1,
         "status": status,
-        "commit": commit,
+        "commit": source_commit,
+        "execution_commit": execution_commit,
         "run_id": f"section6-live-{uuid.uuid4().hex}",
         "expected": _expected_evidence(expected),
         "packet": {
