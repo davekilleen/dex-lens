@@ -19,9 +19,11 @@ that archive into an isolated user-owned virtual environment, then starts
 `dex-lens --choose-folder`. It does not use `sudo`, a mutable branch, PyPI, or
 any Vault path.
 
-**Scope:** Mac and Linux only: macOS Apple Silicon and Intel; Linux x86_64 and
-ARM64; Python 3.11–3.13. Windows receives its separately bounded Preview after
-this release path is proven.
+**Scope:** Mac and Linux first: macOS Apple Silicon and Linux x86_64; Python
+3.11–3.13. The fixed current runtime wheels do not support Intel macOS safely,
+so Intel Mac and Linux ARM64 remain an explicitly unsupported, source-build
+route until a separate native wheel-build lane proves them. Windows receives
+its separately bounded Preview after this release path is proven.
 
 **Important security choice:** The earlier public-launch design named Ed25519.
 The installer runs before Python dependencies are installed, and OpenSSL 1.1.1
@@ -104,8 +106,9 @@ URLs, editable inputs or hashes that refer to a developer machine.
 In `scripts/release_bundle.py`:
 
 - Define immutable `Target`, `ReleaseAsset`, and `ReleaseManifest` dataclasses.
-- Support exactly `linux-x86_64`, `linux-aarch64`, `macos-arm64`, and
-  `macos-x86_64`.
+- Support exactly `linux-x86_64` and `macos-arm64`; reject every other target
+  with an actionable source-build message until its own native wheel lane is
+  proven.
 - Validate semantic version, a 40-character lowercase source commit, filename
   basename, and a 64-character lowercase SHA-256 before serialization.
 - Encode manifest JSON with `sort_keys=True`, two-space indentation, a final
@@ -126,7 +129,7 @@ git commit -m "Add signed release manifest contract"
 - Modify: `scripts/release_bundle.py`
 - Modify: `tests/release/test_release_bundle.py`
 
-- [ ] **Step 1: Write failing bundle tests**
+- [x] **Step 1: Write failing bundle tests**
 
 Add tests that use temporary fake wheel files to prove the archive helper:
 
@@ -136,7 +139,7 @@ Add tests that use temporary fake wheel files to prove the archive helper:
    types; and
 4. records the archive SHA-256 in the manifest.
 
-- [ ] **Step 2: Confirm the red state**
+- [x] **Step 2: Confirm the red state**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_bundle.py -k wheelhouse
@@ -144,7 +147,7 @@ python -m pytest -q tests/release/test_release_bundle.py -k wheelhouse
 
 Expected: FAIL until the builder exists.
 
-- [ ] **Step 3: Implement the offline wheelhouse builder**
+- [x] **Step 3: Implement the offline wheelhouse builder**
 
 Add a `build` CLI to `scripts/release_bundle.py` which:
 
@@ -155,24 +158,25 @@ Add a `build` CLI to `scripts/release_bundle.py` which:
    declared OS/CPU tag;
 4. combines the exact Lens wheel and only matching wheel files into one archive
    per target;
-5. writes `release-manifest.json` only after every archive has a SHA-256; and
+5. writes `release-manifest.json` only after every supported archive has a
+   SHA-256; and
 6. rejects a missing wheel, a source distribution, or a conflicting duplicate
    filename instead of falling back to PyPI at install time.
 
 Use Python's tar/gzip APIs with fixed metadata, never a shell string. Archives
 must be named `dex-lens-v<version>-<target>.tar.gz`.
 
-- [ ] **Step 4: Run focused tests and build a local Linux proof bundle**
+- [x] **Step 4: Run focused tests and build a local Linux proof bundle**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_bundle.py
 python scripts/release_bundle.py build --version 0.1.0 --output /tmp/dex-lens-release-proof
 ~~~
 
-Expected: the output contains exactly four archives, a manifest and no Vault
+Expected: the output contains exactly two archives, a manifest and no Vault
 paths or user data.
 
-- [ ] **Step 5: Commit the release builder**
+- [x] **Step 5: Commit the release builder**
 
 ~~~sh
 git add scripts/release_bundle.py tests/release/test_release_bundle.py
@@ -277,7 +281,7 @@ unreleased command or Windows support.
 - [ ] **Step 4: Test static release workflow constraints**
 
 Add assertions that the workflow is manual-only, checks the signing secret,
-publishes manifest/signature/installer plus all four expected archives, and
+publishes manifest/signature/installer plus both expected archives, and
 does not run a mutable branch installer or `sudo`.
 
 - [ ] **Step 5: Run the full release slice**
@@ -309,7 +313,7 @@ git commit -m "Add signed public release workflow"
 - [ ] Configure the dedicated P-256 signing private key as
   `DEX_LENS_RELEASE_SIGNING_KEY_PEM` through GitHub's encrypted secret UI.
 - [ ] Run the manual release workflow for the reviewed version, confirm the
-  tag, four archives, manifest, signature and installer are present, then run
+tag, both archives, manifest, signature and installer are present, then run
   the exact public one-line command in a clean Mac/Linux environment.
 - [ ] Update Mission Control, Dispatch, README/STATUS and the live HeyDex
   distribution page together before telling anyone the command is public.

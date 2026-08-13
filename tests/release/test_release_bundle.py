@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import tarfile
+from pathlib import Path
 
 import pytest
 from scripts.release_bundle import (
     ReleaseAsset,
     ReleaseManifest,
     ReleaseValidationError,
+    build_wheelhouse_archive,
     parse_manifest_bytes,
+    sha256_file,
 )
 
 
@@ -101,8 +105,63 @@ def test_parse_rejects_extra_shape_instead_of_silently_normalizing() -> None:
 
 def test_parse_rejects_an_asset_with_a_mismatched_mapping_key() -> None:
     payload = json.loads(_manifest().to_bytes())
-    payload["assets"]["linux-aarch64"] = payload["assets"].pop("linux-x86_64")
+    payload["assets"]["macos-arm64"] = payload["assets"].pop("linux-x86_64")
     raw = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8") + b"\n"
 
     with pytest.raises(ReleaseValidationError, match="filename"):
         parse_manifest_bytes(raw)
+
+
+def _wheel(path: Path, contents: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(contents)
+    return path
+
+
+def test_wheelhouse_archive_has_only_regular_wheels_with_fixed_metadata(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse-source"
+    first = _wheel(wheelhouse / "pure-1.0.0-py3-none-any.whl", b"pure wheel")
+    second = _wheel(wheelhouse / "nested" / "native-1.0.0-cp311.whl", b"native wheel")
+    first_archive = tmp_path / "first.tar.gz"
+    second_archive = tmp_path / "second.tar.gz"
+
+    first_digest = build_wheelhouse_archive(wheelhouse, (first, second), first_archive)
+    second_digest = build_wheelhouse_archive(wheelhouse, (second, first), second_archive)
+
+    assert first_digest == sha256_file(first_archive)
+    assert second_digest == sha256_file(second_archive)
+    assert first_archive.read_bytes() == second_archive.read_bytes()
+    with tarfile.open(first_archive) as archive:
+        members = archive.getmembers()
+
+    assert [member.name for member in members] == [
+        "wheelhouse/native-1.0.0-cp311.whl",
+        "wheelhouse/pure-1.0.0-py3-none-any.whl",
+    ]
+    assert all(member.isfile() for member in members)
+    assert all(member.mtime == 0 for member in members)
+    assert all(member.uid == 0 and member.gid == 0 for member in members)
+
+
+def test_wheelhouse_archive_rejects_a_path_outside_its_declared_source(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse-source"
+    inside = _wheel(wheelhouse / "inside-1.0.0.whl", b"inside")
+    outside = _wheel(tmp_path / "outside-1.0.0.whl", b"outside")
+
+    with pytest.raises(ReleaseValidationError, match="outside"):
+        build_wheelhouse_archive(wheelhouse, (inside, outside), tmp_path / "release.tar.gz")
+
+
+def test_wheelhouse_archive_rejects_symlinks_and_duplicate_filenames(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse-source"
+    first = _wheel(wheelhouse / "first" / "same-1.0.0.whl", b"first")
+    second = _wheel(wheelhouse / "second" / "same-1.0.0.whl", b"second")
+    source = _wheel(tmp_path / "source-1.0.0.whl", b"source")
+    symlink = wheelhouse / "linked-1.0.0.whl"
+    symlink.parent.mkdir(parents=True, exist_ok=True)
+    symlink.symlink_to(source)
+
+    with pytest.raises(ReleaseValidationError, match="duplicate"):
+        build_wheelhouse_archive(wheelhouse, (first, second), tmp_path / "duplicate.tar.gz")
+    with pytest.raises(ReleaseValidationError, match="symlink"):
+        build_wheelhouse_archive(wheelhouse, (symlink,), tmp_path / "symlink.tar.gz")
