@@ -604,6 +604,21 @@ def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
     assert "--allow-no-packet" not in proof_step
 
 
+def test_section6_ci_binds_reviewed_source_and_executed_merge_commits() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    proof_step = workflow.split("Execute section-6 live bridge proof", maxsplit=1)[1]
+    proof_step = proof_step.split("Upload section-6 live bridge evidence", maxsplit=1)[0]
+
+    assert (
+        "DEX_LENS_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.sha || github.sha }}"
+    ) in workflow
+    assert 'git rev-parse "${GITHUB_SHA}^2"' in proof_step
+    assert '!= "${DEX_LENS_SOURCE_COMMIT}"' in proof_step
+    assert '-e DEX_LENS_SOURCE_COMMIT="${DEX_LENS_SOURCE_COMMIT}"' in proof_step
+    assert '-e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}"' in proof_step
+
+
 def test_section6_live_release_expectations_are_runtime_inputs_not_script_constants() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     script = Path("scripts/section6_live_bridge_proof.py").read_text(encoding="utf-8")
@@ -764,8 +779,11 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
     proof = importlib.import_module("scripts.section6_live_bridge_proof")
     expected = _release_expectation_for_bridge_catalogue()
     artifact_dir = tmp_path / "evidence"
+    source_commit = "a" * 40
+    execution_commit = "b" * 40
     monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
-    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "test-build-commit")
+    monkeypatch.setenv("DEX_LENS_SOURCE_COMMIT", source_commit)
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", execution_commit)
     monkeypatch.setattr(proof, "_start_capture", lambda _path: None)
     monkeypatch.setattr(
         proof,
@@ -783,7 +801,8 @@ def test_section6_release_mismatch_writes_a_structured_failure_receipt(
         (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
     )
     assert receipt["status"] == "failed"
-    assert receipt["commit"] == "test-build-commit"
+    assert receipt["commit"] == source_commit
+    assert receipt["execution_commit"] == execution_commit
     assert receipt["expected"]["core_release"] == expected.core_release
     assert receipt["failure"] == {
         "type": "CatalogueReleaseMismatch",
@@ -804,7 +823,7 @@ def test_section6_capture_failures_clean_up_and_write_a_failure_receipt(
     fake_capture = (object(), object())
     stopped: list[object] = []
     monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
-    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "capture-failure-build")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "c" * 40)
     monkeypatch.setattr(proof, "_start_capture", lambda _path: fake_capture)
     monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
 
@@ -867,7 +886,7 @@ def test_section6_dropped_or_unknown_capture_packets_fail_closed(
     artifact_dir = tmp_path / "evidence"
     fake_capture = (object(), object())
     monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
-    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "dropped-packet-build")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "d" * 40)
 
     def start_capture(path: Path) -> tuple[object, object]:
         path.write_bytes(b"synthetic capture")

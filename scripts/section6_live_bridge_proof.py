@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -65,6 +66,7 @@ from capability_exchange.evidence import EvidenceLevel  # noqa: E402
 from capability_exchange.jobs import InspectionJobStore  # noqa: E402
 
 NOW = datetime(2026, 8, 12, 10, 45, tzinfo=UTC)
+_GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass
@@ -581,6 +583,21 @@ def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
     return None
 
 
+def _build_identity() -> tuple[str, str]:
+    """Return the reviewed source and actual execution commits, fail closed."""
+    execution_commit = os.environ.get("DEX_LENS_BUILD_COMMIT")
+    if not execution_commit:
+        execution_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+    source_commit = os.environ.get("DEX_LENS_SOURCE_COMMIT", execution_commit)
+    if not _GIT_SHA.fullmatch(source_commit):
+        raise ValueError("reviewed source commit must be an exact lowercase Git SHA")
+    if not _GIT_SHA.fullmatch(execution_commit):
+        raise ValueError("execution commit must be an exact lowercase Git SHA")
+    return source_commit, execution_commit
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
@@ -615,7 +632,10 @@ def main() -> int:
     capture_stderr = ""
     journey: dict[str, Any] | None = None
     failure: dict[str, str] | None = None
+    source_commit = os.environ.get("DEX_LENS_SOURCE_COMMIT", "unavailable")
+    execution_commit = os.environ.get("DEX_LENS_BUILD_COMMIT", "unavailable")
     try:
+        source_commit, execution_commit = _build_identity()
         capture = _start_capture(pcap)
         if capture is not None:
             capture_ready = _capture_ready(capture[0])
@@ -636,10 +656,6 @@ def main() -> int:
         except Exception as error:
             if failure is None:
                 failure = {"type": type(error).__name__, "message": str(error)}
-    commit = os.environ.get("DEX_LENS_BUILD_COMMIT")
-    if not commit:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-
     if failure is None:
         if journey is None:
             failure = {
@@ -684,7 +700,8 @@ def main() -> int:
     evidence = {
         "schema_version": 1,
         "status": status,
-        "commit": commit,
+        "commit": source_commit,
+        "execution_commit": execution_commit,
         "run_id": f"section6-live-{uuid.uuid4().hex}",
         "expected": _expected_evidence(expected),
         "packet": {
