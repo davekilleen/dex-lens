@@ -71,7 +71,7 @@ offline wheel install failure before launching Lens.
 - Create: `scripts/release_bundle.py`
 - Create: `tests/release/test_release_bundle.py`
 
-- [ ] **Step 1: Write failing manifest tests**
+- [x] **Step 1: Write failing manifest tests**
 
 Test that `ReleaseManifest`:
 
@@ -84,7 +84,7 @@ Test that `ReleaseManifest`:
 Use an in-memory `ReleaseManifest` fixture. Do not contact a registry or read a
 real Vault.
 
-- [ ] **Step 2: Run the focused tests and confirm red**
+- [x] **Step 2: Run the focused tests and confirm red**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_bundle.py
@@ -92,14 +92,14 @@ python -m pytest -q tests/release/test_release_bundle.py
 
 Expected: FAIL because `scripts/release_bundle.py` does not yet exist.
 
-- [ ] **Step 3: Add the exact runtime lock**
+- [x] **Step 3: Add the exact runtime lock**
 
 Create `release/runtime-requirements.txt` with the full direct and transitive
 runtime set pinned to the versions proven available as wheels for the four
 targets. It must contain one `distribution==version` per line, no ranges,
 URLs, editable inputs or hashes that refer to a developer machine.
 
-- [ ] **Step 4: Implement manifest types and validation**
+- [x] **Step 4: Implement manifest types and validation**
 
 In `scripts/release_bundle.py`:
 
@@ -111,7 +111,7 @@ In `scripts/release_bundle.py`:
 - Encode manifest JSON with `sort_keys=True`, two-space indentation, a final
   newline, and UTF-8. Verification signs these exact bytes.
 
-- [ ] **Step 5: Run focused checks and commit**
+- [x] **Step 5: Run focused checks and commit**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_bundle.py
