@@ -4,6 +4,8 @@ import base64
 import hashlib
 import importlib
 import json
+import os
+import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -604,7 +606,7 @@ def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:
     assert "--allow-no-packet" not in proof_step
 
 
-def test_section6_ci_binds_reviewed_source_and_executed_merge_commits() -> None:
+def test_section6_ci_runs_the_executable_commit_identity_guard() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     proof_step = workflow.split("Execute section-6 live bridge proof", maxsplit=1)[1]
     proof_step = proof_step.split("Upload section-6 live bridge evidence", maxsplit=1)[0]
@@ -613,10 +615,107 @@ def test_section6_ci_binds_reviewed_source_and_executed_merge_commits() -> None:
         "DEX_LENS_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && "
         "github.event.pull_request.head.sha || github.sha }}"
     ) in workflow
-    assert 'git rev-parse "${GITHUB_SHA}^2"' in proof_step
-    assert '!= "${DEX_LENS_SOURCE_COMMIT}"' in proof_step
+    assert "DEX_LENS_BUILD_COMMIT: ${{ github.sha }}" in workflow
+    assert "python scripts/section6_build_identity.py" in proof_step
     assert '-e DEX_LENS_SOURCE_COMMIT="${DEX_LENS_SOURCE_COMMIT}"' in proof_step
     assert '-e DEX_LENS_BUILD_COMMIT="${GITHUB_SHA}"' in proof_step
+
+
+def test_section6_commit_identity_guard_rejects_each_relationship_mutation(
+    tmp_path: Path,
+) -> None:
+    binding = importlib.import_module("scripts.section6_build_identity")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", *args], cwd=repo, text=True, stderr=subprocess.STDOUT
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Lens Test")
+    git("config", "user.email", "lens-test@example.com")
+    (repo / "base.txt").write_text("base\n", encoding="utf-8")
+    git("add", "base.txt")
+    git("commit", "-m", "base")
+    base_commit = git("rev-parse", "HEAD")
+    git("checkout", "-b", "reviewed")
+    (repo / "source.txt").write_text("source\n", encoding="utf-8")
+    git("add", "source.txt")
+    git("commit", "-m", "source")
+    source_commit = git("rev-parse", "HEAD")
+    git("checkout", "main")
+    git("merge", "--no-ff", "reviewed", "-m", "synthetic PR merge")
+    execution_commit = git("rev-parse", "HEAD")
+
+    script = Path("scripts/section6_build_identity.py").resolve()
+
+    def run_guard(event_name: str, source: str, execution: str) -> subprocess.CompletedProcess[str]:
+        env = {
+            **os.environ,
+            "DEX_LENS_EVENT_NAME": event_name,
+            "DEX_LENS_SOURCE_COMMIT": source,
+            "DEX_LENS_BUILD_COMMIT": execution,
+        }
+        return subprocess.run(
+            [sys.executable, str(script)],
+            cwd=repo,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    assert binding.verify_build_identity(
+        event_name="pull_request",
+        source_commit=source_commit,
+        execution_commit=execution_commit,
+        repo_root=repo,
+    ) == (source_commit, execution_commit)
+    assert binding.verify_build_identity(
+        event_name="workflow_dispatch",
+        source_commit=execution_commit,
+        execution_commit=execution_commit,
+        repo_root=repo,
+    ) == (execution_commit, execution_commit)
+    assert run_guard("pull_request", source_commit, execution_commit).returncode == 0
+    assert run_guard(
+        "workflow_dispatch", execution_commit, execution_commit
+    ).returncode == 0
+
+    with pytest.raises(binding.BuildIdentityError, match="checked-out commit"):
+        binding.verify_build_identity(
+            event_name="pull_request",
+            source_commit=source_commit,
+            execution_commit=source_commit,
+            repo_root=repo,
+        )
+    checked_out_mutation = run_guard("pull_request", source_commit, source_commit)
+    assert checked_out_mutation.returncode == 1
+    assert "checked-out commit" in checked_out_mutation.stderr
+    with pytest.raises(binding.BuildIdentityError, match="second parent"):
+        binding.verify_build_identity(
+            event_name="pull_request",
+            source_commit=base_commit,
+            execution_commit=execution_commit,
+            repo_root=repo,
+        )
+    parent_mutation = run_guard("pull_request", base_commit, execution_commit)
+    assert parent_mutation.returncode == 1
+    assert "second parent" in parent_mutation.stderr
+    with pytest.raises(binding.BuildIdentityError, match="dispatched source"):
+        binding.verify_build_identity(
+            event_name="workflow_dispatch",
+            source_commit=source_commit,
+            execution_commit=execution_commit,
+            repo_root=repo,
+        )
+    dispatch_mutation = run_guard(
+        "workflow_dispatch", source_commit, execution_commit
+    )
+    assert dispatch_mutation.returncode == 1
+    assert "dispatched source" in dispatch_mutation.stderr
 
 
 def test_section6_live_release_expectations_are_runtime_inputs_not_script_constants() -> None:
