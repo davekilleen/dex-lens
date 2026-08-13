@@ -441,11 +441,25 @@ def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> No
 
     compatibility = schema["$defs"]["CapabilityCompatibilityV2"]["properties"]
     capability = schema["$defs"]["CatalogueCapabilityEntryV2"]["properties"]
+    catalogue = schema["$defs"]["CatalogueV2"]["properties"]
 
-    for field in ("host_adapters", "foundation_capabilities", "host_requirements"):
+    for field in ("host_adapters", "host_requirements"):
         assert compatibility[field]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
         assert compatibility[field]["uniqueItems"] is True
+    assert set(compatibility["foundation_capabilities"]["items"]["enum"]) == {
+        "ownership-portability",
+        "privacy-minimal-disclosure",
+        "context-orientation",
+        "durable-memory-provenance",
+        "scoped-agency-human-control",
+        "safe-change-recovery",
+        "honest-health-observability",
+        "compounding-correctability",
+    }
+    assert compatibility["foundation_capabilities"]["uniqueItems"] is True
     assert capability["jobs"]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
     assert capability["jobs"]["uniqueItems"] is True
     assert capability["changed_in"]["items"]["pattern"] == r"^\d+\.\d+\.\d+$"
     assert capability["changed_in"]["uniqueItems"] is True
+    assert catalogue["jobs_taxonomy"]["uniqueItems"] is True
+    assert catalogue["capabilities"]["uniqueItems"] is True

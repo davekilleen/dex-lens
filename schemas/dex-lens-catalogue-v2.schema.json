@@ -5,7 +5,16 @@
       "properties": {
         "foundation_capabilities": {
           "items": {
-            "pattern": "^[a-z][a-z0-9-]{2,80}$",
+            "enum": [
+              "ownership-portability",
+              "privacy-minimal-disclosure",
+              "context-orientation",
+              "durable-memory-provenance",
+              "scoped-agency-human-control",
+              "safe-change-recovery",
+              "honest-health-observability",
+              "compounding-correctability"
+            ],
             "type": "string"
           },
           "maxItems": 20,
@@ -360,7 +369,8 @@
           "maxItems": 300,
           "minItems": 1,
           "title": "Capabilities",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "jobs_taxonomy": {
           "items": {
@@ -369,7 +379,8 @@
           "maxItems": 80,
           "minItems": 1,
           "title": "Jobs Taxonomy",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "portable_brief": {
           "$ref": "#/$defs/PortableBriefContractV2"

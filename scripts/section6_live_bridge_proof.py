@@ -251,16 +251,16 @@ def _prove_subscription_postures(
     tmp_path: Path,
     expected: CatalogueReleaseExpectation,
 ) -> dict[str, Any]:
-    app_storage = tmp_path / "live-subscription-app-storage"
-    store = CatalogueSubscriptionStore(app_storage)
-
+    if expected.catalog_version <= 1:
+        raise RuntimeError(
+            "subscription update proof requires a catalogue version after version 1"
+        )
     first_counter = CountedUrlOpen(expected)
     first = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
         collector=envelope,
         catalogue_fetcher=_fetcher(tmp_path, "live-subscription-first", first_counter),
-        app_storage=app_storage,
-        catalogue_subscription_store=store,
+        app_storage=tmp_path / "live-subscription-manual-app-storage",
     )
     _confirm_session_jobs(first, marker="live subscription first run")
     first_result = first.fetch_catalogue(
@@ -271,8 +271,11 @@ def _prove_subscription_postures(
     )
     if first_result.status is not CatalogueFetchStatus.VERIFIED:
         raise RuntimeError("first live subscription fetch failed")
-    first.subscribe_catalogue_updates({"catalogue_url": [CATALOGUE_URL]})
-    first.look_catalogue_updates()
+
+    app_storage = tmp_path / "live-subscription-app-storage"
+    store = CatalogueSubscriptionStore(app_storage)
+    store.subscribe(catalogue_url=CATALOGUE_URL, now=NOW)
+    store.mark_seen(catalog_version=expected.catalog_version - 1, now=NOW)
 
     subscribed_counter = CountedUrlOpen(expected)
     subscribed = new_session(
@@ -287,8 +290,20 @@ def _prove_subscription_postures(
     _confirm_session_jobs(subscribed, marker="live subscription returning run")
     subscribed_html = render_journey(subscribed.journey, subscribed.csrf_token)
     subscribed.park_catalogue_updates()
+    parked_record = store.load()
 
-    subscribed.revoke_catalogue_updates()
+    parked_counter = CountedUrlOpen(expected)
+    parked = new_session(
+        approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
+        collector=envelope,
+        catalogue_fetcher=_fetcher(tmp_path, "live-subscription-parked", parked_counter),
+        app_storage=app_storage,
+        catalogue_subscription_store=store,
+    )
+    _confirm_session_jobs(parked, marker="live subscription parked returning run")
+    parked_html = render_journey(parked.journey, parked.csrf_token)
+
+    parked.revoke_catalogue_updates()
     unsubscribed_counter = CountedUrlOpen(expected)
     unsubscribed = new_session(
         approved_roots=(HOST_FIXTURE_ROOT / "minimal-claude",),
@@ -304,10 +319,14 @@ def _prove_subscription_postures(
     return {
         "manual_fetch_requests": first_counter.count,
         "subscribed_returning_fetch_requests": subscribed_counter.count,
-        "unsubscribed_returning_fetch_requests": unsubscribed_counter.count,
         "subscribed_prompt_rendered": "Dex catalogue updates are available"
         in subscribed_html,
-        "parked_version": store.load().parked_catalog_version,
+        "parked_version": parked_record.parked_catalog_version,
+        "parked_returning_fetch_requests": parked_counter.count,
+        "parked_prompt_suppressed": "Dex catalogue updates are available"
+        not in parked_html
+        and f"Parked catalogue update: {expected.catalog_version}" in parked_html,
+        "unsubscribed_returning_fetch_requests": unsubscribed_counter.count,
         "subscribed_after_revoke": store.load().subscribed,
     }
 
@@ -492,15 +511,45 @@ def _stop_capture(
 
 def _journey_failure(journey: dict[str, Any]) -> dict[str, str] | None:
     subscription = journey["subscription"]
+    if subscription["manual_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "manual consent run did not make exactly one fetch",
+        }
     if subscription["subscribed_returning_fetch_requests"] != 1:
         return {
             "type": "JourneyProofFailure",
             "message": "subscribed returning run did not make exactly one fetch",
         }
+    if not subscription["subscribed_prompt_rendered"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "newer catalogue prompt was not rendered",
+        }
+    if subscription["parked_version"] != journey["catalog_version"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked catalogue version did not match the live version",
+        }
+    if subscription["parked_returning_fetch_requests"] != 1:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked returning run did not fetch once",
+        }
+    if not subscription["parked_prompt_suppressed"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "parked catalogue prompt was not suppressed",
+        }
     if subscription["unsubscribed_returning_fetch_requests"] != 0:
         return {
             "type": "JourneyProofFailure",
             "message": "unsubscribed returning run made a fetch",
+        }
+    if subscription["subscribed_after_revoke"]:
+        return {
+            "type": "JourneyProofFailure",
+            "message": "catalogue subscription survived revocation",
         }
     if journey["minimal_fetch_requests"] != 1 or journey["customised_fetch_requests"] != 1:
         return {

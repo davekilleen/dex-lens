@@ -28,6 +28,16 @@ _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _CatalogueId = Annotated[str, Field(pattern=_ID_RE.pattern)]
 _SemanticVersion = Annotated[str, Field(pattern=_SEMVER_RE.pattern)]
+_FoundationCapabilityId = Literal[
+    "ownership-portability",
+    "privacy-minimal-disclosure",
+    "context-orientation",
+    "durable-memory-provenance",
+    "scoped-agency-human-control",
+    "safe-change-recovery",
+    "honest-health-observability",
+    "compounding-correctability",
+]
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
 
@@ -138,7 +148,7 @@ class CapabilityCompatibilityV2(InventoriedModel):
     host_adapters: tuple[_CatalogueId, ...] = Field(
         min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
     )
-    foundation_capabilities: tuple[_CatalogueId, ...] = Field(
+    foundation_capabilities: tuple[_FoundationCapabilityId, ...] = Field(
         min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
     )
     minimum_lens_contract: str = Field(pattern=_SEMVER_RE.pattern)
@@ -240,8 +250,12 @@ class PortableBriefContractV2(InventoriedModel):
 
 
 class CatalogueV2(InventoriedModel):
-    jobs_taxonomy: tuple[JobTaxonomyEntryV2, ...] = Field(min_length=1, max_length=80)
-    capabilities: tuple[CatalogueCapabilityEntryV2, ...] = Field(min_length=1, max_length=300)
+    jobs_taxonomy: tuple[JobTaxonomyEntryV2, ...] = Field(
+        min_length=1, max_length=80, json_schema_extra={"uniqueItems": True}
+    )
+    capabilities: tuple[CatalogueCapabilityEntryV2, ...] = Field(
+        min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
+    )
     portable_brief: PortableBriefContractV2
 
     @model_validator(mode="after")

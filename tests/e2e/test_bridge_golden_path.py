@@ -698,6 +698,62 @@ def test_section6_response_wrapper_validates_before_returning_bytes(
             response.read()
 
 
+def test_section6_subscription_proof_exercises_prompt_park_and_revoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
+    expected = _release_expectation_for_bridge_catalogue()
+    monkeypatch.setattr(
+        proof,
+        "urlopen",
+        StaticCatalogueHTTP(raw_catalogue, raw_catalogue, raw_catalogue),
+    )
+    monkeypatch.setattr(proof, "default_keyring", lambda: keyring)
+
+    observation = proof._prove_subscription_postures(tmp_path, expected)
+
+    assert observation == {
+        "manual_fetch_requests": 1,
+        "subscribed_returning_fetch_requests": 1,
+        "subscribed_prompt_rendered": True,
+        "parked_version": expected.catalog_version,
+        "parked_returning_fetch_requests": 1,
+        "parked_prompt_suppressed": True,
+        "unsubscribed_returning_fetch_requests": 0,
+        "subscribed_after_revoke": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_message"),
+    (
+        ("manual_fetch_requests", 0, "manual consent run did not make exactly one fetch"),
+        ("subscribed_prompt_rendered", False, "newer catalogue prompt was not rendered"),
+        ("parked_version", 6, "parked catalogue version did not match the live version"),
+        ("parked_returning_fetch_requests", 0, "parked returning run did not fetch once"),
+        ("parked_prompt_suppressed", False, "parked catalogue prompt was not suppressed"),
+        ("subscribed_after_revoke", True, "catalogue subscription survived revocation"),
+    ),
+)
+def test_section6_receipt_requires_complete_subscription_journey(
+    field: str,
+    bad_value: object,
+    expected_message: str,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    journey = _passing_journey()
+    subscription = journey["subscription"]
+    assert isinstance(subscription, dict)
+    subscription[field] = bad_value
+
+    assert proof._journey_failure(journey) == {
+        "type": "JourneyProofFailure",
+        "message": expected_message,
+    }
+
+
 def test_section6_release_mismatch_writes_a_structured_failure_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -892,9 +948,16 @@ def _proof_argv(
 
 def _passing_journey() -> dict[str, object]:
     return {
+        "catalog_version": 7,
         "subscription": {
+            "manual_fetch_requests": 1,
             "subscribed_returning_fetch_requests": 1,
+            "subscribed_prompt_rendered": True,
+            "parked_version": 7,
+            "parked_returning_fetch_requests": 1,
+            "parked_prompt_suppressed": True,
             "unsubscribed_returning_fetch_requests": 0,
+            "subscribed_after_revoke": False,
         },
         "minimal_fetch_requests": 1,
         "customised_fetch_requests": 1,
