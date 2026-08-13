@@ -142,3 +142,61 @@ class TestDoorway:
         assert "local" in help_text
         assert "read-only" in help_text
         assert "alpha" in help_text
+
+    def test_choose_folder_offers_selected_root_only_after_picker_returns(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session, server = install_fakes(monkeypatch)
+        selected = tmp_path / "selected"
+        selected.mkdir()
+        offered: list[tuple[Path, ...]] = []
+        monkeypatch.setattr(cli, "choose_folder", lambda: selected)
+        monkeypatch.setattr(
+            cli,
+            "session_for_roots",
+            lambda roots: offered.append(roots) or session,
+        )
+
+        assert cli.main(["--choose-folder", "--no-open"]) == 130
+
+        assert offered == [(selected.resolve(),)]
+        assert session.terminated
+        assert server.closed
+
+    def test_choose_folder_cancelled_never_builds_session(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cli, "choose_folder", lambda: None)
+        monkeypatch.setattr(
+            cli,
+            "session_for_roots",
+            lambda _roots: pytest.fail("selection cancellation must not create a session"),
+        )
+
+        assert cli.main(["--choose-folder", "--no-open"]) == 0
+
+    def test_choose_folder_error_never_builds_session(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            cli,
+            "choose_folder",
+            lambda: (_ for _ in ()).throw(
+                cli.FolderPickerError("Choose a folder manually: unavailable")
+            ),
+        )
+        monkeypatch.setattr(
+            cli,
+            "session_for_roots",
+            lambda _roots: pytest.fail("picker error must not create a session"),
+        )
+
+        assert cli.main(["--choose-folder", "--no-open"]) == 2
+
+        assert "Nothing was read" in capsys.readouterr().err
+
+    def test_choose_folder_and_explicit_roots_are_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit) as raised:
+            cli.main(["--choose-folder", str(tmp_path)])
+
+        assert raised.value.code == 2

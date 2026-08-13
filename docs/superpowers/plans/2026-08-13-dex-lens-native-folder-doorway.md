@@ -282,7 +282,7 @@ git commit -m "Add safe native folder picker"
 - Modify: tests/concierge/test_cli.py
 - Modify: src/capability_exchange/concierge/cli.py
 
-- [ ] **Step 1: Add the failing CLI tests**
+- [x] **Step 1: Add the failing CLI tests**
 
 Add these methods inside the existing TestDoorway class in tests/concierge/test_cli.py:
 
@@ -349,7 +349,7 @@ def test_choose_folder_and_explicit_roots_are_rejected(
     assert raised.value.code == 2
 ~~~
 
-- [ ] **Step 2: Run the focused tests to verify the red state**
+- [x] **Step 2: Run the focused tests to verify the red state**
 
 Run:
 
@@ -359,7 +359,7 @@ python -m pytest -q tests/concierge/test_cli.py -k choose_folder
 
 Expected: failures because cli.choose_folder and --choose-folder do not exist.
 
-- [ ] **Step 3: Implement the narrow CLI branch**
+- [x] **Step 3: Implement the narrow CLI branch**
 
 Import FolderPickerError and choose_folder. Change roots from nargs plus to nargs star,
 add --choose-folder, then place this immediately after parse_args:
@@ -393,7 +393,7 @@ if invalid:
 
 Retain the existing session, local server, browser and cleanup lifecycle unchanged.
 
-- [ ] **Step 4: Run the focused tests to verify the green state**
+- [x] **Step 4: Run the focused tests to verify the green state**
 
 Run:
 
@@ -403,7 +403,7 @@ python -m pytest -q tests/concierge/test_cli.py -k choose_folder
 
 Expected: all four chooser tests pass and the existing CLI tests remain green.
 
-- [ ] **Step 5: Commit the CLI change**
+- [x] **Step 5: Commit the CLI change**
 
 ~~~sh
 git add src/capability_exchange/concierge/cli.py tests/concierge/test_cli.py
