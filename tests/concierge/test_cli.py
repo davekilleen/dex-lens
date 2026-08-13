@@ -200,3 +200,15 @@ class TestDoorway:
             cli.main(["--choose-folder", str(tmp_path)])
 
         assert raised.value.code == 2
+
+    def test_help_explains_the_folder_chooser_without_claiming_a_scan(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as raised:
+            cli.main(["--help"])
+
+        assert raised.value.code == 0
+        help_text = capsys.readouterr().out.lower()
+        assert "--choose-folder" in help_text
+        assert "choosing a folder does not scan it" in help_text
+        assert "read-only" in help_text

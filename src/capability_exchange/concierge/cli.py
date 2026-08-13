@@ -27,7 +27,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--choose-folder",
         action="store_true",
-        help="Open a local folder chooser before starting the private session.",
+        help=(
+            "Open a local folder chooser before starting the private, read-only session. "
+            "Choosing a folder does not scan it."
+        ),
     )
     parser.add_argument(
         "--no-open",

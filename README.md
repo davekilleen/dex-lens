@@ -242,6 +242,16 @@ git clone https://github.com/davekilleen/dex-lens.git
 cd dex-lens
 python3 -m venv .venv
 .venv/bin/pip install .
+.venv/bin/dex-lens --choose-folder
+```
+
+Dex Lens opens your computer's folder chooser. Selecting a folder only prepares
+the local permission screen; it does not scan or change that folder. The screen
+names the exact scope before you approve any read-only Diagnosis.
+
+For a technical or headless start, use:
+
+```sh
 .venv/bin/dex-lens --no-open /path/to/your/approved-folder
 ```
 

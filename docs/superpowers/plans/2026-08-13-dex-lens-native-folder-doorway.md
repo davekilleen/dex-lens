@@ -416,7 +416,7 @@ git commit -m "Add choose-folder Dex Lens launch path"
 - Modify: README.md
 - Modify: tests/concierge/test_cli.py
 
-- [ ] **Step 1: Write the failing help assertion**
+- [x] **Step 1: Write the failing help assertion**
 
 Add this method inside the existing TestDoorway class:
 
@@ -433,7 +433,7 @@ def test_help_explains_the_folder_chooser_without_claiming_a_scan(
     assert "read-only" in help_text
 ~~~
 
-- [ ] **Step 2: Run the assertion to verify the red state**
+- [x] **Step 2: Run the assertion to verify the red state**
 
 Run:
 
@@ -443,7 +443,7 @@ python -m pytest -q tests/concierge/test_cli.py::TestDoorway::test_help_explains
 
 Expected: FAIL because the current help contains no chooser language.
 
-- [ ] **Step 3: Update the help and README**
+- [x] **Step 3: Update the help and README**
 
 Set the --choose-folder help to:
 
@@ -471,7 +471,7 @@ exact scope before you approve any read-only Diagnosis.
 Keep the manual --no-open path command in a short technical/headless paragraph below
 the product path.
 
-- [ ] **Step 4: Run the CLI and documentation checks**
+- [x] **Step 4: Run the CLI and documentation checks**
 
 Run:
 
@@ -482,7 +482,7 @@ python -m pytest -q tests/test_documentation.py
 
 Expected: both commands pass.
 
-- [ ] **Step 5: Commit the product copy**
+- [x] **Step 5: Commit the product copy**
 
 ~~~sh
 git add README.md src/capability_exchange/concierge/cli.py tests/concierge/test_cli.py
