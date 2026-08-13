@@ -599,6 +599,18 @@ def main() -> int:
             }
         else:
             failure = _journey_failure(journey)
+    if failure is None and capture_ready and capture_clean_exit:
+        dropped_packets = packet.get("capture_packets_dropped")
+        if type(dropped_packets) is not int or dropped_packets < 0:
+            failure = {
+                "type": "PacketProofFailure",
+                "message": "packet capture dropped-packet count is unavailable",
+            }
+        elif dropped_packets > 0:
+            failure = {
+                "type": "PacketProofFailure",
+                "message": f"packet capture dropped {dropped_packets} packet(s)",
+            }
     if (
         failure is None
         and capture_ready

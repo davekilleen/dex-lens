@@ -787,6 +787,63 @@ def test_section6_capture_failures_clean_up_and_write_a_failure_receipt(
     }
 
 
+@pytest.mark.parametrize(
+    ("dropped_packets", "expected_message"),
+    (
+        (1, "packet capture dropped 1 packet(s)"),
+        (-1, "packet capture dropped-packet count is unavailable"),
+    ),
+)
+def test_section6_dropped_or_unknown_capture_packets_fail_closed(
+    dropped_packets: int,
+    expected_message: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    proof = importlib.import_module("scripts.section6_live_bridge_proof")
+    expected = _release_expectation_for_bridge_catalogue()
+    artifact_dir = tmp_path / "evidence"
+    fake_capture = (object(), object())
+    monkeypatch.setenv("DEX_LENS_SECTION6_LIVE", "1")
+    monkeypatch.setenv("DEX_LENS_BUILD_COMMIT", "dropped-packet-build")
+
+    def start_capture(path: Path) -> tuple[object, object]:
+        path.write_bytes(b"synthetic capture")
+        return fake_capture
+
+    monkeypatch.setattr(proof, "_start_capture", start_capture)
+    monkeypatch.setattr(proof, "_capture_ready", lambda _process: True)
+    monkeypatch.setattr(
+        proof,
+        "_run_live_journey",
+        lambda _tmp, _expected: _passing_journey(),
+    )
+    monkeypatch.setattr(proof, "_stop_capture", lambda _capture: (True, ""))
+    monkeypatch.setattr(
+        proof,
+        "_packet_summary",
+        lambda _path, _stderr: {
+            "packet_count": 5,
+            "non_loopback_packet_count": 5,
+            "capture_packets_captured": 5,
+            "capture_packets_received": 6,
+            "capture_packets_dropped": dropped_packets,
+        },
+    )
+    monkeypatch.setattr(sys, "argv", _proof_argv(artifact_dir, expected))
+
+    assert proof.main() == 1
+    receipt = json.loads(
+        (artifact_dir / "section6-live-evidence.json").read_text(encoding="utf-8")
+    )
+    assert receipt["status"] == "failed"
+    assert receipt["packet"]["capture_packets_dropped"] == dropped_packets
+    assert receipt["failure"] == {
+        "type": "PacketProofFailure",
+        "message": expected_message,
+    }
+
+
 def _release_expectation_for_bridge_catalogue() -> CatalogueReleaseExpectation:
     raw_catalogue, keyring = _signed_catalogue(catalogue=bridge_catalogue())
     verified = verify_catalogue_envelope(raw_catalogue, keyring=keyring, now=NOW)
