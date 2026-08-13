@@ -34,7 +34,7 @@ one-paste product doorway.
 **Files:**
 - Create: tests/concierge/test_folder_picker.py
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ~~~python
 from pathlib import Path
@@ -99,6 +99,16 @@ class TestFolderPicker:
 
         assert result is None
 
+    def test_successful_native_picker_with_no_folder_refuses(self) -> None:
+        with pytest.raises(folder_picker.FolderPickerError, match="did not return a folder"):
+            folder_picker.choose_folder(
+                platform="darwin",
+                run=lambda *_args, **_kwargs: SimpleNamespace(
+                    returncode=0, stdout="\n", stderr=""
+                ),
+                which=lambda _: "/usr/bin/osascript",
+            )
+
     def test_rejects_picker_output_that_is_not_an_existing_directory(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing"
         with pytest.raises(folder_picker.FolderPickerError, match="existing directory"):
@@ -137,7 +147,7 @@ class TestFolderPicker:
         assert picked == directory.resolve()
 ~~~
 
-- [ ] **Step 2: Run the new tests to verify the red state**
+- [x] **Step 2: Run the new tests to verify the red state**
 
 Run:
 
@@ -147,7 +157,7 @@ python -m pytest -q tests/concierge/test_folder_picker.py
 
 Expected: collection fails because capability_exchange.concierge.folder_picker does not exist.
 
-- [ ] **Step 3: Implement the minimal picker**
+- [x] **Step 3: Implement the minimal picker**
 
 Create src/capability_exchange/concierge/folder_picker.py:
 
@@ -249,7 +259,7 @@ def choose_folder(
     )
 ~~~
 
-- [ ] **Step 4: Run the picker tests to verify the green state**
+- [x] **Step 4: Run the picker tests to verify the green state**
 
 Run:
 
@@ -257,9 +267,9 @@ Run:
 python -m pytest -q tests/concierge/test_folder_picker.py
 ~~~
 
-Expected: all six tests pass.
+Expected: all seven tests pass.
 
-- [ ] **Step 5: Commit the picker**
+- [x] **Step 5: Commit the picker**
 
 ~~~sh
 git add src/capability_exchange/concierge/folder_picker.py tests/concierge/test_folder_picker.py
