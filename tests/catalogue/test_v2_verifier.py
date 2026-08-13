@@ -9,10 +9,16 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from capability_exchange.catalogue.schema_contract import (
+    CATALOGUE_SCHEMA_DIALECT_ID,
+    UNIQUE_BY_KEYWORD,
+    build_catalogue_schema,
+    build_catalogue_schema_dialect,
+    iter_catalogue_schema_errors,
+)
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
     KeyRing,
-    SignedCatalogueEnvelopeV2,
     VerifiedCatalogueStore,
     canonical_signed_payload,
     default_keyring,
@@ -419,30 +425,34 @@ def test_malicious_catalogue_text_is_inert_at_render_and_serialization_boundary(
 
 def test_checked_in_catalogue_schema_matches_the_models() -> None:
     """The cross-repo schema artifact must never drift from the models (design ruling)."""
-    schema = SignedCatalogueEnvelopeV2.model_json_schema(
-        ref_template="#/$defs/{model}",
-        mode="validation",
-    )
-    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["$id"] = "https://heydex.ai/catalogue/dex-lens/v2.schema.json"
+    schema = build_catalogue_schema()
     checked_in = json.loads(
         (Path(__file__).resolve().parents[2] / "schemas" / "dex-lens-catalogue-v2.schema.json")
         .read_text(encoding="utf-8")
     )
     assert checked_in == schema, "run scripts/export_catalogue_schema.py and commit the result"
+    checked_in_dialect = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "schemas"
+            / "dex-lens-catalogue-v2-dialect.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert checked_in_dialect == build_catalogue_schema_dialect()
 
 
 def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> None:
     """The producer-facing schema must reject IDs the runtime verifier rejects."""
-    schema = SignedCatalogueEnvelopeV2.model_json_schema(
-        ref_template="#/$defs/{model}",
-        mode="validation",
-    )
+    schema = build_catalogue_schema()
 
     compatibility = schema["$defs"]["CapabilityCompatibilityV2"]["properties"]
     capability = schema["$defs"]["CatalogueCapabilityEntryV2"]["properties"]
     catalogue = schema["$defs"]["CatalogueV2"]["properties"]
 
+    assert schema["$schema"] == CATALOGUE_SCHEMA_DIALECT_ID
+    assert schema["x-dex-lens-reference-validator"].endswith(
+        ".iter_catalogue_schema_errors"
+    )
     for field in ("host_adapters", "host_requirements"):
         assert compatibility[field]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
         assert compatibility[field]["uniqueItems"] is True
@@ -462,4 +472,64 @@ def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> No
     assert capability["changed_in"]["items"]["pattern"] == r"^\d+\.\d+\.\d+$"
     assert capability["changed_in"]["uniqueItems"] is True
     assert catalogue["jobs_taxonomy"]["uniqueItems"] is True
+    assert catalogue["jobs_taxonomy"][UNIQUE_BY_KEYWORD] == "job_id"
     assert catalogue["capabilities"]["uniqueItems"] is True
+    assert catalogue["capabilities"][UNIQUE_BY_KEYWORD] == "capability_id"
+
+
+@pytest.mark.parametrize(
+    ("collection", "identifier", "changed_field"),
+    [
+        ("jobs_taxonomy", "job_id", "label"),
+        ("capabilities", "capability_id", "title"),
+    ],
+)
+def test_exported_catalogue_contract_rejects_duplicate_object_identifiers(
+    signing_key: Ed25519PrivateKey,
+    keyring: KeyRing,
+    collection: str,
+    identifier: str,
+    changed_field: str,
+) -> None:
+    """Whole-object uniqueness must not hide reused catalogue identifiers."""
+    envelope = unsigned_envelope()
+    original = envelope["catalogue"][collection][0]
+    duplicate = json.loads(json.dumps(original))
+    duplicate[changed_field] = f"Different {changed_field}"
+    envelope["catalogue"][collection].append(duplicate)
+
+    schema_instance = json.loads(json.dumps(envelope))
+    schema_instance["signature"] = "schema-only-placeholder"
+    errors = list(iter_catalogue_schema_errors(schema_instance))
+
+    assert build_catalogue_schema()["$schema"] == CATALOGUE_SCHEMA_DIALECT_ID
+    assert any(
+        error.validator == UNIQUE_BY_KEYWORD and identifier in error.message
+        for error in errors
+    ), errors
+    with pytest.raises(CatalogueVerificationError, match="schema"):
+        verify_catalogue_envelope(
+            sign_envelope(envelope, signing_key),
+            keyring=keyring,
+            now=NOW,
+        )
+
+
+def test_exported_catalogue_contract_fails_closed_if_unique_by_rule_is_removed() -> None:
+    envelope = unsigned_envelope()
+    duplicate = json.loads(json.dumps(envelope["catalogue"]["capabilities"][0]))
+    duplicate["title"] = "Different title"
+    envelope["catalogue"]["capabilities"].append(duplicate)
+    envelope["signature"] = "schema-only-placeholder"
+    mutated_schema = build_catalogue_schema()
+    mutated_schema["$defs"]["CatalogueV2"]["properties"]["capabilities"].pop(
+        UNIQUE_BY_KEYWORD
+    )
+
+    errors = list(iter_catalogue_schema_errors(envelope, schema=mutated_schema))
+
+    assert any(
+        error.validator == UNIQUE_BY_KEYWORD
+        and "schema is missing required" in error.message
+        for error in errors
+    ), errors

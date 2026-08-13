@@ -1,0 +1,35 @@
+{
+  "$comment": "The required x-dex-lens-unique-by vocabulary rejects reused identifier fields inside arrays of otherwise different objects.",
+  "$dynamicAnchor": "meta",
+  "$id": "https://heydex.ai/catalogue/dex-lens/v2-dialect.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$vocabulary": {
+    "https://heydex.ai/catalogue/dex-lens/vocab/unique-by": true,
+    "https://json-schema.org/draft/2020-12/vocab/applicator": true,
+    "https://json-schema.org/draft/2020-12/vocab/content": true,
+    "https://json-schema.org/draft/2020-12/vocab/core": true,
+    "https://json-schema.org/draft/2020-12/vocab/format-annotation": true,
+    "https://json-schema.org/draft/2020-12/vocab/meta-data": true,
+    "https://json-schema.org/draft/2020-12/vocab/unevaluated": true,
+    "https://json-schema.org/draft/2020-12/vocab/validation": true
+  },
+  "allOf": [
+    {
+      "$ref": "https://json-schema.org/draft/2020-12/schema"
+    }
+  ],
+  "properties": {
+    "x-dex-lens-unique-by": {
+      "enum": [
+        "job_id",
+        "capability_id"
+      ],
+      "type": "string"
+    }
+  },
+  "title": "Dex Lens catalogue v2 schema dialect",
+  "type": [
+    "object",
+    "boolean"
+  ]
+}

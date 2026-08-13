@@ -40,6 +40,7 @@ _FoundationCapabilityId = Literal[
 ]
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
+UNIQUE_BY_KEYWORD = "x-dex-lens-unique-by"
 
 # Release-owned Dex Core signing keys. Private keys live only in the Dex release
 # environment; Lens ships public keys so catalogues verify locally.
@@ -251,10 +252,20 @@ class PortableBriefContractV2(InventoriedModel):
 
 class CatalogueV2(InventoriedModel):
     jobs_taxonomy: tuple[JobTaxonomyEntryV2, ...] = Field(
-        min_length=1, max_length=80, json_schema_extra={"uniqueItems": True}
+        min_length=1,
+        max_length=80,
+        json_schema_extra={
+            "uniqueItems": True,
+            UNIQUE_BY_KEYWORD: "job_id",
+        },
     )
     capabilities: tuple[CatalogueCapabilityEntryV2, ...] = Field(
-        min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
+        min_length=1,
+        max_length=300,
+        json_schema_extra={
+            "uniqueItems": True,
+            UNIQUE_BY_KEYWORD: "capability_id",
+        },
     )
     portable_brief: PortableBriefContractV2
 

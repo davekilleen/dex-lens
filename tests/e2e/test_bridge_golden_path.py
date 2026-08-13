@@ -554,10 +554,11 @@ def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> 
 
     assert "Status: SECTION-6 PROOF PASSED; WAVE 2 AND WAVE 3 ACCEPTED LIVE" in text
     assert "run 31620154658, artifact 9150895971" in text
-    assert "run 31658984041, artifact 9165477743" in text
-    assert "received all 1,041 captured packets" in prose
-    assert "observed 1,037 non-loopback packets" in prose
-    assert "dropped zero packets" in prose
+    assert "https://github.com/davekilleen/dex-lens/pull/22/checks" in text
+    assert "`section6-live-bridge-evidence`" in text
+    assert "required the capture drop counter to equal zero" in prose
+    assert "31658984041" not in text
+    assert "9165477743" not in text
     assert "`subscribed_prompt_rendered: true`" in text
     assert "`parked_version: 3`" in text
     assert "`parked_prompt_suppressed: true`" in text
