@@ -146,19 +146,19 @@ def test_expected_capability_ids_must_be_non_empty_and_unique(
         )
 
 
-def test_checked_in_live_release_manifest_is_the_exact_wave_2_identity() -> None:
+def test_checked_in_live_release_manifest_is_the_exact_complete_catalogue_identity() -> None:
     expected = load_catalogue_release_expectation(
         Path("docs/pilot/live-catalogue-release.json")
     )
 
-    assert expected.core_release == "v1.95.2"
+    assert expected.core_release == "v1.96.1"
     assert expected.key_id == "dex-core-lens-1"
     assert expected.raw_sha256 == (
-        "79f3c2271f315493fb1f13b11e809e7899562c8a9aebb71cb9ff78d1b7cd89c6"
+        "37c100548062be01cad99718402492885ede722365e270898850bb4196863fce"
     )
-    assert expected.catalog_version == 1
-    assert expected.capability_count == 25
-    assert expected.job_count == 9
+    assert expected.catalog_version == 3
+    assert expected.capability_count == 55
+    assert expected.job_count == 11
     assert len(expected.capability_ids) == expected.capability_count
 
 

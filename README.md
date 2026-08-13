@@ -136,12 +136,12 @@ That bridge is now live. Here is what it does:
   every person in the world.
 
 > **Where this stands today:** the connection is available and verified end
-> to end for Wave 2's 25 approved everyday capabilities, spanning daily and
-> weekly planning, meetings, commitments, projects, decisions, product work,
-> reflection, search, diagnostics, and backup/recovery. Every catalogue is
-> cryptographically signed by Dex and checked on your machine before anything
-> is shown. The catalogue grows release by release; role packs and optional
-> capabilities are the next expansion. Still true, and always will be: no
+> to end for Dex's complete signed catalogue: 55 capabilities across 11 kinds
+> of work. Alongside the 25 everyday capabilities, Lens now includes adoptable
+> role packs for sales, product, marketing, engineering, finance, customer
+> success, operations, and design, plus optional career and quarterly-planning
+> capabilities. Every catalogue is cryptographically signed by Dex and checked
+> on your machine before anything is shown. Still true, and always will be: no
 > account, nothing about your system is ever sent anywhere, and Lens changes
 > nothing without you.
 
@@ -195,7 +195,7 @@ outcome that has genuinely improved someone’s work.
 - a way to understand capability, evidence, access and gaps in human terms;
 - private and read-only during diagnosis;
 - a bridge for deliberately bringing selected Dex capabilities into your own
-  system, on your terms (live for 25 approved everyday capabilities); and
+  system, on your terms (live for all 55 signed capabilities); and
 - designed to help you make a better decision about what to trust or improve.
 
 **Dex Lens is not:**
@@ -221,8 +221,8 @@ download or finished public release**.
 - Real-user automation remains unavailable until Lens can observe whether an
   agreed work outcome genuinely improved.
 - The live bridge to Dex's capability catalogue is available and verified end
-  to end for all 25 Wave 2 everyday capabilities. Role-pack and optional
-  capabilities remain the next catalogue expansion.
+  to end for all 55 capabilities: Wave 2's everyday set and Wave 3's adoptable
+  role packs and optional rooms.
 
 This is the honest boundary: the code and safety gates are ready for pilot
 delivery preparation, but the evidence that matters next must come from real

@@ -1,6 +1,6 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-12. Plain-language companion to
+Last updated: 2026-08-13. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
 ## The short version
@@ -17,13 +17,14 @@ observed participant evidence, and no completed independent sign-off.
 The **live capability bridge** — the consented connection from a person's own
 system to Dex's signed release catalogue — is built, merged, and proven live.
 The section-6 evidence pack (`docs/pilot/bridge-evidence.md`) records the full
-proof: the signed catalogue from Core release v1.95.2 is served at
+proof: the signed catalogue from Core release v1.96.1 is served at
 `https://heydex.ai/catalogue/dex-lens/v2.json`, verified on-machine against the
 pinned production key, exercised end to end by three representative non-Dex
 host fixtures, with packet-level evidence that a fresh install makes zero
 requests and a subscribed one makes exactly one per run. Dave approved the
-public availability claim on 2026-08-12. All 25 Wave 2 everyday capabilities
-are published and accepted by Lens; role-pack and optional capabilities are next
+public availability claim on 2026-08-12. All 55 capabilities across 11 jobs are
+published and accepted by Lens: Wave 2's everyday set plus Wave 3's adoptable
+role packs and optional career and quarterly-planning capabilities
 (design: `docs/superpowers/specs/2026-08-11-dex-lens-live-capability-bridge-design.md`).
 
 ## Milestones

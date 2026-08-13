@@ -548,34 +548,34 @@ def test_section6_local_adversarial_catalogue_cases_fail_safely(
     assert "stale" in stale_result.message
 
 
-def test_section6_evidence_pack_records_public_claim_and_proof() -> None:
+def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> None:
     text = EVIDENCE_PACK.read_text(encoding="utf-8")
     prose = " ".join(text.split())
 
-    assert "Status: SECTION-6 PROOF PASSED; PUBLIC AVAILABILITY CLAIM APPROVED BY DAVE" in text
+    assert "Status: WAVE 2 ACCEPTED; WAVE 3 LIVE ACCEPTANCE IN PROGRESS" in text
     assert "run 31620154658, artifact 9150895971" in text
     assert "`subscribed_prompt_rendered: false`" in text
-    assert "current public catalogue is version 1" in prose
+    assert "Core v1.96.0 remains an immutable historical release" in prose
     assert "Public live claim approved and shipped" in text
-    assert "Wave 2 catalogue is live" in text
-    assert "25 approved everyday capabilities" in prose
-    assert "Passed in Core PR #473" in text
+    assert "Core release v1.96.1" in prose
+    assert "55 capabilities across 11 jobs" in prose
+    assert "Passed in Core PR #507" in text
     assert "Local adversarial catalogue cases" in text
     assert "Three briefs are host-appropriate" in text
     assert "test_section6_live_golden_path_uses_real_heydex_catalogue" not in text
 
 
-def test_public_status_copy_matches_the_live_wave_2_catalogue() -> None:
+def test_public_status_copy_matches_the_live_complete_catalogue() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     status = Path("docs/STATUS.md").read_text(encoding="utf-8")
 
     for text in (readme, status):
-        assert "25" in text
+        assert "55" in text
         assert "v1.95.1" not in text
         assert "Wave 2 expansion is in progress" not in text
         assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
-    assert "Core release v1.95.2" in status
-    assert "25 approved everyday capabilities" in readme
+    assert "Core release v1.96.1" in status
+    assert "live for all 55 signed capabilities" in readme
 
 
 def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:

@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -26,6 +26,8 @@ from capability_exchange.diagnosis.foundations import FoundationCapability
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+_CatalogueId = Annotated[str, Field(pattern=_ID_RE.pattern)]
+_SemanticVersion = Annotated[str, Field(pattern=_SEMVER_RE.pattern)]
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
 
@@ -133,15 +135,21 @@ class CapabilityEvidenceV2(InventoriedModel):
 
 
 class CapabilityCompatibilityV2(InventoriedModel):
-    host_adapters: tuple[str, ...] = Field(min_length=1, max_length=20)
-    foundation_capabilities: tuple[str, ...] = Field(min_length=1, max_length=20)
+    host_adapters: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    foundation_capabilities: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
     minimum_lens_contract: str = Field(pattern=_SEMVER_RE.pattern)
     platforms: tuple[Literal["macos", "linux", "windows"], ...] = Field(
         min_length=1, max_length=3
     )
     needs_hooks: bool
     needs_mcp: bool
-    host_requirements: tuple[str, ...] = Field(min_length=1, max_length=20)
+    host_requirements: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
     limitations: tuple[str, ...] = Field(min_length=1, max_length=20)
 
     @field_validator("host_adapters", "foundation_capabilities")
@@ -189,14 +197,18 @@ class CatalogueCapabilityEntryV2(InventoriedModel):
     title: str = Field(min_length=1, max_length=140)
     summary: str = Field(min_length=1, max_length=1200)
     value: str = Field(min_length=1, max_length=1200)
-    jobs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
     prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
     trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
     evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
     compatibility: CapabilityCompatibilityV2
     docs_url: str = Field(min_length=1, max_length=300)
     since_release: str = Field(pattern=_SEMVER_RE.pattern)
-    changed_in: tuple[str, ...] = Field(max_length=40)
+    changed_in: tuple[_SemanticVersion, ...] = Field(
+        max_length=40, json_schema_extra={"uniqueItems": True}
+    )
     release_provenance: Literal["core-release"]
     portable_brief: CapabilityPortableBriefV2
 
