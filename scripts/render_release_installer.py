@@ -77,7 +77,7 @@ die() {{
   exit 1
 }}
 
-for tool in curl openssl python3; do
+for tool in curl openssl; do
   command -v "$tool" >/dev/null 2>&1 || die "This installer needs $tool. Nothing was installed."
 done
 
@@ -106,12 +106,23 @@ This Mac/Linux installer has not downloaded anything."
   *) die "This installer supports macOS Apple Silicon and Linux x86_64 only." ;;
 esac
 
-DEX_LENS_PYTHON="$(command -v python3)"
-"$DEX_LENS_PYTHON" - <<'PY' || die "Dex Lens needs Python 3.11 through 3.13. Nothing was installed."
+DEX_LENS_PYTHON=""
+for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  if "$candidate" - <<'PY'
 import sys
 
-raise SystemExit(not ((3, 11) <= sys.version_info[:2] <= (3, 13)))
+raise SystemExit(not ((3, 11) <= sys.version_info[:2] <= (3, 14)))
 PY
+  then
+    DEX_LENS_PYTHON="$(command -v "$candidate")"
+    break
+  fi
+done
+[ -n "$DEX_LENS_PYTHON" ] || die \
+  "Dex Lens needs Python 3.11 through 3.14. Install it from \
+https://www.python.org/downloads/, then paste the same Dex Lens install command again. \
+Nothing was installed."
 
 [ -n "${{HOME:-}}" ] || die \\
   "Your home folder is unavailable, so Dex Lens cannot create its private install folder."
@@ -216,15 +227,53 @@ with tarfile.open(archive_path, "r:gz") as archive:
                 destination.write(chunk)
 PY
 
-DEX_LENS_DATA_HOME="${{XDG_DATA_HOME:-$HOME/.local/share}}"
+case "$DEX_LENS_TARGET" in
+  macos-arm64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/Library/Application Support" ;;
+  linux-x86_64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/.local/share" ;;
+esac
+DEX_LENS_DATA_HOME="${{DEX_LENS_DATA_HOME:-$DEX_LENS_DEFAULT_DATA_HOME}}"
 case "$DEX_LENS_DATA_HOME" in
   /*) ;;
   *) die "Dex Lens needs an absolute private install folder. Nothing was installed." ;;
 esac
 DEX_LENS_INSTALL_ROOT="$DEX_LENS_DATA_HOME/dex-lens/versions/v$DEX_LENS_VERSION"
 DEX_LENS_VENV="$DEX_LENS_INSTALL_ROOT/venv"
-DEX_LENS_BIN_HOME="$HOME/.local/bin"
+DEX_LENS_BIN_HOME="${{DEX_LENS_BIN_HOME:-$HOME/.local/bin}}"
+case "$DEX_LENS_BIN_HOME" in
+  /*) ;;
+  *) die "Dex Lens needs an absolute command folder. Nothing was installed." ;;
+esac
 DEX_LENS_LAUNCHER="$DEX_LENS_BIN_HOME/dex-lens"
+DEX_LENS_NEW_INSTALL=0
+
+cleanup_install() {{
+  status="$?"
+  trap - EXIT
+  rm -rf "$DEX_LENS_TMP"
+  if [ "$DEX_LENS_NEW_INSTALL" = "1" ]; then
+    if "$DEX_LENS_PYTHON" - \\
+      "$DEX_LENS_INSTALL_ROOT" "$DEX_LENS_DATA_HOME" "$DEX_LENS_VERSION" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+install_root = Path(sys.argv[1])
+expected_root = Path(sys.argv[2]) / "dex-lens" / "versions" / f"v{{sys.argv[3]}}"
+if install_root != expected_root or install_root.is_symlink():
+    raise SystemExit("refusing to clean an unexpected install path")
+if install_root.exists():
+    shutil.rmtree(install_root)
+PY
+    then
+      printf '%s\\n' "A partial install from this run was removed safely."
+    else
+      printf '%s\\n' \\
+        "Dex Lens could not verify cleanup of its partial install at $DEX_LENS_INSTALL_ROOT." >&2
+    fi
+  fi
+  exit "$status"
+}}
+trap cleanup_install EXIT
 
 if [ -x "$DEX_LENS_VENV/bin/dex-lens" ]; then
   printf '%s\\n' "Verified Dex Lens $DEX_LENS_VERSION is already installed."
@@ -232,9 +281,13 @@ elif [ -e "$DEX_LENS_INSTALL_ROOT" ]; then
   die "A partial Dex Lens install already exists at $DEX_LENS_INSTALL_ROOT. It was left untouched."
 else
   mkdir -p "$DEX_LENS_INSTALL_ROOT"
+  DEX_LENS_NEW_INSTALL=1
   "$DEX_LENS_PYTHON" -m venv "$DEX_LENS_VENV"
   "$DEX_LENS_VENV/bin/python" -m pip install --no-index --find-links "$DEX_LENS_WHEELHOUSE" \\
     --only-binary=:all: "capability_exchange==$DEX_LENS_VERSION"
+  "$DEX_LENS_VENV/bin/dex-lens" --help >/dev/null \\
+    || die "Dex Lens installed but did not pass its local startup check."
+  DEX_LENS_NEW_INSTALL=0
 fi
 
 mkdir -p "$DEX_LENS_BIN_HOME"
@@ -252,11 +305,21 @@ ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
 printf '%s\\n' \\
   "It will now open your folder chooser. No folder is read until you approve it inside Dex Lens."
-printf '%s\\n' "To reopen it later, run: dex-lens --choose-folder"
+case ":$PATH:" in
+  *":$DEX_LENS_BIN_HOME:"*)
+    printf '%s\\n' "To reopen it later, run: dex-lens --choose-folder"
+    ;;
+  *)
+    printf '%s\\n' \\
+      "To reopen it later, paste the same Dex Lens install command again."
+    ;;
+esac
 if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
   printf '%s\\n' "Install-only check complete; Dex Lens was not started."
   exit 0
 fi
+rm -rf "$DEX_LENS_TMP"
+trap - EXIT
 exec "$DEX_LENS_LAUNCHER" --choose-folder
 '''
 

@@ -1,7 +1,7 @@
 # Dex Lens public self-serve launch — design
 
 **Date:** 2026-08-13
-**Status:** Founder direction recorded; ready for review before implementation
+**Status:** Implemented on the launch branch; public release pending review and live proofs
 **Build Card:** dex-lens-public-self-serve-launcher
 
 ## Plain-English summary
@@ -48,16 +48,18 @@ Windows. The product decision in this design is:
 
 ### 1. Start
 
-The public Mac/Linux page will offer this command only after its release assets
-exist:
+The public GitHub README and Mac/Linux page will offer this command only after
+its release assets exist and the consumer proof has passed:
 
-    curl -fsSL https://heydex.ai/lens/install.sh | bash
+    curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
 
 The short bootstrap identifies the current supported release, downloads only that
 release's manifest and artifact, verifies them, installs Lens in its private
 application directory, and opens it. It explains each step in normal language. It
 never asks for an administrator password, installs Git or Node, alters a system
-Python, or asks for a Vault location.
+Python, or accepts a Vault path in the command. If a supported Python is missing, it
+points to the official installer and tells the person to paste the same Lens command
+again. Lens asks for a folder only after the private local application starts.
 
 An inspectable alternative is always available: download the versioned bootstrap and
 manifest, review their displayed version and digest, then run the verified local
@@ -79,10 +81,12 @@ expose an invisible local path.
 
 ### 3. Approve the exact scope
 
-Only after the person approves the local page does Lens create the immutable scope
-snapshot and ask the Deep Adapter to collect evidence. The current loopback-only
-address, single-use token, same-origin form protections, cancellation, deletion and
-no-store response policy remain intact.
+Before showing the local page, Lens records the selected directory's canonical
+identity so a later path swap cannot silently widen the scope. It does not enumerate
+or read the folder's contents. Only after the person approves the local page does the
+Deep Adapter collect evidence. The current loopback-only address, single-use token,
+same-origin form protections, cancellation, deletion and no-store response policy
+remain intact.
 
 ### 4. Review the private Capability Map
 
@@ -121,41 +125,46 @@ the guided evidence route.
 
 ### Immutable application artifact
 
-Dex Lens owns its package and release workflow. A release publishes:
+Dex Lens owns its package and release workflow. The first release supports
+Apple Silicon macOS and Linux x86_64 and publishes:
 
-- a non-editable Python wheel built from one exact reviewed commit;
-- a canonical manifest binding version, source commit, Python requirement, wheel
-  filename, byte length and SHA-256;
-- a detached Ed25519 signature for that manifest, verified against a public key
-  compiled into the bootstrap or launcher; and
-- a SHA-256 sidecar for independent manual checking.
+- two offline wheelhouse archives containing a non-editable Python wheel built
+  from one exact reviewed commit plus the fixed runtime wheels for each
+  supported platform;
+- a canonical manifest binding version, source commit, Python requirement,
+  archive filenames and SHA-256 values; and
+- a detached ECDSA P-256 signature for the exact manifest bytes, verified
+  against the public key embedded in the installer. P-256 is dedicated to the
+  installer bootstrap because the system OpenSSL available before Python setup
+  can verify it on both supported platforms; it never reuses the Ed25519 Dex
+  Core catalogue key.
 
-The installer rejects a missing, mismatched, malformed, expired or incorrectly
-signed manifest. It never fetches main, a floating Git branch, or source code through
-pip. A release signing key is held only through the approved secrets route; it is
-never committed or pasted into chat.
+The installer rejects a missing, mismatched, malformed or incorrectly signed
+manifest. It never fetches main, a floating Git branch, or source code through
+pip. A release signing key is held only through the approved secrets route; it
+is never committed or pasted into chat.
 
-The website owns a small static landing page, an exact-version bootstrap path, and a
-current bootstrap pointer. It does not build Lens, package Lens, or silently
-substitute a different artifact. After deploy, a live probe compares the served
-manifest and artifact bytes with the release record.
+GitHub Releases owns the exact-version bootstrap and the current release pointer. It
+does not build Lens on download or silently substitute source from a branch. After
+publication, a live probe compares the anonymously served manifest, installer and
+archive bytes with the release record.
 
 ### Private installation layout
 
-Installation is per person and outside approved roots:
+Installation is per person and is chosen before any approved root exists:
 
 - macOS: the user's Application Support folder, under Dex Lens releases;
 - Linux: the user's application-data folder, under dex-lens releases.
 
-Each release receives its own virtual environment and a small receipt containing only
-its own version, source identity, verified artifact digest and install location. A
-current pointer moves only after the new version passes a local health check. The
-previous release remains available for rollback. Interrupted downloads remain in a
-temporary directory and cannot become current.
+Each release receives its own virtual environment. The launcher changes only after
+the new version passes a local startup check, so an earlier version remains in its
+versioned folder. Interrupted downloads remain temporary; if a new install fails
+after its version folder is created, the installer removes only that just-created
+Lens-owned folder and leaves every pre-existing path untouched. Re-running the same
+command is the supported retry and reopen path.
 
-The installer has no background updater. An explicit update command repeats
-verification; an uninstall command removes only Lens-owned directories after
-confirmation and never touches an approved root.
+The first release has no background updater and no automated uninstall command.
+Those remain follow-on work; neither may ever touch an approved root.
 
 ### Network and data boundary
 
@@ -183,8 +192,12 @@ to label a finding Verified.
 
 The public claim stays closed until all relevant evidence is green:
 
-1. A clean downloaded artifact installs and launches on Linux and macOS without Git,
-   Node or a global Python modification.
+1. A clean downloaded artifact installs and launches on Linux x86_64 and Apple
+   Silicon macOS without Git, Node or any global Python modification. Python
+   3.11–3.14 must already be present; a missing version gets an exact official
+   install-and-retry instruction. Intel Mac
+   and Linux ARM remain explicit source-build routes until native wheel lanes
+   prove their complete dependency sets.
 2. Deliberately altered wheel, digest, signature, manifest, install path and
    interrupted-download cases fail closed without a partial current install.
 3. The normal launcher and native folder chooser perform no approved-root read before
@@ -192,7 +205,7 @@ The public claim stays closed until all relevant evidence is green:
    change.
 4. Linux's real containment, egress and hostile-scope tests remain green. macOS has
    either an equivalent demonstrated proof or an explicit no-read guided outcome.
-5. The production landing page, bootstrap, manifest and artifact are fetched
+5. The production GitHub bootstrap, manifest and artifact are fetched
    anonymously and match the exact release bytes. The installer command works from a
    clean test machine.
 6. README, status, Build Card and Dispatch say the same thing about platform
@@ -200,7 +213,7 @@ The public claim stays closed until all relevant evidence is green:
 
 ## Deliberately not included
 
-- Migration to Dex, automatic adaptation, upload of a person's system, analytics,
+- Moving a person's system to Dex, automatic adaptation, upload of a person's system, analytics,
   accounts or background catalogue subscription.
 - A Windows full Diagnosis before its native containment evidence exists.
 - A claim that a successful installation proves that a person's system works well.

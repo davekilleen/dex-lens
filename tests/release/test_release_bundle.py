@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tarfile
 from pathlib import Path
 
 import pytest
 from scripts.release_bundle import (
+    PYTHON_ABIS,
     ReleaseAsset,
     ReleaseManifest,
     ReleaseValidationError,
+    _export_committed_project,
     build_wheelhouse_archive,
     parse_manifest_bytes,
     sha256_file,
@@ -46,7 +49,7 @@ def test_manifest_serializes_to_stable_exact_bytes() -> None:
         b'  },\n'
         b'  "product": "dex-lens",\n'
         b'  "python": {\n'
-        b'    "maximum": "3.13",\n'
+        b'    "maximum": "3.14",\n'
         b'    "minimum": "3.11"\n'
         b'  },\n'
         b'  "schema_version": 1,\n'
@@ -58,6 +61,7 @@ def test_manifest_serializes_to_stable_exact_bytes() -> None:
     assert manifest.to_bytes() == expected
     assert manifest.to_bytes() == manifest.to_bytes()
     assert parse_manifest_bytes(expected) == manifest
+    assert PYTHON_ABIS == ("311", "312", "313", "314")
 
 
 @pytest.mark.parametrize("version", ["v0.1.0", "1.2", "01.2.3", "1.02.3", "1.2.03"])
@@ -165,3 +169,43 @@ def test_wheelhouse_archive_rejects_symlinks_and_duplicate_filenames(tmp_path: P
         build_wheelhouse_archive(wheelhouse, (first, second), tmp_path / "duplicate.tar.gz")
     with pytest.raises(ReleaseValidationError, match="symlink"):
         build_wheelhouse_archive(wheelhouse, (symlink,), tmp_path / "symlink.tar.gz")
+
+
+def test_release_source_export_uses_committed_bytes_not_the_working_tree(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "release-test@example.invalid"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Release Test"], cwd=repository, check=True)
+    package = repository / "src" / "example"
+    package.mkdir(parents=True)
+    (repository / "README.md").write_text("committed readme\n", encoding="utf-8")
+    (repository / "pyproject.toml").write_text("[project]\nname='example'\n", encoding="utf-8")
+    module = package / "module.py"
+    module.write_text("VALUE = 'committed'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repository, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    module.write_text("VALUE = 'working tree'\n", encoding="utf-8")
+    (package / "untracked.py").write_text("UNTRACKED = True\n", encoding="utf-8")
+    exported = tmp_path / "exported"
+
+    _export_committed_project(repository, exported, commit)
+
+    assert (exported / "src" / "example" / "module.py").read_text(encoding="utf-8") == (
+        "VALUE = 'committed'\n"
+    )
+    assert not (exported / "src" / "example" / "untracked.py").exists()

@@ -89,6 +89,13 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "--only-binary=:all:" in installer
     assert "dex-lens --choose-folder" in installer
     assert "No folder is read until you approve it inside Dex Lens." in installer
+    assert "Python 3.11 through 3.14" in installer
+    assert "https://www.python.org/downloads/" in installer
+    assert "paste the same Dex Lens install command again" in installer
+    assert "Library/Application Support" in installer
+    assert "XDG_DATA_HOME" not in installer
+    assert '"$DEX_LENS_VENV/bin/dex-lens" --help' in installer
+    assert "A partial install from this run was removed safely" in installer
     assert "sudo" not in installer
     assert "git clone" not in installer
     assert "curl |" not in installer
@@ -123,7 +130,6 @@ def test_rendered_installer_refuses_windows_before_calling_curl(tmp_path: Path) 
     curl_called = tmp_path / "curl-called"
     environment = os.environ | {
         "DEX_LENS_CURL_CALLED": str(curl_called),
-        "HOME": str(tmp_path / "home"),
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
     }
 

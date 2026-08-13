@@ -1,5 +1,13 @@
 # Dex Lens
 
+## Install on Mac or Linux
+
+The signed one-line installer is in final release preparation and is **not
+public yet**. We will put the exact paste-once command here as soon as the
+download has passed clean-machine checks on Apple Silicon Mac and Linux
+x86_64. Until then, do not use an installer command copied from a branch or an
+unofficial message; the technical source-build route is documented below.
+
 ## A private second opinion on your personal AI operating system
 
 Your AI assistant is no longer just a chat window. Over time, its instructions,

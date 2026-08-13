@@ -9,7 +9,7 @@
 with one pasted command, while preserving Dex Lens's local-first and
 fail-closed trust boundaries.
 
-**Architecture:** GitHub Releases holds four platform wheelhouse archives. A
+**Architecture:** GitHub Releases holds two platform wheelhouse archives. A
 release workflow builds the exact Lens wheel and the fixed runtime dependency
 wheels for each supported OS/CPU target, signs an exact JSON manifest using a
 dedicated P-256 signing key, and emits a version-specific `install.sh`. The
@@ -20,7 +20,7 @@ that archive into an isolated user-owned virtual environment, then starts
 any Vault path.
 
 **Scope:** Mac and Linux first: macOS Apple Silicon and Linux x86_64; Python
-3.11–3.13. The fixed current runtime wheels do not support Intel macOS safely,
+3.11–3.14. The fixed current runtime wheels do not support Intel macOS safely,
 so Intel Mac and Linux ARM64 remain an explicitly unsupported, source-build
 route until a separate native wheel-build lane proves them. Windows receives
 its separately bounded Preview after this release path is proven.
@@ -48,7 +48,7 @@ The signed manifest is exact UTF-8 bytes and has this shape:
   "product": "dex-lens",
   "version": "0.1.0",
   "source_commit": "40-lowercase-hex",
-  "python": {"minimum": "3.11", "maximum": "3.13"},
+  "python": {"minimum": "3.11", "maximum": "3.14"},
   "assets": {
     "linux-x86_64": {
       "filename": "dex-lens-v0.1.0-linux-x86_64.tar.gz",
@@ -66,7 +66,7 @@ offline wheel install failure before launching Lens.
 
 ---
 
-### Task 1: Add fixed release inputs and manifest primitives
+### Task 1: Add fixed release inputs and the manifest contract
 
 **Files:**
 - Create: `release/runtime-requirements.txt`
@@ -97,7 +97,7 @@ Expected: FAIL because `scripts/release_bundle.py` does not yet exist.
 - [x] **Step 3: Add the exact runtime lock**
 
 Create `release/runtime-requirements.txt` with the full direct and transitive
-runtime set pinned to the versions proven available as wheels for the four
+runtime set pinned to the versions proven available as wheels for the two
 targets. It must contain one `distribution==version` per line, no ranges,
 URLs, editable inputs or hashes that refer to a developer machine.
 
@@ -154,7 +154,7 @@ Add a `build` CLI to `scripts/release_bundle.py` which:
 1. verifies its requested version equals `[project].version` in `pyproject.toml`;
 2. builds the Lens wheel with fixed argv and no dependency resolution;
 3. calls `python -m pip download --only-binary=:all: --no-deps` for every
-   pinned runtime requirement, Python ABI (`cp311`, `cp312`, `cp313`) and
+   pinned runtime requirement, Python ABI (`cp311`, `cp312`, `cp313`, `cp314`) and
    declared OS/CPU tag;
 4. combines the exact Lens wheel and only matching wheel files into one archive
    per target;
@@ -226,7 +226,7 @@ never printed, copied into an artifact or committed.
 signature, and public PEM, then emits a version-specific POSIX `install.sh`.
 The script must:
 
-1. require `bash`, `curl`, `openssl`, and `python3` 3.11–3.13;
+1. require `bash`, `curl`, `openssl`, and Python 3.11–3.14;
 2. download the manifest and signature over HTTPS only;
 3. verify signature first, parse target/asset fields with a short fixed Python
    block, download exactly that asset, and SHA-check it;
@@ -250,27 +250,31 @@ git commit -m "Add verified Dex Lens installer"
 
 **Files:**
 - Create: `.github/workflows/release.yml`
+- Create: `scripts/smoke_release_installer.py`
 - Modify: `README.md`
 - Modify: `docs/STATUS.md`
 - Modify: `docs/superpowers/specs/2026-08-13-dex-lens-public-self-serve-launch-design.md`
 - Modify: `tests/release/test_release_installer.py`
+- Create: `tests/release/test_release_workflow.py`
 
-- [ ] **Step 1: Update the design constraint**
+- [x] **Step 1: Update the design constraint**
 
 Record the P-256 bootstrap choice and dedicated signing-key boundary in the
 public-launch design. Keep the guarantee: every public bundle is signed and
 SHA-checked; do not claim a release exists yet.
 
-- [ ] **Step 2: Add a manual, exact release workflow**
+- [x] **Step 2: Add a manual, exact release workflow**
 
 The workflow must only run by `workflow_dispatch`, take one semver `version`
-input, check out the triggering immutable commit, run lint + release tests,
-build all four bundles, require `DEX_LENS_RELEASE_SIGNING_KEY_PEM`, sign and
+input, check out the triggering immutable commit on `main`, pin every reusable
+GitHub Action to a full commit, serialize attempts for the same version, run
+lint + release tests,
+build both supported bundles, require `DEX_LENS_RELEASE_SIGNING_KEY_PEM`, sign and
 render, run `DEX_LENS_INSTALL_ONLY=1` smoke proof against the created assets,
 then create a GitHub Release/tag at that exact commit. It must fail loudly when
 the signing secret is absent; it must not create a partial release.
 
-- [ ] **Step 3: Update the honest public documentation**
+- [x] **Step 3: Update the honest public documentation**
 
 README must explain that public Mac/Linux release commands appear only after a
 signed release is published; source build remains a technical route. STATUS
@@ -278,13 +282,13 @@ must say the release pipeline is built but unissued until the dedicated key is
 configured and the real release workflow succeeds. Do not advertise an
 unreleased command or Windows support.
 
-- [ ] **Step 4: Test static release workflow constraints**
+- [x] **Step 4: Test static release workflow constraints**
 
 Add assertions that the workflow is manual-only, checks the signing secret,
 publishes manifest/signature/installer plus both expected archives, and
 does not run a mutable branch installer or `sudo`.
 
-- [ ] **Step 5: Run the full release slice**
+- [x] **Step 5: Run the full release slice**
 
 ~~~sh
 python -m pytest -rs tests/release tests/test_packaging.py tests/concierge
@@ -315,5 +319,5 @@ git commit -m "Add signed public release workflow"
 - [ ] Run the manual release workflow for the reviewed version, confirm the
 tag, both archives, manifest, signature and installer are present, then run
   the exact public one-line command in a clean Mac/Linux environment.
-- [ ] Update Mission Control, Dispatch, README/STATUS and the live HeyDex
-  distribution page together before telling anyone the command is public.
+- [ ] Update Mission Control, Dispatch and README/STATUS together before telling
+  anyone the GitHub command is public.

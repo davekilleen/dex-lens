@@ -22,7 +22,7 @@ import tempfile
 import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -32,8 +32,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 PRODUCT_NAME = "dex-lens"
 SCHEMA_VERSION = 1
 PYTHON_MINIMUM = "3.11"
-PYTHON_MAXIMUM = "3.13"
-PYTHON_ABIS = ("311", "312", "313")
+PYTHON_MAXIMUM = "3.14"
+PYTHON_ABIS = ("311", "312", "313", "314")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SUPPORTED_TARGETS = frozenset(
@@ -405,6 +405,67 @@ def _source_commit(source_root: Path) -> str:
     return commit
 
 
+def _export_committed_project(source_root: Path, destination: Path, commit: str) -> None:
+    """Export only package inputs stored in one exact Git commit."""
+    if not _COMMIT.fullmatch(commit):
+        raise ReleaseBuildError("release source export requires an exact commit")
+    if destination.exists():
+        raise ReleaseBuildError(f"release source export destination already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        prefix="dex-lens-source-", suffix=".tar", dir=destination.parent, delete=False
+    ) as archive_output:
+        archive_path = Path(archive_output.name)
+        completed = subprocess.run(  # noqa: S603 - fixed git argv and validated commit
+            [
+                "git",
+                "archive",
+                "--format=tar",
+                commit,
+                "--",
+                "src",
+                "pyproject.toml",
+                "README.md",
+            ],
+            cwd=source_root,
+            stdout=archive_output,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    try:
+        if completed.returncode != 0:
+            detail = " ".join(completed.stderr.decode("utf-8", errors="replace").split())[:480]
+            raise ReleaseBuildError(
+                f"export exact release source failed: {detail or 'no diagnostic output'}"
+            )
+        destination.mkdir()
+        with tarfile.open(archive_path, mode="r:") as archive:
+            for member in archive.getmembers():
+                parts = PurePosixPath(member.name).parts
+                if not parts or member.name.startswith("/") or ".." in parts:
+                    raise ReleaseBuildError(
+                        f"git exported an unsafe release source path: {member.name!r}"
+                    )
+                target = destination.joinpath(*parts)
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not member.isfile() or target.exists():
+                    raise ReleaseBuildError(
+                        f"git exported an unsafe release source member: {member.name!r}"
+                    )
+                source = archive.extractfile(member)
+                if source is None:
+                    raise ReleaseBuildError(
+                        f"git export could not read release source member: {member.name!r}"
+                    )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source, target.open("xb") as output:
+                    shutil.copyfileobj(source, output)
+    finally:
+        archive_path.unlink(missing_ok=True)
+
+
 def _runtime_requirements(path: Path) -> tuple[str, ...]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -430,13 +491,12 @@ def _runtime_requirements(path: Path) -> tuple[str, ...]:
     return requirements
 
 
-def _build_lens_wheel(source_root: Path, workspace: Path, python: str) -> Path:
-    """Build from a source copy so ordinary release work never dirties the checkout."""
+def _build_lens_wheel(
+    source_root: Path, workspace: Path, python: str, source_commit: str
+) -> Path:
+    """Build from an exact committed export, never mutable working-tree bytes."""
     project_copy = workspace / "project"
-    project_copy.mkdir()
-    shutil.copytree(source_root / "src", project_copy / "src")
-    for filename in ("pyproject.toml", "README.md"):
-        shutil.copy2(source_root / filename, project_copy / filename)
+    _export_committed_project(source_root, project_copy, source_commit)
     wheel_output = project_copy / "dist"
     wheel_output.mkdir()
     completed = _run_checked(
@@ -533,7 +593,7 @@ def build_release_bundle(
     assets: list[ReleaseAsset] = []
     with tempfile.TemporaryDirectory(prefix="dex-lens-release-") as temporary:
         workspace = Path(temporary)
-        lens_wheel = _build_lens_wheel(source_root, workspace, python)
+        lens_wheel = _build_lens_wheel(source_root, workspace, python, source_commit)
         for target in TARGET_SPECS.values():
             downloaded = _download_target_wheels(
                 python=python,
