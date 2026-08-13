@@ -554,11 +554,13 @@ def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> 
 
     assert "Status: SECTION-6 PROOF PASSED; WAVE 2 AND WAVE 3 ACCEPTED LIVE" in text
     assert "run 31620154658, artifact 9150895971" in text
-    assert "run 31657999348, artifact 9165101505" in text
-    assert "received all 904 captured packets" in prose
-    assert "observed 900 non-loopback packets" in prose
+    assert "run 31658984041, artifact 9165477743" in text
+    assert "received all 1,041 captured packets" in prose
+    assert "observed 1,037 non-loopback packets" in prose
     assert "dropped zero packets" in prose
-    assert "`subscribed_prompt_rendered: false`" in text
+    assert "`subscribed_prompt_rendered: true`" in text
+    assert "`parked_version: 3`" in text
+    assert "`parked_prompt_suppressed: true`" in text
     assert "Core v1.96.0 remains an immutable historical release" in prose
     assert "Public live claim approved and shipped" in text
     assert "Core release v1.96.1" in prose
