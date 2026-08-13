@@ -7,6 +7,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
 
 
@@ -19,9 +20,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "roots",
-        nargs="+",
+        nargs="*",
         type=Path,
         help="Folders to offer on the permission screen for read-only inspection.",
+    )
+    parser.add_argument(
+        "--choose-folder",
+        action="store_true",
+        help=(
+            "Open a local folder chooser before starting the private, read-only session. "
+            "Choosing a folder does not scan it."
+        ),
     )
     parser.add_argument(
         "--no-open",
@@ -29,7 +38,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Print the private loopback URL without opening a browser.",
     )
     args = parser.parse_args(argv)
-    roots = tuple(path.expanduser().resolve() for path in args.roots)
+    if args.choose_folder and args.roots:
+        parser.error("--choose-folder cannot be combined with an explicit folder")
+    if args.choose_folder:
+        try:
+            selected = choose_folder()
+        except FolderPickerError as exc:
+            print(f"dex-lens: {exc}. Nothing was read.", file=sys.stderr)
+            return 2
+        if selected is None:
+            print("dex-lens: No folder was selected. Nothing was read.", file=sys.stderr)
+            return 0
+        roots = (selected.expanduser().resolve(),)
+    else:
+        roots = tuple(path.expanduser().resolve() for path in args.roots)
+    if not roots:
+        parser.error("provide an existing folder or use --choose-folder")
     invalid = tuple(path for path in roots if not path.is_dir())
     if invalid:
         rendered = ", ".join(str(path) for path in invalid)

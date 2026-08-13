@@ -1,0 +1,18 @@
+# Exact runtime wheels included in every public Dex Lens release bundle.
+#
+# This is deliberately a complete, flat lock rather than the application's
+# broad dependency declarations. The installer works only from the signed
+# bundle's wheelhouse; it never resolves a newer package from PyPI.
+annotated-types==0.8.0
+attrs==26.1.0
+cffi==2.1.1
+cryptography==50.0.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+pycparser==3.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+referencing==0.37.0
+rpds-py==2026.6.3
+typing-extensions==4.16.0
+typing-inspection==0.4.4

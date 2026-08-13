@@ -11,8 +11,17 @@ M4–M6 and their final security remediation merged to `main` in PR #5 on
 packaging and data-inventory verification were green on the exact candidate.
 
 This does **not** mean Dex Lens is released or that the pilot has happened.
-There is no supported participant setup package, no published release, no
-observed participant evidence, and no completed independent sign-off.
+The public doorway and signed release machinery are now implemented on the
+self-serve launch branch: Lens can open a native folder chooser without scanning
+or reading the selected folder's contents, and the release workflow builds fixed offline bundles,
+signs their exact manifest, installs without administrator access, and runs
+clean consumer proofs on Apple Silicon Mac and Linux x86_64 before publication.
+The Linux installer rehearsal passed locally. There is still no published
+release or supported participant download: the branch must pass GitHub review,
+the dedicated release-signing key must be configured through GitHub's encrypted
+secret route, and both real release smoke jobs must pass before the one-line
+command appears at the top of README. No observed participant evidence or
+completed independent sign-off exists yet.
 
 The **live capability bridge** — the consented connection from a person's own
 system to Dex's signed release catalogue — is built, merged, and proven live.
@@ -61,8 +70,9 @@ role packs and optional career and quarterly-planning capabilities
 
 ## What remains before invited testing
 
-1. Prepare the supported tester handoff rather than asking participants to
-   interpret developer instructions unaided.
+1. Merge the reviewed self-serve release workflow, configure its dedicated
+   signing key, publish the first exact release, and verify the anonymous
+   one-line installer against the served bytes.
 2. Keep automated real-user adaptation disabled until a genuine later-use
    Success Contract outcome procedure exists; configuration presence is not
    outcome proof.
