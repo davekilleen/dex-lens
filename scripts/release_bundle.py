@@ -25,6 +25,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 PRODUCT_NAME = "dex-lens"
 SCHEMA_VERSION = 1
 PYTHON_MINIMUM = "3.11"
@@ -216,6 +220,77 @@ def parse_manifest_bytes(raw: bytes) -> ReleaseManifest:
         source_commit=payload["source_commit"],
         assets=tuple(assets),
     )
+
+
+def _load_p256_private_key(path: Path) -> ec.EllipticCurvePrivateKey:
+    try:
+        key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        raise ReleaseBuildError("release signing private key could not be read") from exc
+    if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ReleaseBuildError("release signing key must be an ECDSA P-256 private key")
+    return key
+
+
+def _load_p256_public_key(path: Path) -> ec.EllipticCurvePublicKey:
+    try:
+        key = serialization.load_pem_public_key(path.read_bytes())
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        raise ReleaseValidationError("release public key could not be read") from exc
+    if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ReleaseValidationError("release public key must be an ECDSA P-256 key")
+    return key
+
+
+def _write_new_bytes(path: Path, content: bytes, *, label: str) -> None:
+    if path.exists():
+        raise ReleaseBuildError(f"refusing to overwrite existing {label}: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
+def sign_manifest(
+    manifest_path: Path,
+    private_key_path: Path,
+    signature_path: Path,
+    public_key_path: Path,
+) -> None:
+    """Sign one canonical manifest and write only its DER signature + public key."""
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+    except FileNotFoundError as exc:
+        raise ReleaseBuildError(f"release manifest is missing: {manifest_path}") from exc
+    manifest = parse_manifest_bytes(manifest_bytes)
+    if manifest.to_bytes() != manifest_bytes:
+        raise ReleaseBuildError("release manifest must use the exact canonical signed bytes")
+
+    signing_key = _load_p256_private_key(private_key_path)
+    signature = signing_key.sign(manifest_bytes, ec.ECDSA(hashes.SHA256()))
+    public_key = signing_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    _write_new_bytes(signature_path, signature, label="release manifest signature")
+    _write_new_bytes(public_key_path, public_key, label="release public key")
+
+
+def verify_manifest_signature(
+    manifest_path: Path,
+    signature_path: Path,
+    public_key_path: Path,
+) -> bool:
+    """Return false for every malformed, altered, wrong-key or wrong-curve input."""
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = parse_manifest_bytes(manifest_bytes)
+        if manifest.to_bytes() != manifest_bytes:
+            return False
+        signature = signature_path.read_bytes()
+        public_key = _load_p256_public_key(public_key_path)
+        public_key.verify(signature, manifest_bytes, ec.ECDSA(hashes.SHA256()))
+    except (FileNotFoundError, InvalidSignature, ReleaseValidationError, ValueError):
+        return False
+    return True
 
 
 def sha256_file(path: Path) -> str:
@@ -492,6 +567,11 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument(
         "--output", required=True, type=Path, help="New or empty release-output directory."
     )
+    sign = commands.add_parser("sign", help="Sign one canonical release manifest with P-256.")
+    sign.add_argument("--manifest", required=True, type=Path)
+    sign.add_argument("--private-key", required=True, type=Path)
+    sign.add_argument("--signature", required=True, type=Path)
+    sign.add_argument("--public-key", required=True, type=Path)
 
     args = parser.parse_args(argv)
     try:
@@ -501,6 +581,10 @@ def main(argv: list[str] | None = None) -> int:
                 "built unsigned Dex Lens release "
                 f"{manifest.version} for {len(manifest.assets)} targets"
             )
+            return 0
+        if args.command == "sign":
+            sign_manifest(args.manifest, args.private_key, args.signature, args.public_key)
+            print("signed canonical Dex Lens release manifest")
             return 0
     except ReleaseValidationError as exc:
         print(f"Dex Lens release build refused: {exc}", file=sys.stderr)

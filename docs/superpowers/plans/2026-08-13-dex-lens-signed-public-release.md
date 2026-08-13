@@ -190,7 +190,7 @@ git commit -m "Build offline Dex Lens release bundles"
 - Create: `scripts/render_release_installer.py`
 - Create: `tests/release/test_release_installer.py`
 
-- [ ] **Step 1: Write failing signature and installer tests**
+- [x] **Step 1: Write failing signature and installer tests**
 
 Use a newly generated test-only P-256 key. Assert that:
 
@@ -204,7 +204,7 @@ Use a newly generated test-only P-256 key. Assert that:
 5. the generated script names `dex-lens --choose-folder` and explains that no
    folder is read until the in-product approval screen.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_installer.py
@@ -212,7 +212,7 @@ python -m pytest -q tests/release/test_release_installer.py
 
 Expected: FAIL before signer/renderer implementation.
 
-- [ ] **Step 3: Implement exact signing**
+- [x] **Step 3: Implement exact signing**
 
 Extend `scripts/release_bundle.py` with a `sign` CLI that accepts the manifest
 path and a PEM P-256 private-key file, validates the key curve, writes a
@@ -220,7 +220,7 @@ DER-encoded `release-manifest.sig`, and emits the matching public PEM to a
 specified path. The private key is read only from the supplied path and is
 never printed, copied into an artifact or committed.
 
-- [ ] **Step 4: Implement `install.sh` rendering**
+- [x] **Step 4: Implement `install.sh` rendering**
 
 `scripts/render_release_installer.py` takes version, release URL, manifest,
 signature, and public PEM, then emits a version-specific POSIX `install.sh`.
@@ -237,7 +237,7 @@ The script must:
 7. honour `DEX_LENS_INSTALL_ONLY=1` for release smoke tests while still
    performing every verification/install step.
 
-- [ ] **Step 5: Run signature and renderer tests, then commit**
+- [x] **Step 5: Run signature and renderer tests, then commit**
 
 ~~~sh
 python -m pytest -q tests/release/test_release_bundle.py tests/release/test_release_installer.py
