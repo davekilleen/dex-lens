@@ -24,7 +24,9 @@ from capability_exchange.adapter import (
 
 __all__ = [
     "CLAUDE_CODE_ADAPTER_ID",
+    "CLAUDE_CODE_CATALOGUE_HOST_ADAPTER",
     "CLAUDE_CODE_CONTRACT_VERSION",
+    "CLAUDE_CODE_DIAGNOSTIC_BASENAMES",
     "CLAUDE_CODE_EVIDENCE_PROBES",
     "GLOBALLY_DENIED_PATHS",
     "claude_code_contract",
@@ -33,6 +35,18 @@ __all__ = [
 CLAUDE_CODE_ADAPTER_ID = "claude-code-local"
 CLAUDE_CODE_CONTRACT_VERSION = "0.1.0"
 
+#: The host family this adapter implements, as the signed catalogue names it.
+#:
+#: Two different identifiers that are easy to conflate. The adapter id above
+#: names *this implementation* — local, folder-based, read-only. A catalogue
+#: entry's ``compatibility.host_adapters`` names the *host* a capability can
+#: live in, and Dex Core publishes that as ``claude-code``. Comparing the
+#: implementation id against the host family made the check fail for every
+#: entry in the catalogue, so a shelf built from a catalogue that fully
+#: supports the person's host told them, 55 times over, that their host was
+#: not listed.
+CLAUDE_CODE_CATALOGUE_HOST_ADAPTER = "claude-code"
+
 #: Probe ids the collector implements; the contract declares exactly these.
 CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
     "collection-exclusions",
@@ -40,6 +54,23 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
     "instructions-present",
     "settings-present",
     "skills-present",
+)
+
+#: File names every probe in :data:`CLAUDE_CODE_EVIDENCE_PROBES` depends on.
+#:
+#: This does **not** widen the approved scope — it orders capture inside it.
+#: An approved root is often a whole working folder, so the admitted set can
+#: be two orders of magnitude larger than the diagnosis needs; on a real
+#: 151k-file vault the file-count bound was exhausted before most of these
+#: were reached, and the presence probes then reported on an arbitrary
+#: fraction of the scope. Capturing declared names first makes the bound bite
+#: on material the diagnosis does not use.
+CLAUDE_CODE_DIAGNOSTIC_BASENAMES: frozenset[str] = frozenset(
+    {
+        "CLAUDE.md",
+        "SKILL.md",
+        "settings.json",
+    }
 )
 
 #: Never read, whatever the approved scope: credential and key material

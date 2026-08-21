@@ -1,7 +1,33 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-13. Plain-language companion to
+Last updated: 2026-08-21. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## First real-machine run, 2026-08-21
+
+Until this date every check had run in CI or against synthetic fixtures. The
+first run against a real, heavily customised vault on a real Mac found four
+defects that no green matrix had caught, all now fixed with tests:
+
+1. The deep adapter refused on every Homebrew-Python Mac — the Seatbelt exec
+   allowlist named an unresolved interpreter path, so the contained child died
+   before it started (`RISK-MAC-INTERPRETER-LITERAL`).
+2. Availability demanded a no-network proof label macOS provably never emits,
+   so even a working Mac fell back to the guided path
+   (`RISK-MAC-SOCKET-CREATION`, now closed as an accepted asymmetry).
+3. The capture bound was spent in walk order, so the presence probes described
+   1.4% of the approved scope while reporting `healthy`, and claimed `absent`
+   for files the collection had never reached
+   (`RISK-BOUNDED-CAPTURE-ABSENCE`).
+4. The capability shelf compared the adapter's implementation id against the
+   catalogue's host family, reporting the person's host as unsupported for all
+   55 published capabilities.
+
+Together, 1 and 2 meant no Mac could ever have produced a Verified diagnosis,
+on the only platform the product supports. The lesson is recorded here rather
+than in a commit message: a green cross-platform matrix and 1,291 passing
+tests did not substitute for one run on one real machine against one real
+system, and the pilot plan should treat that run as a gate in its own right.
 
 ## The short version
 
@@ -45,7 +71,10 @@ role packs and optional career and quarterly-planning capabilities
 3. **M3 — local read-only concierge: merged in PR #4.** The local browser
    journey, editable confirmation, session security, cancellation, guided
    fallback, and formal egress evidence are built. Deep inspection fails closed
-   to the guided path when macOS cannot prove the stronger containment claim.
+   to the guided path on a host that cannot prove no-write, no-exec and
+   no-network before any read. macOS proves no-network at the connect layer
+   rather than the socket-creation layer; both are accepted, and the label the
+   host actually produced is what gets shown (see the risk register, 2026-08-21).
 4. **M4 — safe adaptation boundary: merged in PR #5, not released.** Preview,
    approval, recovery, receipt, and undo are exercised on isolated synthetic
    files. Real-user automation refuses because Lens cannot yet observe the job

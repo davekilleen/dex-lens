@@ -96,6 +96,52 @@ class TestEnvelope:
         assert exclusions_probe.health is InstrumentHealth.COULD_NOT_CHECK
         assert "incomplete" in exclusions_probe.detail
 
+    def test_absence_is_never_claimed_from_an_incomplete_capture(self, tmp_path: Path) -> None:
+        """A file the bound never reached is not a file the person lacks.
+
+        ``absent`` means "looked for, verifiably not there". Under a bound
+        that stopped early, the artifact may sit in the approved scope on the
+        far side of the files that were captured, so claiming absence would
+        report a capability the person has as one they do not.
+        """
+        root = tmp_path / "vault"
+        root.mkdir()
+        # The bound is spent on the one declared artifact present, so the
+        # capture stops early having never looked at most of the scope. Any
+        # CLAUDE.md sitting in the unread remainder would be missed.
+        (root / "SKILL.md").write_text("# a skill\n")
+        for index in range(8):
+            (root / f"filler-{index}.txt").write_text("x")
+
+        envelope = collect_from(root, bounds=CollectionBounds(max_file_count=1))
+
+        probe = {p.probe_id: p for p in envelope.probes}["instructions-present"]
+        assert probe.health is InstrumentHealth.COULD_NOT_CHECK
+        assert probe.evidence[0].state is EvidenceState.BLOCKED
+        assert probe.evidence[0].state is not EvidenceState.ABSENT
+        assert "absence cannot be claimed" in probe.detail
+
+    def test_partial_presence_carries_its_caveat(self, claude_root: Path) -> None:
+        """What was found is reported, but never as the complete list."""
+        envelope = collect_from(claude_root, bounds=CollectionBounds(max_file_count=1))
+
+        probe = {p.probe_id: p for p in envelope.probes}["skills-present"]
+        if probe.evidence and probe.evidence[0].state is EvidenceState.OBSERVED:
+            assert "not necessarily all of them" in probe.detail
+
+    def test_absence_is_still_claimed_when_the_capture_completed(self, tmp_path: Path) -> None:
+        """The honest-absence path must survive: a complete capture can claim it."""
+        root = tmp_path / "vault"
+        root.mkdir()
+        (root / "unrelated.txt").write_text("x")
+
+        envelope = collect_from(root)
+
+        probe = {p.probe_id: p for p in envelope.probes}["instructions-present"]
+        assert probe.health is InstrumentHealth.HEALTHY
+        assert probe.evidence[0].state is EvidenceState.ABSENT
+        assert probe.detail == ""
+
 
 class TestUntrustedContent:
     def test_prompt_injection_behavior_invariance(self, tmp_path: Path) -> None:

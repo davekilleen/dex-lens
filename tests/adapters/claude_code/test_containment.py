@@ -66,15 +66,17 @@ class TestStrategySelection:
         available, reason = MacOSStrategy().availability()
         assert not available
 
-    def test_default_strategy_refuses_macos_without_socket_creation_proof(
+    def test_default_strategy_accepts_macos_connect_time_denial(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A connect-time denial is not the G1 socket-creation guarantee.
+        """Connect-time denial is the honest darwin form of the no-egress proof.
 
-        GitHub's macOS runners currently allocate AF_INET sockets under the
-        shipped Seatbelt profile.  The deep adapter must therefore disable
-        itself before any target read when the runtime probe cannot prove
-        ``socket()`` is denied, while retaining the guided fallback.
+        Seatbelt allocates the AF_INET fd and denies ``connect``; seccomp
+        denies ``socket()`` outright. Egress needs ``connect``/``sendto``, and
+        ``prove_containment`` aborts the collection if a connection succeeds,
+        so both labels prove the same guarantee. Requiring the Linux-shaped
+        label made the deep adapter unreachable on every Mac, which is the
+        only platform Lens currently supports.
         """
         monkeypatch.setattr(containment.sys, "platform", "darwin")
         monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
@@ -85,10 +87,25 @@ class TestStrategySelection:
             raising=False,
         )
 
+        assert isinstance(default_strategy(), containment.MacOSStrategy)
+
+    def test_default_strategy_refuses_macos_without_any_network_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No no-egress proof at all still fails closed before any read."""
+        monkeypatch.setattr(containment.sys, "platform", "darwin")
+        monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
+        monkeypatch.setattr(
+            containment,
+            "_probe_macos_runtime_proofs",
+            lambda _sandbox_exec: ("write-open-denied", "exec-denied"),
+            raising=False,
+        )
+
         with pytest.raises(ContainmentUnavailableError) as caught:
             default_strategy()
 
-        assert "socket creation" in caught.value.reason.lower()
+        assert "no-network" in caught.value.reason
         assert caught.value.fallback_guidance == GUIDED_FALLBACK_MESSAGE
         assert "guided, export-assisted" in str(caught.value)
 

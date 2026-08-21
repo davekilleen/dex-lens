@@ -325,6 +325,10 @@ class PermissionMetadata:
     offline_capable: bool
     no_catalog: bool
     next_action: str
+    #: The host family the signed catalogue uses for this adapter. Empty
+    #: falls back to ``adapter_id``, which is only correct for an adapter
+    #: whose implementation id and catalogue host family coincide.
+    catalogue_host_adapter: str = ""
 
     def __post_init__(self) -> None:
         _text(self.adapter_id, "adapter_id")
@@ -355,12 +359,14 @@ class PermissionMetadata:
         next_action: str = "Approve this read-only inspection",
         no_catalog: bool = True,
         offline_capable: bool = True,
+        catalogue_host_adapter: str = "",
     ) -> PermissionMetadata:
         """Build display metadata from a versioned adapter contract."""
 
         roots = tuple(str(root) for root in (approved_roots or contract.read_scope))
         artifacts = tuple(approved_artifacts or contract.evidence_probes)
         return cls(
+            catalogue_host_adapter=catalogue_host_adapter,
             adapter_id=contract.adapter_id,
             adapter_version=contract.contract_version,
             approved_roots=roots,
@@ -371,6 +377,11 @@ class PermissionMetadata:
             no_catalog=no_catalog,
             next_action=next_action,
         )
+
+    @property
+    def catalogue_host(self) -> str:
+        """The identifier to compare against a catalogue entry's host list."""
+        return self.catalogue_host_adapter or self.adapter_id
 
     # These aliases keep integration code aligned with AdapterContract's
     # vocabulary while retaining the person-facing names above.
@@ -1204,7 +1215,7 @@ class ConciergeJourney:
         self.catalogue_shelf = rank_capability_shelf(
             catalogue,
             self.capability_map,
-            host_adapter=host_adapter or self.permission.adapter_id,
+            host_adapter=host_adapter or self.permission.catalogue_host,
             lens_contract_version=lens_contract_version or self.permission.adapter_version,
         )
         self.catalogue_brief_markdown = ""

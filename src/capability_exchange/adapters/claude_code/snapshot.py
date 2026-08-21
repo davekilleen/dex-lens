@@ -36,12 +36,13 @@ from capability_exchange.adapters.claude_code.allowlist import (
     PathDecision,
     PathVerdict,
 )
+from capability_exchange.adapters.claude_code.contract import CLAUDE_CODE_DIAGNOSTIC_BASENAMES
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 from capability_exchange.evidence.item import reference_rejection_reason
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "CollectionBounds",
@@ -73,9 +74,20 @@ class SnapshotMissError(SnapshotError):
 
 @dataclass(frozen=True, slots=True)
 class CollectionBounds:
-    """Explicit bounds on one collection (dex-core's bounding discipline)."""
+    """Explicit bounds on one collection (dex-core's bounding discipline).
 
-    max_file_count: int = 2048
+    ``max_total_bytes`` is the guard that matters: it is what actually caps
+    the memory one capture can hold. ``max_file_count`` is a runaway guard on
+    top of it, and at 2048 it was the binding constraint rather than the
+    backstop. A heavily customised personal system is exactly the case Lens
+    exists to inspect, and one real vault carries 6,421 files the probes
+    declare an interest in — under a third of which fitted. The capture then
+    described an arbitrary slice of the approved scope. Those 6,421 files
+    total 50.9 MB, inside the byte bound, so the count is raised until bytes
+    are once again what binds.
+    """
+
+    max_file_count: int = 16384
     max_file_bytes: int = 1 * 1024 * 1024
     max_total_bytes: int = 64 * 1024 * 1024
 
@@ -281,6 +293,33 @@ class InspectionSnapshot:
         return frozenset(changed)
 
 
+def _diagnostic_files_first(admitted: Sequence[PathDecision]) -> list[PathDecision]:
+    """Order admitted files so the diagnosis is captured before the bound bites.
+
+    This changes **capture order only**. Nothing is admitted that the
+    allowlist did not already admit, nothing is skipped that the bounds
+    would not already have skipped, and the bounds themselves are unchanged.
+
+    Without it the file-count bound is spent on whatever the walk reached
+    first. An approved root is usually a whole working folder, so on a real
+    151k-file vault the 2048-file bound was exhausted long before most
+    ``SKILL.md`` files were reached, and the presence probes then described
+    an arbitrary 1.4% of the approved scope. Ordering by declared relevance
+    means the bound now bites on material no probe reads.
+
+    The sort is stable, so files sharing a priority keep the allowlist's own
+    deterministic order and two runs over an unchanged tree still agree.
+    """
+    return sorted(
+        admitted,
+        key=lambda decision: (
+            0
+            if os.path.basename(decision.relative_path or "") in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
+            else 1
+        ),
+    )
+
+
 def take_snapshot(
     allowlist: CanonicalAllowlist,
     *,
@@ -316,7 +355,7 @@ def take_snapshot(
     total_bytes = 0
     complete = True
 
-    for decision in outcome.admitted_files:
+    for decision in _diagnostic_files_first(outcome.admitted_files):
         canonical_path = decision.canonical_path
         relative_path = decision.relative_path
         assert canonical_path is not None and relative_path is not None

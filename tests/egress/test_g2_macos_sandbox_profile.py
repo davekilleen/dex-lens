@@ -13,6 +13,7 @@ uncontained collection.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -170,22 +171,89 @@ class TestProfileExecSetIsEnumerated:
         for value in values:
             assert "python" in Path(value).name.lower(), f"non-interpreter exec literal: {value}"
 
-    def test_g1_strategy_disables_deep_adapter_without_socket_creation_proof(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A profile that proves only connect denial must use guided fallback."""
+    def test_g1_every_exec_literal_has_its_canonical_form_enumerated(self) -> None:
+        """The enumerated set must contain what the kernel actually execs.
+
+        Seatbelt resolves the exec target before matching a ``literal``, so a
+        symlinked candidate only matches if its canonical form is also in the
+        set. ``PY`` may stay unresolved because ``PYREAL`` supplies its
+        realpath; the framework launcher had no such partner. Homebrew is the
+        case that bit: ``sys.base_prefix`` is
+        ``/opt/homebrew/opt/python@3.X/...`` while the kernel execs the Cellar
+        path underneath it, so the unresolved value killed the contained child
+        in ``posix_spawn`` on every Homebrew-Python Mac and surfaced as a
+        containment failure rather than as a packaging detail.
+        """
+        values = [arg.split("=", 1)[1] for arg in macos_profile_params() if not arg.startswith("-")]
+        assert values, "no interpreter literals supplied"
+        enumerated = set(values)
+        for value in values:
+            if not Path(value).exists():
+                # A literal naming a nonexistent path admits nothing.
+                continue
+            canonical = os.path.realpath(value)
+            assert canonical in enumerated, (
+                f"{value} resolves to {canonical}, which no literal enumerates, "
+                "so Seatbelt will deny the interpreter"
+            )
+
+    def _availability_with_proofs(
+        self, monkeypatch: pytest.MonkeyPatch, proofs: tuple[str, ...]
+    ) -> tuple[bool, str]:
         monkeypatch.setattr(containment.sys, "platform", "darwin")
         monkeypatch.setattr(containment.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
         monkeypatch.setattr(
-            containment,
-            "_probe_macos_runtime_proofs",
-            lambda _sandbox_exec: ("connect-denied", "write-open-denied", "exec-denied"),
+            containment, "_probe_macos_runtime_proofs", lambda _sandbox_exec: proofs
+        )
+        return MacOSStrategy().availability()
+
+    def test_g1_connect_denial_is_accepted_as_the_no_network_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Connect denial proves no egress; it is the honest darwin label.
+
+        Seatbelt does not deny ``socket()`` for AF_INET, so demanding the
+        Linux-shaped ``socket-denied`` label made the deep adapter
+        permanently unreachable on the one platform Lens supports. Egress
+        needs ``connect``/``sendto``, and ``prove_containment`` aborts the
+        collection outright if a connection succeeds, so the guarantee the
+        product actually makes — nothing leaves this machine — is proven
+        either way.
+        """
+        available, reason = self._availability_with_proofs(
+            monkeypatch, ("connect-denied", "write-open-denied", "exec-denied")
         )
 
-        available, reason = MacOSStrategy().availability()
+        assert available, reason
+
+    def test_g1_socket_denial_is_still_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A stricter host that denies socket creation stays acceptable."""
+        available, reason = self._availability_with_proofs(
+            monkeypatch, ("socket-denied", "write-open-denied", "exec-denied")
+        )
+
+        assert available, reason
+
+    def test_g1_strategy_disables_deep_adapter_without_any_network_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No network proof at all still fails closed to the guided path."""
+        available, reason = self._availability_with_proofs(
+            monkeypatch, ("write-open-denied", "exec-denied")
+        )
 
         assert not available
-        assert "socket creation" in reason.lower()
+        assert "no-network" in reason
+
+    def test_g1_strategy_disables_deep_adapter_without_write_or_exec_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Network denial alone is not enough; write and exec must be proven."""
+        available, reason = self._availability_with_proofs(monkeypatch, ("connect-denied",))
+
+        assert not available
+        assert "exec-denied" in reason
+        assert "write-open-denied" in reason
 
 
 @darwin_only
