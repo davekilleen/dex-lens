@@ -3,6 +3,56 @@
 Last updated: 2026-08-21. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
+## The product is a skill now, not a web application, 2026-08-21
+
+Dave's decision, after watching the first real-machine run.
+
+The browser journey asked a person to fill in six free-text fields per
+inferred job — success evidence, three kinds of limit, importance, cadence —
+before showing them anything at all about their own system. It asked them to
+explain their system to the tool as the price of the tool explaining their
+system back. Nobody fills that in.
+
+Underneath the forms was a sound idea: the Success Contract is how the
+product earns the right to say "Verified" instead of inventing its own
+standard for what "working" means. The principle survives; putting it in a
+form at the start does not. The skill infers, shows its reasoning, and lets
+the person correct it by exception.
+
+The deeper reason is that the analysis was in the wrong place. The comparison
+the product exists to make is a judgement about the *content* of hundreds or
+thousands of files. Filename matching cannot make it — that is why the
+Capability Map came back all-Unknown on a real vault. An assistant reading
+those files can. So the analysis moved into the person's own assistant, and
+what stays in Python is what a prompt should not be trusted with: verifying
+the catalogue signature, and folding a 6,417-file system into 53 KB that fits
+in a context window.
+
+What this costs: the sandbox proved the browser journey could not write,
+execute or reach the network, because a person had no reason to trust a
+program they had just handed their files to. Inside their own assistant there
+is no separate program to guard against, so most of that concern disappears
+rather than being ignored — but the *provable* version of the promise goes
+with it. The rest of the boundary still applies and is applied: same
+allowlist, same credential deny list, secrets redacted, bounds reported
+honestly, and no writes.
+
+**The browser journey is frozen, not deleted.** It works, its tests pass, and
+it keeps the catalogue and safety code the skill depends on. No further work
+is planned on it. Decide whether to remove it once the skill has proved
+itself on real people.
+
+Decisions taken with it:
+
+- The skill **never writes** to the person's system. It hands over a brief;
+  applying it is a separate decision they make with the brief in front of
+  them. The read-only guarantee stays whole.
+- It lives in `dex-lens`, not inside Dex Core, so someone with a homegrown
+  setup can get a second opinion without adopting Dex. That was always the
+  point.
+
+See `skill/README.md`.
+
 ## First real-machine run, 2026-08-21
 
 Until this date every check had run in CI or against synthetic fixtures. The

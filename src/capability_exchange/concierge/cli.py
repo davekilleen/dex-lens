@@ -1,4 +1,16 @@
-"""Command-line doorway for the Dex Lens local concierge."""
+"""Command-line doorway for Dex Lens.
+
+Two shapes share one command. ``dex-lens catalogue`` and ``dex-lens brief``
+serve the Dex Lens skill, which does its analysis inside the person's own AI
+and needs from here only the part a prompt must not be trusted to do: fetching
+Dex's catalogue and proving the signature. ``dex-lens <folder>`` opens the
+original local browser journey, which is frozen (see ``docs/STATUS.md``).
+
+Subcommands are dispatched by hand rather than through argparse subparsers so
+that ``dex-lens /some/folder`` keeps working exactly as it always did. A
+folder cannot be mistaken for a subcommand: dispatch requires an exact match,
+and no subcommand name begins with ``/``, ``~`` or ``.``.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +19,27 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from capability_exchange.adapters.claude_code.inventory_cli import inventory_main
+from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
 
+#: Exact first-argument matches that route away from the browser journey.
+_SUBCOMMANDS = {
+    "brief": brief_main,
+    "catalogue": catalogue_main,
+    "inventory": inventory_main,
+}
+
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] in _SUBCOMMANDS:
+        return _SUBCOMMANDS[arguments[0]](arguments[1:])
+    return _serve_main(arguments)
+
+
+def _serve_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dex-lens",
         description=(
