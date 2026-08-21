@@ -34,7 +34,11 @@ from capability_exchange.catalogue.fetch import (
     ConsentedCatalogueFetcher,
 )
 from capability_exchange.catalogue.subscription import default_lens_app_storage
-from capability_exchange.catalogue.v2 import VerifiedCatalogueStore
+from capability_exchange.catalogue.v2 import (
+    CatalogueVerificationError,
+    VerifiedCatalogueStore,
+    default_keyring,
+)
 
 __all__ = ["brief_main", "catalogue_main"]
 
@@ -49,7 +53,14 @@ def _fetch(url: str, *, offline: bool) -> CatalogueFetchResult | None:
     store = VerifiedCatalogueStore(default_lens_app_storage())
 
     if offline:
-        state = store.load()
+        # The signature is re-checked on the way out of the cache, not trusted
+        # because it was checked once on the way in. A cached catalogue is a
+        # file on disk like any other and may have been altered since.
+        try:
+            state = store.load_last_verified_state(keyring=default_keyring())
+        except CatalogueVerificationError as exc:
+            print(f"dex-lens: stored catalogue refused: {exc}", file=sys.stderr)
+            return None
         if state.catalogue is None:
             print(
                 "dex-lens: no verified catalogue has been fetched on this machine yet, "
@@ -144,10 +155,11 @@ def catalogue_main(argv: list[str] | None = None) -> int:
     catalogue = envelope.catalogue
     version = envelope.metadata.catalog_version
 
-    if args.json:
-        print(envelope.model_dump_json(indent=2))
-        return 0
-
+    # `--since` decides whether there is anything to print at all, so it is
+    # answered before the output format. Checking it after the `--json` branch
+    # meant a recurring check asking for JSON printed the whole catalogue on
+    # every run, which is exactly the "reports every release, gets turned off"
+    # failure the flag exists to avoid.
     if args.since is not None:
         if version <= args.since:
             print(
@@ -166,6 +178,10 @@ def catalogue_main(argv: list[str] | None = None) -> int:
             "changed in, so this is the full current list, not a delta.",
             file=sys.stderr,
         )
+
+    if args.json:
+        print(envelope.model_dump_json(indent=2))
+        return 0
 
     print(
         f"<!-- verified catalogue version {version}, "
