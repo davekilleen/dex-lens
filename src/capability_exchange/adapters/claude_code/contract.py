@@ -24,6 +24,7 @@ from capability_exchange.adapter import (
 
 __all__ = [
     "CLAUDE_CODE_ADAPTER_ID",
+    "CLAUDE_CODE_CATALOGUE_HOST_ADAPTER",
     "CLAUDE_CODE_CONTRACT_VERSION",
     "CLAUDE_CODE_DIAGNOSTIC_BASENAMES",
     "CLAUDE_CODE_EVIDENCE_PROBES",
@@ -33,6 +34,18 @@ __all__ = [
 
 CLAUDE_CODE_ADAPTER_ID = "claude-code-local"
 CLAUDE_CODE_CONTRACT_VERSION = "0.1.0"
+
+#: The host family this adapter implements, as the signed catalogue names it.
+#:
+#: Two different identifiers that are easy to conflate. The adapter id above
+#: names *this implementation* — local, folder-based, read-only. A catalogue
+#: entry's ``compatibility.host_adapters`` names the *host* a capability can
+#: live in, and Dex Core publishes that as ``claude-code``. Comparing the
+#: implementation id against the host family made the check fail for every
+#: entry in the catalogue, so a shelf built from a catalogue that fully
+#: supports the person's host told them, 55 times over, that their host was
+#: not listed.
+CLAUDE_CODE_CATALOGUE_HOST_ADAPTER = "claude-code"
 
 #: Probe ids the collector implements; the contract declares exactly these.
 CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (

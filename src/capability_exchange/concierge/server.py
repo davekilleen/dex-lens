@@ -35,7 +35,10 @@ from capability_exchange.adaptation.transaction import (
 )
 from capability_exchange.adapter import AdapterContract, AdapterResultEnvelope
 from capability_exchange.adapters.claude_code.containment import contained_inspection
-from capability_exchange.adapters.claude_code.contract import claude_code_contract
+from capability_exchange.adapters.claude_code.contract import (
+    CLAUDE_CODE_CATALOGUE_HOST_ADAPTER,
+    claude_code_contract,
+)
 from capability_exchange.boundary.deletion import DeletionError
 from capability_exchange.cards import CapabilityCard
 from capability_exchange.catalogue.fetch import (
@@ -214,6 +217,7 @@ class ConciergeSession:
             ),
             no_catalog=True,
             offline_capable=True,
+            catalogue_host_adapter=CLAUDE_CODE_CATALOGUE_HOST_ADAPTER,
         )
         self.journey = ConciergeJourney(
             permission=permission,
