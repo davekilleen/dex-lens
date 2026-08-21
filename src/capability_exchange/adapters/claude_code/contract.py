@@ -25,6 +25,7 @@ from capability_exchange.adapter import (
 __all__ = [
     "CLAUDE_CODE_ADAPTER_ID",
     "CLAUDE_CODE_CONTRACT_VERSION",
+    "CLAUDE_CODE_DIAGNOSTIC_BASENAMES",
     "CLAUDE_CODE_EVIDENCE_PROBES",
     "GLOBALLY_DENIED_PATHS",
     "claude_code_contract",
@@ -40,6 +41,23 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
     "instructions-present",
     "settings-present",
     "skills-present",
+)
+
+#: File names every probe in :data:`CLAUDE_CODE_EVIDENCE_PROBES` depends on.
+#:
+#: This does **not** widen the approved scope — it orders capture inside it.
+#: An approved root is often a whole working folder, so the admitted set can
+#: be two orders of magnitude larger than the diagnosis needs; on a real
+#: 151k-file vault the file-count bound was exhausted before most of these
+#: were reached, and the presence probes then reported on an arbitrary
+#: fraction of the scope. Capturing declared names first makes the bound bite
+#: on material the diagnosis does not use.
+CLAUDE_CODE_DIAGNOSTIC_BASENAMES: frozenset[str] = frozenset(
+    {
+        "CLAUDE.md",
+        "SKILL.md",
+        "settings.json",
+    }
 )
 
 #: Never read, whatever the approved scope: credential and key material

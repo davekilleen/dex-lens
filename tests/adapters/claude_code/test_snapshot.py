@@ -117,6 +117,37 @@ class TestBoundedCollection:
         assert len(snapshot.canonical_paths()) == 2
         assert any("file-count-bound-reached" in item.reference for item in snapshot.exclusions)
 
+    def test_declared_artifacts_are_captured_before_the_bound_bites(self, tmp_path: Path) -> None:
+        """The bound must spend itself on files no probe reads.
+
+        An approved root is usually a whole working folder, so the admitted
+        set dwarfs what the diagnosis needs. Left in walk order the bound was
+        exhausted on unrelated files and the presence probes then described
+        an arbitrary fraction of the scope — on one real vault, under a third
+        of the files the probes declare an interest in.
+        """
+        root = tmp_path / "vault"
+        (root / "zzz-last").mkdir(parents=True)
+        # Filler that sorts before the declared artifact in any plain walk.
+        for index in range(20):
+            (root / f"aaa-filler-{index:02d}.txt").write_text("x")
+        (root / "zzz-last" / "SKILL.md").write_text("# a skill\n")
+
+        snapshot = snapshot_of(root, bounds=CollectionBounds(max_file_count=1))
+
+        captured = [Path(path).name for path in snapshot.canonical_paths()]
+        assert captured == ["SKILL.md"]
+        assert not snapshot.complete
+
+    def test_capture_order_is_stable_across_runs(self, claude_root: Path) -> None:
+        """Two runs over an unchanged tree must capture the same files."""
+        bounds = CollectionBounds(max_file_count=3)
+
+        first = snapshot_of(claude_root, bounds=bounds).canonical_paths()
+        second = snapshot_of(claude_root, bounds=bounds).canonical_paths()
+
+        assert first == second
+
     def test_total_bytes_bound_marks_incomplete(self, claude_root: Path) -> None:
         (claude_root / "a.bin").write_bytes(b"a" * 900)
         (claude_root / "b.bin").write_bytes(b"b" * 900)

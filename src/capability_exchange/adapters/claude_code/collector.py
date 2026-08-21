@@ -84,6 +84,14 @@ def _absent(reference: str, moment: datetime) -> _PendingItem:
     )
 
 
+def _blocked(reference: str, moment: datetime) -> _PendingItem:
+    """Collection was prevented, so nothing at all is claimed either way."""
+    return _PendingItem(
+        canonical_path=None,
+        item=EvidenceItem(state=EvidenceState.BLOCKED, captured_at=moment, reference=reference),
+    )
+
+
 class EvidenceCollector:
     """Collects the Claude Code evidence probes from one snapshot."""
 
@@ -181,15 +189,42 @@ class EvidenceCollector:
     def _presence_probe(
         self, basename: str, label: str, moment: datetime
     ) -> tuple[InstrumentHealth, str, tuple[_PendingItem, ...]]:
+        """Presence of one declared artifact, never overstated.
+
+        ``absent`` means "looked for, verifiably not there", which a bounded
+        capture cannot establish: the file may sit in the approved scope on
+        the far side of a bound the collection never reached. Claiming
+        absence there would report a file the person does have as one they
+        do not, which is precisely the assumption-as-proof this product
+        exists to refuse. An incomplete capture therefore yields a
+        `could-not-check` instrument carrying `blocked` evidence, so the
+        finding surfaces as Unknown.
+
+        Found entries are reported whether or not the capture completed —
+        each one really was observed — but the caveat travels with them so
+        the list is never read as exhaustive.
+        """
         entries = self._snapshot.entries_named(basename)
+        complete = self._snapshot.complete
         if not entries:
+            if not complete:
+                return (
+                    InstrumentHealth.COULD_NOT_CHECK,
+                    "collection bounds stopped the capture before the whole "
+                    "approved scope was read, so absence cannot be claimed",
+                    (_blocked(f"{label}:not-captured-within-bounds", moment),),
+                )
             return (
                 InstrumentHealth.HEALTHY,
                 "",
                 (_absent(f"{label}:none-in-approved-scope", moment),),
             )
-        return (
-            InstrumentHealth.HEALTHY,
-            "",
-            tuple(_observed(entry, moment) for entry in entries),
-        )
+        observed = tuple(_observed(entry, moment) for entry in entries)
+        if not complete:
+            return (
+                InstrumentHealth.HEALTHY,
+                "collection bounds stopped the capture early: these are the "
+                "ones captured, not necessarily all of them",
+                observed,
+            )
+        return (InstrumentHealth.HEALTHY, "", observed)
