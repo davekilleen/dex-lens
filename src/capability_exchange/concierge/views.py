@@ -52,14 +52,20 @@ def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def _document(title: str, body: str) -> str:
-    """Wrap trusted static markup and escaped dynamic content in one document."""
+def _document(title: str, body: str, *, head_extra: str = "") -> str:
+    """Wrap trusted static markup and escaped dynamic content in one document.
+
+    ``head_extra`` is trusted static markup supplied by this module only. It
+    never carries person-supplied or inspected content, and the page's CSP
+    still forbids script, so it cannot become an execution route.
+    """
 
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {head_extra}
   <title>{_escape(title)} - Dex Lens</title>
   <style>
     :root {{ color-scheme: light; --ink: #161616; --muted: #5f6468;
@@ -520,6 +526,16 @@ def render_fallback(fallback: CollectionFallback, csrf_token: str) -> str:
     return _document(f"{mode.title()} evidence", body)
 
 
+#: The in-progress page reloads itself until the collection finishes.
+#:
+#: Without this the page was a dead end: it announced an inspection in
+#: progress and then sat there, with no indication that the person was the
+#: one who had to press a button to find out it had finished seconds ago. The
+#: obvious reading is that it hung. A meta refresh is used rather than a
+#: script because the page's CSP forbids script outright, and that stays true.
+_COLLECTING_REFRESH_SECONDS = 2
+
+
 def render_collecting(csrf_token: str) -> str:
     """Keep cancellation available while the contained child is reading."""
 
@@ -527,11 +543,13 @@ def render_collecting(csrf_token: str) -> str:
       <h1>Read-only inspection in progress</h1>
       <div class="panel">
         <p>Dex Lens is reading only the approved scope in its contained process.
-        You can stop it now; stopping kills the contained collection and discards
-        every partial result.</p>
+        This usually takes a few seconds. This page checks for you and moves on
+        by itself as soon as the inspection finishes.</p>
+        <p>You can stop it now; stopping kills the contained collection and
+        discards every partial result.</p>
         <div class="actions">
           <form method="get" action="/session">
-            <button class="secondary" type="submit">Check progress</button>
+            <button class="secondary" type="submit">Check now</button>
           </form>
           <form method="post" action="/cancel">
             {_csrf(csrf_token)}
@@ -540,7 +558,10 @@ def render_collecting(csrf_token: str) -> str:
         </div>
       </div>
     """
-    return _document("Inspection in progress", body)
+    refresh = (
+        f'<meta http-equiv="refresh" content="{_COLLECTING_REFRESH_SECONDS};url=/session">'
+    )
+    return _document("Inspection in progress", body, head_extra=refresh)
 
 
 def render_capability_map(
