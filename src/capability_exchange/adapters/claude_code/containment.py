@@ -70,9 +70,18 @@ GUIDED_FALLBACK_MESSAGE = (
 )
 
 _MACOS_PROFILE_PATH = Path(__file__).resolve().parent / "profiles" / "claude_code_containment.sb"
-_MACOS_REQUIRED_PROOFS = frozenset(
-    {"socket-denied", "write-open-denied", "exec-denied"}
-)
+
+#: Either label proves the same property — the inspection process cannot
+#: reach the network — at the layer its OS actually enforces. Linux seccomp
+#: denies ``socket()`` outright and reports ``socket-denied``; macOS Seatbelt
+#: allows the fd and denies ``connect`` and reports ``connect-denied``.
+#: Egress needs ``connect``/``sendto``, and :func:`prove_containment` aborts
+#: the whole collection if a connection succeeds or fails ambiguously, so
+#: neither label can be produced by a process that can actually egress.
+_NO_NETWORK_PROOFS = frozenset({"socket-denied", "connect-denied"})
+
+#: Proofs every host must return regardless of platform.
+_MACOS_REQUIRED_PROOFS = frozenset({"write-open-denied", "exec-denied"})
 
 _MACOS_RUNTIME_PROBE_SOURCE = (
     "from capability_exchange.adapters.claude_code.contained import prove_containment; "
@@ -99,19 +108,31 @@ def macos_profile_params(executable: str | None = None) -> list[str]:
     exist on this host is still passed (the profile requires every parameter
     it references to be defined); a literal naming a nonexistent path admits
     nothing.
+
+    Every literal must be the **resolved** path. Seatbelt canonicalises the
+    exec target before matching a ``literal``, so a symlinked candidate can
+    never match and would silently deny the interpreter. Homebrew is the case
+    that matters in practice: ``sys.base_prefix`` is
+    ``/opt/homebrew/opt/python@3.X/Frameworks/...``, a symlink into
+    ``/opt/homebrew/Cellar/python@3.X/<version>/Frameworks/...``, which is
+    what the kernel actually execs. Passing the unresolved path killed the
+    child in ``posix_spawn`` on every Homebrew-Python Mac, and the failure
+    surfaced as "containment cannot be established" rather than as the
+    packaging detail it is.
     """
     executable = executable or sys.executable
     real = os.path.realpath(executable)
     framework_app = (
         Path(sys.base_prefix) / "Resources" / "Python.app" / "Contents" / "MacOS" / "Python"
     )
+    resolved_app = os.path.realpath(framework_app) if framework_app.is_file() else real
     return [
         "-D",
         f"PY={executable}",
         "-D",
         f"PYREAL={real}",
         "-D",
-        f"PYAPP={framework_app if framework_app.is_file() else real}",
+        f"PYAPP={resolved_app}",
     ]
 
 
@@ -431,13 +452,15 @@ class MacOSStrategy(ContainmentStrategy):
             return (False, "sandbox-exec not found on this host")
         if not _MACOS_PROFILE_PATH.is_file():
             return (False, f"containment profile missing at {_MACOS_PROFILE_PATH}")
-        proofs = _probe_macos_runtime_proofs(sandbox_exec)
-        missing = sorted(_MACOS_REQUIRED_PROOFS - set(proofs))
+        proofs = set(_probe_macos_runtime_proofs(sandbox_exec))
+        missing = sorted(_MACOS_REQUIRED_PROOFS - proofs)
+        if not proofs & _NO_NETWORK_PROOFS:
+            missing.insert(0, "no-network (socket-denied or connect-denied)")
         if missing:
             return (
                 False,
-                "macOS containment runtime proof cannot deny socket creation and "
-                f"all G1 capabilities (missing: {', '.join(missing)})",
+                "macOS containment runtime proof cannot deny all G1 capabilities "
+                f"(missing: {', '.join(missing)})",
             )
         return (True, "")
 

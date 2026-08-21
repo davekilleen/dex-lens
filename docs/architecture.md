@@ -141,8 +141,18 @@ The difference is worth stating rather than hiding behind one word:
 | --- | --- | --- |
 | Mechanism | seccomp BPF filter, installed by the child on itself | Seatbelt profile, applied by the parent via `sandbox-exec` |
 | No-egress rule | the `socket` syscall family denied (EPERM) | `(deny network*)` for connect/bind, with `(deny system-socket)` kept as the narrowest known socket-creation rule |
-| Proof label | `socket-denied` | `connect-denied` on GitHub macos-14; `socket-denied` would be accepted if a future host enforces the creation rule |
+| Proof label | `socket-denied` | `connect-denied` in practice; `socket-denied` is also accepted if a future host enforces the creation rule |
 | Extra layer | network namespace unshared where the kernel permits | — |
+| Interpreter exec set | not applicable | three enumerated `literal` paths, each canonicalised — Seatbelt resolves the exec target before matching, so an unresolved symlink can never match |
+
+The deep adapter requires a runtime tuple proving no-write, no-exec, and no-network
+before any target read. The no-network requirement is satisfied by **either** proof
+label, because both prove the same property at the layer the OS actually enforces.
+Requiring the Linux-shaped `socket-denied` label made the deep adapter permanently
+unreachable on macOS, which is the only platform Lens currently supports, so on every
+Mac the product silently degraded to the guided path that reads nothing. The label is
+never rewritten: `ContainmentOutcome.proofs` carries whichever proof the host actually
+produced, and the interface shows it verbatim.
 
 `(deny network*)` alone would **not** be equivalent, and for a while it was all the
 profile had. `network-outbound`, `network-inbound` and `network-bind` are each checked
