@@ -219,3 +219,93 @@ class TestHousekeeping:
         assert "Leftover working copies" not in out
         assert "Copies that no longer match" not in out
         assert "Switched off by name" not in out
+
+
+def test_the_inventory_says_how_the_diagnosis_has_to_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The two rules are easiest to drop exactly when this file is read.
+
+    An assistant partway through a long run has the material in front of it
+    and the report format thousands of tokens behind it. Repeating the rules
+    here is the last cheap place to say them.
+    """
+    root = tmp_path / "vault"
+    root.mkdir()
+    _skill(root, ".claude/skills/one/SKILL.md", name="one", description="One thing.")
+
+    assert inventory_main([str(root)]) == 0
+
+    out = capsys.readouterr().out
+    assert "## How this ends" in out
+    assert "dex-lens reports save" in out
+    assert "No quote means the finding is Unknown" in out
+
+
+class TestNarrowingByName:
+    """A second look usually wants three items, not two hundred and sixty.
+
+    The rule the narrowing must not break: it hides rows, never facts. The
+    counts and the housekeeping findings are about the whole folder, and stay
+    about the whole folder.
+    """
+
+    def test_it_lists_only_matching_items(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = tmp_path / "vault"
+        root.mkdir()
+        _skill(
+            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
+        )
+        _skill(
+            root,
+            ".claude/skills/week-review/SKILL.md",
+            name="week-review",
+            description="Look back.",
+        )
+
+        assert inventory_main([str(root), "--names", "daily"]) == 0
+
+        out = capsys.readouterr().out
+        assert "daily-plan" in out
+        assert "week-review" not in out
+
+    def test_the_counts_still_describe_the_whole_folder(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Otherwise a narrowed look quietly reports a smaller system."""
+        root = tmp_path / "vault"
+        root.mkdir()
+        _skill(
+            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
+        )
+        _skill(
+            root,
+            ".claude/skills/week-review/SKILL.md",
+            name="week-review",
+            description="Look back.",
+        )
+
+        inventory_main([str(root), "--names", "daily"])
+
+        out = capsys.readouterr().out
+        assert "2 distinct" in out
+        assert "showing 1 that match" in out
+        assert "**Narrowed.**" in out
+
+    def test_a_name_nobody_has_is_refused_rather_than_answered_with_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An empty listing would read as "you have nothing called that"."""
+        root = tmp_path / "vault"
+        root.mkdir()
+        _skill(
+            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
+        )
+
+        assert inventory_main([str(root), "--names", "sailing"]) == 1
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "reading an empty list as an absence" in captured.err

@@ -152,6 +152,30 @@ class CatalogueSubscriptionStore:
             )
         )
 
+    def record_seen(
+        self, *, catalog_version: int, now: datetime | None = None
+    ) -> CatalogueSubscriptionRecord:
+        """Remember the catalogue version this machine has now been shown.
+
+        Deliberately not :meth:`mark_seen`, which only records for a subscribed
+        machine because it drives the browser journey's update prompt. This one
+        records the baseline whether or not anyone subscribed to anything: it
+        exists so a later ``dex-lens catalogue --since-last`` knows what was
+        already seen without a person having to memorise a version number.
+        Recording that a public, identical-for-everyone list was displayed says
+        nothing about the person, and it never turns on a network request.
+        """
+        current = self.load()
+        return self._save(
+            current.model_copy(
+                update={
+                    "updated_at": now or _utcnow(),
+                    "last_seen_catalog_version": catalog_version,
+                    "parked_catalog_version": None,
+                }
+            )
+        )
+
     def park(
         self, *, catalog_version: int, now: datetime | None = None
     ) -> CatalogueSubscriptionRecord:

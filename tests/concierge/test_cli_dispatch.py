@@ -17,7 +17,7 @@ from capability_exchange.concierge import cli
 
 
 class TestSubcommandDispatch:
-    @pytest.mark.parametrize("name", ["catalogue", "brief", "inventory"])
+    @pytest.mark.parametrize("name", ["catalogue", "brief", "inventory", "reports"])
     def test_a_subcommand_routes_away_from_the_browser_journey(
         self, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -56,14 +56,24 @@ class TestSubcommandDispatch:
         assert cli.main([str(folder)]) == 0
         assert served == [[str(folder)]]
 
-    def test_no_arguments_still_reaches_the_journey_parser(
-        self, monkeypatch: pytest.MonkeyPatch
+    def test_no_arguments_says_how_to_start_rather_than_printing_usage(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        served: list[list[str]] = []
-        monkeypatch.setattr(cli, "_serve_main", lambda argv: served.append(list(argv)) or 0)
+        """The first thing a person types after installing.
+
+        It used to be an argparse usage error about the frozen browser
+        journey: a stack of flags, aimed at a journey nobody is meant to use,
+        at the moment they are deciding whether this was worth installing.
+        """
+        monkeypatch.setattr(
+            cli, "_serve_main", lambda _argv: pytest.fail("the server must not start")
+        )
 
         assert cli.main([]) == 0
-        assert served == [[]]
+
+        out = capsys.readouterr().out
+        assert "Open Claude Code and ask" in out
+        assert "It reads. It never changes your system." in out
 
     def test_no_subcommand_name_could_ever_be_a_path(self) -> None:
         for name in cli._SUBCOMMANDS:

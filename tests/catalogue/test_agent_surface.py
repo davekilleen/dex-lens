@@ -60,8 +60,28 @@ class TestDigest:
         assert wanted in digest
         assert catalogue.capabilities[1].capability_id not in digest
 
+    def test_a_narrowed_digest_counts_the_jobs_it_actually_shows(self) -> None:
+        """"14 capabilities across 11 jobs" describes a document the reader,
+        having narrowed to one job, is not holding."""
+        catalogue = _catalogue()
+        wanted = catalogue.capabilities[0]
+
+        digest = render_catalogue_digest(catalogue, only=[wanted.capability_id])
+
+        shown_jobs = sum(
+            1 for job in catalogue.jobs_taxonomy if job.job_id in wanted.jobs
+        )
+        assert f"1 capabilities across {shown_jobs} jobs" in digest
+
 
 class TestBrief:
+    def test_it_says_outright_that_printing_it_changed_nothing(self) -> None:
+        """The person is holding a document describing a change to their
+        system. Whether one has already happened must not be inferable."""
+        brief = render_capability_brief_markdown(_catalogue(), "durable-memory-boost")
+
+        assert "Nothing on this machine has changed by printing this" in brief
+
     def test_it_says_it_is_not_permission_at_both_ends(self) -> None:
         """A long document gets skimmed from either end."""
         brief = render_capability_brief_markdown(_catalogue(), "durable-memory-boost")

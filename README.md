@@ -2,11 +2,29 @@
 
 ## Install on Mac or Linux
 
-The signed one-line installer is in final release preparation and is **not
-public yet**. We will put the exact paste-once command here as soon as the
-download has passed clean-machine checks on Apple Silicon Mac and Linux
-x86_64. Until then, do not use an installer command copied from a branch or an
-unofficial message; the technical source-build route is documented below.
+```sh
+curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+```
+
+Then open Claude Code and ask, in your own words:
+
+> Have a look at my setup and tell me what Dex has that I don't.
+
+That is the whole first run. The installer puts the Dex Lens skill in
+`~/.claude/skills/dex-lens`, gives the `dex-lens` command its own Python
+environment in `~/.local/share/dex-lens` so it cannot disturb anything else,
+links the command into `~/.local/bin`, and prints exactly what it changed.
+Running it again updates it; running it twice is safe. `--dry-run` shows what
+it would do and does none of it.
+
+It reads your machine to check the pieces it needs. It does not read, change,
+or send anything about the AI system you will later ask Lens to look at.
+
+**What this is not yet:** a *signed release* download. The one line above
+installs from source on the public repository, which is what the pilot uses.
+The signed, checksum-verified release bundle is still in preparation, so do
+not use an installer command copied from a branch or an unofficial message —
+use the line above, from this README.
 
 ## A private second opinion on your personal AI operating system
 
@@ -165,6 +183,9 @@ That bridge is now live. Here is what it does:
   than necessary.
 - **A prioritized improvement preview**, without a silent edit or forced
   migration.
+- **A dated report you keep**, saved outside the folder that was inspected, so
+  you can find it next month — and so the next look can tell you what changed
+  rather than repeating what you already know.
 - **An optional, carefully limited way to contribute**, only when you
   explicitly choose to.
 
@@ -173,6 +194,7 @@ That bridge is now live. Here is what it does:
 | Your question | Dex Lens promise |
 | --- | --- |
 | **Does diagnosis change my system?** | No. Diagnosis is read-only. |
+| **Does it write anything at all?** | One thing: your dated report, in `~/.local/state/dex-lens/reports/`. Never inside the folder it looked at, and it checks that before writing. |
 | **Does it upload my setup?** | No. The diagnosis runs locally on your Mac. |
 | **Do I need an account?** | No. There is no account or analytics in the diagnosis. |
 | **Can it inspect anything it wants?** | No. You choose the folder, and Lens does not silently widen that boundary. |
@@ -238,12 +260,11 @@ people using it for real work.
 
 ## For invited testers and technical evaluators
 
-There is no one-click participant installer yet. Invited testers will receive
-a supported, guided handoff.
+Invited testers get the one-line installer above and a guided handoff. The
+signed release bundle, with a published checksum, is still in preparation.
 
-Technical evaluators who are comfortable running a local source build can
-inspect the current experience now. Installing it does not scan anything; the
-first browser screen asks which folder may be read.
+The manual source build below is for evaluators who want to read every step
+before running it. Installing does not scan anything.
 
 ```sh
 git clone https://github.com/davekilleen/dex-lens.git

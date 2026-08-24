@@ -23,19 +23,50 @@ from capability_exchange.adapters.claude_code.inventory_cli import inventory_mai
 from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
+from capability_exchange.reports.cli import reports_main
 
 #: Exact first-argument matches that route away from the browser journey.
 _SUBCOMMANDS = {
     "brief": brief_main,
     "catalogue": catalogue_main,
     "inventory": inventory_main,
+    "reports": reports_main,
 }
+
+
+#: What someone sees the first time they type the name of the thing they just
+#: installed. Before this, a bare `dex-lens` answered with an argparse usage
+#: error about the frozen browser journey — a stack of flags, aimed at a
+#: journey nobody is meant to use, at the exact moment a person is deciding
+#: whether this was worth installing.
+_WELCOME = """Dex Lens is installed.
+
+It is a second opinion on the personal AI system you have already built: what
+it does well, what has quietly rotted, and the few things Dex has that might
+be worth borrowing. It reads. It never changes your system.
+
+You do not run it from here. Open Claude Code and ask, in your own words:
+
+    Have a look at my setup and tell me what Dex has that I don't.
+
+Your assistant does the reading and calls these when it needs them:
+
+    dex-lens inventory <folder>     what your system is made of
+    dex-lens catalogue             what Dex publishes, signature checked here
+    dex-lens brief <id>            how to rebuild one capability yourself
+    dex-lens reports               the dated reports past looks left behind
+
+Add --help to any of them.
+"""
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] in _SUBCOMMANDS:
         return _SUBCOMMANDS[arguments[0]](arguments[1:])
+    if not arguments:
+        print(_WELCOME, end="")
+        return 0
     return _serve_main(arguments)
 
 

@@ -102,12 +102,20 @@ def render_catalogue_digest(
         if wanted is None or entry.capability_id in wanted
     ]
 
+    # Count the jobs these entries actually fall under, not the jobs the
+    # catalogue happens to publish. Narrowed to one job, "14 capabilities
+    # across 11 jobs" describes a document the reader is not holding.
+    covered_jobs = sum(
+        1
+        for job in catalogue.jobs_taxonomy
+        if any(job.job_id in entry.jobs for entry in entries)
+    )
     lines = [
         "# Dex capability catalogue",
         "",
         _GUIDANCE_ONLY,
         "",
-        f"{len(entries)} capabilities across {len(catalogue.jobs_taxonomy)} jobs to be done.",
+        f"{len(entries)} capabilities across {covered_jobs} jobs to be done.",
         "",
     ]
 
@@ -173,6 +181,10 @@ def render_capability_brief_markdown(
         f"# Portable brief: {_safe_markdown(entry.title)}",
         "",
         _GUIDANCE_ONLY,
+        "",
+        "Nothing on this machine has changed by printing this. It is a "
+        "description of a pattern to rebuild, and rebuilding it is a separate "
+        "decision the person makes with this in front of them.",
         "",
         f"Source: Dex catalogue, capability `{entry.capability_id}`, "
         f"first shipped in {_safe_markdown(entry.since_release)}.",
@@ -260,6 +272,14 @@ def render_capability_brief_markdown(
             f"- Needs hooks: {'yes' if entry.compatibility.needs_hooks else 'no'}",
             f"- Needs MCP: {'yes' if entry.compatibility.needs_mcp else 'no'}",
             *_bullets(requirements),
+            "",
+            "## If you want this",
+            "",
+            "Nothing has changed on this machine, and nothing will until you "
+            "ask for it. The next step, if you want one, is to hand this brief "
+            "to your own assistant and ask it to build the pattern into your "
+            "system in your own idiom. Read the prerequisites and trade-offs "
+            "above first: they are the honest cost.",
             "",
             "## Rebuild it, do not copy it",
             "",

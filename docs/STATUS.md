@@ -1,7 +1,148 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-21. Plain-language companion to
+Last updated: 2026-08-24. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## The experience pass: one install, and a report that survives, 2026-08-24
+
+The skill worked and the experience around it did not. Five changes, all on
+the same theme: what a person actually touches.
+
+**One action to install.** Getting to the first insight meant a clone, a
+virtual environment, a pip install and a hand-copied skill folder. `install.sh`
+at the repository root does all of it from one line, builds the command its own
+Python environment so nothing else on the machine can be disturbed, is safe to
+re-run, and has a `--dry-run` that says exactly what it would do and does none
+of it. It reports what it changed rather than what it intended to change, and
+fails loudly instead of leaving half an install behind.
+
+**A report that outlives the conversation.** A second opinion held only in a
+chat window is gone by Friday, and the next run has nothing to compare against,
+so it repeats findings the person already acted on. Every diagnosis now ends
+with `dex-lens reports save`, which writes a dated Markdown report to
+`~/.local/state/dex-lens/reports/` — app storage, never the inspected folder,
+and the command proves that separation before it writes. `dex-lens reports`
+lists what is there; `dex-lens reports --last` gives the next run its baseline,
+and exits non-zero when there is none so "first run" is distinguishable from
+"nothing changed".
+
+**Evidence that cannot be skipped.** The skill now carries the exact report
+template, and the rule that makes it work: every scored line carries a quoted
+line from a file that was actually read, with its path. No quote means the
+label is Unknown. An unread skill cannot be scored, and a scored finding with
+no quotation under it is a defect in the report rather than a style choice.
+
+**Contradiction hunting as a method.** The most valuable finding on the
+reference vault was an instruction file banning a calendar tool that at least
+eight skills, including the one that runs every morning, still call by name.
+Nothing surfaces that by accident. The skill now has the method — extract the
+hard rules from the instruction files, turn each into something searchable,
+search the skills for it, report both sides quoted — with the calendar case as
+an illustration rather than a special case.
+
+**Narrowing, and a recurring check with no number to remember.**
+`dex-lens catalogue --jobs <ids>` and `--only <ids>` scope the digest once the
+person's jobs are known, and refuse rather than print an empty list when a name
+is wrong. `--since-last` compares against the catalogue version this machine
+was last shown, records the new one after every run, and prints nothing when
+nothing has changed.
+
+**The evidence rule, enforced rather than requested.** `dex-lens reports save`
+now refuses a report that has not shown its work: it must say what was read,
+say what happens next, quote at least one line from a real file, leave no
+scored finding standing with neither a quotation nor an honest "Unknown", and
+pair any shortlist with the rejections that prove a comparison happened. It
+names what is missing and writes nothing. `dex-lens reports check` gives the
+same answer without saving. A rule that lives only in a skill's prose holds
+until the run is long and the assistant is tired, which is exactly the run
+where a thin diagnosis does the most damage.
+
+The read-only promise is now also proven across the *sequence* a person runs,
+not only per component: `tests/test_read_only_promise.py` fingerprints every
+file in a small system, runs the inventory and saves a report about it, and
+fails if a single byte inside the inspected folder moves.
+
+**A real delta, computed locally.** The first pass at the recurring check could
+only say "the catalogue moved", because published entries record the Dex Core
+release they changed in, not the catalogue version. That turned out not to
+matter: what *this machine* has seen is knowable here. `dex-lens catalogue`
+now fingerprints every published entry when it shows it and keeps the
+fingerprints in app storage, so `--since-last` answers with the new ones, the
+reworded ones and the names of any withdrawn — and prints only those. Nothing
+is asked of Dex, and only public catalogue text is fingerprinted.
+
+**A second look must account for the first.** Once a report exists for a
+system, saving another one requires a section saying what changed — "nothing
+has changed since then" is a complete answer, leaving it out is not. A
+recurring diagnosis that restates the same findings every time is how a person
+learns to stop reading it.
+
+**And the first thing anyone types.** A bare `dex-lens` used to answer with an
+argparse usage error about the frozen browser journey. It now says what Lens
+is, that it is used by asking your assistant rather than by running commands,
+and what the four commands are for.
+
+### Four defects found in review, 2026-08-24
+
+Found by review of the branch above, all fixed with a test that fails without
+the fix. Recorded here because each one is a lesson about where these tests
+were pointed rather than a slip.
+
+1. **The documented install crashed.** `curl … | bash` has no file on disk, so
+   `${BASH_SOURCE[0]}` is unset and `set -u` refused it — the one invocation
+   shape the README tells people to use was the one nothing ran. The dry run
+   exited before reaching that line, so a green test suite proved nothing about
+   it. Source resolution now happens before the dry run (which says which of
+   the two it would be), the expansion is guarded, and the tests pipe the
+   script into `bash` the way the README does.
+2. **A same-second second report lost its label.** The collision counter was
+   appended after the label, and the parser reads everything after `--` as the
+   label, so the newer report filed itself under `vault-2`: the listing missed
+   it and the next run compared itself against the wrong baseline. The counter
+   now sits after a character a label can never contain.
+3. **"Unknown" anywhere waived the evidence rule.** The waiver was a substring
+   test, so "it calls an unknown tool" — a confident, specific, unquoted claim
+   — passed the gate that exists to stop exactly that. It now matches an
+   Unknown *label*, where the template puts labels.
+4. **`reports check` was a false green light.** It skipped the "account for the
+   last look" rule that `save` enforces, so it approved reports `save` then
+   refused. Both now call one gate with the same inputs.
+
+### Closing the last two gaps, 2026-08-24
+
+**The contradiction hunt is now enforced, not encouraged.** It was the most
+valuable finding on the reference vault and the easiest to quietly skip, so a
+report must carry the contradictions section and show that the search happened:
+either a conflict with the rule and the thing breaking it both quoted, or the
+plain sentence saying the rules were checked against the skills and nothing
+conflicted. An empty heading is refused. Finding none is a real answer; silence
+is not.
+
+**`dex-lens inventory --names`** lists only the items whose name contains what
+you ask for, so a second look can pull the three things the last report flagged
+instead of all two hundred and sixty. Narrowing hides rows, never facts: the
+counts and every housekeeping finding still describe the whole folder, the
+document says so at the top, and a name nobody has is refused rather than
+answered with an empty list that would read as an absence.
+
+### The residual gaps, stated honestly
+
+The local delta has two limits, both said in the command's own output and in
+the skill. It compares against what this machine has seen, so a capability
+that changed before Lens first ran here looks unchanged from here. And a
+fingerprint moves when the published text moves, so a tidied-up summary counts
+as a change; better a cosmetic change reported than a real one dropped. A
+delta that survives a fresh machine — "new since catalogue version 3", for
+anyone, on first run — still needs Dex Core to stamp each entry with the
+catalogue version it first appeared in.
+
+Two smaller limits worth recording. The installer is a *source* installer from
+the public repository, not the signed release bundle described below; that
+distinction is now stated in README rather than glossed. And no test performs a
+real install: the tests check that the script parses, that its destructive
+lines name computed destinations, and that `--dry-run` changes nothing, because
+proving a real run belongs on a clean machine rather than in a unit test that
+would have to write into the developer's live system.
 
 ## The product is a skill now, not a web application, 2026-08-21
 
