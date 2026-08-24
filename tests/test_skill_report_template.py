@@ -32,7 +32,12 @@ def test_the_template_carries_the_sections_the_gate_requires() -> None:
     """Named explicitly, so a rename in either place fails here first."""
     template = _template().lower()
 
-    for section in ("what i read", "what happens next", "considered and rejected"):
+    for section in (
+        "what i read",
+        "contradictions and fragility",
+        "what happens next",
+        "considered and rejected",
+    ):
         assert section in template, section
 
 

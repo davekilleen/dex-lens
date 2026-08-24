@@ -218,8 +218,18 @@ class LensReportStore:
 #: not a second opinion, it is an assertion.
 _REQUIRED_SECTIONS = (
     ("what i read", "## What I read — what the diagnosis is actually based on"),
+    (
+        "contradiction",
+        "## Contradictions and fragility — what you found when you checked the "
+        "rules in the instruction files against the skills",
+    ),
     ("what happens next", "## What happens next — including that nothing changed"),
 )
+
+#: A search that came back clean. The hunt is the most valuable thing in the
+#: diagnosis and the easiest to quietly not do, so "I looked and found nothing"
+#: has to be written down: it is a real answer, and silence is not.
+_CLEAN_SWEEP = re.compile(r"no (?:conflicts?|contradictions?)|found none", re.IGNORECASE)
 
 #: Headings whose findings are judgements, and therefore need evidence under
 #: them. A finding under any of these that quotes nothing has been asserted.
@@ -299,6 +309,7 @@ def missing_report_requirements(markdown: str) -> list[str]:
         )
 
     problems.extend(_findings_without_evidence(markdown))
+    problems.extend(_contradiction_hunt_not_shown(markdown))
 
     if "worth borrowing" in lowered and "considered and rejected" not in lowered:
         problems.append(
@@ -307,6 +318,36 @@ def missing_report_requirements(markdown: str) -> list[str]:
             "cannot be told apart from one that never compared."
         )
     return problems
+
+
+def _contradiction_hunt_not_shown(markdown: str) -> list[str]:
+    """Whether the contradictions section shows a hunt or only a heading.
+
+    An empty heading is the failure mode this guards: the section survives,
+    the search never happened, and the reader cannot tell the difference. Two
+    things count as having done it — a finding with the rule and the thing
+    breaking it both quoted, or the plain statement that the rules were
+    checked and nothing conflicted.
+    """
+    headings = list(_HEADING.finditer(markdown))
+    for index, heading in enumerate(headings):
+        if heading.group(1) != "##" or "contradiction" not in heading.group(2).lower():
+            continue
+        # The section runs to the next "##"; the "###" findings inside it are
+        # part of it, which is where the quotations live.
+        following = [later for later in headings[index + 1 :] if later.group(1) == "##"]
+        end = following[0].start() if following else len(markdown)
+        body = markdown[heading.end() : end]
+        if _QUOTE_LINE.search(body) or _CLEAN_SWEEP.search(body):
+            return []
+        return [
+            "show the contradiction hunt: under the contradictions heading, "
+            "either quote a rule from an instruction file and the skill that "
+            "breaks it, or say plainly that you checked the rules against the "
+            "skills and found no conflicts. Finding none is a real answer; an "
+            "empty heading is not."
+        ]
+    return []
 
 
 def _findings_without_evidence(markdown: str) -> list[str]:

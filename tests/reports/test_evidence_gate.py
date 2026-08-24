@@ -31,6 +31,10 @@ COMPLETE = """# Dex Lens: my vault — 2026-08-24
 > - `skills/meetings/SKILL.md`
 Closes the loop: it writes back and checks the write.
 
+## Contradictions and fragility
+I checked the rules in your instruction files against your skills and found
+no conflicts.
+
 ## What happens next
 - Nothing has changed on your machine.
 """
@@ -83,6 +87,47 @@ class TestWhatAReportMustShow:
             "### Meeting Closeout (`meeting-closeout`) - Unknown\n"
             "I did not read your meeting skill in full, so I cannot score it.\n"
             "\n## Considered and rejected\n- `account-planning` - no accounts here.\n"
+        )
+
+        assert missing_report_requirements(report) == []
+
+    def test_a_report_that_never_hunted_for_contradictions_is_refused(self) -> None:
+        """The most valuable finding in a diagnosis is also the easiest to
+        quietly not go looking for."""
+        problems = missing_report_requirements(
+            _without("## Contradictions and fragility")
+        )
+
+        assert any("Contradictions" in problem for problem in problems)
+
+    def test_an_empty_contradictions_heading_is_refused(self) -> None:
+        """The heading surviving while the search never happened is the exact
+        failure this guards: the reader cannot tell the difference."""
+        report = COMPLETE.replace(
+            "I checked the rules in your instruction files against your skills and found\n"
+            "no conflicts.",
+            "Nothing of note here.",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("show the contradiction hunt" in problem for problem in problems)
+
+    def test_finding_none_is_a_complete_answer(self) -> None:
+        assert missing_report_requirements(COMPLETE) == []
+
+    def test_a_two_sided_quoted_finding_passes(self) -> None:
+        report = COMPLETE.replace(
+            "I checked the rules in your instruction files against your skills and found\n"
+            "no conflicts.",
+            "### The calendar rule is broken by eight skills\n"
+            "The rule:\n"
+            "> Use Google Calendar. Do NOT use the local Apple Calendar MCP.\n"
+            "> - `CLAUDE.md`\n"
+            "What contradicts it:\n"
+            "> calendar_get_events_with_attendees\n"
+            "> - `skills/daily-plan-dave/SKILL.md`\n"
+            "Why it matters: which instruction wins is unpredictable.",
         )
 
         assert missing_report_requirements(report) == []

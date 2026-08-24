@@ -108,6 +108,23 @@ were pointed rather than a slip.
    last look" rule that `save` enforces, so it approved reports `save` then
    refused. Both now call one gate with the same inputs.
 
+### Closing the last two gaps, 2026-08-24
+
+**The contradiction hunt is now enforced, not encouraged.** It was the most
+valuable finding on the reference vault and the easiest to quietly skip, so a
+report must carry the contradictions section and show that the search happened:
+either a conflict with the rule and the thing breaking it both quoted, or the
+plain sentence saying the rules were checked against the skills and nothing
+conflicted. An empty heading is refused. Finding none is a real answer; silence
+is not.
+
+**`dex-lens inventory --names`** lists only the items whose name contains what
+you ask for, so a second look can pull the three things the last report flagged
+instead of all two hundred and sixty. Narrowing hides rows, never facts: the
+counts and every housekeeping finding still describe the whole folder, the
+document says so at the top, and a name nobody has is refused rather than
+answered with an empty list that would read as an absence.
+
 ### The residual gaps, stated honestly
 
 The local delta has two limits, both said in the command's own output and in

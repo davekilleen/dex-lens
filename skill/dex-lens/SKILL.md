@@ -131,6 +131,16 @@ description it declares for itself, and folds duplicates together. A real
 system is large — one reference vault has 6,829 files that turn out to be 240
 distinct capabilities — and the folded count is the honest size.
 
+On a second look, when the previous report named the items you care about,
+you can list just those instead of all of them:
+
+```
+dex-lens inventory <folder> --names daily-plan,week-review
+```
+
+The counts and the housekeeping findings still cover the whole folder, because
+that is what they are about; only the listing narrows.
+
 Read the inventory. Then read *in full* only:
 
 - the top-level instruction files, which is where intent actually lives
@@ -403,7 +413,10 @@ proved rather than asserted.
 **Saving refuses a report that has not shown its work.** It checks that the
 report says what you read, says what happens next, quotes at least one line
 from a real file, leaves no scored finding standing with neither a quotation
-nor an honest Unknown, and pairs any shortlist with the rejections. When a
+nor an honest Unknown, pairs any shortlist with the rejections, and shows the
+contradiction hunt — either a conflict with both sides quoted, or the sentence
+saying you checked and found none. Hunting for contradictions is not optional;
+finding none is a real answer, and saying nothing is not. When a
 previous report exists for that label, it also requires a section accounting
 for it — a second look that silently repeats the first is how a person learns
 to stop reading them. If
@@ -456,6 +469,9 @@ What it costs: <plain words>
 How to check it: <what they would do; you do not do it>
 
 ## Contradictions and fragility
+(Required. If the hunt came back clean, this whole section is one sentence:
+"I checked the rules in your instruction files against your skills and found
+no conflicts." Otherwise, one block per conflict:)
 ### <the rule that is being broken>
 The rule:
 > <exact words>
@@ -557,6 +573,7 @@ the person who built the thing.
 | --- | --- |
 | `dex-lens reports --last` | The previous diagnosis, so this one can say what changed. Exits non-zero when there is none. |
 | `dex-lens inventory <folder> --out <file>` | The declared shape of the system, duplicates folded, housekeeping findings at the end. |
+| `dex-lens inventory <folder> --names <text>` | The same, listing only items whose name contains that text — for a second look at what the last report flagged. Counts still describe the whole folder. |
 | `dex-lens catalogue` | Dex's published capabilities, signature checked on this machine, grouped by job. |
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
 | `dex-lens catalogue --since-last` | The recurring check: only what is new or changed since this machine last looked. Silent when nothing has changed. |

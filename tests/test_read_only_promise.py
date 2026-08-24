@@ -31,6 +31,9 @@ REPORT = """# Dex Lens: a small system - 2026-08-24
 > - `.claude/skills/_disabled_weekly-note/SKILL.md`
 What it costs: someone wanted that and it never landed.
 
+## Contradictions and fragility
+I checked the rules in `CLAUDE.md` against your skills and found no conflicts.
+
 ## What happens next
 - Nothing has changed on your machine.
 """

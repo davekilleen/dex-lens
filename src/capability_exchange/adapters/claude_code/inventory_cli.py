@@ -151,11 +151,23 @@ class _Group:
         return len(self.digests)
 
 
-def _render(snapshot: InspectionSnapshot, root: Path) -> str:
+def _render(
+    snapshot: InspectionSnapshot, root: Path, names: Sequence[str] = ()
+) -> str:
     lines = [
         f"# System inventory: {root}",
         "",
     ]
+    if names:
+        lines.extend(
+            [
+                f"> **Narrowed.** Listing only items whose name contains "
+                f"{', '.join(repr(name) for name in names)}. The counts and the "
+                "housekeeping findings below still describe the whole folder, "
+                "because that is what they are about.",
+                "",
+            ]
+        )
     if not snapshot.complete:
         lines.extend(
             [
@@ -178,6 +190,7 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
     all_groups: dict[tuple[str, str], _Group] = {}
     working_copies: Counter[str] = Counter()
     working_copy_files = 0
+    matched = 0
 
     for basename, paths in by_name.items():
         if not paths:
@@ -203,9 +216,22 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
 
         total_copies += len(paths)
         total_distinct += len(grouped)
-        lines.extend([f"## {basename} ({len(grouped)} distinct, {len(paths)} files)", ""])
-        for label, group in sorted(grouped.items()):
+        for label, group in grouped.items():
             all_groups[(basename, label)] = group
+
+        # Narrowing hides rows, never facts: the counts in the heading and
+        # everything under Housekeeping are still about the whole folder.
+        shown = {
+            label: group
+            for label, group in grouped.items()
+            if not names or any(name in label.lower() for name in names)
+        }
+        matched += len(shown)
+        heading = f"## {basename} ({len(grouped)} distinct, {len(paths)} files"
+        heading += f", showing {len(shown)} that match)" if names else ")"
+        lines.extend([heading, ""])
+        for label, group in sorted(shown.items()):
+            group = grouped[label]
             copies = f" ×{len(group.copies)}" if len(group.copies) > 1 else ""
             drift = f" ({group.versions} versions)" if group.versions > 1 else ""
             best = _shortest(group.relative_paths)
@@ -237,7 +263,20 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
 
     lines.extend(_render_how_this_ends())
 
+    if names and not matched:
+        # An empty listing is the one output that would be read as a finding:
+        # "you have nothing called that". A typo must not be able to say it.
+        raise _NothingMatched(names)
+
     return "\n".join(lines).rstrip() + "\n"
+
+
+class _NothingMatched(Exception):
+    """No declared item's name contained any of the requested fragments."""
+
+    def __init__(self, names: Sequence[str]) -> None:
+        self.names = tuple(names)
+        super().__init__(", ".join(self.names))
 
 
 def _render_how_this_ends() -> list[str]:
@@ -376,11 +415,23 @@ def inventory_main(argv: list[str] | None = None) -> int:
         help="Bound on files captured. Reaching it is reported, never hidden.",
     )
     parser.add_argument(
+        "--names",
+        metavar="TEXT[,TEXT...]",
+        help=(
+            "List only items whose name contains one of these, for a second "
+            "look at what a previous report flagged. The counts and the "
+            "housekeeping findings still describe the whole folder."
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         help="Write the inventory to this file as well as printing it.",
     )
     args = parser.parse_args(argv)
+    names = tuple(
+        fragment.strip().lower() for fragment in (args.names or "").split(",") if fragment.strip()
+    )
 
     root = args.root.expanduser().resolve()
     if not root.is_dir():
@@ -394,7 +445,15 @@ def inventory_main(argv: list[str] | None = None) -> int:
         bounds=CollectionBounds(max_file_count=args.max_files),
     )
 
-    rendered = _render(snapshot, root)
+    try:
+        rendered = _render(snapshot, root, names)
+    except _NothingMatched as nothing:
+        print(
+            f"dex-lens: nothing in this folder is named like {', '.join(nothing.names)}. "
+            "Run without --names rather than reading an empty list as an absence.",
+            file=sys.stderr,
+        )
+        return 1
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(rendered, encoding="utf-8")
