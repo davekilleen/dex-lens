@@ -102,12 +102,20 @@ def render_catalogue_digest(
         if wanted is None or entry.capability_id in wanted
     ]
 
+    # Count the jobs these entries actually fall under, not the jobs the
+    # catalogue happens to publish. Narrowed to one job, "14 capabilities
+    # across 11 jobs" describes a document the reader is not holding.
+    covered_jobs = sum(
+        1
+        for job in catalogue.jobs_taxonomy
+        if any(job.job_id in entry.jobs for entry in entries)
+    )
     lines = [
         "# Dex capability catalogue",
         "",
         _GUIDANCE_ONLY,
         "",
-        f"{len(entries)} capabilities across {len(catalogue.jobs_taxonomy)} jobs to be done.",
+        f"{len(entries)} capabilities across {covered_jobs} jobs to be done.",
         "",
     ]
 

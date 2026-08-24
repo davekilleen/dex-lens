@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from tests.catalogue.test_v2_verifier import sign_envelope, unsigned_envelope
 
 from capability_exchange.catalogue import cli
+from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore
 from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 
 KEY_ID = "dex-core-2026-08-test"
@@ -141,6 +142,146 @@ class TestSince:
         captured = capsys.readouterr()
         assert "Dex capability catalogue" in captured.out
         assert "not a delta" in captured.err
+
+
+class TestNarrowing:
+    """A whole catalogue is the right default and the wrong thing to re-read.
+
+    Once the person's jobs are known, the rest is context the assistant pays
+    for and never uses. The failure that matters is narrowing to nothing and
+    printing it: an empty digest reads as "Dex has nothing for you", which is
+    a conclusion invented by a typo.
+    """
+
+    def test_jobs_narrows_to_that_job(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--jobs", "remember-what-matters"]) == 0
+
+        out = capsys.readouterr().out
+        assert "narrowed to 1 of 1" in out
+        assert "dex-durable-memory-provenance" in out
+
+    def test_only_narrows_to_named_capabilities(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--only", "dex-durable-memory-provenance"]) == 0
+
+        assert "dex-durable-memory-provenance" in capsys.readouterr().out
+
+    def test_an_unknown_job_is_refused_rather_than_narrowed_to_nothing(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--jobs", "wash-the-car"]) == 1
+
+        captured = capsys.readouterr()
+        assert "Dex capability catalogue" not in captured.out
+        assert "no such job" in captured.err
+        assert "remember-what-matters" in captured.err, "say what is available"
+
+    def test_an_unknown_capability_id_is_refused(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--only", "no-such-thing"]) == 1
+
+        assert "no such capability" in capsys.readouterr().err
+
+    def test_narrowing_the_signed_json_is_refused(
+        self, cached_catalogue: VerifiedCatalogueStore
+    ) -> None:
+        """--json is the published bytes; a narrowed one was never signed."""
+        with pytest.raises(SystemExit) as refused:
+            cli.catalogue_main(["--offline", "--json", "--only", "dex-durable-memory-provenance"])
+
+        assert refused.value.code == 2
+
+
+class TestSinceLast:
+    """The recurring check, without a version number anyone has to remember."""
+
+    def test_the_first_run_prints_everything_and_records_the_baseline(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--since-last"]) == 0
+
+        captured = capsys.readouterr()
+        assert "Dex capability catalogue" in captured.out
+        assert "no catalogue version has been recorded" in captured.err
+        assert _recorded_version() == 7
+
+    def test_the_next_run_stays_quiet_when_nothing_changed(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli.catalogue_main(["--offline", "--since-last"])
+        capsys.readouterr()
+
+        assert cli.catalogue_main(["--offline", "--since-last"]) == 0
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Nothing new" in captured.err
+
+    def test_an_ordinary_run_records_the_baseline_too(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Someone who ran the catalogue once should not be told about it again."""
+        assert cli.catalogue_main(["--offline"]) == 0
+        capsys.readouterr()
+
+        assert _recorded_version() == 7
+        assert cli.catalogue_main(["--offline", "--since-last"]) == 0
+        assert capsys.readouterr().out == ""
+
+    def test_a_newer_catalogue_speaks_again(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _record_seen(3)
+
+        assert cli.catalogue_main(["--offline", "--since-last"]) == 0
+
+        captured = capsys.readouterr()
+        assert "Dex capability catalogue" in captured.out
+        assert "moved from version 3 to 7" in captured.err
+        assert _recorded_version() == 7
+
+    def test_two_ways_of_saying_since_are_refused_together(
+        self, cached_catalogue: VerifiedCatalogueStore
+    ) -> None:
+        with pytest.raises(SystemExit) as refused:
+            cli.catalogue_main(["--offline", "--since", "3", "--since-last"])
+
+        assert refused.value.code == 2
+
+    def test_a_recording_failure_does_not_fail_the_command(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A verified catalogue was already printed; a local convenience file
+        failing to write is a thing to say, not a reason to fail."""
+
+        def refuse(_self: CatalogueSubscriptionStore, **_kwargs: object) -> None:
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(CatalogueSubscriptionStore, "record_seen", refuse)
+
+        assert cli.catalogue_main(["--offline"]) == 0
+        assert "could not record catalogue version 7" in capsys.readouterr().err
+
+
+def _subscription_store() -> CatalogueSubscriptionStore:
+    return CatalogueSubscriptionStore(cli.default_lens_app_storage())
+
+
+def _recorded_version() -> int | None:
+    return _subscription_store().load().last_seen_catalog_version
+
+
+def _record_seen(version: int) -> None:
+    _subscription_store().record_seen(catalog_version=version)
 
 
 class TestBrief:

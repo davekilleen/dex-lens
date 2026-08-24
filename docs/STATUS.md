@@ -1,7 +1,70 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-21. Plain-language companion to
+Last updated: 2026-08-24. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## The experience pass: one install, and a report that survives, 2026-08-24
+
+The skill worked and the experience around it did not. Five changes, all on
+the same theme: what a person actually touches.
+
+**One action to install.** Getting to the first insight meant a clone, a
+virtual environment, a pip install and a hand-copied skill folder. `install.sh`
+at the repository root does all of it from one line, builds the command its own
+Python environment so nothing else on the machine can be disturbed, is safe to
+re-run, and has a `--dry-run` that says exactly what it would do and does none
+of it. It reports what it changed rather than what it intended to change, and
+fails loudly instead of leaving half an install behind.
+
+**A report that outlives the conversation.** A second opinion held only in a
+chat window is gone by Friday, and the next run has nothing to compare against,
+so it repeats findings the person already acted on. Every diagnosis now ends
+with `dex-lens reports save`, which writes a dated Markdown report to
+`~/.local/state/dex-lens/reports/` — app storage, never the inspected folder,
+and the command proves that separation before it writes. `dex-lens reports`
+lists what is there; `dex-lens reports --last` gives the next run its baseline,
+and exits non-zero when there is none so "first run" is distinguishable from
+"nothing changed".
+
+**Evidence that cannot be skipped.** The skill now carries the exact report
+template, and the rule that makes it work: every scored line carries a quoted
+line from a file that was actually read, with its path. No quote means the
+label is Unknown. An unread skill cannot be scored, and a scored finding with
+no quotation under it is a defect in the report rather than a style choice.
+
+**Contradiction hunting as a method.** The most valuable finding on the
+reference vault was an instruction file banning a calendar tool that at least
+eight skills, including the one that runs every morning, still call by name.
+Nothing surfaces that by accident. The skill now has the method — extract the
+hard rules from the instruction files, turn each into something searchable,
+search the skills for it, report both sides quoted — with the calendar case as
+an illustration rather than a special case.
+
+**Narrowing, and a recurring check with no number to remember.**
+`dex-lens catalogue --jobs <ids>` and `--only <ids>` scope the digest once the
+person's jobs are known, and refuse rather than print an empty list when a name
+is wrong. `--since-last` compares against the catalogue version this machine
+was last shown, records the new one after every run, and prints nothing when
+nothing has changed.
+
+### The residual gap, stated honestly
+
+`--since-last` still cannot say *which entry* is new. Published catalogue
+entries record the Dex Core release they changed in, not the catalogue version,
+so a true per-entry delta needs a change in Dex Core: a `first_catalog_version`
+(or equivalent) on each entry. Until then the command can say the catalogue
+moved and show the current list, and both the command's own output and the
+skill say so in those words rather than implying a delta it cannot compute. The
+skill covers the gap the only way available: compare against the last saved
+report before saying anything to the person.
+
+Two smaller limits worth recording. The installer is a *source* installer from
+the public repository, not the signed release bundle described below; that
+distinction is now stated in README rather than glossed. And no test performs a
+real install: the tests check that the script parses, that its destructive
+lines name computed destinations, and that `--dry-run` changes nothing, because
+proving a real run belongs on a clean machine rather than in a unit test that
+would have to write into the developer's live system.
 
 ## The product is a skill now, not a web application, 2026-08-21
 

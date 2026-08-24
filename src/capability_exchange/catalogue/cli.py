@@ -33,8 +33,12 @@ from capability_exchange.catalogue.fetch import (
     CatalogueFetchStatus,
     ConsentedCatalogueFetcher,
 )
-from capability_exchange.catalogue.subscription import default_lens_app_storage
+from capability_exchange.catalogue.subscription import (
+    CatalogueSubscriptionStore,
+    default_lens_app_storage,
+)
 from capability_exchange.catalogue.v2 import (
+    CatalogueV2,
     CatalogueVerificationError,
     VerifiedCatalogueStore,
     default_keyring,
@@ -119,6 +123,81 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _comma_list(value: str | None) -> list[str]:
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
+
+
+def _narrowed_ids(catalogue: CatalogueV2, *, jobs: str | None, only: str | None) -> set[str] | None:
+    """The capability ids to print, or ``None`` for the whole catalogue.
+
+    A whole catalogue is the right default and the wrong thing to keep
+    re-reading. Once the reader knows which jobs this person actually does,
+    the other forty entries are context they pay for and never use. Narrowing
+    is the same digest, scoped.
+
+    An unknown job or id raises instead of quietly narrowing to nothing: an
+    empty digest reads as "Dex has nothing for you", which would be a
+    conclusion invented by a typo.
+    """
+    wanted_jobs = _comma_list(jobs)
+    wanted_ids = _comma_list(only)
+    if not wanted_jobs and not wanted_ids:
+        return None
+
+    selected: set[str] | None = None
+    if wanted_jobs:
+        known_jobs = {job.job_id for job in catalogue.jobs_taxonomy}
+        unknown = sorted(set(wanted_jobs) - known_jobs)
+        if unknown:
+            raise ValueError(
+                f"no such job to be done: {', '.join(unknown)}. "
+                f"This catalogue lists: {', '.join(sorted(known_jobs))}."
+            )
+        selected = {
+            entry.capability_id
+            for entry in catalogue.capabilities
+            if set(entry.jobs) & set(wanted_jobs)
+        }
+
+    if wanted_ids:
+        known_ids = {entry.capability_id for entry in catalogue.capabilities}
+        unknown = sorted(set(wanted_ids) - known_ids)
+        if unknown:
+            raise ValueError(
+                f"no such capability: {', '.join(unknown)}. "
+                "Run `dex-lens catalogue` with no narrowing to see the ids."
+            )
+        chosen = set(wanted_ids)
+        selected = chosen if selected is None else selected | chosen
+
+    if not selected:
+        raise ValueError(
+            "nothing in the catalogue matches that narrowing. Widen it rather "
+            "than reading the empty result as an absence."
+        )
+    return selected
+
+
+def _record_baseline(version: int) -> None:
+    """Remember the version just shown, so `--since-last` needs no number.
+
+    Best effort on purpose. Failing to write a local convenience file is not a
+    reason to fail a command that already printed a verified catalogue, but it
+    is a reason to say so, because a silent failure here would make a
+    recurring check repeat itself forever.
+    """
+    try:
+        CatalogueSubscriptionStore(default_lens_app_storage()).record_seen(
+            catalog_version=version
+        )
+    except (OSError, ValueError) as exc:
+        print(
+            f"dex-lens: could not record catalogue version {version} for the "
+            f"next `--since-last` run: {exc}",
+            file=sys.stderr,
+        )
+
+
 def catalogue_main(argv: list[str] | None = None) -> int:
     """Fetch, verify, and print Dex's published capability catalogue."""
 
@@ -145,7 +224,36 @@ def catalogue_main(argv: list[str] | None = None) -> int:
             "nothing new."
         ),
     )
+    parser.add_argument(
+        "--since-last",
+        action="store_true",
+        help=(
+            "Like --since, using the last version this machine was shown, so a "
+            "scheduled check needs no remembered number. The version seen is "
+            "recorded after every run."
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        metavar="JOB[,JOB...]",
+        help=(
+            "Only capabilities under these jobs to be done, once the person's "
+            "jobs are known. Ids are printed in the full digest."
+        ),
+    )
+    parser.add_argument(
+        "--only",
+        metavar="ID[,ID...]",
+        help="Only these capabilities, by id.",
+    )
     args = parser.parse_args(argv)
+    if args.since is not None and args.since_last:
+        parser.error("--since and --since-last say the same thing two ways; use one")
+    if (args.jobs or args.only) and args.json:
+        parser.error(
+            "--json prints the signed catalogue as it was published; narrowing it "
+            "would print something Dex never signed. Narrow the readable digest instead"
+        )
 
     result = _fetch(args.url, offline=args.offline)
     if result is None:
@@ -160,12 +268,26 @@ def catalogue_main(argv: list[str] | None = None) -> int:
     # meant a recurring check asking for JSON printed the whole catalogue on
     # every run, which is exactly the "reports every release, gets turned off"
     # failure the flag exists to avoid.
-    if args.since is not None:
-        if version <= args.since:
+    since = args.since
+    if args.since_last:
+        since = CatalogueSubscriptionStore(
+            default_lens_app_storage()
+        ).load().last_seen_catalog_version
+        if since is None:
+            print(
+                "dex-lens: no catalogue version has been recorded on this machine "
+                f"yet, so this is the whole catalogue. Version {version} is being "
+                "recorded now; later --since-last runs stay quiet until it changes.",
+                file=sys.stderr,
+            )
+
+    if since is not None:
+        if version <= since:
             print(
                 f"Nothing new. The published catalogue is still version {version}.",
                 file=sys.stderr,
             )
+            _record_baseline(version)
             return 0
         # `changed_in` carries the Core releases an entry changed in, which is
         # not the catalogue version, so it cannot answer "since version N".
@@ -173,7 +295,7 @@ def catalogue_main(argv: list[str] | None = None) -> int:
         # and let the reader compare, rather than infer a delta the data does
         # not support.
         print(
-            f"The catalogue moved from version {args.since} to {version}. "
+            f"The catalogue moved from version {since} to {version}. "
             "Published entries do not record which catalogue version they "
             "changed in, so this is the full current list, not a delta.",
             file=sys.stderr,
@@ -181,13 +303,26 @@ def catalogue_main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(envelope.model_dump_json(indent=2))
+        _record_baseline(version)
         return 0
+
+    try:
+        selected = _narrowed_ids(catalogue, jobs=args.jobs, only=args.only)
+    except ValueError as exc:
+        print(f"dex-lens: {exc}", file=sys.stderr)
+        return 1
 
     print(
         f"<!-- verified catalogue version {version}, "
         f"Dex Core {envelope.metadata.core_release} -->"
     )
-    print(render_catalogue_digest(catalogue), end="")
+    if selected is not None:
+        print(
+            f"<!-- narrowed to {len(selected)} of "
+            f"{len(catalogue.capabilities)} published capabilities -->"
+        )
+    print(render_catalogue_digest(catalogue, only=selected), end="")
+    _record_baseline(version)
     return 0
 
 

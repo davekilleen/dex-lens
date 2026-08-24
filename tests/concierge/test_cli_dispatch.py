@@ -17,7 +17,7 @@ from capability_exchange.concierge import cli
 
 
 class TestSubcommandDispatch:
-    @pytest.mark.parametrize("name", ["catalogue", "brief", "inventory"])
+    @pytest.mark.parametrize("name", ["catalogue", "brief", "inventory", "reports"])
     def test_a_subcommand_routes_away_from_the_browser_journey(
         self, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -23,12 +23,14 @@ from capability_exchange.adapters.claude_code.inventory_cli import inventory_mai
 from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
+from capability_exchange.reports.cli import reports_main
 
 #: Exact first-argument matches that route away from the browser journey.
 _SUBCOMMANDS = {
     "brief": brief_main,
     "catalogue": catalogue_main,
     "inventory": inventory_main,
+    "reports": reports_main,
 }
 
 

@@ -60,6 +60,19 @@ class TestDigest:
         assert wanted in digest
         assert catalogue.capabilities[1].capability_id not in digest
 
+    def test_a_narrowed_digest_counts_the_jobs_it_actually_shows(self) -> None:
+        """"14 capabilities across 11 jobs" describes a document the reader,
+        having narrowed to one job, is not holding."""
+        catalogue = _catalogue()
+        wanted = catalogue.capabilities[0]
+
+        digest = render_catalogue_digest(catalogue, only=[wanted.capability_id])
+
+        shown_jobs = sum(
+            1 for job in catalogue.jobs_taxonomy if job.job_id in wanted.jobs
+        )
+        assert f"1 capabilities across {shown_jobs} jobs" in digest
+
 
 class TestBrief:
     def test_it_says_it_is_not_permission_at_both_ends(self) -> None:

@@ -24,20 +24,26 @@ Dex's, and reducing a large system to something that fits in a context window.
 
 ## Install
 
-```sh
-mkdir -p ~/.claude/skills
-cp -R skill/dex-lens ~/.claude/skills/
-```
-
-The skill calls the `dex-lens` command, so install the package too:
+One line, from nothing installed to ready to ask:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install .
+curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
 ```
 
-Put `.venv/bin` on `PATH`, or install with `pipx install .` so `dex-lens`
-resolves anywhere.
+It puts the skill in `~/.claude/skills/dex-lens`, builds the `dex-lens`
+command its own Python environment in `~/.local/share/dex-lens`, links the
+command into `~/.local/bin`, and prints exactly what it changed. Run it again
+to update; running it twice is safe. `--dry-run` says what it would do and
+does none of it.
+
+Nothing about the system you will later ask Lens to look at is read, changed,
+or sent during the install.
+
+From a clone, the same script installs that clone rather than downloading one:
+
+```sh
+./install.sh
+```
 
 ## Use
 
@@ -57,15 +63,23 @@ The only network request is for Dex's public signed catalogue, which is the
 same file for everyone and carries nothing about you. Its signature is checked
 on your machine before any of it is shown.
 
-## The three commands the skill uses
+## The four commands the skill uses
 
 | Command | What it does |
 | --- | --- |
-| `dex-lens inventory <folder>` | Every instruction, settings and skill file with the description it declares, copies folded together. Reads only. |
-| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. |
+| `dex-lens inventory <folder>` | Every instruction, settings and skill file with the description it declares, copies folded together, and a housekeeping section naming leftover copies, drift and switched-off skills. Reads only. |
+| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` makes it silent unless something changed. |
 | `dex-lens brief <id>` | Everything needed to rebuild one capability elsewhere: method, verification, rollback, and Dex's own evidence with its limits. |
+| `dex-lens reports` | The dated reports every diagnosis leaves behind, kept in app storage outside the inspected folder. `save` writes one, `--last` prints the previous one so the next run can say what changed. |
 
 Each exits non-zero rather than printing anything unverified.
+
+## What it writes
+
+One thing, in one place: the dated report, under
+`~/.local/state/dex-lens/reports/`. It is never written inside the folder
+being inspected, and the command that writes it checks that separation before
+writing rather than assuming it.
 
 ## The browser journey
 
