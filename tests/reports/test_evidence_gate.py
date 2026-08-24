@@ -116,6 +116,42 @@ class TestWhatAReportMustShow:
     def test_finding_none_is_a_complete_answer(self) -> None:
         assert missing_report_requirements(COMPLETE) == []
 
+    def test_a_passing_mention_is_not_the_section(self) -> None:
+        """The requirement is a "##" heading, not the word appearing in prose.
+
+        "No contradictions found" slipped into another section used to satisfy
+        the presence check, and the content check — that the hunt actually ran
+        — never fired, because there was no heading for it to find. The two
+        checks agreeing on what a section IS is the whole fix.
+        """
+        report = COMPLETE.replace(
+            "## Contradictions and fragility\n",
+            "## The mirror, continued\nNo contradictions found, by the way.\n",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("Contradictions and fragility" in problem for problem in problems)
+
+    def test_incidental_found_none_is_not_a_clean_sweep(self) -> None:
+        """The clean statement must show the check, not just the outcome words.
+
+        "I found none of the skills that close the loop" contains "found none"
+        and can sit under the right heading, but it describes a different
+        search entirely. The waiver matches only a sentence that says what was
+        checked, against what, and that nothing conflicted — the same pinning
+        the Unknown label needed, for the same reason.
+        """
+        report = COMPLETE.replace(
+            "I checked the rules in your instruction files against your skills and found\n"
+            "no conflicts.",
+            "I found none of the skills that close the loop.",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("show the contradiction hunt" in problem for problem in problems)
+
     def test_a_two_sided_quoted_finding_passes(self) -> None:
         report = COMPLETE.replace(
             "I checked the rules in your instruction files against your skills and found\n"

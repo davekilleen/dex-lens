@@ -229,7 +229,22 @@ _REQUIRED_SECTIONS = (
 #: A search that came back clean. The hunt is the most valuable thing in the
 #: diagnosis and the easiest to quietly not do, so "I looked and found nothing"
 #: has to be written down: it is a real answer, and silence is not.
-_CLEAN_SWEEP = re.compile(r"no (?:conflicts?|contradictions?)|found none", re.IGNORECASE)
+#:
+#: The statement has to show the check itself, in one sentence: something was
+#: checked, the rules were what was checked, the skills were what they were
+#: checked against, and nothing conflicted. A bare "found none" used to
+#: satisfy this, which let incidental prose ("I found none of the skills that
+#: close the loop") stand in for a hunt that never ran — the same disease the
+#: Unknown label had before it was pinned to label position.
+#: One statement, not one sentence: the gaps stop at a blank line rather than
+#: at a full stop, because file names like `CLAUDE.md` put full stops in the
+#: middle of the honest wording.
+_CLEAN_GAP = r"(?:(?!\n\n)[\s\S]){0,160}?"
+_CLEAN_SWEEP = re.compile(
+    rf"(?:checked|compared){_CLEAN_GAP}(?:rules?|instructions?){_CLEAN_GAP}skills?"
+    rf"{_CLEAN_GAP}(?:no\s+(?:conflicts?|contradictions?)|found\s+none)",
+    re.IGNORECASE,
+)
 
 #: Headings whose findings are judgements, and therefore need evidence under
 #: them. A finding under any of these that quotes nothing has been asserted.
@@ -295,10 +310,14 @@ def missing_report_requirements(markdown: str) -> list[str]:
     than fixed.
     """
     lowered = markdown.lower()
+    # A required section is a "##" heading, not a phrase somewhere in prose.
+    # "No contradictions found" mentioned under The Mirror used to satisfy the
+    # contradictions requirement while the dedicated section — and with it the
+    # content check that the hunt actually ran — was skipped entirely.
     problems = [
         f"add a section: {advice}"
         for phrase, advice in _REQUIRED_SECTIONS
-        if phrase not in lowered
+        if not _has_section_heading(markdown, phrase)
     ]
 
     if not _QUOTE_LINE.search(markdown):
@@ -311,13 +330,28 @@ def missing_report_requirements(markdown: str) -> list[str]:
     problems.extend(_findings_without_evidence(markdown))
     problems.extend(_contradiction_hunt_not_shown(markdown))
 
-    if "worth borrowing" in lowered and "considered and rejected" not in lowered:
+    if "worth borrowing" in lowered and not _has_section_heading(
+        markdown, "considered and rejected"
+    ):
         problems.append(
             "add a section: ## Considered and rejected — one line each for what "
             "you looked at and ruled out. A shortlist with no visible rejections "
             "cannot be told apart from one that never compared."
         )
     return problems
+
+
+def _has_section_heading(markdown: str, phrase: str) -> bool:
+    """Whether a "##" heading carries this phrase.
+
+    The looser check — the phrase anywhere in the report — let a passing
+    mention satisfy a structural requirement, and the section's own content
+    check never ran because there was no heading for it to find.
+    """
+    return any(
+        heading.group(1) == "##" and phrase in heading.group(2).lower()
+        for heading in _HEADING.finditer(markdown)
+    )
 
 
 def _contradiction_hunt_not_shown(markdown: str) -> list[str]:
