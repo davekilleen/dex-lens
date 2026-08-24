@@ -273,6 +273,14 @@ def render_capability_brief_markdown(
             f"- Needs MCP: {'yes' if entry.compatibility.needs_mcp else 'no'}",
             *_bullets(requirements),
             "",
+            "## If you want this",
+            "",
+            "Nothing has changed on this machine, and nothing will until you "
+            "ask for it. The next step, if you want one, is to hand this brief "
+            "to your own assistant and ask it to build the pattern into your "
+            "system in your own idiom. Read the prerequisites and trade-offs "
+            "above first: they are the honest cost.",
+            "",
             "## Rebuild it, do not copy it",
             "",
             "The point is the pattern, not Dex's implementation of it. Recreate "

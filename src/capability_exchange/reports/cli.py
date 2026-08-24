@@ -21,6 +21,7 @@ from pathlib import Path
 from capability_exchange.reports.store import (
     LensReportStore,
     default_report_directory,
+    missing_comparison_with,
     missing_report_requirements,
 )
 
@@ -176,6 +177,12 @@ def _save(args: argparse.Namespace) -> int:
     # Read before writing: once the new report is on disk it is the most
     # recent one, and the previous one is what the reader wants pointed out.
     previous = store.last(label=args.label)
+    unaccounted = missing_comparison_with(previous, markdown)
+    if unaccounted is not None:
+        _report_problems([unaccounted])
+        print("dex-lens: nothing was saved. Add that and save it again.", file=sys.stderr)
+        return 2
+
     try:
         saved = store.save(markdown, label=args.label)
     except ValueError as exc:

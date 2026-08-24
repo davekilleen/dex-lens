@@ -71,6 +71,12 @@ fingerprints in app storage, so `--since-last` answers with the new ones, the
 reworded ones and the names of any withdrawn — and prints only those. Nothing
 is asked of Dex, and only public catalogue text is fingerprinted.
 
+**A second look must account for the first.** Once a report exists for a
+system, saving another one requires a section saying what changed — "nothing
+has changed since then" is a complete answer, leaving it out is not. A
+recurring diagnosis that restates the same findings every time is how a person
+learns to stop reading it.
+
 **And the first thing anyone types.** A bare `dex-lens` used to answer with an
 argparse usage error about the frozen browser journey. It now says what Lens
 is, that it is used by asking your assistant rather than by running commands,

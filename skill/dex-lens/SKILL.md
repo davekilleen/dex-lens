@@ -400,7 +400,10 @@ proved rather than asserted.
 **Saving refuses a report that has not shown its work.** It checks that the
 report says what you read, says what happens next, quotes at least one line
 from a real file, leaves no scored finding standing with neither a quotation
-nor an honest Unknown, and pairs any shortlist with the rejections. If
+nor an honest Unknown, and pairs any shortlist with the rejections. When a
+previous report exists for that label, it also requires a section accounting
+for it — a second look that silently repeats the first is how a person learns
+to stop reading them. If
 something is missing it names it and writes nothing; fix it and save again.
 To check before you write anything final:
 
@@ -427,11 +430,13 @@ Nothing on this machine was changed. This is a read-only second opinion.
 - Not read: <what you deliberately skipped, and why>
 - Limits: <bounded capture, unreadable files, anything Unknown that matters>
 
-## Since the last look — <date of previous report>
-(Only when a previous report exists. Otherwise: "First look at this system.")
+## Since the last look — <date of previous report, or "first look">
 - Fixed since then: <finding, and how you can tell>
 - Still standing: <finding>
 - New: <finding>
+(On a first look: "First look at this system, so there is nothing to compare
+with yet." Once a previous report exists this section is required, and
+"nothing has changed since then" is a complete answer.)
 
 ## What is strong
 ### <name of the capability>  — Verified | Supported | Reported

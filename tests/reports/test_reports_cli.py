@@ -43,6 +43,8 @@ def _complete(title: str) -> str:
         "> 6,405 of the 6,829 files (94%) sit inside `worktrees` folders\n"
         "> - `inventory.md`\n"
         "What it costs: 6.2 GB, and every count you see is wrong.\n\n"
+        "## Since the last look\n"
+        "- Nothing has changed since then.\n\n"
         "## What happens next\n"
         "- Nothing has changed on your machine.\n"
     )
@@ -139,6 +141,57 @@ class TestSave:
 
         assert cli.reports_main(["save", source, "--for", str(vault)]) == 2
         assert "outside the approved read scope" in capsys.readouterr().err
+
+
+class TestAccountingForTheLastLook:
+    """A second look that repeats the first teaches people to stop reading."""
+
+    def test_a_second_report_that_ignores_the_first_is_refused(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cli.reports_main(["save", _report(tmp_path, _complete("First"), "a.md")])
+        capsys.readouterr()
+        without = _complete("Second").replace("## Since the last look", "## Notes")
+
+        assert cli.reports_main(["save", _report(tmp_path, without, "b.md")]) == 2
+
+        captured = capsys.readouterr()
+        assert "say what has changed" in captured.err
+        assert len(list(reports_directory.glob("*.md"))) == 1
+
+    def test_the_first_report_needs_no_comparison(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+    ) -> None:
+        first = _complete("First").replace("## Since the last look", "## Notes")
+
+        assert cli.reports_main(["save", _report(tmp_path, first)]) == 0
+
+    def test_nothing_has_changed_is_a_complete_answer(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+    ) -> None:
+        cli.reports_main(["save", _report(tmp_path, _complete("First"), "a.md")])
+
+        assert cli.reports_main(["save", _report(tmp_path, _complete("Second"), "b.md")]) == 0
+
+    def test_a_different_system_is_not_asked_to_compare_itself_with_another(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+    ) -> None:
+        """Two systems keep two histories; the work vault is not the home one."""
+        cli.reports_main(["save", _report(tmp_path, _complete("Work"), "a.md"), "--label", "work"])
+        home = _complete("Home").replace("## Since the last look", "## Notes")
+
+        assert (
+            cli.reports_main(["save", _report(tmp_path, home, "b.md"), "--label", "home"]) == 0
+        )
 
 
 class TestListAndLast:

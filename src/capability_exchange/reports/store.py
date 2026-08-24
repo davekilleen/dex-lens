@@ -33,6 +33,7 @@ from capability_exchange.catalogue.subscription import (
 
 __all__ = [
     "LensReportStore",
+    "missing_comparison_with",
     "SavedReport",
     "default_report_directory",
     "missing_report_requirements",
@@ -218,6 +219,31 @@ _JUDGEMENT_SECTIONS = (
 
 _QUOTE_LINE = re.compile(r"^\s*>", re.MULTILINE)
 _HEADING = re.compile(r"^(#{2,3})\s+(.*?)\s*$", re.MULTILINE)
+
+
+def missing_comparison_with(previous: SavedReport | None, markdown: str) -> str | None:
+    """Why this report cannot stand as a second look, if it cannot.
+
+    A recurring diagnosis that restates the same findings every time is how a
+    person learns to stop reading it. Once there is a previous report, the new
+    one has to account for it — even if the account is "nothing has changed" —
+    so this is checked rather than hoped for.
+    """
+    if previous is None:
+        return None
+    if any("since" in title.lower() for title in _section_titles(markdown)):
+        return None
+    when = previous.saved_at.strftime("%Y-%m-%d")
+    return (
+        f"say what has changed: the last look at this system was on {when} "
+        f"({previous.path}). Add a section whose heading says 'since' - what is "
+        "fixed, what still stands, what is new. 'Nothing has changed since "
+        "then' is a complete answer; leaving it out is not."
+    )
+
+
+def _section_titles(markdown: str) -> list[str]:
+    return [match.group(2) for match in _HEADING.finditer(markdown)]
 
 
 def missing_report_requirements(markdown: str) -> list[str]:
