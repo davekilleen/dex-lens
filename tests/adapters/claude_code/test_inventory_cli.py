@@ -138,3 +138,84 @@ class TestInventory:
         inventory_main([str(system), "--out", str(out_path)])
 
         assert out_path.read_text(encoding="utf-8") == capsys.readouterr().out
+
+
+class TestHousekeeping:
+    """The findings about the system itself, which the fold used to bury.
+
+    The first real vault this ran on held 22 leftover worktrees carrying 97%
+    of every file count, and the inventory reported them only as a "×32"
+    multiplier. Accurate, and useless: the person's actual question was "how
+    can I have 6,417 skills?", and the answer deserved to be a named finding.
+    """
+
+    def test_leftover_working_copies_are_named_with_their_share(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "### Leftover working copies" in out
+        assert "`.worktrees`" in out, "the container is named, not folded away"
+        assert "check before removing" in out, "worktrees may hold unmerged work"
+
+    def test_identical_copies_are_not_reported_as_drift(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The fixture's three copies are byte-identical: no drift to report."""
+        inventory_main([str(system)])
+
+        assert "Copies that no longer match" not in capsys.readouterr().out
+
+    def test_copies_with_different_content_are_reported_as_versions(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Same name, different bytes is the drift that erodes a system.
+
+        A worktree copy edited independently of the original is two versions
+        of one skill with nothing recording which is canonical.
+        """
+        drifted = system / ".worktrees" / "wt-a" / ".claude" / "skills" / "week-review"
+        (drifted / "SKILL.md").write_text(
+            "---\nname: week-review\ndescription: Review the week in finished work.\n---\n"
+            "\n# week-review\n\nEdited only here.\n",
+            encoding="utf-8",
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "### Copies that no longer match" in out
+        assert "3 copies in 2 versions" in out
+        assert "(2 versions)" in out, "the listing itself carries the version count"
+
+    def test_disabled_names_surface_as_unmet_intent(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _skill(
+            system,
+            ".claude/skills/_disabled_commitment-scan/SKILL.md",
+            name="_disabled_commitment-scan",
+            description="Scan for uncommitted promises.",
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "### Switched off by name" in out
+        assert "_disabled_commitment-scan" in out
+
+    def test_a_clean_system_gets_no_empty_housekeeping_subsections(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Findings sections must exist only when there is a finding."""
+        root = tmp_path / "tidy"
+        root.mkdir()
+        _skill(root, ".claude/skills/one/SKILL.md", name="one", description="One thing.")
+
+        inventory_main([str(root)])
+
+        out = capsys.readouterr().out
+        assert "Leftover working copies" not in out
+        assert "Copies that no longer match" not in out
+        assert "Switched off by name" not in out

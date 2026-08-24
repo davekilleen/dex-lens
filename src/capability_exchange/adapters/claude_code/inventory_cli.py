@@ -30,6 +30,7 @@ import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
@@ -113,6 +114,43 @@ def _shortest(paths: Sequence[str]) -> str:
     return min(paths, key=lambda value: (value.count("/"), len(value), value))
 
 
+#: A path segment that marks a full working copy of the folder left behind by
+#: an agent run. One real vault held 22 of these — 6.2 GB, and 97% of every
+#: file count — and the first inventory of it folded them into a "×32"
+#: multiplier instead of naming them. The multiplier was accurate and useless:
+#: the person's actual question was "how can I have 6,417 skills?", and the
+#: answer was a finding this section now states outright.
+_WORKING_COPY_SEGMENTS = frozenset({"worktrees", ".worktrees"})
+
+_DISABLED_NAME = re.compile(r"^_*disabled[-_]", re.IGNORECASE)
+
+
+def _working_copy_home(relative_path: str) -> str | None:
+    """The worktree container a path lives under, or ``None`` for real files."""
+    parts = Path(relative_path).parts
+    for index, part in enumerate(parts[:-1]):
+        if part in _WORKING_COPY_SEGMENTS:
+            return "/".join(parts[: index + 1])
+    return None
+
+
+@dataclass
+class _Group:
+    """One named item and every place a copy of it was captured."""
+
+    #: ``relative path -> canonical path`` for every captured copy.
+    copies: dict[str, str] = field(default_factory=dict)
+    digests: set[str] = field(default_factory=set)
+
+    @property
+    def relative_paths(self) -> list[str]:
+        return list(self.copies)
+
+    @property
+    def versions(self) -> int:
+        return len(self.digests)
+
+
 def _render(snapshot: InspectionSnapshot, root: Path) -> str:
     lines = [
         f"# System inventory: {root}",
@@ -137,46 +175,54 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
 
     total_copies = 0
     total_distinct = 0
+    all_groups: dict[tuple[str, str], _Group] = {}
+    working_copies: Counter[str] = Counter()
+    working_copy_files = 0
 
     for basename, paths in by_name.items():
         if not paths:
             lines.extend([f"## {basename} (none captured)", "", "None captured.", ""])
             continue
 
-        # Collapse copies. Worktrees, vendored bundles and plugin caches mean
-        # one authored skill can appear dozens of times; listing each copy
-        # buries the system's actual shape under its own duplication. The
-        # count is kept because "this exists 41 times" is itself worth
-        # knowing, and nothing is hidden — only folded.
-        grouped: dict[tuple[str, str], list[str]] = {}
+        # Collapse copies by name. Worktrees, vendored bundles and plugin
+        # caches mean one authored skill can appear dozens of times; listing
+        # every copy buries the system's actual shape under its own
+        # duplication. Copies are counted and their differing versions are
+        # counted separately below — nothing is hidden, only folded.
+        grouped: dict[str, _Group] = {}
         for canonical_path in paths:
             entry = snapshot.entry_for(canonical_path)
-            description = _describe(snapshot, canonical_path)
-            identity = (Path(entry.relative_path).parent.name or entry.relative_path, description)
-            grouped.setdefault(identity, []).append(entry.relative_path)
+            label = Path(entry.relative_path).parent.name or entry.relative_path
+            group = grouped.setdefault(label, _Group())
+            group.copies[entry.relative_path] = canonical_path
+            group.digests.add(entry.keyed_digest)
+            home = _working_copy_home(entry.relative_path)
+            if home is not None:
+                working_copies[home] += 1
+                working_copy_files += 1
 
         total_copies += len(paths)
         total_distinct += len(grouped)
         lines.extend([f"## {basename} ({len(grouped)} distinct, {len(paths)} files)", ""])
-        for (label, description), relatives in sorted(grouped.items()):
-            copies = f" ×{len(relatives)}" if len(relatives) > 1 else ""
-            shown = description or "(no description declared)"
-            lines.append(f"- **{label}**{copies} — {shown}")
-            lines.append(f"  - `{_shortest(relatives)}`")
+        for label, group in sorted(grouped.items()):
+            all_groups[(basename, label)] = group
+            copies = f" ×{len(group.copies)}" if len(group.copies) > 1 else ""
+            drift = f" ({group.versions} versions)" if group.versions > 1 else ""
+            best = _shortest(group.relative_paths)
+            description = _describe(snapshot, group.copies[best])
+            lines.append(f"- **{label}**{copies}{drift} — {description}")
+            lines.append(f"  - `{best}`")
         lines.append("")
 
-    if total_copies:
-        lines.extend(
-            [
-                "## Duplication",
-                "",
-                f"{total_distinct} distinct items across {total_copies} files. "
-                "Copies usually mean worktrees, vendored bundles or plugin caches "
-                "rather than genuinely separate capabilities; treat the distinct "
-                "count as the size of the system.",
-                "",
-            ]
+    lines.extend(
+        _render_housekeeping(
+            all_groups,
+            working_copies,
+            working_copy_files,
+            total_copies,
+            total_distinct,
         )
+    )
 
     folders = Counter(
         str(Path(snapshot.entry_for(path).relative_path).parent.parent)
@@ -190,6 +236,100 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_housekeeping(
+    all_groups: dict[tuple[str, str], _Group],
+    working_copies: Counter[str],
+    working_copy_files: int,
+    total_copies: int,
+    total_distinct: int,
+) -> list[str]:
+    """The findings about the system itself, stated as findings.
+
+    These are facts the reader cannot see from the folded listing alone, and
+    each one is the kind of thing a person mistakes for the size or health of
+    their own system. The tool states what it measured; whether anything
+    should change about it is the person's call.
+    """
+    if not total_copies:
+        return []
+
+    lines = [
+        "## Housekeeping",
+        "",
+        f"{total_distinct} distinct items across {total_copies} files. Treat "
+        "the distinct count as the size of the system; the rest is copies.",
+        "",
+    ]
+
+    if working_copies:
+        share = round(100 * working_copy_files / total_copies)
+        lines.extend(
+            [
+                "### Leftover working copies",
+                "",
+                f"{working_copy_files} of the {total_copies} files ({share}%) sit "
+                "inside `worktrees` folders: full working copies of this whole "
+                "folder, usually left behind by past agent runs. They inflate "
+                "every count and can hide drift. They may hold unmerged work, "
+                "so check before removing anything.",
+                "",
+            ]
+        )
+        for home, count in working_copies.most_common(10):
+            lines.append(f"- `{home}` — {count} files")
+        lines.append("")
+
+    # Same name, different bytes. Sometimes deliberate (a per-assistant
+    # variant); the finding is that nothing checks which, and the copies
+    # will keep drifting until something does.
+    drifted = sorted(
+        (
+            (basename, label, group)
+            for (basename, label), group in all_groups.items()
+            if group.versions > 1
+        ),
+        key=lambda item: (-item[2].versions, -len(item[2].copies), item[1]),
+    )
+    if drifted:
+        lines.extend(
+            [
+                "### Copies that no longer match",
+                "",
+                f"{len(drifted)} items exist in more than one version under the "
+                "same name. Some divergence may be deliberate; the finding is "
+                "that nothing here records which, so the copies drift silently.",
+                "",
+            ]
+        )
+        for basename, label, group in drifted[:15]:
+            lines.append(
+                f"- **{label}** ({basename}) — {len(group.copies)} copies "
+                f"in {group.versions} versions"
+            )
+        if len(drifted) > 15:
+            lines.append(f"- …and {len(drifted) - 15} more")
+        lines.append("")
+
+    disabled = sorted(
+        label for (_basename, label) in all_groups if _DISABLED_NAME.match(label)
+    )
+    if disabled:
+        lines.extend(
+            [
+                "### Switched off by name",
+                "",
+                "Named as disabled rather than removed. Usually a capability "
+                "someone wanted but the implementation fell short, which makes "
+                "each one a statement of unmet intent.",
+                "",
+            ]
+        )
+        lines.extend(f"- **{label}**" for label in disabled)
+        lines.append("")
+
+    return lines
 
 
 def inventory_main(argv: list[str] | None = None) -> int:
