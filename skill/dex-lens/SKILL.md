@@ -104,10 +104,63 @@ Name the two or three things that are genuinely strong. If something they
 built is better than the Dex equivalent, say that too, and say why. That
 sentence is why they will trust the rest.
 
-Then note what looks fragile, if anything: instructions that contradict each
-other, duplication that has drifted apart, permissions wider than the work
-needs, skills that reference files or tools that are no longer there. Only
-report what you actually saw.
+Judge strength with the quality rubric below, not with adjectives. "Your
+meeting handling is strong" is a compliment; "your meeting handling closes
+its loop — it captures, extracts, writes back to person pages, and you can
+see in the pages that it ran last Tuesday" is a finding.
+
+**Then hold up the mirror.** The inventory ends with a Housekeeping section:
+leftover working copies, copies that have drifted apart, and skills switched
+off by name. Report these as findings in their own right, not as trivia. On
+one real vault the single most valuable output of the entire diagnosis was
+"94% of your files are 22 dead worktrees eating 6.2 GB", and it nearly went
+unsaid because it was not a Dex recommendation. Self-knowledge nobody else
+can give them is what earns the trust that makes the recommendations land.
+
+For each mirror finding, say what it is, what it costs them, and what
+checking it would involve. Do not act on any of it. A worktree can hold
+unmerged work; deleting one is their decision on their evidence.
+
+A switched-off skill deserves one extra beat: someone wanted that capability
+and the implementation fell short. That is a statement of unmet intent, and
+unmet intent is exactly what Phase 4 should try to serve.
+
+Then note what else looks fragile, if anything: instructions that contradict
+each other, permissions wider than the work needs, skills that reference
+files or tools that are no longer there. Only report what you actually saw.
+
+## How to judge quality
+
+"Better" and "worse" are banned until you can point at the criteria. When
+you assess one of their capabilities, or compare it with a Dex one, read the
+actual skill in full and score both sides against the same six checks:
+
+1. **Closes the loop.** Does it finish the job, or stop at the satisfying
+   middle? A meeting skill that extracts actions but never confirms they
+   landed anywhere is half a capability.
+2. **Verifies rather than assumes.** Does it check its own result and read
+   back what it changed, or does it declare success because a command exited?
+3. **Refuses honestly.** When it cannot check something, does it say so, or
+   does it fill the gap with something plausible? Look for the words: a
+   skill that can say "couldn't check" is trustworthy in a way one that
+   cannot never is.
+4. **Runs without being begged.** Is it proactive on a schedule or a trigger,
+   or does it only exist when the person remembers to ask? A chief of staff
+   who waits to be asked is a filing cabinet.
+5. **One source of truth.** Does it read and write state other skills also
+   use, or does it keep a private copy that drifts?
+6. **Still alive.** Do the files, tools and paths it references exist? Does
+   the Housekeeping section show it drifting across copies or switched off?
+
+The verdict is the comparison of scorecards, stated in plain language:
+"Dex's version verifies and refuses honestly; yours is more proactive and
+better shaped to your accounts, but declares success without checking. If
+you take anything from Dex's, take the verification step." Both sides can
+win. Saying theirs is better, with the criteria named, is the sentence that
+proves the whole diagnosis is honest.
+
+Never score what you have not read. If you only have a skill's description,
+its quality is Unknown, and you say so.
 
 ## Phase 3: fetch what Dex has
 
@@ -129,13 +182,19 @@ For each job in the catalogue, ask:
 1. Does this person already do this? Look at what their skills *do*, not what
    they are called. Someone with `week-review`, `friday-wrap` and a habit of
    writing a Sunday summary already has "review my week" covered three times.
-2. If they do, is theirs better or worse? Often theirs is better, because it
-   is shaped to their actual work. Say so.
+2. If they do, is theirs better or worse? Apply the quality rubric above to
+   *both* sides: read their skill in full, read Dex's brief, score each
+   against the six checks, and name the criteria in your verdict. Often
+   theirs is better, because it is shaped to their actual work; say so with
+   the checks that show it. And a partial verdict is allowed: "keep yours,
+   borrow Dex's verification step" is frequently the right answer, and no
+   whole-capability recommendation can express it.
 3. If they do not, would it help *them*? This is the judgement. A capability
-   is worth suggesting when it serves work you can see them doing. Someone
-   whose vault is full of customer accounts and deal notes has an obvious use
-   for account planning. The same capability is noise to someone whose system
-   is entirely about writing.
+   is worth suggesting when it serves work you can see them doing, and a
+   switched-off skill in the Housekeeping section is the strongest signal
+   there is: they already wanted it. Someone whose vault is full of customer
+   accounts and deal notes has an obvious use for account planning. The same
+   capability is noise to someone whose system is entirely about writing.
 
 Reject most of the catalogue. If you recommend more than five things out of
 fifty-five you have not really compared, you have listed. Three good
