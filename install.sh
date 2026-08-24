@@ -162,9 +162,11 @@ rm -rf "$SKILL_DEST"
 mv "$STAGING" "$SKILL_DEST" ||
   fail "I could not put the Dex Lens skill in $SKILL_DEST."
 
-INSTALLED_VERSION="$("$VENV_DIR/bin/dex-lens" reports --help >/dev/null 2>&1 && echo ok || echo unknown)"
-[ "$INSTALLED_VERSION" = "ok" ] ||
-  fail "The dex-lens command is installed but did not answer. Run $BIN_DIR/dex-lens reports --help to see why."
+# Prove the thing that was just installed actually answers, rather than
+# reporting success because a copy finished.
+ANSWERS="$("$VENV_DIR/bin/dex-lens" >/dev/null 2>&1 && echo yes || echo no)"
+[ "$ANSWERS" = "yes" ] ||
+  fail "The dex-lens command is installed but did not answer. Run $BIN_DIR/dex-lens to see why."
 
 # --- 6. What just happened -------------------------------------------------
 say ""
