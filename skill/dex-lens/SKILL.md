@@ -183,12 +183,25 @@ For each job in the catalogue, ask:
    they are called. Someone with `week-review`, `friday-wrap` and a habit of
    writing a Sunday summary already has "review my week" covered three times.
 2. If they do, is theirs better or worse? Apply the quality rubric above to
-   *both* sides: read their skill in full, read Dex's brief, score each
-   against the six checks, and name the criteria in your verdict. Often
-   theirs is better, because it is shaped to their actual work; say so with
-   the checks that show it. And a partial verdict is allowed: "keep yours,
-   borrow Dex's verification step" is frequently the right answer, and no
-   whole-capability recommendation can express it.
+   *both* sides, which means having real material for both sides. The
+   catalogue digest is one line per capability: enough to shortlist, never
+   enough to score, and the rubric's own rule makes an unread capability
+   Unknown. So for each candidate that survives your shortlist, fetch its
+   full brief now:
+
+   ```
+   dex-lens brief <capability-id>
+   ```
+
+   The brief carries the method, the verification checklist and Dex's own
+   evidence: that is what you score against the six checks, next to their
+   skill read in full. (Running `brief` is free and read-only; using it here
+   does not commit the person to anything. Phase 6's hand-over is the same
+   command again with `--why` once the reason exists.) Name the criteria in
+   your verdict. Often theirs is better, because it is shaped to their
+   actual work; say so with the checks that show it. And a partial verdict
+   is allowed: "keep yours, borrow Dex's verification step" is frequently
+   the right answer, and no whole-capability recommendation can express it.
 3. If they do not, would it help *them*? This is the judgement. A capability
    is worth suggesting when it serves work you can see them doing, and a
    switched-off skill in the Housekeeping section is the strongest signal
