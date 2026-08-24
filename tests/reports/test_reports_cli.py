@@ -28,6 +28,26 @@ def _report(tmp_path: Path, text: str, name: str = "report.md") -> str:
     return str(path)
 
 
+def _complete(title: str) -> str:
+    """A report that clears the evidence gate, so tests exercise the flow.
+
+    Anything thinner is refused at save time by design, which is what
+    :class:`TestTheEvidenceGate` is for.
+    """
+    return (
+        f"# {title}\n\n"
+        "## What I read\n"
+        "- Inventory: /tmp/vault, 12 distinct items across 40 files\n\n"
+        "## The mirror\n"
+        "### Leftover working copies\n"
+        "> 6,405 of the 6,829 files (94%) sit inside `worktrees` folders\n"
+        "> - `inventory.md`\n"
+        "What it costs: 6.2 GB, and every count you see is wrong.\n\n"
+        "## What happens next\n"
+        "- Nothing has changed on your machine.\n"
+    )
+
+
 class TestSave:
     def test_it_prints_where_the_report_landed(
         self,
@@ -35,7 +55,7 @@ class TestSave:
         reports_directory: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        source = _report(tmp_path, "# Dex Lens: my vault\n\nFindings.\n")
+        source = _report(tmp_path, _complete("Dex Lens: my vault"))
 
         assert cli.reports_main(["save", source, "--label", "vault"]) == 0
 
@@ -51,7 +71,7 @@ class TestSave:
         reports_directory: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        assert cli.reports_main(["save", _report(tmp_path, "# First\n")]) == 0
+        assert cli.reports_main(["save", _report(tmp_path, _complete("First"))]) == 0
 
         assert "first report on this machine" in capsys.readouterr().err
 
@@ -62,10 +82,10 @@ class TestSave:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """This line is what makes `what changed since last time` possible."""
-        cli.reports_main(["save", _report(tmp_path, "# First\n", "first.md")])
+        cli.reports_main(["save", _report(tmp_path, _complete("First"), "first.md")])
         first = Path(capsys.readouterr().out.strip())
 
-        assert cli.reports_main(["save", _report(tmp_path, "# Second\n", "second.md")]) == 0
+        assert cli.reports_main(["save", _report(tmp_path, _complete("Second"), "second.md")]) == 0
 
         captured = capsys.readouterr()
         assert str(first) in captured.err
@@ -77,10 +97,11 @@ class TestSave:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr("sys.stdin", _Stdin("# Piped\n"))
+        monkeypatch.setattr("sys.stdin", _Stdin(_complete("Piped")))
 
         assert cli.reports_main(["save", "-"]) == 0
-        assert Path(capsys.readouterr().out.strip()).read_text(encoding="utf-8") == "# Piped\n"
+        saved = Path(capsys.readouterr().out.strip())
+        assert saved.read_text(encoding="utf-8") == _complete("Piped")
 
     def test_a_missing_file_is_refused_without_writing_anything(
         self,
@@ -114,7 +135,9 @@ class TestSave:
         vault.mkdir()
         monkeypatch.setenv("XDG_STATE_HOME", str(vault / "state"))
 
-        assert cli.reports_main(["save", _report(tmp_path, "# X\n"), "--for", str(vault)]) == 2
+        source = _report(tmp_path, _complete("X"))
+
+        assert cli.reports_main(["save", source, "--for", str(vault)]) == 2
         assert "outside the approved read scope" in capsys.readouterr().err
 
 
@@ -132,8 +155,8 @@ class TestListAndLast:
         reports_directory: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        cli.reports_main(["save", _report(tmp_path, "# Older\n", "a.md")])
-        cli.reports_main(["save", _report(tmp_path, "# Newer\n", "b.md")])
+        cli.reports_main(["save", _report(tmp_path, _complete("Older"), "a.md")])
+        cli.reports_main(["save", _report(tmp_path, _complete("Newer"), "b.md")])
         capsys.readouterr()
 
         assert cli.reports_main(["list"]) == 0
@@ -148,14 +171,14 @@ class TestListAndLast:
         reports_directory: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        cli.reports_main(["save", _report(tmp_path, "# Older\n", "a.md")])
-        cli.reports_main(["save", _report(tmp_path, "# Newer\n\nBody.\n", "b.md")])
+        cli.reports_main(["save", _report(tmp_path, _complete("Older"), "a.md")])
+        cli.reports_main(["save", _report(tmp_path, _complete("Newer"), "b.md")])
         capsys.readouterr()
 
         assert cli.reports_main(["--last"]) == 0
 
         captured = capsys.readouterr()
-        assert captured.out == "# Newer\n\nBody.\n"
+        assert captured.out == _complete("Newer")
         assert "2026" in captured.err or ".md" in captured.err
 
     def test_last_with_nothing_saved_exits_non_zero_and_prints_no_report(
@@ -174,13 +197,13 @@ class TestListAndLast:
         reports_directory: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        cli.reports_main(["save", _report(tmp_path, "# One\n")])
+        cli.reports_main(["save", _report(tmp_path, _complete("One"))])
         capsys.readouterr()
 
         assert cli.reports_main(["last", "--path-only"]) == 0
 
         printed = Path(capsys.readouterr().out.strip())
-        assert printed.read_text(encoding="utf-8") == "# One\n"
+        assert printed.read_text(encoding="utf-8") == _complete("One")
 
 
 class _Stdin:

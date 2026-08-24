@@ -219,3 +219,24 @@ class TestHousekeeping:
         assert "Leftover working copies" not in out
         assert "Copies that no longer match" not in out
         assert "Switched off by name" not in out
+
+
+def test_the_inventory_says_how_the_diagnosis_has_to_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The two rules are easiest to drop exactly when this file is read.
+
+    An assistant partway through a long run has the material in front of it
+    and the report format thousands of tokens behind it. Repeating the rules
+    here is the last cheap place to say them.
+    """
+    root = tmp_path / "vault"
+    root.mkdir()
+    _skill(root, ".claude/skills/one/SKILL.md", name="one", description="One thing.")
+
+    assert inventory_main([str(root)]) == 0
+
+    out = capsys.readouterr().out
+    assert "## How this ends" in out
+    assert "dex-lens reports save" in out
+    assert "No quote means the finding is Unknown" in out

@@ -75,6 +75,13 @@ class TestDigest:
 
 
 class TestBrief:
+    def test_it_says_outright_that_printing_it_changed_nothing(self) -> None:
+        """The person is holding a document describing a change to their
+        system. Whether one has already happened must not be inferable."""
+        brief = render_capability_brief_markdown(_catalogue(), "durable-memory-boost")
+
+        assert "Nothing on this machine has changed by printing this" in brief
+
     def test_it_says_it_is_not_permission_at_both_ends(self) -> None:
         """A long document gets skimmed from either end."""
         brief = render_capability_brief_markdown(_catalogue(), "durable-memory-boost")

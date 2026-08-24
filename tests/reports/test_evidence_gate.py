@@ -1,0 +1,153 @@
+"""The evidence rule, enforced where skipping it is not an option.
+
+"Every claim carries a quotation" is the rule the whole report format exists
+to serve, and until now it lived only in the skill's prose. Prose holds until
+the run is long and the assistant is tired. These tests hold it down at the
+moment the report is written, which is the last point at which a thin
+diagnosis can still be caught.
+
+What is checked is structural, never wording: nothing here has an opinion
+about how a finding should be phrased, only that it shows where it came from.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from capability_exchange.reports import cli
+from capability_exchange.reports.store import missing_report_requirements
+
+COMPLETE = """# Dex Lens: my vault — 2026-08-24
+
+## What I read
+- Inventory: /vault, 240 distinct items across 6,829 files
+- Read in full: `CLAUDE.md`
+
+## What is strong
+### Meeting handling — Verified
+> then re-open the person page and confirm the commitment appears
+> - `skills/meetings/SKILL.md`
+Closes the loop: it writes back and checks the write.
+
+## What happens next
+- Nothing has changed on your machine.
+"""
+
+
+def _without(section: str) -> str:
+    return COMPLETE.replace(section, "")
+
+
+class TestWhatAReportMustShow:
+    def test_a_complete_report_passes(self) -> None:
+        assert missing_report_requirements(COMPLETE) == []
+
+    def test_a_report_with_no_quotations_is_refused(self) -> None:
+        """The whole rule, in one case: a judgement with nothing under it."""
+        stripped = "\n".join(
+            line for line in COMPLETE.splitlines() if not line.startswith(">")
+        )
+
+        problems = missing_report_requirements(stripped)
+
+        assert any("quote something" in problem for problem in problems)
+
+    def test_it_says_which_section_is_missing(self) -> None:
+        problems = missing_report_requirements(_without("## What I read"))
+
+        assert any("What I read" in problem for problem in problems)
+
+    def test_a_report_that_never_says_nothing_changed_is_refused(self) -> None:
+        problems = missing_report_requirements(_without("## What happens next"))
+
+        assert any("What happens next" in problem for problem in problems)
+
+    def test_a_scored_finding_with_no_evidence_is_named(self) -> None:
+        report = COMPLETE + (
+            "\n## Worth borrowing from Dex\n"
+            "### Meeting Closeout (`meeting-closeout`)\n"
+            "It would help you.\n"
+            "\n## Considered and rejected\n- `account-planning` - no accounts here.\n"
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("Meeting Closeout" in problem for problem in problems)
+
+    def test_an_honest_unknown_is_accepted_where_a_quote_is_not_possible(self) -> None:
+        """The rubric working, not failing: unread means Unknown, and says so."""
+        report = COMPLETE + (
+            "\n## Worth borrowing from Dex\n"
+            "### Meeting Closeout (`meeting-closeout`) - Unknown\n"
+            "I did not read your meeting skill in full, so I cannot score it.\n"
+            "\n## Considered and rejected\n- `account-planning` - no accounts here.\n"
+        )
+
+        assert missing_report_requirements(report) == []
+
+    def test_a_shortlist_with_no_rejections_is_refused(self) -> None:
+        """A shortlist with nothing ruled out cannot be told from one that
+        never compared."""
+        report = COMPLETE + (
+            "\n## Worth borrowing from Dex\n"
+            "### Meeting Closeout - Verified\n"
+            "> your meeting skill stops at extraction\n"
+            "> - `skills/meetings/SKILL.md`\n"
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("Considered and rejected" in problem for problem in problems)
+
+
+class TestTheGateInTheCommand:
+    @pytest.fixture
+    def reports_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        directory = tmp_path / "state" / "reports"
+        monkeypatch.setattr(cli, "default_report_directory", lambda _roots: directory)
+        return directory
+
+    def test_saving_a_thin_report_writes_nothing_and_says_what_is_missing(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        thin = tmp_path / "thin.md"
+        thin.write_text("# Dex Lens\n\nYour system looks good.\n", encoding="utf-8")
+
+        assert cli.reports_main(["save", str(thin)]) == 2
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "not finished" in captured.err
+        assert "quote something" in captured.err
+        assert not reports_directory.exists(), "a refused report must leave nothing behind"
+
+    def test_check_reports_the_same_thing_without_saving(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        good = tmp_path / "good.md"
+        good.write_text(COMPLETE, encoding="utf-8")
+
+        assert cli.reports_main(["check", str(good)]) == 0
+
+        assert "ready to save" in capsys.readouterr().err
+        assert not reports_directory.exists(), "check writes nothing, even when happy"
+
+    def test_check_fails_on_a_thin_report(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        thin = tmp_path / "thin.md"
+        thin.write_text("# Dex Lens\n\nAll good.\n", encoding="utf-8")
+
+        assert cli.reports_main(["check", str(thin)]) == 2
+        assert "not finished" in capsys.readouterr().err

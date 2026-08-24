@@ -182,6 +182,10 @@ def render_capability_brief_markdown(
         "",
         _GUIDANCE_ONLY,
         "",
+        "Nothing on this machine has changed by printing this. It is a "
+        "description of a pattern to rebuild, and rebuilding it is a separate "
+        "decision the person makes with this in front of them.",
+        "",
         f"Source: Dex catalogue, capability `{entry.capability_id}`, "
         f"first shipped in {_safe_markdown(entry.since_release)}.",
         f"Reference: {_safe_markdown(entry.docs_url)}",

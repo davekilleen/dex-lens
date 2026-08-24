@@ -47,6 +47,21 @@ is wrong. `--since-last` compares against the catalogue version this machine
 was last shown, records the new one after every run, and prints nothing when
 nothing has changed.
 
+**The evidence rule, enforced rather than requested.** `dex-lens reports save`
+now refuses a report that has not shown its work: it must say what was read,
+say what happens next, quote at least one line from a real file, leave no
+scored finding standing with neither a quotation nor an honest "Unknown", and
+pair any shortlist with the rejections that prove a comparison happened. It
+names what is missing and writes nothing. `dex-lens reports check` gives the
+same answer without saving. A rule that lives only in a skill's prose holds
+until the run is long and the assistant is tired, which is exactly the run
+where a thin diagnosis does the most damage.
+
+The read-only promise is now also proven across the *sequence* a person runs,
+not only per component: `tests/test_read_only_promise.py` fingerprints every
+file in a small system, runs the inventory and saves a report about it, and
+fails if a single byte inside the inspected folder moves.
+
 ### The residual gap, stated honestly
 
 `--since-last` still cannot say *which entry* is new. Published catalogue

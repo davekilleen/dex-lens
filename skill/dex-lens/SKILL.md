@@ -397,6 +397,21 @@ never inside the folder you inspected. `--for <folder>` makes the command
 check that before it writes anything, which is the read-only promise being
 proved rather than asserted.
 
+**Saving refuses a report that has not shown its work.** It checks that the
+report says what you read, says what happens next, quotes at least one line
+from a real file, leaves no scored finding standing with neither a quotation
+nor an honest Unknown, and pairs any shortlist with the rejections. If
+something is missing it names it and writes nothing; fix it and save again.
+To check before you write anything final:
+
+```
+dex-lens reports check /tmp/dex-lens-report.md
+```
+
+This is deliberate. If the rule lived only in this file, it would hold until
+the run was long and you were tired, which is exactly the run where a thin
+diagnosis does the most damage.
+
 ### The report template
 
 Use these sections, in this order. Every scored line carries its quotation.
@@ -534,7 +549,8 @@ the person who built the thing.
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
 | `dex-lens catalogue --since-last` | The recurring check. Silent when nothing has changed. |
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
-| `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. |
+| `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
+| `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 
 Every one of them reads only. None of them changes the system being looked at.

@@ -18,7 +18,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from capability_exchange.reports.store import LensReportStore, default_report_directory
+from capability_exchange.reports.store import (
+    LensReportStore,
+    default_report_directory,
+    missing_report_requirements,
+)
 
 __all__ = ["reports_main"]
 
@@ -85,6 +89,12 @@ def reports_main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    check = actions.add_parser(
+        "check",
+        help="Say whether a report is complete enough to save, and save nothing.",
+    )
+    check.add_argument("source", help="Markdown file holding the report, or `-` for stdin.")
+
     actions.add_parser("list", help="List saved reports, newest first.")
 
     last = actions.add_parser("last", help="Print the most recent saved report.")
@@ -99,7 +109,34 @@ def reports_main(argv: list[str] | None = None) -> int:
 
     if action == "save":
         return _save(args)
+    if action == "check":
+        return _check(args)
     return _show(action, args)
+
+
+def _report_problems(problems: list[str]) -> None:
+    print(
+        "dex-lens: this report is not finished. A diagnosis is only worth "
+        "keeping if it shows its evidence:",
+        file=sys.stderr,
+    )
+    for problem in problems:
+        print(f"  - {problem}", file=sys.stderr)
+
+
+def _check(args: argparse.Namespace) -> int:
+    """Say what a report still needs, and write nothing either way."""
+    try:
+        markdown = _read_source(args.source)
+    except FileNotFoundError as exc:
+        print(f"dex-lens: no such report file: {exc.args[0]}", file=sys.stderr)
+        return 2
+    problems = missing_report_requirements(markdown)
+    if problems:
+        _report_problems(problems)
+        return 2
+    print("dex-lens: this report shows its evidence and is ready to save.", file=sys.stderr)
+    return 0
 
 
 def _save(args: argparse.Namespace) -> int:
@@ -110,6 +147,24 @@ def _save(args: argparse.Namespace) -> int:
         return 2
     except OSError as exc:
         print(f"dex-lens: could not read the report: {exc}", file=sys.stderr)
+        return 2
+
+    if not markdown.strip():
+        # Said plainly and first: an empty file is a different mistake from an
+        # unfinished report, and listing four missing sections would bury it.
+        print("dex-lens: a report with no content is not a report", file=sys.stderr)
+        return 2
+
+    # The evidence rule is checked here, where skipping it is not an option
+    # that exists. A rule that lives only in the skill's prose holds until the
+    # run is long and the assistant is tired.
+    problems = missing_report_requirements(markdown)
+    if problems:
+        _report_problems(problems)
+        print(
+            "dex-lens: nothing was saved. Fix these and save it again.",
+            file=sys.stderr,
+        )
         return 2
 
     try:

@@ -235,7 +235,33 @@ def _render(snapshot: InspectionSnapshot, root: Path) -> str:
             lines.append(f"- `{folder}` — {count}")
         lines.append("")
 
+    lines.extend(_render_how_this_ends())
+
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_how_this_ends() -> list[str]:
+    """The two rules that decide whether this inventory becomes a diagnosis.
+
+    The reader of this file is an assistant partway through a long run, and
+    both rules are easiest to drop exactly then: quote what you judge, and
+    leave the person something dated they can find again. Saying it here, at
+    the point the material arrives, costs four lines and is the last cheap
+    place to say it.
+    """
+    return [
+        "## How this ends",
+        "",
+        "This is material, not a diagnosis. Two things turn it into one:",
+        "",
+        "- Every judgement carries a line quoted from a file you actually read, "
+        "with its path. No quote means the finding is Unknown, and you say so.",
+        "- The diagnosis ends as a dated report: write it, then run "
+        "`dex-lens reports save <file> --label <name> --for <folder>`. It is "
+        "kept outside this folder, and the next run reads it to say what "
+        "changed. `dex-lens reports check <file>` says whether it is ready.",
+        "",
+    ]
 
 
 def _render_housekeeping(

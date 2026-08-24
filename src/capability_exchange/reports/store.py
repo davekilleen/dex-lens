@@ -31,7 +31,12 @@ from capability_exchange.catalogue.subscription import (
     require_app_storage_outside_roots,
 )
 
-__all__ = ["LensReportStore", "SavedReport", "default_report_directory"]
+__all__ = [
+    "LensReportStore",
+    "SavedReport",
+    "default_report_directory",
+    "missing_report_requirements",
+]
 
 #: Sorts chronologically as text, carries no path separators, and survives a
 #: case-insensitive filesystem. The trailing ``Z`` says the stamp is UTC, which
@@ -190,3 +195,99 @@ class LensReportStore:
             label=label or _DEFAULT_LABEL,
             title=title,
         )
+
+
+#: Section headings every report must carry, matched on the phrase rather than
+#: the exact line so a report may title its own sections a little differently.
+#: "What I read" is the boundary of the diagnosis and "What happens next"
+#: is where the person is told nothing changed; a report missing either is
+#: not a second opinion, it is an assertion.
+_REQUIRED_SECTIONS = (
+    ("what i read", "## What I read — what the diagnosis is actually based on"),
+    ("what happens next", "## What happens next — including that nothing changed"),
+)
+
+#: Headings whose findings are judgements, and therefore need evidence under
+#: them. A finding under any of these that quotes nothing has been asserted.
+_JUDGEMENT_SECTIONS = (
+    "what is strong",
+    "the mirror",
+    "contradictions",
+    "worth borrowing",
+)
+
+_QUOTE_LINE = re.compile(r"^\s*>", re.MULTILINE)
+_HEADING = re.compile(r"^(#{2,3})\s+(.*?)\s*$", re.MULTILINE)
+
+
+def missing_report_requirements(markdown: str) -> list[str]:
+    """What this report would have to add before it could be saved.
+
+    The rule the whole report format exists to enforce is *no quote, no
+    claim*, and a rule enforced only by prose in a skill file is a rule that
+    holds until the run is long and the assistant is tired. So it is checked
+    here, at the moment the report is written, where skipping it is not an
+    option that exists.
+
+    What is checked is structural, never the wording: that the report says
+    what it read and what happens next, that at least one claim is backed by
+    a quotation, that no scored finding stands with neither a quotation nor an
+    honest "Unknown" under it, and that a shortlist is accompanied by the
+    rejections that prove a comparison happened. Each returned line names the
+    fix, because an error that only says "invalid" gets worked around rather
+    than fixed.
+    """
+    lowered = markdown.lower()
+    problems = [
+        f"add a section: {advice}"
+        for phrase, advice in _REQUIRED_SECTIONS
+        if phrase not in lowered
+    ]
+
+    if not _QUOTE_LINE.search(markdown):
+        problems.append(
+            "quote something: every judgement carries a line copied from a file "
+            'you read, as a "> " block with the path under it. A report with no '
+            "quotations has not shown its work."
+        )
+
+    problems.extend(_findings_without_evidence(markdown))
+
+    if "worth borrowing" in lowered and "considered and rejected" not in lowered:
+        problems.append(
+            "add a section: ## Considered and rejected — one line each for what "
+            "you looked at and ruled out. A shortlist with no visible rejections "
+            "cannot be told apart from one that never compared."
+        )
+    return problems
+
+
+def _findings_without_evidence(markdown: str) -> list[str]:
+    """Every scored finding that carries neither a quotation nor an Unknown.
+
+    Sections are walked by heading rather than parsed, because a report is
+    prose and the check must survive someone writing it slightly differently.
+    A finding that honestly says Unknown is fine — that is the rubric working,
+    not failing.
+    """
+    headings = list(_HEADING.finditer(markdown))
+    problems: list[str] = []
+    section = ""
+    for index, heading in enumerate(headings):
+        level, title = heading.group(1), heading.group(2)
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
+        body = markdown[heading.end() : end]
+        if level == "##":
+            section = title.lower()
+            continue
+        if not any(phrase in section for phrase in _JUDGEMENT_SECTIONS):
+            continue
+        # The label often sits in the heading ("### X - Unknown"), so the
+        # heading counts as part of the finding for this check.
+        if _QUOTE_LINE.search(body) or "unknown" in f"{title}\n{body}".lower():
+            continue
+        problems.append(
+            f"back up '{title}' with a quoted line and its path, or "
+            "label it Unknown. It is scored under a heading that requires evidence."
+        )
+    return problems
