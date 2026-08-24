@@ -45,6 +45,10 @@ __all__ = [
 _STAMP_FORMAT = "%Y-%m-%dT%H%M%SZ"
 
 _SEPARATOR = "--"
+#: Separates a same-second collision counter from the label. Deliberately a
+#: character `_slug` can never produce, so a label of its own — "run-2" — is
+#: never mistaken for the second report of "run".
+_COLLISION = "~"
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 _DEFAULT_LABEL = "diagnosis"
 
@@ -150,7 +154,12 @@ class LensReportStore:
         candidate = self.directory / f"{base}.md"
         suffix = 2
         while candidate.exists():
-            candidate = self.directory / f"{base}-{suffix}.md"
+            # The counter goes after `~`, never after a hyphen: a hyphen would
+            # read back as part of the label, so the second report of the day
+            # would be filed under "vault-2" and every lookup by label — the
+            # listing, the baseline the next run compares against — would miss
+            # it.
+            candidate = self.directory / f"{base}{_COLLISION}{suffix}.md"
             suffix += 1
         return candidate
 
@@ -165,7 +174,10 @@ class LensReportStore:
             if (report := self._describe(path)) is not None
             and (wanted is None or report.label == wanted)
         ]
-        return sorted(reports, key=lambda report: report.saved_at, reverse=True)
+        # Two reports can share a second, so the name breaks the tie: the
+        # collision counter sorts after the plain name, which makes the newer
+        # of the two genuinely the newest.
+        return sorted(reports, key=lambda report: (report.saved_at, report.path.name), reverse=True)
 
     def last(self, *, label: str | None = None) -> SavedReport | None:
         """The most recent report, or ``None`` when this is the first run."""
@@ -181,6 +193,7 @@ class LensReportStore:
         """
         stem = path.stem
         stamp_text, _, label = stem.partition(_SEPARATOR)
+        label = label.partition(_COLLISION)[0]
         try:
             saved_at = datetime.strptime(stamp_text, _STAMP_FORMAT).replace(tzinfo=UTC)
         except ValueError:
@@ -218,6 +231,14 @@ _JUDGEMENT_SECTIONS = (
 )
 
 _QUOTE_LINE = re.compile(r"^\s*>", re.MULTILINE)
+
+#: An Unknown *label*, not the word in passing. It has to sit where the report
+#: template puts a label — at the end of the finding's heading, or on a line of
+#: its own — because waiving the evidence requirement on any sentence
+#: containing "unknown" let "it calls an unknown tool" pass an unquoted claim.
+_UNKNOWN_LABEL = re.compile(
+    r"(?:[-\u2014\u2013:|]\s*|^)Unknown\b\.?\s*$", re.IGNORECASE | re.MULTILINE
+)
 _HEADING = re.compile(r"^(#{2,3})\s+(.*?)\s*$", re.MULTILINE)
 
 
@@ -310,7 +331,7 @@ def _findings_without_evidence(markdown: str) -> list[str]:
             continue
         # The label often sits in the heading ("### X - Unknown"), so the
         # heading counts as part of the finding for this check.
-        if _QUOTE_LINE.search(body) or "unknown" in f"{title}\n{body}".lower():
+        if _QUOTE_LINE.search(body) or _UNKNOWN_LABEL.search(f"{title}\n{body}"):
             continue
         problems.append(
             f"back up '{title}' with a quoted line and its path, or "

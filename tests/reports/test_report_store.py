@@ -92,6 +92,33 @@ class TestFindingTheLastOne:
         assert store.last().path == newer.path
         assert [report.title for report in store.list()] == ["Newer", "Older"]
 
+    def test_a_second_report_in_the_same_second_keeps_its_label(
+        self, store: LensReportStore
+    ) -> None:
+        """The collision counter must not be read back as part of the label.
+
+        It was: the second report of the second landed as `--vault-2.md` and
+        every lookup by label missed it — the listing, and worse, the baseline
+        the next run compares itself against.
+        """
+        store.save("# First\n\nOne.\n", label="vault", now=NOW)
+        second = store.save("# Second\n\nTwo.\n", label="vault", now=NOW)
+
+        assert second.label == "vault"
+        assert [report.label for report in store.list(label="vault")] == ["vault", "vault"]
+        assert store.last(label="vault").path == second.path
+        assert store.last(label="vault").title == "Second"
+
+    def test_a_label_that_ends_in_a_number_is_still_its_own_label(
+        self, store: LensReportStore
+    ) -> None:
+        """"run-2" is a label someone chose, not the second report of "run"."""
+        saved = store.save("# Numbered\n", label="run-2", now=NOW)
+
+        assert saved.label == "run-2"
+        assert store.last(label="run-2").path == saved.path
+        assert store.list(label="run") == []
+
     def test_labels_keep_two_systems_apart(self, store: LensReportStore) -> None:
         """Someone with a work vault and a personal one has two baselines."""
         work = store.save("# Work\n", label="work", now=NOW)

@@ -82,6 +82,32 @@ argparse usage error about the frozen browser journey. It now says what Lens
 is, that it is used by asking your assistant rather than by running commands,
 and what the four commands are for.
 
+### Four defects found in review, 2026-08-24
+
+Found by review of the branch above, all fixed with a test that fails without
+the fix. Recorded here because each one is a lesson about where these tests
+were pointed rather than a slip.
+
+1. **The documented install crashed.** `curl … | bash` has no file on disk, so
+   `${BASH_SOURCE[0]}` is unset and `set -u` refused it — the one invocation
+   shape the README tells people to use was the one nothing ran. The dry run
+   exited before reaching that line, so a green test suite proved nothing about
+   it. Source resolution now happens before the dry run (which says which of
+   the two it would be), the expansion is guarded, and the tests pipe the
+   script into `bash` the way the README does.
+2. **A same-second second report lost its label.** The collision counter was
+   appended after the label, and the parser reads everything after `--` as the
+   label, so the newer report filed itself under `vault-2`: the listing missed
+   it and the next run compared itself against the wrong baseline. The counter
+   now sits after a character a label can never contain.
+3. **"Unknown" anywhere waived the evidence rule.** The waiver was a substring
+   test, so "it calls an unknown tool" — a confident, specific, unquoted claim
+   — passed the gate that exists to stop exactly that. It now matches an
+   Unknown *label*, where the template puts labels.
+4. **`reports check` was a false green light.** It skipped the "account for the
+   last look" rule that `save` enforces, so it approved reports `save` then
+   refused. Both now call one gate with the same inputs.
+
 ### The residual gaps, stated honestly
 
 The local delta has two limits, both said in the command's own output and in

@@ -102,6 +102,36 @@ class TestWhatAReportMustShow:
         assert any("Considered and rejected" in problem for problem in problems)
 
 
+    def test_the_word_unknown_in_passing_does_not_waive_the_quotation(self) -> None:
+        """The waiver is for a finding labelled Unknown, not for any sentence
+        that happens to contain the word.
+
+        It used to be a substring test, so "it calls an unknown tool" — a
+        confident, specific, entirely unquoted claim — passed the gate.
+        """
+        report = COMPLETE + (
+            "\n## Worth borrowing from Dex\n"
+            "### Meeting Closeout (`meeting-closeout`) - Verified\n"
+            "Your meeting skill calls an unknown tool, so this would help.\n"
+            "\n## Considered and rejected\n- `account-planning` - no accounts here.\n"
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("Meeting Closeout" in problem for problem in problems)
+
+    def test_an_unknown_label_on_its_own_line_still_waives_it(self) -> None:
+        report = COMPLETE + (
+            "\n## Worth borrowing from Dex\n"
+            "### Meeting Closeout (`meeting-closeout`)\n"
+            "Confidence: Unknown\n"
+            "I did not read your meeting skill in full.\n"
+            "\n## Considered and rejected\n- `account-planning` - no accounts here.\n"
+        )
+
+        assert missing_report_requirements(report) == []
+
+
 class TestTheGateInTheCommand:
     @pytest.fixture
     def reports_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -139,6 +169,34 @@ class TestTheGateInTheCommand:
 
         assert "ready to save" in capsys.readouterr().err
         assert not reports_directory.exists(), "check writes nothing, even when happy"
+
+    def test_check_applies_the_same_rule_save_does_about_the_last_look(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A check that approves what save refuses is worse than no check.
+
+        `check` used to skip the "account for the previous report" rule, so it
+        gave a green light that cost the reader a rewrite they had been told
+        they had already avoided.
+        """
+        first = tmp_path / "first.md"
+        first.write_text(COMPLETE, encoding="utf-8")
+        assert cli.reports_main(["save", str(first), "--label", "vault"]) == 0
+        capsys.readouterr()
+        second = tmp_path / "second.md"
+        second.write_text(COMPLETE.replace("2026-08-24", "2026-09-01"), encoding="utf-8")
+
+        checked = cli.reports_main(["check", str(second), "--label", "vault"])
+        check_said = capsys.readouterr().err
+        saved = cli.reports_main(["save", str(second), "--label", "vault"])
+        save_said = capsys.readouterr().err
+
+        assert (checked, saved) == (2, 2)
+        assert "say what has changed" in check_said
+        assert "say what has changed" in save_said
 
     def test_check_fails_on_a_thin_report(
         self,

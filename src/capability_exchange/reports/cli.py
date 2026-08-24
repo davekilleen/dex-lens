@@ -20,6 +20,7 @@ from pathlib import Path
 
 from capability_exchange.reports.store import (
     LensReportStore,
+    SavedReport,
     default_report_directory,
     missing_comparison_with,
     missing_report_requirements,
@@ -95,6 +96,14 @@ def reports_main(argv: list[str] | None = None) -> int:
         help="Say whether a report is complete enough to save, and save nothing.",
     )
     check.add_argument("source", help="Markdown file holding the report, or `-` for stdin.")
+    check.add_argument(
+        "--label",
+        default="diagnosis",
+        help=(
+            "The system this report is about, as it will be saved. It decides "
+            "which previous report this one has to account for."
+        ),
+    )
 
     actions.add_parser("list", help="List saved reports, newest first.")
 
@@ -115,6 +124,21 @@ def reports_main(argv: list[str] | None = None) -> int:
     return _show(action, args)
 
 
+def _gate(markdown: str, previous: SavedReport | None) -> list[str]:
+    """Everything wrong with this report, in one place.
+
+    Called by `save` and by `check` with the same inputs, because a `check`
+    that approves what `save` then refuses is worse than no check at all: it
+    is a green light that costs the reader a rewrite they were told they had
+    already avoided.
+    """
+    problems = missing_report_requirements(markdown)
+    unaccounted = missing_comparison_with(previous, markdown)
+    if unaccounted is not None:
+        problems.append(unaccounted)
+    return problems
+
+
 def _report_problems(problems: list[str]) -> None:
     print(
         "dex-lens: this report is not finished. A diagnosis is only worth "
@@ -132,7 +156,13 @@ def _check(args: argparse.Namespace) -> int:
     except FileNotFoundError as exc:
         print(f"dex-lens: no such report file: {exc.args[0]}", file=sys.stderr)
         return 2
-    problems = missing_report_requirements(markdown)
+    try:
+        store = _store(None)
+    except ValueError as exc:
+        print(f"dex-lens: {exc}", file=sys.stderr)
+        return 2
+
+    problems = _gate(markdown, store.last(label=args.label))
     if problems:
         _report_problems(problems)
         return 2
@@ -156,18 +186,6 @@ def _save(args: argparse.Namespace) -> int:
         print("dex-lens: a report with no content is not a report", file=sys.stderr)
         return 2
 
-    # The evidence rule is checked here, where skipping it is not an option
-    # that exists. A rule that lives only in the skill's prose holds until the
-    # run is long and the assistant is tired.
-    problems = missing_report_requirements(markdown)
-    if problems:
-        _report_problems(problems)
-        print(
-            "dex-lens: nothing was saved. Fix these and save it again.",
-            file=sys.stderr,
-        )
-        return 2
-
     try:
         store = _store(args.inspected_root)
     except ValueError as exc:
@@ -177,10 +195,17 @@ def _save(args: argparse.Namespace) -> int:
     # Read before writing: once the new report is on disk it is the most
     # recent one, and the previous one is what the reader wants pointed out.
     previous = store.last(label=args.label)
-    unaccounted = missing_comparison_with(previous, markdown)
-    if unaccounted is not None:
-        _report_problems([unaccounted])
-        print("dex-lens: nothing was saved. Add that and save it again.", file=sys.stderr)
+
+    # The evidence rule is checked here, where skipping it is not an option
+    # that exists. A rule that lives only in the skill's prose holds until the
+    # run is long and the assistant is tired.
+    problems = _gate(markdown, previous)
+    if problems:
+        _report_problems(problems)
+        print(
+            "dex-lens: nothing was saved. Fix these and save it again.",
+            file=sys.stderr,
+        )
         return 2
 
     try:

@@ -47,8 +47,19 @@ fail() {
   exit 1
 }
 
+# `$0` is "bash" when this script is piped in, so there is no file to read the
+# header out of. The documented install shape must not be the one that breaks.
 usage() {
-  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+  if [ -r "${BASH_SOURCE[0]:-}" ]; then
+    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  else
+    say "Dex Lens installer."
+    say ""
+    say "  --dry-run   Say exactly what would happen and change nothing."
+    say "  --help      This text."
+    say ""
+    say "Overrides: DEX_LENS_HOME, DEX_LENS_BIN, DEX_LENS_SKILLS_DIR, DEX_LENS_REPO."
+  fi
 }
 
 for argument in "$@"; do
@@ -87,12 +98,38 @@ say "========"
 say ""
 say "Found Python $PYTHON_VERSION at $PYTHON"
 
+# --- 2. Where the source comes from ---------------------------------------
+# Decided before anything happens, so a dry run can say which of the two it
+# would be. Running from a clone installs that clone. Piped from the web —
+# the documented shape — there is no file on disk at all: `$BASH_SOURCE` is
+# unset, and under `set -u` reading it unguarded aborted the whole install
+# before it did anything. That is why it is expanded with a default here.
+SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+if [ -n "$SCRIPT_PATH" ] && [ -f "$SCRIPT_PATH" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+else
+  SCRIPT_DIR=""
+fi
+
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/pyproject.toml" ] &&
+  [ -d "$SCRIPT_DIR/skill/dex-lens" ]; then
+  SOURCE_KIND="here"
+  INSTALL_FROM="$SCRIPT_DIR"
+else
+  SOURCE_KIND="download"
+  INSTALL_FROM="$SOURCE_DIR"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   say ""
   say "This is a dry run. Nothing below has happened, and nothing has changed."
   say ""
   say "What a real run would do:"
-  step "keep a private copy of Dex Lens in $SOURCE_DIR"
+  if [ "$SOURCE_KIND" = "here" ]; then
+    step "install Dex Lens from this copy: $INSTALL_FROM"
+  else
+    step "download Dex Lens from $REPO_URL into $SOURCE_DIR"
+  fi
   step "set up its own copy of Python in $VENV_DIR, so it cannot disturb anything else"
   step "link the dex-lens command into $BIN_DIR"
   step "put the Dex Lens skill in $SKILL_DEST"
@@ -102,13 +139,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# --- 2. The source ---------------------------------------------------------
-# Running from a clone (a developer, or someone who downloaded the repository)
-# installs that clone. Piped from the web there is no clone, so fetch one.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-if [ -f "$SCRIPT_DIR/pyproject.toml" ] && [ -d "$SCRIPT_DIR/skill/dex-lens" ]; then
-  INSTALL_FROM="$SCRIPT_DIR"
+if [ "$SOURCE_KIND" = "here" ]; then
   say "Installing from this copy: $INSTALL_FROM"
 else
   command -v git >/dev/null 2>&1 ||
@@ -125,7 +156,6 @@ else
     git clone --quiet --depth 1 "$REPO_URL" "$SOURCE_DIR" ||
       fail "I could not download Dex Lens from $REPO_URL. Check the network and run this again."
   fi
-  INSTALL_FROM="$SOURCE_DIR"
 fi
 
 # --- 3. Its own Python environment ----------------------------------------

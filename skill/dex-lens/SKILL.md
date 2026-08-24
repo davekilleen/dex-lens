@@ -72,7 +72,10 @@ the inventory, or a line of a Dex brief. The quotation goes in the report as
 a `>` block with the path it came from.
 
 - If you cannot produce the quote, you have not read enough to judge it. The
-  label is **Unknown**, and you write that instead.
+  label is **Unknown**, and you write that instead. Put it where a label goes
+  — at the end of the finding's heading, or on a line of its own — because
+  that is what the save command looks for. The word "unknown" inside a
+  sentence is prose, not a label, and will not stand in for evidence.
 - **An unread skill cannot be scored.** A one-line description tells you what
   something is called and claims to do. It cannot tell you whether it closes
   its loop or checks its own work, and those are the things you are judging.

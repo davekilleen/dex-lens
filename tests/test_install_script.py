@@ -75,7 +75,12 @@ class TestDryRun:
         self, dry_run: subprocess.CompletedProcess[str]
     ) -> None:
         assert dry_run.returncode == 0, dry_run.stderr
-        for expected in ("source", "venv", "/.local/bin", "/.claude/skills/dex-lens"):
+        for expected in (
+            "Dex Lens from",  # where the code comes from: this copy, or a download
+            "venv",
+            "/.local/bin",
+            "/.claude/skills/dex-lens",
+        ):
             assert expected in dry_run.stdout, expected
 
     def test_it_changes_nothing(self, tmp_path: Path) -> None:
@@ -97,6 +102,64 @@ class TestDryRun:
         self, dry_run: subprocess.CompletedProcess[str]
     ) -> None:
         assert "not read, change, or send anything" in dry_run.stdout
+
+
+class TestThePipedInstall:
+    """The shape the README documents: `curl … | bash`.
+
+    Piped in, the script has no file on disk: `$BASH_SOURCE` is unset, and
+    under `set -u` reading it unguarded printed
+    `BASH_SOURCE[0]: unbound variable` and lost the ability to tell a clone
+    from a download. Running the script by path never reproduced it, and the
+    dry run used to exit before reaching the line, so nothing here caught it.
+    """
+
+    @staticmethod
+    def _piped(home: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-s", "--", "--dry-run"],
+            check=False,
+            capture_output=True,
+            text=True,
+            input=INSTALLER.read_text(encoding="utf-8"),
+            cwd="/",
+            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        )
+
+    def test_it_runs_clean_when_read_from_standard_input(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = self._piped(home)
+
+        assert result.returncode == 0, result.stderr
+        assert "unbound variable" not in result.stderr
+        assert result.stderr == "", result.stderr
+
+    def test_piped_in_it_knows_it_has_to_download_a_copy(self, tmp_path: Path) -> None:
+        """There is no clone to install from, and it has to say which it is."""
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = self._piped(home)
+
+        assert "download Dex Lens from" in result.stdout
+        assert "install Dex Lens from this copy" not in result.stdout
+        assert list(home.iterdir()) == []
+
+    def test_run_from_a_clone_it_installs_that_clone(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = subprocess.run(
+            ["bash", str(INSTALLER), "--dry-run"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        )
+
+        assert f"install Dex Lens from this copy: {REPO_ROOT}" in result.stdout
 
 
 def test_an_unknown_option_fails_loudly(tmp_path: Path) -> None:
