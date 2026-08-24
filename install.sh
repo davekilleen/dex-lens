@@ -93,7 +93,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   say ""
   say "What a real run would do:"
   step "keep a private copy of Dex Lens in $SOURCE_DIR"
-  step "build its own Python environment in $VENV_DIR, separate from everything else"
+  step "set up its own copy of Python in $VENV_DIR, so it cannot disturb anything else"
   step "link the dex-lens command into $BIN_DIR"
   step "put the Dex Lens skill in $SKILL_DEST"
   say ""
@@ -132,11 +132,11 @@ fi
 # Its own, deliberately: nothing Lens installs can disturb another tool, and
 # removing $LENS_HOME removes all of it.
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-  say "Building a private Python environment in $VENV_DIR"
+  say "Setting up its own copy of Python in $VENV_DIR"
   "$PYTHON" -m venv "$VENV_DIR" ||
     fail "I could not create a Python environment in $VENV_DIR."
 else
-  say "Reusing the private Python environment in $VENV_DIR"
+  say "Reusing the copy of Python already in $VENV_DIR"
 fi
 
 say "Installing the dex-lens command (this takes a minute the first time)"
@@ -179,8 +179,10 @@ say ""
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    say "One thing to fix: $BIN_DIR is not on your PATH, so the command is"
-    say "installed but not findable. Add this line to your shell profile:"
+    say "One thing to fix. Your computer keeps a list of the places it looks"
+    say "for commands, and $BIN_DIR is not on it yet, so the command is"
+    say "installed but not findable. Add this line to the end of the file your"
+    say "terminal reads at startup (~/.zshrc on most Macs):"
     say ""
     step "export PATH=\"$BIN_DIR:\$PATH\""
     say ""

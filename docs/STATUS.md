@@ -62,16 +62,25 @@ not only per component: `tests/test_read_only_promise.py` fingerprints every
 file in a small system, runs the inventory and saves a report about it, and
 fails if a single byte inside the inspected folder moves.
 
-### The residual gap, stated honestly
+**A real delta, computed locally.** The first pass at the recurring check could
+only say "the catalogue moved", because published entries record the Dex Core
+release they changed in, not the catalogue version. That turned out not to
+matter: what *this machine* has seen is knowable here. `dex-lens catalogue`
+now fingerprints every published entry when it shows it and keeps the
+fingerprints in app storage, so `--since-last` answers with the new ones, the
+reworded ones and the names of any withdrawn — and prints only those. Nothing
+is asked of Dex, and only public catalogue text is fingerprinted.
 
-`--since-last` still cannot say *which entry* is new. Published catalogue
-entries record the Dex Core release they changed in, not the catalogue version,
-so a true per-entry delta needs a change in Dex Core: a `first_catalog_version`
-(or equivalent) on each entry. Until then the command can say the catalogue
-moved and show the current list, and both the command's own output and the
-skill say so in those words rather than implying a delta it cannot compute. The
-skill covers the gap the only way available: compare against the last saved
-report before saying anything to the person.
+### The residual gaps, stated honestly
+
+The local delta has two limits, both said in the command's own output and in
+the skill. It compares against what this machine has seen, so a capability
+that changed before Lens first ran here looks unchanged from here. And a
+fingerprint moves when the published text moves, so a tidied-up summary counts
+as a change; better a cosmetic change reported than a real one dropped. A
+delta that survives a fresh machine — "new since catalogue version 3", for
+anyone, on first run — still needs Dex Core to stamp each entry with the
+catalogue version it first appeared in.
 
 Two smaller limits worth recording. The installer is a *source* installer from
 the public repository, not the signed release bundle described below; that

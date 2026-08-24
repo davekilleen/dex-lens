@@ -25,6 +25,11 @@ from capability_exchange.catalogue.agent import (
     render_capability_brief_markdown,
     render_catalogue_digest,
 )
+from capability_exchange.catalogue.delta import (
+    CatalogueDelta,
+    CatalogueSnapshotStore,
+    compare_with_snapshot,
+)
 from capability_exchange.catalogue.fetch import (
     CONSENT_STATEMENT,
     DEFAULT_CATALOGUE_URL,
@@ -178,24 +183,50 @@ def _narrowed_ids(catalogue: CatalogueV2, *, jobs: str | None, only: str | None)
     return selected
 
 
-def _record_baseline(version: int) -> None:
-    """Remember the version just shown, so `--since-last` needs no number.
+def _record_seen(catalogue: CatalogueV2, version: int) -> None:
+    """Remember what was just shown, so the next check knows what is new.
+
+    Two things are recorded: the catalogue version, so `--since-last` needs no
+    number, and a fingerprint per published entry, which is what turns the
+    next run's answer from "the catalogue moved" into "these two are new".
+    Both are derived from public catalogue text and carry nothing about the
+    person.
 
     Best effort on purpose. Failing to write a local convenience file is not a
     reason to fail a command that already printed a verified catalogue, but it
     is a reason to say so, because a silent failure here would make a
     recurring check repeat itself forever.
     """
+    storage = default_lens_app_storage()
     try:
-        CatalogueSubscriptionStore(default_lens_app_storage()).record_seen(
-            catalog_version=version
-        )
+        CatalogueSubscriptionStore(storage).record_seen(catalog_version=version)
+        CatalogueSnapshotStore(storage).save(catalogue, catalog_version=version)
     except (OSError, ValueError) as exc:
         print(
             f"dex-lens: could not record catalogue version {version} for the "
             f"next `--since-last` run: {exc}",
             file=sys.stderr,
         )
+
+
+def _describe_delta(delta: CatalogueDelta, version: int) -> None:
+    """Say what moved, in the words a person would use about it."""
+    print(
+        f"Since this machine last looked: {delta.summary()} "
+        f"(catalogue version {version}).",
+        file=sys.stderr,
+    )
+    if delta.removed:
+        print(
+            "No longer published: " + ", ".join(delta.removed) + ".",
+            file=sys.stderr,
+        )
+    print(
+        "What follows is only what changed. A reworded entry counts as a "
+        "change, and anything that changed before this machine first looked "
+        "cannot be seen from here.",
+        file=sys.stderr,
+    )
 
 
 def catalogue_main(argv: list[str] | None = None) -> int:
@@ -269,17 +300,31 @@ def catalogue_main(argv: list[str] | None = None) -> int:
     # every run, which is exactly the "reports every release, gets turned off"
     # failure the flag exists to avoid.
     since = args.since
+    delta: CatalogueDelta | None = None
     if args.since_last:
-        since = CatalogueSubscriptionStore(
-            default_lens_app_storage()
-        ).load().last_seen_catalog_version
-        if since is None:
+        # A per-entry delta beats a version comparison whenever this machine
+        # has a snapshot to compare against, because "these two are new" is
+        # an answer and "the catalogue moved" is a chore.
+        snapshot = CatalogueSnapshotStore(default_lens_app_storage()).load()
+        if snapshot.is_empty:
             print(
-                "dex-lens: no catalogue version has been recorded on this machine "
-                f"yet, so this is the whole catalogue. Version {version} is being "
-                "recorded now; later --since-last runs stay quiet until it changes.",
+                "dex-lens: this machine has not looked at the catalogue before, "
+                f"so this is the whole of it. Version {version} and every entry "
+                "in it are being recorded now; from the next run on, "
+                "--since-last shows only what changed.",
                 file=sys.stderr,
             )
+        else:
+            delta = compare_with_snapshot(catalogue, snapshot)
+            if delta.is_empty:
+                print(
+                    "Nothing new. Every published capability is exactly as this "
+                    f"machine last saw it (catalogue version {version}).",
+                    file=sys.stderr,
+                )
+                _record_seen(catalogue, version)
+                return 0
+            _describe_delta(delta, version)
 
     if since is not None:
         if version <= since:
@@ -287,7 +332,7 @@ def catalogue_main(argv: list[str] | None = None) -> int:
                 f"Nothing new. The published catalogue is still version {version}.",
                 file=sys.stderr,
             )
-            _record_baseline(version)
+            _record_seen(catalogue, version)
             return 0
         # `changed_in` carries the Core releases an entry changed in, which is
         # not the catalogue version, so it cannot answer "since version N".
@@ -302,8 +347,16 @@ def catalogue_main(argv: list[str] | None = None) -> int:
         )
 
     if args.json:
+        if delta is not None:
+            # The signed envelope is printed whole or not at all; a narrowed
+            # one was never signed. The delta is still on stderr above.
+            print(
+                "dex-lens: --json prints the catalogue as published, so this is "
+                "all of it, not only what changed.",
+                file=sys.stderr,
+            )
         print(envelope.model_dump_json(indent=2))
-        _record_baseline(version)
+        _record_seen(catalogue, version)
         return 0
 
     try:
@@ -311,6 +364,31 @@ def catalogue_main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"dex-lens: {exc}", file=sys.stderr)
         return 1
+
+    if delta is not None:
+        changed = set(delta.worth_reading)
+        if not changed:
+            # Everything that moved, moved out. There is nothing to read, and
+            # a digest of things that no longer exist is not a recommendation.
+            print(
+                "There is nothing new to read: the only change is what is no "
+                "longer published, named above.",
+                file=sys.stderr,
+            )
+            _record_seen(catalogue, version)
+            return 0
+        narrowed_by_request = selected is not None
+        selected = changed if selected is None else selected & changed
+        if not selected:
+            print(
+                "Nothing new inside that narrowing. Something changed elsewhere "
+                "in the catalogue; run without --jobs or --only to see it."
+                if narrowed_by_request
+                else "Nothing new to show.",
+                file=sys.stderr,
+            )
+            _record_seen(catalogue, version)
+            return 0
 
     print(
         f"<!-- verified catalogue version {version}, "
@@ -322,7 +400,7 @@ def catalogue_main(argv: list[str] | None = None) -> int:
             f"{len(catalogue.capabilities)} published capabilities -->"
         )
     print(render_catalogue_digest(catalogue, only=selected), end="")
-    _record_baseline(version)
+    _record_seen(catalogue, version)
     return 0
 
 

@@ -68,7 +68,7 @@ on your machine before any of it is shown.
 | Command | What it does |
 | --- | --- |
 | `dex-lens inventory <folder>` | Every instruction, settings and skill file with the description it declares, copies folded together, and a housekeeping section naming leftover copies, drift and switched-off skills. Reads only. |
-| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` makes it silent unless something changed. |
+| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` prints only the capabilities that are new or changed since this machine last looked, and nothing at all when none are. |
 | `dex-lens brief <id>` | Everything needed to rebuild one capability elsewhere: method, verification, rollback, and Dex's own evidence with its limits. |
 | `dex-lens reports` | The dated reports every diagnosis leaves behind, kept in app storage outside the inspected folder. `save` writes one and refuses a report that quotes no evidence, `check` says whether one is ready, and `--last` prints the previous one so the next run can say what changed. |
 

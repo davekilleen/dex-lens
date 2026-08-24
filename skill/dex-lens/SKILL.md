@@ -494,9 +494,10 @@ is:
 dex-lens catalogue --since-last
 ```
 
-`--since-last` compares against the catalogue version this machine was last
-shown, records the new one after each run, and prints nothing at all when
-nothing has changed. Nothing to remember, nothing to type.
+`--since-last` remembers every capability this machine has already been shown
+and prints only what actually changed: the new ones, the reworded ones, and
+the names of any that are no longer published. When nothing has changed it
+prints nothing at all. Nothing to remember, nothing to type.
 
 Give them the exact scheduled setup for their machine. On a Mac, the shortest
 honest version is a `cron` entry — one line the computer runs on a timetable —
@@ -516,11 +517,14 @@ and you will run Phases 5 and 6 against the system as it stands *then*, not as
 it stood today, and stay quiet unless something clears the same bar. A
 recurring check that reports every release becomes noise and gets turned off.
 
-**The honest limit, and say it out loud:** the published catalogue does not
-record which version each entry changed in. So `--since-last` can tell you the
-catalogue moved, and shows you the whole current list; it cannot yet say "this
-one is new". You are the filter that stops that being noise — compare it
-against the last report before you say a word to them.
+**Two honest limits, and say them out loud when they matter:** the comparison
+is against what *this machine* has seen, so anything that changed before Lens
+first ran here looks unchanged from here; and a capability whose wording was
+tidied up counts as changed, because from outside there is no way to tell a
+reworded summary from a reworked capability. Better a cosmetic change reported
+than a real one dropped — but you are still the filter. Read the last saved
+report before you say a word to them, and stay quiet unless what changed
+clears the same bar as the original recommendations.
 
 ---
 
@@ -547,7 +551,7 @@ the person who built the thing.
 | `dex-lens inventory <folder> --out <file>` | The declared shape of the system, duplicates folded, housekeeping findings at the end. |
 | `dex-lens catalogue` | Dex's published capabilities, signature checked on this machine, grouped by job. |
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
-| `dex-lens catalogue --since-last` | The recurring check. Silent when nothing has changed. |
+| `dex-lens catalogue --since-last` | The recurring check: only what is new or changed since this machine last looked. Silent when nothing has changed. |
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
 | `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
 | `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
