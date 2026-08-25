@@ -133,6 +133,16 @@ if [ "$DRY_RUN" -eq 1 ]; then
   step "set up its own copy of Python in $VENV_DIR, so it cannot disturb anything else"
   step "link the dex-lens command into $BIN_DIR"
   step "put the Dex Lens skill in $SKILL_DEST"
+  # The dry run must name every home a real run would write, using the same
+  # gates the real run uses — an honesty feature that understates is not one.
+  if [ -z "${DEX_LENS_SKILLS_DIR:-}" ]; then
+    if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+      step "put the Dex Lens skill in $HOME/.codex/skills/dex-lens too, for Codex"
+    fi
+    if [ -d "$HOME/.agents" ]; then
+      step "put the Dex Lens skill in $HOME/.agents/skills/dex-lens too, for your shared skills home"
+    fi
+  fi
   step "send one anonymous first-install note to heydex.ai (version and machine type only; DEX_LENS_NO_PING=1 disables)"
   say ""
   say "It would not read, change, or send anything about the AI system you"

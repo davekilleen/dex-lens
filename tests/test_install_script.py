@@ -126,6 +126,30 @@ class TestDryRun:
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout
 
+    def test_the_dry_run_names_the_conditional_skill_homes(
+        self, tmp_path: Path, script: str
+    ) -> None:
+        """The dry run uses the same gates as a real run, or it understates.
+
+        A real run writes the Codex home when the codex command exists even
+        if ~/.codex does not yet; the honesty path has to say so under the
+        same condition, not a narrower one.
+        """
+        home = tmp_path / "home-with-codex"
+        (home / ".codex").mkdir(parents=True)
+        (home / ".agents").mkdir()
+        result = subprocess.run(
+            ["bash", str(INSTALLER), "--dry-run"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "/.codex/skills/dex-lens" in result.stdout
+        assert "/.agents/skills/dex-lens" in result.stdout
+
     def test_it_changes_nothing(self, tmp_path: Path) -> None:
         """`--dry-run` is the honesty check on everything the script claims."""
         home = tmp_path / "home"
