@@ -310,6 +310,8 @@ ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 # Codex and the shared ~/.agents convention read only when those already
 # exist, because creating them would claim this machine uses a tool it does
 # not. DEX_LENS_SKILLS_DIR overrides everything with one explicit place.
+DEX_LENS_PLACED=""
+
 place_lens_skill() {{
   skill_home="$1/dex-lens"
   mkdir -p "$skill_home"
@@ -323,6 +325,8 @@ Path(sys.argv[1]).write_text(skill, encoding="utf-8")
 PY
   test -s "$skill_home/SKILL.md" \\
     || die "Dex Lens installed but its skill did not land in $skill_home."
+  DEX_LENS_PLACED="$DEX_LENS_PLACED$skill_home
+"
 }}
 
 if [ -n "${{DEX_LENS_SKILLS_DIR:-}}" ]; then
@@ -335,11 +339,14 @@ if [ -n "${{DEX_LENS_SKILLS_DIR:-}}" ]; then
 else
   place_lens_skill "$HOME/.claude/skills"
   DEX_LENS_SKILL_HOME="$HOME/.claude/skills/dex-lens"
-  for lens_extra_home in "$HOME/.codex/skills" "$HOME/.agents/skills"; do
-    if [ -d "$(dirname "$lens_extra_home")" ]; then
-      place_lens_skill "$lens_extra_home"
-    fi
-  done
+  # The Codex home also counts as present when the `codex` command exists:
+  # a machine that can launch Codex must never launch it blind to the skill.
+  if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+    place_lens_skill "$HOME/.codex/skills"
+  fi
+  if [ -d "$HOME/.agents" ]; then
+    place_lens_skill "$HOME/.agents/skills"
+  fi
 fi
 
 # One anonymous "someone installed this" note: sent once, the first time an
@@ -347,20 +354,32 @@ fi
 # words — the Lens version and machine type, nothing else. Never during the
 # install-only proof, never on a re-run (the marker), never if the person
 # set DEX_LENS_NO_PING=1, and a failed note never fails an install.
-DEX_LENS_PING_MARKER="$DEX_LENS_DATA_HOME/dex-lens/.install-recorded"
+# One marker shared with the source installer, so a machine that runs both
+# still sends exactly one note, ever.
+DEX_LENS_PINGED=0
+DEX_LENS_PING_MARKER="${{XDG_STATE_HOME:-$HOME/.local/state}}/dex-lens/.install-recorded"
 if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" != "1" ] && \\
   [ "${{DEX_LENS_NO_PING:-0}}" != "1" ] && [ ! -f "$DEX_LENS_PING_MARKER" ]; then
-  mkdir -p "$DEX_LENS_DATA_HOME/dex-lens"
+  mkdir -p "$(dirname "$DEX_LENS_PING_MARKER")"
   if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \\
     -H "Content-Type: application/json" \\
     -d "{{\"lens_version\":\"$DEX_LENS_VERSION\",\"target\":\"$DEX_LENS_TARGET\"}}" \\
     >/dev/null 2>&1; then
     touch "$DEX_LENS_PING_MARKER"
+    DEX_LENS_PINGED=1
   fi || true
 fi
 
 printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
-printf '%s\\n' "The Dex Lens skill is in $DEX_LENS_SKILL_HOME."
+printf '%s' "$DEX_LENS_PLACED" | while IFS= read -r lens_placed_line; do
+  [ -n "$lens_placed_line" ] && printf '%s\\n' "The Dex Lens skill is in $lens_placed_line."
+done
+if [ "$DEX_LENS_PINGED" = "1" ]; then
+  printf '%s\\n' \\
+    "One anonymous note went to heydex.ai: that an install happened, the" \\
+    "version, and the machine type. Nothing else, and never again from this" \\
+    "machine. DEX_LENS_NO_PING=1 would have switched it off."
+fi
 printf '%s\\n' ""
 printf '%s\\n' \\
   "Nothing has been read yet: Dex Lens looks at nothing until you ask it to," \\
@@ -372,10 +391,10 @@ fi
 rm -rf "$DEX_LENS_TMP"
 trap - EXIT
 
-# One pasted line should end in the conversation, not in instructions for a
-# second step. When Claude Code is here and a real terminal is attached, hand
-# over with the first question already asked. stdin is the curl pipe, so the
-# terminal is reattached from /dev/tty; without one, print the question.
+# One pasted line should end as close to the conversation as it honestly
+# can. Run from a file with a real keyboard, hand straight over. Piped from
+# curl, print the exact start command instead — one paste — because a
+# full-screen assistant started from a piped script comes up deaf.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I do not."
 # Whichever assistant this machine actually has gets the hand-over: Claude
 # Code first because its skill loading is what the skill was written
@@ -386,19 +405,29 @@ if command -v claude >/dev/null 2>&1; then
 elif command -v codex >/dev/null 2>&1; then
   DEX_LENS_ASSISTANT="codex"
 fi
-if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] &&
-  [ -r /dev/tty ] && [ -w /dev/tty ]; then
+# Hand over only when this script already owns a real keyboard — running
+# from a file, not piped from curl. The first outside tester proved why:
+# exec-ing a full-screen assistant out of a piped script left it running but
+# deaf, the report printed and every keystroke dead. When stdin is the pipe,
+# the honest hand-over is the exact command, ready to paste.
+if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] && [ -t 0 ]; then
   printf '%s\\n' \\
     "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
     "which folder it may look at."
   # The assistant will call `dex-lens` by name; on a fresh machine its folder
   # may not be on PATH yet. The launched process gets it either way.
   export PATH="$DEX_LENS_BIN_HOME:$PATH"
-  exec "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK" < /dev/tty
+  exec "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK"
 fi
 printf '%s\\n' ""
-printf '%s\\n' "Now open your assistant and ask, in your own words:"
-printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
+if [ -n "$DEX_LENS_ASSISTANT" ]; then
+  printf '%s\\n' "One more paste and the conversation starts:"
+  printf '%s\\n' ""
+  printf '%s\\n' "  $DEX_LENS_ASSISTANT \"$DEX_LENS_ASK\""
+else
+  printf '%s\\n' "Now open your assistant and ask, in your own words:"
+  printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
+fi
 '''
 
 

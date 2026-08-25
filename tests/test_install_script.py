@@ -24,6 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "install.sh"
 #: The source-install line: what this script answers, and the documented
 #: fallback for development and unreleased changes.
+MARKER_PATH = "{XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded"
+CODEX_GATE = '[ -d "$HOME/.codex" ] || command -v codex'
+
 INSTALL_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash"
 )
@@ -103,11 +106,22 @@ class TestDryRun:
         honour DEX_LENS_NO_LAUNCH for scripts, and a dry run must exit long
         before reaching it.
         """
-        assert 'exec "$ASSISTANT" "$DEX_LENS_ASK" < /dev/tty' in script
+        assert 'exec "$ASSISTANT" "$DEX_LENS_ASK"' in script
+        assert "[ -t 0 ]" in script, (
+            "auto-launch only with a real keyboard: exec-ing a full-screen "
+            "assistant from a piped script leaves it running but deaf"
+        )
+        assert "/dev/tty" not in script, "the deaf-assistant hand-off shape must not return"
+        assert "One more paste and the conversation starts" in script
         assert 'command -v codex' in script, 'Codex is a first-class assistant too'
         assert "https://heydex.ai/lens/installed" in script
         assert "DEX_LENS_NO_PING" in script
         assert ".install-recorded" in script
+        # The five review findings, held down:
+        assert MARKER_PATH in script, "one shared marker; both installers, one ping ever"
+        assert CODEX_GATE in script, "a machine that can launch codex never launches it blind"
+        assert "open your assistant" in script, "the fallback names no single assistant"
+        assert "PLACED_SKILLS" in script, "the summary names every skill home written"
         assert "command -v claude" in script
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout

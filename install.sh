@@ -188,6 +188,8 @@ ln -sf "$VENV_DIR/bin/dex-lens" "$BIN_DIR/dex-lens"
 # and the shared ~/.agents convention) are joined only when they already
 # exist, because creating them would claim this machine uses a tool it does
 # not. DEX_LENS_SKILLS_DIR overrides everything with one explicit place.
+PLACED_SKILLS=""
+
 place_skill() {
   DEST_ROOT="$1"
   DEST_DIR="$DEST_ROOT/dex-lens"
@@ -199,17 +201,21 @@ place_skill() {
   rm -rf "$DEST_DIR"
   mv "$STAGING_DIR" "$DEST_DIR" ||
     fail "I could not put the Dex Lens skill in $DEST_DIR."
+  PLACED_SKILLS="$PLACED_SKILLS$DEST_DIR
+"
 }
 
 [ -n "$SKILL_DEST" ] || fail "The skill destination is empty; refusing to touch anything."
 place_skill "$SKILLS_DIR"
 if [ -z "${DEX_LENS_SKILLS_DIR:-}" ]; then
-  for extra_home in "$HOME/.codex/skills" "$HOME/.agents/skills"; do
-    parent="$(dirname "$extra_home")"
-    if [ -d "$parent" ]; then
-      place_skill "$extra_home"
-    fi
-  done
+  # The Codex home also counts as present when the `codex` command exists:
+  # a machine that can launch Codex must never launch it blind to the skill.
+  if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+    place_skill "$HOME/.codex/skills"
+  fi
+  if [ -d "$HOME/.agents" ]; then
+    place_skill "$HOME/.agents/skills"
+  fi
 fi
 
 # Prove the thing that was just installed actually answers, rather than
@@ -224,12 +230,15 @@ ANSWERS="$("$VENV_DIR/bin/dex-lens" >/dev/null 2>&1 && echo yes || echo no)"
 # type, nothing else — no name, no identifier, nothing about the system Lens
 # will later look at. Re-runs are silent (the marker below), failure never
 # breaks an install, and DEX_LENS_NO_PING=1 switches even this off.
-PING_MARKER="$LENS_HOME/.install-recorded"
+# One marker shared with the signed release installer, so a machine that
+# runs both still sends exactly one note, ever.
+PING_MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded"
 PINGED=0
 if [ "${DEX_LENS_NO_PING:-0}" != "1" ] && [ ! -f "$PING_MARKER" ]; then
   LENS_VERSION="$("$VENV_DIR/bin/python" -c \
     'from importlib.metadata import version; print(version("capability_exchange"))' \
     2>/dev/null || echo unknown)"
+  mkdir -p "$(dirname "$PING_MARKER")"
   if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \
     -H "Content-Type: application/json" \
     -d "{\"lens_version\":\"$LENS_VERSION\",\"target\":\"source-$(uname -s | tr 'A-Z' 'a-z')\"}" \
@@ -242,7 +251,9 @@ fi
 # --- 7. What just happened -------------------------------------------------
 say ""
 say "Done. Here is exactly what changed on this machine:"
-step "$SKILL_DEST — the Dex Lens skill, so your assistant can use it"
+printf '%s' "$PLACED_SKILLS" | while IFS= read -r placed_line; do
+  [ -n "$placed_line" ] && step "$placed_line — the Dex Lens skill, so your assistant can use it"
+done
 step "$BIN_DIR/dex-lens — the command the skill runs"
 step "$VENV_DIR — its own Python environment, used by nothing else"
 say ""
@@ -270,11 +281,11 @@ case ":$PATH:" in
 esac
 
 # --- 8. Start the conversation --------------------------------------------
-# The whole point of one pasted line is that the person never has to learn a
-# second step. If Claude Code is here and a real terminal is attached, hand
-# straight over to it with the first question already asked. stdin is the
-# pipe when this script arrives via curl, so the terminal is reattached from
-# /dev/tty; without one (scripts, CI), fall back to printing the question.
+# The whole point of one pasted line is that the person barely has a second
+# step. Run from a file with a real keyboard, hand straight over to the
+# assistant with the first question asked. Piped from curl, print the exact
+# start command instead — one paste — because a full-screen assistant
+# started from a piped script comes up deaf to the keyboard.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
 # Whichever assistant this machine actually has gets the hand-over: Claude
 # Code first because its skill loading is what the skill was written against,
@@ -285,21 +296,32 @@ if command -v claude >/dev/null 2>&1; then
 elif command -v codex >/dev/null 2>&1; then
   ASSISTANT="codex"
 fi
-if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] &&
-  [ -r /dev/tty ] && [ -w /dev/tty ]; then
+# Hand over only when this script already owns a real keyboard — running
+# from a file, not piped from curl. The first outside tester proved why:
+# exec-ing a full-screen assistant out of a piped script left it running but
+# deaf, the report printed and every keystroke dead. When stdin is the pipe,
+# the honest hand-over is the exact command, ready to paste.
+if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
   say "Starting your assistant now. Dex Lens reads nothing until you tell it"
   say "which folder it may look at, and it never changes what it looks at."
   say ""
-  # The assistant we are about to start will call `dex-lens` by name, and on
-  # a fresh machine the command's folder may not be on PATH yet — the warning
-  # above says exactly that. The launched process gets it either way; the
-  # person's own shell still needs the line above, once.
+  # The assistant will call `dex-lens` by name, and on a fresh machine the
+  # command's folder may not be on PATH yet — the warning above says exactly
+  # that. The launched process gets it either way; the person's own shell
+  # still needs the line above, once.
   export PATH="$BIN_DIR:$PATH"
-  exec "$ASSISTANT" "$DEX_LENS_ASK" < /dev/tty
+  exec "$ASSISTANT" "$DEX_LENS_ASK"
 fi
 
-say "To start, open Claude Code and ask, in your own words:"
-say ""
-step "Have a look at my setup and tell me what Dex has that I don't."
-say ""
+if [ -n "$ASSISTANT" ]; then
+  say "One more paste and the conversation starts:"
+  say ""
+  step "$ASSISTANT \"$DEX_LENS_ASK\""
+  say ""
+else
+  say "To start, open your assistant (Claude Code or Codex) and ask, in your own words:"
+  say ""
+  step "Have a look at my setup and tell me what Dex has that I don't."
+  say ""
+fi
 say "It reads. It never changes your system."
