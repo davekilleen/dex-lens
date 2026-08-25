@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.foundations import FoundationCapability
@@ -221,7 +221,22 @@ class CatalogueCapabilityEntryV2(InventoriedModel):
         max_length=40, json_schema_extra={"uniqueItems": True}
     )
     release_provenance: Literal["core-release"]
-    portable_brief: CapabilityPortableBriefV2
+    # Dex is not only skills. A capability is one of four classes, and the
+    # rebuild brief only exists for a skill: an MCP server, a scheduled
+    # automation, or a system engine is adopted, not rebuilt from a page. An
+    # entry that omits the class reads as an active-skill, so every catalogue
+    # published before this field existed still validates unchanged.
+    capability_class: Literal[
+        "active-skill", "mcp-server", "scheduled-automation", "system-engine"
+    ] = "active-skill"
+    impact_tier: Literal["core", "high", "medium", "niche"] | None = None
+    portable_brief: CapabilityPortableBriefV2 | None = None
+
+    @model_validator(mode="after")
+    def _skill_entries_carry_a_brief(self) -> CatalogueCapabilityEntryV2:
+        if self.capability_class == "active-skill" and self.portable_brief is None:
+            raise ValueError("an active-skill capability must carry a portable brief")
+        return self
 
     @field_validator("jobs")
     @classmethod
@@ -292,6 +307,14 @@ class SignedCatalogueEnvelopeV2(InventoriedModel):
     metadata: CatalogueMetadataV2
     catalogue: CatalogueV2
     signature: str = Field(min_length=1)
+
+    # The exact bytes whose signature was verified, kept so the store can
+    # persist them verbatim rather than a re-serialised model. Re-dumping
+    # the model can add a field the signed original did not carry (a new
+    # default), and the offline re-verification would then fail on a
+    # catalogue that was perfectly valid. A private attribute is not a
+    # model field: it is never serialised, inventoried, or signed.
+    _signed_json: str | None = PrivateAttr(default=None)
 
 
 class VerifiedCatalogueCacheV2(InventoriedModel):
@@ -367,6 +390,7 @@ def verify_catalogue_envelope(
         verified = SignedCatalogueEnvelopeV2.model_validate(envelope)
     except ValidationError as exc:
         raise CatalogueVerificationError("catalogue schema validation failed") from exc
+    verified._signed_json = raw_json
     current_time = now or _utcnow()
     if current_time.tzinfo is None or current_time.utcoffset() is None:
         raise CatalogueVerificationError("verification time must be timezone-aware")
@@ -400,6 +424,7 @@ def verify_catalogue_envelope_for_stale_display(
     envelope = _parse_envelope(raw_json)
     _verify_signature(envelope, keyring)
     verified = SignedCatalogueEnvelopeV2.model_validate(envelope)
+    verified._signed_json = raw_json
     if verified.metadata.contract_version != _CONTRACT_VERSION:
         raise CatalogueVerificationError("catalogue contract version is not supported")
     if (
@@ -469,7 +494,7 @@ class VerifiedCatalogueStore:
             )
         self.app_storage.mkdir(parents=True, exist_ok=True)
         cache = VerifiedCatalogueCacheV2(
-            verified_envelope_json=verified.model_dump_json(),
+            verified_envelope_json=(verified._signed_json or verified.model_dump_json()),
             highest_catalog_version=verified.metadata.catalog_version,
             verified_at=_utcnow(),
         )
