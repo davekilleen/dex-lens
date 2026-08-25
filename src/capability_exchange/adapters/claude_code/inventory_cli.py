@@ -29,12 +29,14 @@ skill the person's assistant loads on the next run.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from capability_exchange.adapters.claude_code.allowlist import (
     AllowlistError,
@@ -306,6 +308,279 @@ _QUOTED_NOT_ADDRESSED = (
 )
 
 
+#: The captured files that can carry an ``mcpServers`` block. A project's
+#: ``.mcp.json`` holds it at the top level; ``settings.json`` holds it under
+#: the same key. Both are already captured and already redacted, so reading
+#: the server names out of them adds no new read and holds no new secret.
+_MCP_SOURCE_BASENAMES: tuple[str, ...] = (".mcp.json", "settings.json")
+
+
+def _mcp_shape(config: object) -> str:
+    """How one MCP server reaches its tool, named without its secrets.
+
+    A server's ``env`` block is where the API keys live and is never touched
+    here: only the transport is surfaced — the local command that is run, or
+    the host a remote server is reached at, with any query string or userinfo
+    dropped so a token smuggled into a URL cannot ride along.
+    """
+    if not isinstance(config, dict):
+        return "declared (shape not readable)"
+    command = config.get("command")
+    if isinstance(command, str) and command.strip():
+        return f"local command `{_one_line(Path(command.strip()).name, limit=60)}`"
+    for url_key in ("url", "httpUrl", "serverUrl"):
+        url = config.get(url_key)
+        if isinstance(url, str) and url.strip():
+            parts = urlsplit(url.strip())
+            host = parts.hostname or ""
+            shown = f"{parts.scheme}://{host}" if host else "(host not readable)"
+            return f"remote {_one_line(shown, limit=80)}"
+    return "declared"
+
+
+def _collect_mcp_servers(
+    snapshot: InspectionSnapshot,
+) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Every configured MCP server, by name, and the files that would not parse.
+
+    The value is the shape and the source file the name was read from. When
+    the same server is declared in more than one file the shortest source
+    wins, so a name appears once. Content that will not parse as JSON — a
+    real possibility on files written by hand — is not guessed at: the file
+    is named as unreadable rather than dropped, the same honesty the rest of
+    the inventory keeps about what it could not read.
+    """
+    servers: dict[str, tuple[str, str]] = {}
+    unparsed: list[str] = []
+    for basename in _MCP_SOURCE_BASENAMES:
+        for entry in snapshot.entries_named(basename):
+            try:
+                document = json.loads(entry.content.decode("utf-8", "replace"))
+            except (ValueError, UnicodeError):
+                unparsed.append(entry.relative_path)
+                continue
+            block = document.get("mcpServers") if isinstance(document, dict) else None
+            if not isinstance(block, dict):
+                continue
+            for raw_name, config in block.items():
+                name = _one_line(str(raw_name), limit=80)
+                if not name:
+                    continue
+                shape = _mcp_shape(config)
+                existing = servers.get(name)
+                if existing is None or entry.relative_path.count("/") < existing[1].count("/"):
+                    servers[name] = (shape, entry.relative_path)
+    return servers, unparsed
+
+
+def _render_mcp_servers(snapshot: InspectionSnapshot) -> list[str]:
+    """The MCP servers the person wired in, by name — never by key.
+
+    An assistant is as much what it can reach as what it knows, and the
+    inventory was blind to every server the person connected. Their names are
+    surfaced from the same already-redacted capture as everything else; the
+    keys in their ``env`` blocks went through collection-time redaction and
+    are never rendered here.
+    """
+    servers, unparsed = _collect_mcp_servers(snapshot)
+    lines = [
+        f"## MCP servers ({len(servers)} configured)",
+        "",
+    ]
+    if servers:
+        lines.append(
+            "The servers this system can reach, read from its `.mcp.json` and "
+            "`settings.json`. Named, never keyed: any token in a server's `env` "
+            "was redacted at capture and is not shown."
+        )
+        lines.append("")
+        for name in sorted(servers):
+            shape, source = servers[name]
+            lines.append(f"- **{name}** — {shape}")
+            lines.append(f"  - `{source}`")
+    else:
+        lines.append(
+            "No MCP servers were declared in this folder's `.mcp.json` or "
+            "`settings.json`. A global config outside this folder (for example "
+            "`~/.claude.json`) is not part of the inspected scope and is not read, "
+            "so this is not evidence that none are configured anywhere."
+        )
+    if unparsed:
+        lines.append("")
+        lines.append(
+            f"{len(unparsed)} MCP config {_plural(len(unparsed), 'file')} could not be "
+            "parsed as JSON, so any servers declared in "
+            f"{_plural(len(unparsed), 'it', 'them')} are not listed above:"
+        )
+        for path in sorted(unparsed)[:10]:
+            lines.append(f"- `{_one_line(path, limit=200)}`")
+    lines.append("")
+    return lines
+
+
+#: Files that describe a scheduled automation. launchd plists are macOS's
+#: mechanism; a ``crontab`` file is the cross-platform one. Matched inside the
+#: inspected folder only — the live launchd domain and the system crontab live
+#: outside any approved scope and are never read.
+_PLIST_LABEL = re.compile(rb"<key>\s*Label\s*</key>\s*<string>([^<]*)</string>", re.IGNORECASE)
+_PLIST_INTERVAL = re.compile(rb"<key>\s*StartInterval\s*</key>\s*<integer>\s*(\d+)", re.IGNORECASE)
+_PLIST_CALENDAR = re.compile(rb"<key>\s*StartCalendarInterval\s*</key>", re.IGNORECASE)
+_CRON_FIELD = r"[-\d*/,]+"
+_CRON_LINE = re.compile(
+    r"^\s*(" + r"\s+".join([_CRON_FIELD] * 5) + r")\s+(\S.*)$"
+)
+
+
+def _plist_cadence(content: bytes) -> str:
+    if _PLIST_CALENDAR.search(content):
+        return "on a calendar schedule"
+    interval = _PLIST_INTERVAL.search(content)
+    if interval:
+        return f"every {interval.group(1).decode('ascii', 'replace')}s"
+    return "cadence not readable"
+
+
+def _render_automations(snapshot: InspectionSnapshot) -> list[str]:
+    """Scheduled automations found inside the inspected folder, said honestly.
+
+    This is best-effort and platform-specific. The person's live launchd
+    domain and their system crontab live outside any folder the inspection
+    was given, so they are never read; what can be surfaced is the automation
+    files that happen to sit inside the inspected system. On a platform that
+    is not macOS the launchd side cannot be inspected at all, and the section
+    says exactly that rather than reporting an absence it did not verify.
+    """
+    launchd: list[tuple[str, str]] = []
+    crontabs: list[tuple[str, list[str]]] = []
+    for canonical_path in snapshot.canonical_paths():
+        entry = snapshot.entry_for(canonical_path)
+        base = Path(entry.relative_path).name
+        if base.endswith(".plist"):
+            match = _PLIST_LABEL.search(entry.content)
+            label = _one_line(match.group(1).decode("utf-8", "replace"), 80) if match else base
+            launchd.append((label or base, _plist_cadence(entry.content)))
+        elif base == "crontab" or base.endswith(".cron") or base == "crontab.txt":
+            jobs = []
+            for raw in entry.content.decode("utf-8", "replace").splitlines():
+                cron = _CRON_LINE.match(raw)
+                if cron:
+                    command = _one_line(cron.group(2), 60)
+                    jobs.append(f"`{cron.group(1)}` — {command}")
+            crontabs.append((entry.relative_path, jobs))
+
+    lines = ["## Automations", ""]
+    found = bool(launchd or any(jobs for _, jobs in crontabs))
+    if found:
+        lines.append(
+            "Scheduled automations found inside this folder. This is best-effort: "
+            "the live launchd domain and the system crontab are outside the "
+            "inspected scope and are not read."
+        )
+        lines.append("")
+        for label, cadence in sorted(launchd):
+            lines.append(f"- **{label}** (launchd) — {cadence}")
+        for source, jobs in sorted(crontabs):
+            if not jobs:
+                continue
+            lines.append(f"- `{source}` (crontab) — {len(jobs)} {_plural(len(jobs), 'job')}")
+            for job in jobs[:10]:
+                lines.append(f"  - {job}")
+    else:
+        lines.append(
+            "No automation files were found inside this folder. This is not the "
+            "same as none existing:"
+        )
+        lines.append("")
+        if sys.platform == "darwin":
+            lines.append(
+                "- the live launchd domain (`~/Library/LaunchAgents` and the "
+                "loaded jobs) is outside the inspected scope and was not read"
+            )
+        else:
+            lines.append(
+                "- cannot inspect launchd on this platform; it is macOS-specific, "
+                "and this run is not on macOS"
+            )
+        lines.append(
+            "- the system crontab is outside the inspected scope and was not read"
+        )
+    lines.append("")
+    return lines
+
+
+#: Top-level folder names that mark a structured "second brain" rather than a
+#: bare skills directory: a numbered/dated PARA layout, or a named area a
+#: person keeps for the entities their work is about.
+_SECOND_BRAIN_NAMES = frozenset(
+    {
+        "people",
+        "companies",
+        "projects",
+        "areas",
+        "resources",
+        "archive",
+        "archives",
+        "notes",
+        "inbox",
+        "daily",
+    }
+)
+_DATED_OR_NUMBERED = re.compile(r"^\d")
+_SKILLS_ONLY_NAMES = frozenset({".claude", ".codex", ".cursor", "skills", ".mcp.json"})
+
+
+def _render_shape(snapshot: InspectionSnapshot) -> list[str]:
+    """A few lines on what kind of folder this is, not a full tree.
+
+    The same skill count reads very differently in a bare
+    ``.claude/skills`` directory and in a structured second brain the skills
+    are one corner of. Naming the top-level folders, and whether they look
+    like a PARA-style vault or a flat skills directory, is the cheapest way
+    to place everything else the inventory says.
+    """
+    top: set[str] = set()
+    for canonical_path in snapshot.canonical_paths():
+        parts = Path(snapshot.entry_for(canonical_path).relative_path).parts
+        if len(parts) > 1:
+            top.add(parts[0])
+    lines = ["## Shape", ""]
+    if not top:
+        lines.append("Every captured file sits at the top level; there are no subfolders to place.")
+        lines.append("")
+        return lines
+    numbered = sorted(name for name in top if _DATED_OR_NUMBERED.match(name))
+    brainy = sorted(name for name in top if name.lower() in _SECOND_BRAIN_NAMES)
+    looks_flat = top <= _SKILLS_ONLY_NAMES
+    if numbered or brainy:
+        summary = (
+            "This looks like a structured second brain, not a bare skills "
+            "directory: it carries "
+        )
+        markers = []
+        if numbered:
+            markers.append("dated or numbered PARA-style folders")
+        if brainy:
+            markers.append(
+                "named areas (" + ", ".join(f"`{name}`" for name in brainy) + ")"
+            )
+        summary += " and ".join(markers) + " alongside its assistant configuration."
+    elif looks_flat:
+        summary = (
+            "This looks like a flat skills directory: its top level is assistant "
+            "configuration, with no wider second-brain structure around it."
+        )
+    else:
+        summary = "The top-level folders are:"
+    lines.append(summary)
+    lines.append("")
+    for name in sorted(top)[:25]:
+        lines.append(f"- `{name}`")
+    if len(top) > 25:
+        lines.append(f"- …and {len(top) - 25} more")
+    lines.append("")
+    return lines
+
+
 def _render(
     snapshot: InspectionSnapshot, root: Path, names: Sequence[str] = ()
 ) -> str:
@@ -340,7 +615,12 @@ def _render(
         )
         lines.extend(_render_unread(snapshot))
 
-    by_name: dict[str, list[str]] = {name: [] for name in sorted(CLAUDE_CODE_DIAGNOSTIC_BASENAMES)}
+    # `.mcp.json` is captured and redacted like every diagnostic file, but it
+    # is not one item-per-file the way a skill or an instruction file is: it
+    # is a list of servers, rendered in its own MCP section below. Listing it
+    # here as well would double-count it and print a bare "## .mcp.json".
+    rendered_basenames = CLAUDE_CODE_DIAGNOSTIC_BASENAMES - {".mcp.json"}
+    by_name: dict[str, list[str]] = {name: [] for name in sorted(rendered_basenames)}
     for canonical_path in snapshot.canonical_paths():
         basename = Path(canonical_path).name
         if basename in by_name:
@@ -426,6 +706,10 @@ def _render(
         for folder, count in folders.most_common(25):
             lines.append(f"- `{folder}` — {count}")
         lines.append("")
+
+    lines.extend(_render_mcp_servers(snapshot))
+    lines.extend(_render_automations(snapshot))
+    lines.extend(_render_shape(snapshot))
 
     lines.extend(_render_how_this_ends())
 
