@@ -7,6 +7,15 @@ on:
         description: Exact semantic version already declared in pyproject.toml
         required: true
         type: string
+      prerelease:
+        description: >-
+          Publish as a prerelease so it does NOT become "latest". The public
+          one-line install keeps serving the current stable release; testers
+          install this build from its explicit versioned URL. Flip the release
+          off prerelease later to promote it to latest.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -154,6 +163,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.build.outputs.version }}
       SOURCE_COMMIT: ${{ needs.build.outputs.source_commit }}
+      DEX_LENS_PRERELEASE: ${{ inputs.prerelease && '1' || '' }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -183,5 +193,6 @@ jobs:
             --target "$SOURCE_COMMIT" \
             --title "Dex Lens v$VERSION" \
             --notes "First signed self-serve Dex Lens release for Apple Silicon Mac and Linux x86_64." \
+            ${DEX_LENS_PRERELEASE:+--prerelease} \
             --draft
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
