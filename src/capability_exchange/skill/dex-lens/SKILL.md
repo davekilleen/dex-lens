@@ -87,6 +87,34 @@ A scored finding with no quotation under it is a defect in the report. Treat
 it the way you would treat a failing check: go back and read, or downgrade
 the claim.
 
+**Five rules from the first outside audit.** Both false findings in the
+first real external review shared one cause: a conclusion stated more
+strongly than the evidence gathered, when a correct narrower version was
+available. These close that gap:
+
+1. **State the narrowest claim your quote proves.** "Doctor's only backup
+   check is a freshness check, so nothing verifies a backup restores" was
+   true; "your doctor run contains no backup check at all" was false, and
+   one lookup disproved it — taking nine correct findings' credibility with
+   it. When a stronger and a weaker phrasing are both available, the weaker
+   one is usually the true one.
+2. **A claim of absence inside a file requires the search, quoted.** Before
+   printing "X contains no Y", run the one check that would disprove it —
+   search the file for the word — and put what you ran and what came back in
+   the report. If you did not run it, the claim is Unknown.
+3. **A quoted config block carries its enable flag.** Quoting a block's
+   `source:` line while omitting its `enabled: false` reverses the meaning
+   of the evidence. If the block has an on/off field, quote it, or state
+   plainly that the block is switched off.
+4. **Every percentage names its denominator.** "41% of your files" read as
+   the whole vault when it was 41% of the scanned skill and instruction
+   files. Say "41% of the 290 files scanned", or drop the percentage and
+   keep the absolute number, which is usually stronger anyway.
+5. **Harness-shipped is not authored.** Skills that arrive with the
+   assistant itself (the `anthropic-*` set, vendored plugin skills) are not
+   evidence of what this person built or how their system diverges. Separate
+   them before making any authorship or gap claim.
+
 ## How to speak
 
 The person reading this may have built a remarkable system without ever
@@ -129,7 +157,15 @@ it bind what you do in Phases 5 and 6:
   acknowledging the earlier no and saying what changed.
 - **Declined twice** — stop suggesting it. Full stop.
 - **Deferred** — one gentle mention, with the original reason quoted, then
-  treat a third deferral as a decline.
+  treat a third deferral as a decline. This rule is announced, never sprung:
+  the first time anything is recorded as deferred, the report says in plain
+  words that a third deferral will be treated as a no. A read-only tool that
+  quietly counts non-answers is more assertive than it advertises.
+
+If the previous report is from the same day, say so and offer the short
+version first: a delta pass that checks what changed and answers their
+question, rather than a full restatement twenty minutes after the last one.
+Run the full diagnosis again only if they want it.
 
 If it exits with "no report has been saved on this machine yet", this is the
 first run. Say so once, and skip the "since last time" section of the report.
@@ -532,7 +568,13 @@ result. A missing section is not.
 
 ## Phase 9: offer to keep watching
 
-Dex publishes new capabilities over time. Offer, once, at the end:
+Dex publishes new capabilities over time. But before offering anything,
+**check whether they already keep watch**: the inventory and their
+instruction files will show an existing routine, scheduled job, or skill
+that reviews updates. If one exists, acknowledge it by name and offer, at
+most, to fold the `--since-last` check into it — proposing a second watcher
+to someone who already runs one nightly is the tool not having read the
+system it just diagnosed. Otherwise, offer, once, at the end:
 
 > Want me to check for new Dex capabilities every couple of weeks and tell
 > you only if something looks worth your attention?

@@ -323,8 +323,10 @@ def _render_housekeeping(
     lines = [
         "## Housekeeping",
         "",
-        f"{total_distinct} distinct items across {total_copies} files. Treat "
-        "the distinct count as the size of the system; the rest is copies.",
+        f"{total_distinct} distinct items across {total_copies} scanned "
+        "instruction, skill and settings files. That is the population every "
+        "count below describes — not the whole folder. Treat the distinct "
+        "count as the size of the system; the rest is copies.",
         "",
     ]
 
@@ -334,7 +336,9 @@ def _render_housekeeping(
             [
                 "### Leftover working copies",
                 "",
-                f"{working_copy_files} of the {total_copies} files ({share}%) sit "
+                f"{working_copy_files} of the {total_copies} scanned files "
+                f"({share}% of the files this inventory covers, not of the "
+                "whole folder) sit "
                 "inside `worktrees` folders: full working copies of this whole "
                 "folder, usually left behind by past agent runs. They inflate "
                 "every count and can hide drift. They may hold unmerged work, "

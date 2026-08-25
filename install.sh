@@ -133,6 +133,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
   step "set up its own copy of Python in $VENV_DIR, so it cannot disturb anything else"
   step "link the dex-lens command into $BIN_DIR"
   step "put the Dex Lens skill in $SKILL_DEST"
+  # The dry run must name every home a real run would write, using the same
+  # gates the real run uses — an honesty feature that understates is not one.
+  if [ -z "${DEX_LENS_SKILLS_DIR:-}" ]; then
+    if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+      step "put the Dex Lens skill in $HOME/.codex/skills/dex-lens too, for Codex"
+    fi
+    if [ -d "$HOME/.agents" ]; then
+      step "put the Dex Lens skill in $HOME/.agents/skills/dex-lens too, for your shared skills home"
+    fi
+  fi
+  step "send one anonymous first-install note to heydex.ai (version and machine type only; DEX_LENS_NO_PING=1 disables)"
   say ""
   say "It would not read, change, or send anything about the AI system you"
   say "later ask Lens to look at."
@@ -182,15 +193,40 @@ mkdir -p "$BIN_DIR"
 ln -sf "$VENV_DIR/bin/dex-lens" "$BIN_DIR/dex-lens"
 
 # --- 5. The skill ----------------------------------------------------------
+# The skill goes wherever an assistant will actually look for it. Claude
+# Code's home is always set up; the homes other assistants read (Codex,
+# and the shared ~/.agents convention) are joined only when they already
+# exist, because creating them would claim this machine uses a tool it does
+# not. DEX_LENS_SKILLS_DIR overrides everything with one explicit place.
+PLACED_SKILLS=""
+
+place_skill() {
+  DEST_ROOT="$1"
+  DEST_DIR="$DEST_ROOT/dex-lens"
+  mkdir -p "$DEST_ROOT"
+  STAGING_DIR="$DEST_ROOT/.dex-lens.installing.$$"
+  rm -rf "$STAGING_DIR"
+  cp -R "$INSTALL_FROM/src/capability_exchange/skill/dex-lens" "$STAGING_DIR" ||
+    fail "I could not stage the Dex Lens skill in $DEST_ROOT."
+  rm -rf "$DEST_DIR"
+  mv "$STAGING_DIR" "$DEST_DIR" ||
+    fail "I could not put the Dex Lens skill in $DEST_DIR."
+  PLACED_SKILLS="$PLACED_SKILLS$DEST_DIR
+"
+}
+
 [ -n "$SKILL_DEST" ] || fail "The skill destination is empty; refusing to touch anything."
-mkdir -p "$SKILLS_DIR"
-STAGING="$SKILLS_DIR/.dex-lens.installing.$$"
-rm -rf "$STAGING"
-cp -R "$INSTALL_FROM/src/capability_exchange/skill/dex-lens" "$STAGING" ||
-  fail "I could not stage the Dex Lens skill in $SKILLS_DIR."
-rm -rf "$SKILL_DEST"
-mv "$STAGING" "$SKILL_DEST" ||
-  fail "I could not put the Dex Lens skill in $SKILL_DEST."
+place_skill "$SKILLS_DIR"
+if [ -z "${DEX_LENS_SKILLS_DIR:-}" ]; then
+  # The Codex home also counts as present when the `codex` command exists:
+  # a machine that can launch Codex must never launch it blind to the skill.
+  if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+    place_skill "$HOME/.codex/skills"
+  fi
+  if [ -d "$HOME/.agents" ]; then
+    place_skill "$HOME/.agents/skills"
+  fi
+fi
 
 # Prove the thing that was just installed actually answers, rather than
 # reporting success because a copy finished.
@@ -198,14 +234,47 @@ ANSWERS="$("$VENV_DIR/bin/dex-lens" >/dev/null 2>&1 && echo yes || echo no)"
 [ "$ANSWERS" = "yes" ] ||
   fail "The dex-lens command is installed but did not answer. Run $BIN_DIR/dex-lens to see why."
 
-# --- 6. What just happened -------------------------------------------------
+# --- 6. One anonymous "someone installed this" note ------------------------
+# Sent once, the first time an install on this machine succeeds, and declared
+# on the page in the same words as here: the Lens version and the machine
+# type, nothing else — no name, no identifier, nothing about the system Lens
+# will later look at. Re-runs are silent (the marker below), failure never
+# breaks an install, and DEX_LENS_NO_PING=1 switches even this off.
+# One marker shared with the signed release installer, so a machine that
+# runs both still sends exactly one note, ever.
+PING_MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded"
+PINGED=0
+if [ "${DEX_LENS_NO_PING:-0}" != "1" ] && [ ! -f "$PING_MARKER" ]; then
+  LENS_VERSION="$("$VENV_DIR/bin/python" -c \
+    'from importlib.metadata import version; print(version("capability_exchange"))' \
+    2>/dev/null || echo unknown)"
+  mkdir -p "$(dirname "$PING_MARKER")"
+  if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \
+    -H "Content-Type: application/json" \
+    -d "{\"lens_version\":\"$LENS_VERSION\",\"target\":\"source-$(uname -s | tr 'A-Z' 'a-z')\"}" \
+    >/dev/null 2>&1; then
+    touch "$PING_MARKER"
+    PINGED=1
+  fi || true
+fi
+
+# --- 7. What just happened -------------------------------------------------
 say ""
 say "Done. Here is exactly what changed on this machine:"
-step "$SKILL_DEST — the Dex Lens skill, so your assistant can use it"
+printf '%s' "$PLACED_SKILLS" | while IFS= read -r placed_line; do
+  [ -n "$placed_line" ] && step "$placed_line — the Dex Lens skill, so your assistant can use it"
+done
 step "$BIN_DIR/dex-lens — the command the skill runs"
 step "$VENV_DIR — its own Python environment, used by nothing else"
 say ""
-say "Nothing else was touched, and nothing about your setup was sent anywhere."
+say "Nothing else about this machine was touched, and nothing about your"
+say "setup was read or sent."
+if [ "$PINGED" = "1" ]; then
+  say ""
+  say "One anonymous note went to heydex.ai: that an install happened, the"
+  say "version, and the machine type. Nothing else, and never again from this"
+  say "machine. DEX_LENS_NO_PING=1 would have switched it off."
+fi
 say ""
 
 case ":$PATH:" in
@@ -221,29 +290,48 @@ case ":$PATH:" in
     ;;
 esac
 
-# --- 7. Start the conversation --------------------------------------------
-# The whole point of one pasted line is that the person never has to learn a
-# second step. If Claude Code is here and a real terminal is attached, hand
-# straight over to it with the first question already asked. stdin is the
-# pipe when this script arrives via curl, so the terminal is reattached from
-# /dev/tty; without one (scripts, CI), fall back to printing the question.
+# --- 8. Start the conversation --------------------------------------------
+# The whole point of one pasted line is that the person barely has a second
+# step. Run from a file with a real keyboard, hand straight over to the
+# assistant with the first question asked. Piped from curl, print the exact
+# start command instead — one paste — because a full-screen assistant
+# started from a piped script comes up deaf to the keyboard.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
-if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] &&
-  command -v claude >/dev/null 2>&1 &&
-  [ -r /dev/tty ] && [ -w /dev/tty ]; then
+# Whichever assistant this machine actually has gets the hand-over: Claude
+# Code first because its skill loading is what the skill was written against,
+# then Codex. Neither present, or no terminal: print the question instead.
+ASSISTANT=""
+if command -v claude >/dev/null 2>&1; then
+  ASSISTANT="claude"
+elif command -v codex >/dev/null 2>&1; then
+  ASSISTANT="codex"
+fi
+# Hand over only when this script already owns a real keyboard — running
+# from a file, not piped from curl. The first outside tester proved why:
+# exec-ing a full-screen assistant out of a piped script left it running but
+# deaf, the report printed and every keystroke dead. When stdin is the pipe,
+# the honest hand-over is the exact command, ready to paste.
+if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
   say "Starting your assistant now. Dex Lens reads nothing until you tell it"
   say "which folder it may look at, and it never changes what it looks at."
   say ""
-  # The assistant we are about to start will call `dex-lens` by name, and on
-  # a fresh machine the command's folder may not be on PATH yet — the warning
-  # above says exactly that. The launched process gets it either way; the
-  # person's own shell still needs the line above, once.
+  # The assistant will call `dex-lens` by name, and on a fresh machine the
+  # command's folder may not be on PATH yet — the warning above says exactly
+  # that. The launched process gets it either way; the person's own shell
+  # still needs the line above, once.
   export PATH="$BIN_DIR:$PATH"
-  exec claude "$DEX_LENS_ASK" < /dev/tty
+  exec "$ASSISTANT" "$DEX_LENS_ASK"
 fi
 
-say "To start, open Claude Code and ask, in your own words:"
-say ""
-step "Have a look at my setup and tell me what Dex has that I don't."
-say ""
+if [ -n "$ASSISTANT" ]; then
+  say "One more paste and the conversation starts:"
+  say ""
+  step "$ASSISTANT \"$DEX_LENS_ASK\""
+  say ""
+else
+  say "To start, open your assistant (Claude Code or Codex) and ask, in your own words:"
+  say ""
+  step "Have a look at my setup and tell me what Dex has that I don't."
+  say ""
+fi
 say "It reads. It never changes your system."
