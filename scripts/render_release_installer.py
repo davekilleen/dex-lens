@@ -456,16 +456,29 @@ DEX_LENS_PLACED=""
 place_lens_skill() {{
   skill_home="$1/dex-lens"
   mkdir -p "$skill_home"
-  "$DEX_LENS_VENV/bin/python" - "$skill_home/SKILL.md" <<'PY'
+  "$DEX_LENS_VENV/bin/python" - "$skill_home" <<'PY'
 import sys
 from importlib.resources import files
 from pathlib import Path
 
-skill = files("capability_exchange").joinpath("skill/dex-lens/SKILL.md").read_text(encoding="utf-8")
-Path(sys.argv[1]).write_text(skill, encoding="utf-8")
+# Place every file the skill ships with, not only SKILL.md: the skill reads a
+# bundled capability reference next to it, and a copy that took only SKILL.md
+# left that reference behind, so the skill silently fell back to a skills-only
+# comparison. Copy the whole directory the wheel carries.
+dest = Path(sys.argv[1])
+source = files("capability_exchange").joinpath("skill/dex-lens")
+placed = 0
+for entry in source.iterdir():
+    if entry.is_file():
+        (dest / entry.name).write_bytes(entry.read_bytes())
+        placed += 1
+if placed == 0:
+    raise SystemExit("no Dex Lens skill files were found in the installed package")
 PY
   test -s "$skill_home/SKILL.md" \\
     || die "Dex Lens installed but its skill did not land in $skill_home."
+  test -s "$skill_home/dex-capabilities.json" \\
+    || die "Dex Lens installed but its capability reference did not land in $skill_home."
   DEX_LENS_PLACED="$DEX_LENS_PLACED$skill_home
 "
 }}

@@ -127,6 +127,12 @@ def run_smoke_proof(*, artifacts: Path, installer: Path) -> None:
         skill_file = skills_home / "dex-lens" / "SKILL.md"
         if not skill_file.is_file() or not skill_file.read_text(encoding="utf-8").strip():
             raise SmokeProofError("installer did not place the Dex Lens skill")
+        # The skill is not one file. It reads a bundled capability reference
+        # next to it; an installer that placed only SKILL.md left the skill
+        # comparing against a quarter of Dex. Prove the whole skill dir landed.
+        reference = skills_home / "dex-lens" / "dex-capabilities.json"
+        if not reference.is_file() or not reference.read_text(encoding="utf-8").strip():
+            raise SmokeProofError("installer placed SKILL.md but not its capability reference")
 
         # What a release must certify is the surface a person actually meets:
         # `dex-lens --help` naming the commands the skill drives. This probe
