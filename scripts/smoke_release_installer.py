@@ -128,6 +128,12 @@ def run_smoke_proof(*, artifacts: Path, installer: Path) -> None:
         if not skill_file.is_file() or not skill_file.read_text(encoding="utf-8").strip():
             raise SmokeProofError("installer did not place the Dex Lens skill")
 
+        # What a release must certify is the surface a person actually meets:
+        # `dex-lens --help` naming the commands the skill drives. This probe
+        # used to assert on the frozen browser journey's argparse help, so a
+        # release could go out having proved only that the deprecated doorway
+        # still answered — and it would have passed just as happily if every
+        # real command had gone missing.
         command = bin_home / "dex-lens"
         launched = subprocess.run(  # noqa: S603 - newly installed exact release command
             [str(command), "--help"],
@@ -136,8 +142,16 @@ def run_smoke_proof(*, artifacts: Path, installer: Path) -> None:
             env=environment,
             check=False,
         )
-        if launched.returncode != 0 or "Choosing a folder does not scan it" not in launched.stdout:
-            raise SmokeProofError("installed Dex Lens command lacked the reviewed folder doorway")
+        absent = sorted(
+            name
+            for name in ("inventory", "catalogue", "brief", "reports", "share")
+            if f"dex-lens {name}" not in launched.stdout
+        )
+        if launched.returncode != 0 or absent:
+            raise SmokeProofError(
+                "installed Dex Lens command did not name its own commands: "
+                + (", ".join(absent) if absent else f"exit {launched.returncode}")
+            )
 
 
 def main(argv: list[str] | None = None) -> int:

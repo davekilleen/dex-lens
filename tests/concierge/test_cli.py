@@ -134,8 +134,13 @@ class TestDoorway:
     def test_help_states_the_local_read_only_alpha_boundary(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """Bare `--help` now answers with the welcome, so ask this doorway.
+
+        `--choose-folder --help` is a question about the folder doorway
+        itself, and is the reachable way to read its own help.
+        """
         with pytest.raises(SystemExit) as raised:
-            cli.main(["--help"])
+            cli.main(["--choose-folder", "--help"])
 
         assert raised.value.code == 0
         help_text = capsys.readouterr().out.lower()
@@ -205,7 +210,7 @@ class TestDoorway:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         with pytest.raises(SystemExit) as raised:
-            cli.main(["--help"])
+            cli.main(["--choose-folder", "--help"])
 
         assert raised.value.code == 0
         help_text = capsys.readouterr().out.lower()
