@@ -117,6 +117,20 @@ but "what has changed since then": findings they fixed, findings still
 standing, and anything new. Note the date of the previous report so you can
 say how long ago it was.
 
+Read its **What you decided** section as carefully as the findings, and let
+it bind what you do in Phases 5 and 6:
+
+- **Taken** — check on it before anything else new. Is it actually in place,
+  and has it run? "You took backup-restore in March; it is installed and its
+  last verify passed" is the sentence that proves the advice was worth
+  following. If it never landed, that is a finding, not a nag.
+- **Declined** — do not suggest it again unless something material changed
+  in their system or in the capability itself, and if you do, open by
+  acknowledging the earlier no and saying what changed.
+- **Declined twice** — stop suggesting it. Full stop.
+- **Deferred** — one gentle mention, with the original reason quoted, then
+  treat a third deferral as a decline.
+
 If it exits with "no report has been saved on this machine yet", this is the
 first run. Say so once, and skip the "since last time" section of the report.
 

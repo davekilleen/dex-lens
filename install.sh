@@ -234,6 +234,11 @@ if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] &&
   say "Starting your assistant now. Dex Lens reads nothing until you tell it"
   say "which folder it may look at, and it never changes what it looks at."
   say ""
+  # The assistant we are about to start will call `dex-lens` by name, and on
+  # a fresh machine the command's folder may not be on PATH yet — the warning
+  # above says exactly that. The launched process gets it either way; the
+  # person's own shell still needs the line above, once.
+  export PATH="$BIN_DIR:$PATH"
   exec claude "$DEX_LENS_ASK" < /dev/tty
 fi
 

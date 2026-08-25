@@ -55,3 +55,19 @@ def test_the_skill_tells_the_reader_the_save_command_can_refuse() -> None:
 
     assert "dex-lens reports check" in skill
     assert "refuses a report that has not shown its work" in skill
+
+
+def test_the_decisions_loop_is_closed() -> None:
+    """Decisions recorded at the end must be read back at the start.
+
+    The template's "What you decided" section is only worth writing if Phase
+    0 instructs the next run to act on it — check on adoptions, respect
+    declines. Recorded-but-never-read is how concierge memory quietly becomes
+    theatre.
+    """
+    text = SKILL.read_text(encoding="utf-8")
+    phase_zero = text[text.index("## Phase 0") : text.index("## Phase 1")]
+
+    assert "What you decided" in phase_zero
+    assert "Declined twice" in phase_zero
+    assert "Taken" in phase_zero

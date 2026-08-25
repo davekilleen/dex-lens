@@ -348,6 +348,9 @@ if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] &&
   printf '%s\\n' \\
     "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
     "which folder it may look at."
+  # The assistant will call `dex-lens` by name; on a fresh machine its folder
+  # may not be on PATH yet. The launched process gets it either way.
+  export PATH="$DEX_LENS_BIN_HOME:$PATH"
   exec claude "$DEX_LENS_ASK" < /dev/tty
 fi
 printf '%s\\n' ""
