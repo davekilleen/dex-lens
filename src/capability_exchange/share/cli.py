@@ -53,6 +53,35 @@ def _lens_version() -> str:
         return "unknown"
 
 
+#: The only two control characters a terminal shows rather than obeys, and
+#: the only two a card needs. Everything else in the C0 and C1 ranges is an
+#: instruction: move the cursor, erase the line, retitle the window.
+_TEXT_CONTROLS = frozenset({"\n", "\t"})
+
+
+def _control_character_fault(text: str, *, allowed: frozenset[str]) -> tuple[str, str] | None:
+    """Where the first character a terminal would obey is, or ``None``.
+
+    This is the whole of what makes "this, exactly, is everything that would
+    be shared" true. `\x1b[1A\x1b[2K` erases the line printed above it, so a
+    card carrying it shows one thing on the screen and carries another into
+    the link or the intake — the exact gap the preview exists to close. A card
+    is written by an assistant out of the person's own files, so such a
+    sequence needs no attacker to arrive; refusing it is the only shape where
+    the preview and the payload are the same bytes by construction.
+    """
+    for index, character in enumerate(text):
+        if character in allowed:
+            continue
+        if not (character <= "\x1f" or "\x7f" <= character <= "\x9f"):
+            continue
+        line = text.count("\n", 0, index) + 1
+        column = index - text.rfind("\n", 0, index)
+        where = f"a control character (0x{ord(character):02x}) at line {line}, character {column}"
+        return character, where
+    return None
+
+
 def _read_card(source: str) -> bytes | None:
     """The card bytes, or ``None`` after explaining the refusal."""
     if source == "-":
@@ -79,6 +108,25 @@ def _read_card(source: str) -> bytes | None:
     except UnicodeDecodeError:
         print("dex-lens: the card must be plain text.", file=sys.stderr)
         return None
+    fault = _control_character_fault(text, allowed=_TEXT_CONTROLS)
+    if fault is not None:
+        character, where = fault
+        # A carriage return is far more often a Windows line ending than an
+        # attack, and "0x0d" alone would send someone hunting for nothing.
+        hint = (
+            " Carriage returns usually mean the card was saved with Windows "
+            "line endings; save it with plain newlines."
+            if character == "\r"
+            else ""
+        )
+        print(
+            f"dex-lens: the card contains {where}. A terminal obeys that "
+            "instead of showing it — an escape sequence can erase the line "
+            "above itself — so the preview would not be the card that "
+            f"travels. Tabs and newlines are text; take the rest out.{hint}",
+            file=sys.stderr,
+        )
+        return None
     if not text.lstrip().startswith("# "):
         print(
             "dex-lens: the card needs a one-line `# ` title so the idea can be "
@@ -99,10 +147,12 @@ def _preview(card: bytes, *, channel: str, contact: str) -> None:
         print()
     print("--->8---------------------------------------------------------")
     if channel == "github":
-        print("Nothing else travels: the link below carries the card and only the card.")
+        print("Nothing else travels: only the card above goes into the link.")
         print(
-            "Channel: a pre-filled GitHub issue link. Nothing is posted by this "
-            "command; the person submits it themselves, under their own name."
+            "Channel: a pre-filled GitHub issue link, printed by the same "
+            "command run again with --yes. Nothing is posted by this command; "
+            "the person opens the link and submits it themselves, under their "
+            "own name."
         )
     else:
         if contact:
@@ -115,8 +165,13 @@ def _preview(card: bytes, *, channel: str, contact: str) -> None:
         print(f"Plus the version of Lens doing the sending: {_lens_version()}")
         print("Channel: one anonymous request to Dex's intake at " + INTAKE_URL + ".")
     print()
-    print("Nothing has been sent. To send after the person has read this and")
-    print("said yes, run the same command again with --yes.")
+    if channel == "github":
+        print("Nothing has been sent and no link has been printed yet. To print")
+        print("the link after the person has read this and said yes, run the")
+        print("same command again with --yes.")
+    else:
+        print("Nothing has been sent. To send after the person has read this and")
+        print("said yes, run the same command again with --yes.")
 
 
 def _send_heydex(card: bytes, contact: str) -> int:
@@ -210,6 +265,17 @@ def share_main(argv: list[str] | None = None) -> int:
 
     if len(args.contact) > 200:
         print("dex-lens: the contact line is longer than 200 characters.", file=sys.stderr)
+        return 2
+
+    fault = _control_character_fault(args.contact, allowed=frozenset())
+    if fault is not None:
+        print(
+            f"dex-lens: the contact line contains {fault[1]}. It is one line "
+            "that is printed in the preview and travels with the card; a "
+            "newline or an escape sequence in it can forge the end of the "
+            "preview and hide what follows.",
+            file=sys.stderr,
+        )
         return 2
 
     if args.to == "github" and args.contact:

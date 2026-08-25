@@ -44,7 +44,7 @@ def _complete(title: str) -> str:
         "> - `inventory.md`\n"
         "What it costs: 6.2 GB, and every count you see is wrong.\n\n"
         "## Contradictions and fragility\n"
-        "I checked the rules in your instruction files against your skills and "
+        "I checked the rules in `~/.claude/CLAUDE.md` against your skills and "
         "found no conflicts.\n\n"
         "## Since the last look\n"
         "- Nothing has changed since then.\n\n"
@@ -268,3 +268,190 @@ class _Stdin:
 
     def read(self) -> str:
         return self._text
+
+
+class TestTheLabelMeansOneThing:
+    """`--label` names one system, wherever in the line it is written.
+
+    It used to mean three things. Before the action it was silently dropped by
+    the subparser's own default, so a report meant for "my-vault" was filed
+    under "diagnosis" and the success line said nothing about it. After
+    `list` it narrowed nothing. After `last` it was rejected outright. The
+    person's report was, in effect, invisible to every command they would use
+    to find it again.
+    """
+
+    def _saved_name(self, capsys: pytest.CaptureFixture[str]) -> str:
+        return Path(capsys.readouterr().out.strip()).name
+
+    def test_the_label_before_the_action_is_the_label_it_is_saved_under(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source = _report(tmp_path, _complete("Vault"))
+
+        assert cli.reports_main(["--label", "my-vault", "save", source]) == 0
+
+        assert self._saved_name(capsys).endswith("--my-vault.md")
+
+    def test_the_label_after_the_action_still_means_the_same_thing(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """This is the position the skill writes, so it must not change."""
+        source = _report(tmp_path, _complete("Vault"))
+
+        assert cli.reports_main(["save", source, "--label", "my-vault"]) == 0
+
+        assert self._saved_name(capsys).endswith("--my-vault.md")
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--label", "my-vault", "list"],
+            ["list", "--label", "my-vault"],
+            ["--label", "my-vault"],
+        ],
+        ids=["leading", "trailing", "no-action"],
+    )
+    def test_a_saved_report_can_be_listed_by_its_label(
+        self,
+        argv: list[str],
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cli.reports_main(["--label", "my-vault", "save", _report(tmp_path, _complete("V"))])
+        capsys.readouterr()
+
+        assert cli.reports_main(argv) == 0
+
+        assert "my-vault" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["last", "--label", "my-vault"], ["--label", "my-vault", "--last"]],
+        ids=["trailing", "leading"],
+    )
+    def test_the_last_report_can_be_asked_for_by_label(
+        self,
+        argv: list[str],
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cli.reports_main(["save", _report(tmp_path, _complete("V")), "--label", "my-vault"])
+        capsys.readouterr()
+
+        assert cli.reports_main(argv) == 0
+
+        assert capsys.readouterr().out == _complete("V")
+
+    def test_another_system_label_finds_nothing_rather_than_the_wrong_report(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Two systems, two baselines: narrowing must actually narrow."""
+        cli.reports_main(["save", _report(tmp_path, _complete("V")), "--label", "my-vault"])
+        capsys.readouterr()
+
+        assert cli.reports_main(["last", "--label", "other-vault"]) == 1
+
+    def test_the_same_label_written_twice_is_accepted(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source = _report(tmp_path, _complete("V"))
+
+        exit_code = cli.reports_main(["--label", "my-vault", "save", source, "--label", "my-vault"])
+
+        assert exit_code == 0
+        assert self._saved_name(capsys).endswith("--my-vault.md")
+
+    def test_two_different_labels_in_one_line_are_refused(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Ambiguous is refused, not guessed at: one of the two would lose,
+        and whichever lost would be filed somewhere nobody looks."""
+        source = _report(tmp_path, _complete("V"))
+
+        with pytest.raises(SystemExit) as exit_code:
+            cli.reports_main(["--label", "work", "save", source, "--label", "home"])
+
+        assert exit_code.value.code == 2
+        assert "--label was given twice" in capsys.readouterr().err
+        assert not reports_directory.exists()
+
+
+class TestAFolderThePersonOwns:
+    """One foreign file in the reports folder must not cost them the run."""
+
+    @pytest.fixture
+    def hostile(self, reports_directory: Path) -> Path:
+        reports_directory.mkdir(parents=True)
+        (reports_directory / "my-notes.md").write_bytes(
+            "Notes on the café project\n".encode("latin-1")
+        )
+        (reports_directory / "a-folder.md").mkdir()
+        (reports_directory / "dangling.md").symlink_to(reports_directory / "gone.md")
+        return reports_directory
+
+    def test_saving_survives_a_file_it_cannot_read(
+        self,
+        tmp_path: Path,
+        hostile: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The severe one: the diagnosis was lost to someone else's note."""
+        assert cli.reports_main(["save", _report(tmp_path, _complete("Today"))]) == 0
+
+        saved = Path(capsys.readouterr().out.strip())
+        assert saved.read_text(encoding="utf-8") == _complete("Today")
+
+    def test_listing_survives_it_and_shows_it(
+        self, hostile: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.reports_main(["list"]) == 0
+
+        assert "my-notes.md" in capsys.readouterr().out
+
+    def test_last_prints_what_could_be_read_and_says_it_could_not_read_it_all(
+        self, hostile: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Degraded out loud, never silently: the file itself is untouched."""
+        assert cli.reports_main(["last"]) == 0
+
+        captured = capsys.readouterr()
+        assert captured.out.startswith("Notes on the caf")
+        assert "\ufffd" in captured.out
+        assert "not UTF-8" in captured.err
+        assert (hostile / "my-notes.md").read_bytes() == (
+            "Notes on the café project\n".encode("latin-1")
+        )
+
+    def test_a_report_that_is_not_utf8_is_refused_rather_than_mangled(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A dated file holding a mangled diagnosis is read by the next run as
+        what was found."""
+        source = tmp_path / "report.md"
+        source.write_bytes(_complete("Café").encode("latin-1"))
+
+        assert cli.reports_main(["save", str(source)]) == 2
+
+        assert "must be UTF-8" in capsys.readouterr().err
+        assert not reports_directory.exists()

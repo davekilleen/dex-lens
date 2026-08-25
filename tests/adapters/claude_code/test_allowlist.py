@@ -17,6 +17,10 @@ from capability_exchange.adapters.claude_code.allowlist import (
     read_mount_points,
 )
 
+not_root = pytest.mark.skipif(
+    os.geteuid() == 0, reason="permission fixtures are meaningless as root"
+)
+
 
 class TestConstruction:
     def test_nonexistent_root_refused(self, tmp_path: Path) -> None:
@@ -401,6 +405,7 @@ class TestSurvey:
         assert all("leak.txt" not in (d.relative_path or "") for d in outcome.admitted_files)
         assert any(d.reason == "symlink-escape" for d in outcome.excluded)
 
+    @not_root
     def test_unlistable_directory_recorded_not_silent(self, claude_root: Path) -> None:
         sealed = claude_root / "sealed"
         sealed.mkdir()

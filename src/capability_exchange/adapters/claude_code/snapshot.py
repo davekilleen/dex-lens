@@ -18,6 +18,14 @@ Bounded collection mirrors dex-core's discipline: max file count, max bytes
 per file, max total bytes; every bound hit is recorded as an honest R2
 exclusion (``blocked``), and a bound that stops collection early marks the
 snapshot incomplete — incomplete never extrapolates to complete.
+
+The same rule covers every other way an admitted file goes unread — over the
+per-file bound, grown past it mid-read, or impossible to open at all. An
+unread file is indistinguishable downstream from a file that is not there:
+the presence probes and the inventory both see an absence. So each one marks
+the snapshot incomplete and is named in
+:attr:`InspectionSnapshot.unread_files` with the reason, because a caveat
+that cannot say which file was missed is not actionable.
 """
 
 from __future__ import annotations
@@ -52,6 +60,7 @@ __all__ = [
     "SnapshotError",
     "reference_token",
     "SnapshotMissError",
+    "UnreadFile",
     "take_snapshot",
 ]
 
@@ -122,6 +131,25 @@ class SnapshotEntry:
     content: bytes
     redaction_count: int
     mtime_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class UnreadFile:
+    """One file the allowlist admitted and the capture did not read.
+
+    ``token`` is the reference-safe form that appears in the exclusion
+    record. ``relative_path`` is the path as the walk saw it — untrusted
+    text from the inspected system, kept beside the token so a reader can
+    be told *which* file was missed. It is held in memory only, exactly as
+    :attr:`SnapshotEntry.relative_path` is, and never substituted for the
+    token in a reference: whoever renders it owes it the same treatment as
+    any other inspected text, and must fall back to the token when the name
+    cannot be shown honestly.
+    """
+
+    reason: str
+    relative_path: str
+    token: str
 
 
 #: Bytes that make a raw path unusable as a single-line reference token.
@@ -228,12 +256,14 @@ class InspectionSnapshot:
         exclusions: tuple[EvidenceItem, ...],
         bounds: CollectionBounds,
         complete: bool,
+        unread_files: tuple[UnreadFile, ...] = (),
     ) -> None:
         self._taken_at = taken_at
         self._entries: Mapping[str, SnapshotEntry] = MappingProxyType(dict(entries))
         self._exclusions = exclusions
         self._bounds = bounds
         self._complete = complete
+        self._unread_files = unread_files
 
     @property
     def taken_at(self) -> datetime:
@@ -245,8 +275,23 @@ class InspectionSnapshot:
 
     @property
     def complete(self) -> bool:
-        """False when a bound stopped collection early. Never extrapolated."""
+        """False when any admitted file went unread. Never extrapolated.
+
+        A bound that stopped collection early, a file too large to read, and
+        a file that could not be opened all land here: each one leaves the
+        snapshot describing less than the approved scope.
+        """
         return self._complete
+
+    @property
+    def unread_files(self) -> tuple[UnreadFile, ...]:
+        """Every admitted file the capture did not read, and why.
+
+        Non-empty exactly when :attr:`complete` is False, so a caveat built
+        from it can name the files instead of only announcing that some
+        exist.
+        """
+        return self._unread_files
 
     @property
     def exclusions(self) -> tuple[EvidenceItem, ...]:
@@ -352,8 +397,26 @@ def take_snapshot(
         exclusions.append(_exclusion_for(decision, moment))
 
     entries: dict[str, SnapshotEntry] = {}
+    unread: list[UnreadFile] = []
     total_bytes = 0
     complete = True
+
+    def not_read(reason: str, token: str, relative_path: str) -> None:
+        """Record an admitted file this capture did not read.
+
+        Every route out of the loop below that produces no entry goes
+        through here, because they are the same event to everyone
+        downstream: the file is simply not in the snapshot, and a reader
+        cannot tell "too big to read" or "could not be opened" from "not
+        there". Two of these routes used to leave ``complete`` True, so a
+        folder whose only ``CLAUDE.md`` was a byte over the per-file bound
+        rendered as an uncaveated empty list — which reads as "you have no
+        instruction file", the one claim a bounded capture may never make.
+        """
+        nonlocal complete
+        exclusions.append(_exclusion_item(reason, token, taken_at=moment, absent=False))
+        unread.append(UnreadFile(reason=reason, relative_path=relative_path, token=token))
+        complete = False
 
     for decision in _diagnostic_files_first(outcome.admitted_files):
         canonical_path = decision.canonical_path
@@ -363,39 +426,25 @@ def take_snapshot(
             continue  # an in-scope symlink and its target: capture once
         token = reference_token(relative_path)
         if len(entries) >= effective_bounds.max_file_count:
-            exclusions.append(
-                _exclusion_item("file-count-bound-reached", token, taken_at=moment, absent=False)
-            )
-            complete = False
+            not_read("file-count-bound-reached", token, relative_path)
             continue
         try:
             fd = os.open(
                 canonical_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
             )
         except OSError:
-            exclusions.append(_exclusion_item("read-error", token, taken_at=moment, absent=False))
+            not_read("read-error", token, relative_path)
             continue
         try:
             metadata = os.fstat(fd)
             if not stat_module.S_ISREG(metadata.st_mode) or metadata.st_nlink > 1:
-                exclusions.append(
-                    _exclusion_item(
-                        "changed-between-approval-and-read", token, taken_at=moment, absent=False
-                    )
-                )
+                not_read("changed-between-approval-and-read", token, relative_path)
                 continue
             if metadata.st_size > effective_bounds.max_file_bytes:
-                exclusions.append(
-                    _exclusion_item("read-bound-exceeded", token, taken_at=moment, absent=False)
-                )
+                not_read("read-bound-exceeded", token, relative_path)
                 continue
             if total_bytes + metadata.st_size > effective_bounds.max_total_bytes:
-                exclusions.append(
-                    _exclusion_item(
-                        "total-bytes-bound-reached", token, taken_at=moment, absent=False
-                    )
-                )
-                complete = False
+                not_read("total-bytes-bound-reached", token, relative_path)
                 continue
             chunks: list[bytes] = []
             consumed = 0
@@ -410,13 +459,11 @@ def take_snapshot(
             if consumed > effective_bounds.max_file_bytes:
                 # A file that grew past the bound mid-read is excluded
                 # rather than partially captured.
-                exclusions.append(
-                    _exclusion_item("read-bound-exceeded", token, taken_at=moment, absent=False)
-                )
+                not_read("read-bound-exceeded", token, relative_path)
                 continue
             raw = b"".join(chunks)
         except OSError:
-            exclusions.append(_exclusion_item("read-error", token, taken_at=moment, absent=False))
+            not_read("read-error", token, relative_path)
             continue
         finally:
             os.close(fd)
@@ -443,4 +490,5 @@ def take_snapshot(
         exclusions=tuple(exclusions),
         bounds=effective_bounds,
         complete=complete,
+        unread_files=tuple(unread),
     )

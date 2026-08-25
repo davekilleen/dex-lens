@@ -22,12 +22,40 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from tests.catalogue.test_v2_verifier import sign_envelope, unsigned_envelope
 
-from capability_exchange.catalogue import cli
+from capability_exchange.catalogue import cli, fetch
 from capability_exchange.catalogue.delta import CatalogueSnapshot, CatalogueSnapshotStore
 from capability_exchange.catalogue.subscription import CatalogueSubscriptionStore
 from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 
 KEY_ID = "dex-core-2026-08-test"
+
+
+class _NetworkTouched(AssertionError):
+    """Raised in place of any real request these tests must never make."""
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test in this file is allowed to reach the public catalogue host.
+
+    The fetcher binds `urlopen` as a default argument, so patching the module
+    attribute alone would leave a real request possible; the fetcher itself is
+    replaced as well, which also makes "the URL was accepted" observable
+    without anything leaving the machine.
+    """
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise _NetworkTouched("the network was touched")
+
+    class RefusingFetcher:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def fetch(self, consent: object) -> None:
+            raise _NetworkTouched("a fetch was attempted")
+
+    monkeypatch.setattr(fetch, "urlopen", refuse)
+    monkeypatch.setattr(cli, "ConsentedCatalogueFetcher", RefusingFetcher)
 
 
 @pytest.fixture
@@ -451,6 +479,233 @@ class TestBrief:
         cli.brief_main([capability_id, "--offline", "--out", str(destination)])
 
         assert destination.read_text(encoding="utf-8") == capsys.readouterr().out
+
+
+class TestPinnedUrl:
+    """`--url` is pinned to the public Dex host, and says so instead of crashing.
+
+    The pin is the point: an unpinned catalogue URL is a way to hand someone
+    a list of changes to their system from a host they never chose. What was
+    wrong was the delivery — a pydantic traceback, which reads as a broken
+    tool rather than a refused request, and buries the reason under a stack.
+    """
+
+    REFUSED = [
+        "http://example.com/x.json",
+        "file:///etc/passwd",
+        "not-a-url",
+        "",
+        "https://127.0.0.1:1/x",
+        "https://heydex.ai.evil.example/catalogue.json",
+        "https://heydex.ai/catalogue.json?who=dave",
+        "https://user:pw@heydex.ai/catalogue.json",
+    ]
+
+    @pytest.mark.parametrize("url", REFUSED)
+    def test_catalogue_refuses_in_words_and_never_tracebacks(
+        self, url: str, no_network: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--url", url]) == 1
+
+        captured = capsys.readouterr()
+        assert captured.out == "", "a refused fetch prints nothing that reads as a catalogue"
+        assert captured.err.startswith("dex-lens: ")
+        assert "Traceback" not in captured.err
+        assert "pydantic" not in captured.err.lower()
+        assert "validation error" not in captured.err.lower()
+
+    @pytest.mark.parametrize("url", REFUSED)
+    def test_brief_refuses_the_same_way(
+        self, url: str, no_network: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`brief` shares the fetch path, so it must share the refusal."""
+        assert cli.brief_main(["dex-durable-memory-provenance", "--url", url]) == 1
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.startswith("dex-lens: ")
+        assert "Traceback" not in captured.err
+
+    def test_the_refusal_carries_the_reason_the_validator_gave(
+        self, no_network: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--url", "https://127.0.0.1:1/x"]) == 1
+        assert "pinned to the public Dex host" in capsys.readouterr().err
+
+        assert cli.catalogue_main(["--url", "http://heydex.ai/catalogue.json"]) == 1
+        assert "https" in capsys.readouterr().err
+
+    def test_the_default_url_is_accepted_and_is_the_only_one_that_is(
+        self, no_network: None
+    ) -> None:
+        """The pin stays: the default reaches the fetcher, everything else is
+        refused before it. Proven against a fetcher that raises rather than a
+        real request, so the assertion costs no egress."""
+        from capability_exchange.catalogue.fetch import DEFAULT_CATALOGUE_URL
+
+        with pytest.raises(_NetworkTouched):
+            cli.catalogue_main(["--url", DEFAULT_CATALOGUE_URL])
+
+    def test_the_help_says_the_host_is_pinned(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A flag that reads as configurable and is not teaches a wrong model."""
+        for command in (cli.catalogue_main, cli.brief_main):
+            with pytest.raises(SystemExit):
+                command(["--help"])
+            help_text = capsys.readouterr().out
+            assert "pinned" in help_text
+            assert "heydex.ai" in help_text
+
+
+class TestBriefWritesNothingIntoWhatItDescribes:
+    """`brief` says it changes nothing, so it must not land a file in the system.
+
+    An `--out` inside the folder being inspected drops a file the person's
+    assistant loads as a skill on its next run — guidance turning itself into
+    an instruction, from a command whose help promises the opposite. The same
+    containment guard `reports save --for` uses answers this one.
+    """
+
+    @pytest.fixture
+    def inspected(self, tmp_path: Path) -> Path:
+        root = tmp_path / "vault"
+        (root / ".claude" / "skills").mkdir(parents=True)
+        return root
+
+    def _brief(self, *arguments: str) -> int:
+        return cli.brief_main(["dex-durable-memory-provenance", "--offline", *arguments])
+
+    def test_out_inside_the_inspected_folder_is_refused(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        inspected: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        destination = inspected / ".claude" / "skills" / "borrowed" / "SKILL.md"
+
+        assert self._brief("--for", str(inspected), "--out", str(destination)) == 2
+
+        captured = capsys.readouterr()
+        assert not destination.exists(), "nothing may be written into what is described"
+        assert captured.out == ""
+        assert "dex-lens: " in captured.err
+
+    def test_a_symlink_pointing_back_inside_is_refused(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        inspected: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Resolution happens before the comparison, or the guard is decoration."""
+        bypass = tmp_path / "elsewhere"
+        bypass.symlink_to(inspected, target_is_directory=True)
+
+        assert self._brief("--for", str(inspected), "--out", str(bypass / "SKILL.md")) == 2
+        assert not (inspected / "SKILL.md").exists()
+
+    def test_a_relative_path_is_refused_from_inside_the_folder(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        inspected: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(inspected)
+
+        assert self._brief("--for", str(inspected), "--out", "notes/SKILL.md") == 2
+        assert not (inspected / "notes").exists()
+
+    def test_the_folder_itself_named_as_the_out_path_is_refused(
+        self, cached_catalogue: VerifiedCatalogueStore, inspected: Path
+    ) -> None:
+        assert self._brief("--for", str(inspected), "--out", str(inspected)) == 2
+
+    def test_a_home_relative_folder_is_expanded_before_comparing(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        home = tmp_path / "home"
+        (home / "vault").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert self._brief("--for", "~/vault", "--out", str(home / "vault" / "x.md")) == 2
+        assert not (home / "vault" / "x.md").exists()
+
+    def test_out_outside_the_inspected_folder_is_written(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        inspected: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        destination = tmp_path / "briefs" / "one.md"
+
+        assert self._brief("--for", str(inspected), "--out", str(destination)) == 0
+        assert "Portable brief" in destination.read_text(encoding="utf-8")
+
+    def test_without_for_the_command_says_it_could_not_check(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Unverified is said out loud rather than passed off as verified."""
+        destination = tmp_path / "one.md"
+
+        assert self._brief("--out", str(destination)) == 0
+
+        assert "--for" in capsys.readouterr().err
+
+    def test_the_help_no_longer_promises_more_than_the_flag_allows(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit):
+            cli.brief_main(["--help"])
+
+        help_text = capsys.readouterr().out
+        assert "--for" in help_text
+        assert "changes nothing" not in help_text, (
+            "the command writes a file when --out is given; the help must say so"
+        )
+
+
+class TestBriefOutFailure:
+    """A failed optional copy must not cost the brief that was already made."""
+
+    def test_the_brief_prints_before_the_copy_is_attempted(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        blocked = tmp_path / "a-file"
+        blocked.write_text("not a directory", encoding="utf-8")
+
+        assert cli.brief_main(
+            ["dex-durable-memory-provenance", "--offline", "--out", str(blocked / "x.md")]
+        ) == 0
+
+        captured = capsys.readouterr()
+        assert "Portable brief" in captured.out, "the work is not lost with the copy"
+        assert "dex-lens: " in captured.err
+        assert "not written" in captured.err
+
+    def test_the_warning_names_the_path_and_the_reason(
+        self,
+        cached_catalogue: VerifiedCatalogueStore,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        blocked = tmp_path / "a-file"
+        blocked.write_text("not a directory", encoding="utf-8")
+        destination = blocked / "x.md"
+
+        cli.brief_main(["dex-durable-memory-provenance", "--offline", "--out", str(destination)])
+
+        err = capsys.readouterr().err
+        assert str(destination) in err
 
 
 def test_the_fetch_url_default_is_the_public_catalogue() -> None:

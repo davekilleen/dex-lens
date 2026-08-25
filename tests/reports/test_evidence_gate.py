@@ -12,6 +12,7 @@ about how a finding should be phrased, only that it shows where it came from.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,15 @@ import pytest
 from capability_exchange.reports import cli
 from capability_exchange.reports.store import missing_report_requirements
 
-COMPLETE = """# Dex Lens: my vault — 2026-08-24
+#: A clean hunt, written the way a hunt that ran can write it: naming the file
+#: whose rules were read. Kept as a constant because several tests replace it
+#: with something thinner, to show what the gate refuses.
+CLEAN_SWEEP = (
+    "I checked the rules in `~/.claude/CLAUDE.md` against your skills and found\n"
+    "no conflicts."
+)
+
+COMPLETE = f"""# Dex Lens: my vault — 2026-08-24
 
 ## What I read
 - Inventory: /vault, 240 distinct items across 6,829 files
@@ -32,8 +41,7 @@ COMPLETE = """# Dex Lens: my vault — 2026-08-24
 Closes the loop: it writes back and checks the write.
 
 ## Contradictions and fragility
-I checked the rules in your instruction files against your skills and found
-no conflicts.
+{CLEAN_SWEEP}
 
 ## What happens next
 - Nothing has changed on your machine.
@@ -104,8 +112,7 @@ class TestWhatAReportMustShow:
         """The heading surviving while the search never happened is the exact
         failure this guards: the reader cannot tell the difference."""
         report = COMPLETE.replace(
-            "I checked the rules in your instruction files against your skills and found\n"
-            "no conflicts.",
+            CLEAN_SWEEP,
             "Nothing of note here.",
         )
 
@@ -143,8 +150,7 @@ class TestWhatAReportMustShow:
         the Unknown label needed, for the same reason.
         """
         report = COMPLETE.replace(
-            "I checked the rules in your instruction files against your skills and found\n"
-            "no conflicts.",
+            CLEAN_SWEEP,
             "I found none of the skills that close the loop.",
         )
 
@@ -154,8 +160,7 @@ class TestWhatAReportMustShow:
 
     def test_a_two_sided_quoted_finding_passes(self) -> None:
         report = COMPLETE.replace(
-            "I checked the rules in your instruction files against your skills and found\n"
-            "no conflicts.",
+            CLEAN_SWEEP,
             "### The calendar rule is broken by eight skills\n"
             "The rule:\n"
             "> Use Google Calendar. Do NOT use the local Apple Calendar MCP.\n"
@@ -290,3 +295,172 @@ class TestTheGateInTheCommand:
 
         assert cli.reports_main(["check", str(thin)]) == 2
         assert "not finished" in capsys.readouterr().err
+
+
+#: The report that passed every check while saying, in its own words, that it
+#: had read nothing. Kept whole and exactly as it was filed: each part of it
+#: defeats a different piece of the gate, and paraphrasing it would stop it
+#: being the case that got through.
+READ_NOTHING = """# Diagnosis of your system
+
+## What I read
+Nothing, really.
+
+## Contradictions
+I checked the rules against the skills and found no conflicts.
+
+## What happens next
+>
+
+## What is strong
+Your setup is world class. Best I have seen. Nothing to improve here.
+
+## Worth borrowing
+You should install all fifty Dex capabilities immediately.
+
+## Considered and rejected
+Nothing.
+"""
+
+#: A judgement made in a heading, with nothing but confidence underneath. The
+#: level is the only thing that varies, because the level is what used to
+#: decide whether the claim was looked at.
+_FLAWLESS = "Your router skill is flawless"
+
+
+def _judgement_at(level: str) -> str:
+    """COMPLETE, plus one unquoted judgement written at this heading level."""
+    if level == "##":
+        return f"{COMPLETE}\n## What is strong: {_FLAWLESS}\nNothing to add.\n"
+    return f"{COMPLETE}\n## What is strong\n\n{level} {_FLAWLESS}\nNothing to add.\n"
+
+
+class TestClaimsWithNothingUnderThem:
+    """The headline promise: a report that quotes nothing cannot be filed."""
+
+    def test_a_report_that_read_nothing_is_refused(self) -> None:
+        """Every section present, every one of them empty of evidence."""
+        problems = missing_report_requirements(READ_NOTHING)
+
+        assert any("quote something" in problem for problem in problems)
+
+    def test_a_lone_quote_marker_is_not_a_quotation(self) -> None:
+        """">" on its own is punctuation, not a line copied from a file."""
+        report = COMPLETE.replace(
+            "> then re-open the person page and confirm the commitment appears\n"
+            "> - `skills/meetings/SKILL.md`\n",
+            ">\n",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("quote something" in problem for problem in problems)
+
+    def test_a_quotation_with_no_path_under_it_is_not_evidence(self) -> None:
+        """A line with no source is a line the person cannot go and check."""
+        report = COMPLETE.replace("> - `skills/meetings/SKILL.md`\n", "")
+
+        problems = missing_report_requirements(report)
+
+        assert any("quote something" in problem for problem in problems)
+
+    @pytest.mark.parametrize("level", ["##", "###", "####", "#####"])
+    def test_an_unquoted_judgement_is_refused_at_every_heading_level(
+        self, level: str
+    ) -> None:
+        """The claim is the same claim however deep the heading is.
+
+        Only "###" was ever checked: "####" matched no heading at all, and
+        "##" was treated as a container, so the identical sentence passed or
+        failed depending on how many hashes were in front of it.
+        """
+        problems = missing_report_requirements(_judgement_at(level))
+
+        assert any(_FLAWLESS in problem for problem in problems), level
+
+    def test_evidence_deeper_in_a_finding_still_counts(self) -> None:
+        """A finding owns what is nested under it; this must not over-tighten."""
+        report = (
+            f"{COMPLETE}\n## The mirror\n### Leftover working copies\n"
+            "#### How I can tell\n"
+            "> 6,405 of the 6,829 files sit inside `worktrees` folders\n"
+            "> - `inventory.md`\n"
+        )
+
+        assert missing_report_requirements(report) == []
+
+
+class TestQuotingTheTemplateIsNotDoingTheWork:
+    def test_a_report_that_pastes_the_template_into_a_fence_is_refused(self) -> None:
+        """A fence is quoted material, not a claim the report is making."""
+        report = (
+            "# Diagnosis of your system\n\n"
+            "Here is the template I was supposed to fill in but did not:\n\n"
+            "```markdown\n"
+            f"{COMPLETE}"
+            "```\n\n"
+            "I ran out of time, so none of the above actually happened.\n"
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("What I read" in problem for problem in problems)
+        assert any("quote something" in problem for problem in problems)
+
+    def test_an_unclosed_fence_swallows_the_rest_of_the_file(self) -> None:
+        """Fail closed: text marked as a sample is not the writer's claim."""
+        report = f"# Diagnosis\n\n```\n{COMPLETE}"
+
+        assert missing_report_requirements(report) != []
+
+
+class TestTheContradictionHuntMustHaveHappened:
+    def test_prose_that_says_the_opposite_does_not_pass_as_a_clean_sweep(self) -> None:
+        """The words of a hunt, in a sentence that says no hunt was run.
+
+        This is not a wording the check can be widened to exclude — it uses
+        every word the honest sentence uses. What tells the two apart is that
+        the honest one can name a file it read.
+        """
+        report = COMPLETE.replace(
+            CLEAN_SWEEP,
+            "I have not checked anything. I would have compared the rules to "
+            "your skills, but found none of the time needed.",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("show the contradiction hunt" in problem for problem in problems)
+
+    def test_a_clean_sweep_that_names_no_file_is_refused(self) -> None:
+        report = COMPLETE.replace(
+            CLEAN_SWEEP,
+            "I checked the rules in your instruction files against your skills "
+            "and found no conflicts.",
+        )
+
+        problems = missing_report_requirements(report)
+
+        assert any("naming the instruction file" in problem for problem in problems)
+
+    def test_a_clean_sweep_that_names_the_file_it_read_passes(self) -> None:
+        assert missing_report_requirements(COMPLETE) == []
+
+
+def test_the_template_the_skill_hands_out_still_passes() -> None:
+    """The gate and the skill must not drift apart.
+
+    `tests/test_skill_report_template.py` owns this rule; it is repeated here
+    so that tightening the gate cannot be signed off by this file alone.
+    """
+    skill = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "capability_exchange"
+        / "skill"
+        / "dex-lens"
+        / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    blocks = re.findall(r"```markdown\n(.*?)```", skill, re.DOTALL)
+
+    assert missing_report_requirements(max(blocks, key=len)) == []

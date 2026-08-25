@@ -145,3 +145,79 @@ def test_a_listing_line_reads_without_instructions(store: LensReportStore) -> No
     saved = store.save("# Dex Lens: my vault\n", label="vault", now=NOW)
 
     assert saved.listing_line() == "2026-08-24 19:02 UTC  vault  Dex Lens: my vault"
+
+
+class TestAFolderThePersonOwns:
+    """The reports directory belongs to them, so it will contain their things.
+
+    They are told to keep it, share it, and put what they like in it, which
+    means one `latin-1` note, one folder, one broken link. Every one of those
+    used to end `list`, `last` and — worst — `save` in a traceback, with the
+    diagnosis of that run still unwritten and now unrecoverable.
+    """
+
+    @pytest.fixture
+    def hostile(self, store: LensReportStore) -> LensReportStore:
+        store.directory.mkdir(parents=True)
+        (store.directory / "my-notes.md").write_bytes(
+            "Notes on the café project\n".encode("latin-1")
+        )
+        (store.directory / "readable.md").write_text("# Kept by hand\n", encoding="utf-8")
+        (store.directory / "a-folder.md").mkdir()
+        (store.directory / "dangling.md").symlink_to(store.directory / "gone.md")
+        return store
+
+    def test_a_file_in_another_encoding_is_still_listed(
+        self, hostile: LensReportStore
+    ) -> None:
+        """Hiding it would answer "what did the last run say?" with the wrong
+        file — the exact failure listing an unfamiliar name exists to avoid."""
+        names = [report.path.name for report in hostile.list()]
+
+        assert "my-notes.md" in names
+        assert "readable.md" in names
+
+    def test_what_could_be_read_of_the_title_comes_back(
+        self, hostile: LensReportStore
+    ) -> None:
+        (hostile.directory / "titled.md").write_bytes("# Caf\xe9 notes\n".encode("latin-1"))
+
+        titled = next(r for r in hostile.list() if r.path.name == "titled.md")
+
+        assert titled.title.startswith("Caf")
+        assert titled.is_valid_utf8 is False
+        assert "notes" in titled.read()
+
+    def test_saving_still_works_with_all_of_it_in_the_folder(
+        self, hostile: LensReportStore
+    ) -> None:
+        """The one that loses work: the report of the run that just finished."""
+        saved = hostile.save("# Today\n\nFindings.\n", now=NOW)
+
+        assert saved.path.read_text(encoding="utf-8").startswith("# Today")
+        assert saved.path.name in [report.path.name for report in hostile.list()]
+
+    def test_the_most_recent_report_can_still_be_found(
+        self, hostile: LensReportStore
+    ) -> None:
+        assert hostile.last() is not None
+
+    def test_what_holds_no_report_is_not_listed_as_one(
+        self, hostile: LensReportStore
+    ) -> None:
+        """A folder and a broken link named `*.md` are not reports, and
+        neither is an error."""
+        names = [report.path.name for report in hostile.list()]
+
+        assert "a-folder.md" not in names
+        assert "dangling.md" not in names
+
+    def test_a_dated_name_on_something_unreadable_is_not_listed(
+        self, hostile: LensReportStore
+    ) -> None:
+        """The name alone must not be enough to become a report."""
+        (hostile.directory / "2026-08-24T190235Z--vault.md").symlink_to(
+            hostile.directory / "also-gone.md"
+        )
+
+        assert hostile.list(label="vault") == []

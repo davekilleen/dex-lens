@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from capability_exchange.reports.store import (
+    DEFAULT_LABEL,
     LensReportStore,
     SavedReport,
     default_report_directory,
@@ -42,12 +43,48 @@ def _store(inspected_root: Path | None) -> LensReportStore:
 
 
 def _read_source(source: str) -> str:
+    """The report as written, or a refusal — never a traceback.
+
+    A report that is not UTF-8 is refused rather than repaired: saving a
+    mangled copy of someone's diagnosis under a dated name is worse than
+    saying plainly that the file could not be read.
+    """
     if source == "-":
         return sys.stdin.read()
     path = Path(source).expanduser()
     if not path.is_file():
         raise FileNotFoundError(path)
     return path.read_text(encoding="utf-8")
+
+
+#: What `--label` means, in whichever position it is written. The help text is
+#: shared for the same reason the option is: two spellings of one flag is how
+#: it came to mean three different things.
+_LABEL_HELP = (
+    "A short name for the system this is about, so several can coexist. "
+    "It decides which previous report a new one has to account for, and "
+    "which reports are listed."
+)
+
+
+def _one_label(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str | None:
+    """The single label this invocation asked for, or ``None`` for all of them.
+
+    `--label` is accepted before the action and after it, because both read
+    naturally and the skill writes it after. What must not happen is the two
+    positions meaning different things: the trailing one used to overwrite the
+    leading one with its own default, so `reports --label my-vault save` filed
+    the report under "diagnosis" and `reports --label my-vault list` then
+    could not find it. Given twice with two different values, the request is
+    ambiguous and is refused rather than guessed at.
+    """
+    leading, trailing = args.leading_label, args.trailing_label
+    if leading is not None and trailing is not None and leading.strip() != trailing.strip():
+        parser.error(
+            f"--label was given twice, as {leading!r} and {trailing!r}. "
+            "Give it once: it names one system."
+        )
+    return trailing if trailing is not None else leading
 
 
 def reports_main(argv: list[str] | None = None) -> int:
@@ -65,10 +102,8 @@ def reports_main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the most recent report instead of listing them.",
     )
-    parser.add_argument(
-        "--label",
-        help="Only reports saved under this label, for one system among several.",
-    )
+    parser.add_argument("--label", dest="leading_label", metavar="LABEL", help=_LABEL_HELP)
+    parser.set_defaults(leading_label=None, trailing_label=None)
     actions = parser.add_subparsers(dest="action")
 
     save = actions.add_parser(
@@ -76,11 +111,6 @@ def reports_main(argv: list[str] | None = None) -> int:
         help="Save a report. Give a file, or `-` to read it from standard input.",
     )
     save.add_argument("source", help="Markdown file holding the report, or `-` for stdin.")
-    save.add_argument(
-        "--label",
-        default="diagnosis",
-        help="A short name for the system this describes, so several can coexist.",
-    )
     save.add_argument(
         "--for",
         dest="inspected_root",
@@ -96,16 +126,8 @@ def reports_main(argv: list[str] | None = None) -> int:
         help="Say whether a report is complete enough to save, and save nothing.",
     )
     check.add_argument("source", help="Markdown file holding the report, or `-` for stdin.")
-    check.add_argument(
-        "--label",
-        default="diagnosis",
-        help=(
-            "The system this report is about, as it will be saved. It decides "
-            "which previous report this one has to account for."
-        ),
-    )
 
-    actions.add_parser("list", help="List saved reports, newest first.")
+    listing = actions.add_parser("list", help="List saved reports, newest first.")
 
     last = actions.add_parser("last", help="Print the most recent saved report.")
     last.add_argument(
@@ -114,7 +136,15 @@ def reports_main(argv: list[str] | None = None) -> int:
         help="Print only where the most recent report is, not its contents.",
     )
 
+    # One option, declared once and accepted after any action too, so that
+    # `--label vault` means the same thing wherever the person writes it.
+    for action_parser in (save, check, listing, last):
+        action_parser.add_argument(
+            "--label", dest="trailing_label", metavar="LABEL", help=_LABEL_HELP
+        )
+
     args = parser.parse_args(argv)
+    args.label = _one_label(parser, args)
     action = args.action or ("last" if args.last else "list")
 
     if action == "save":
@@ -156,13 +186,26 @@ def _check(args: argparse.Namespace) -> int:
     except FileNotFoundError as exc:
         print(f"dex-lens: no such report file: {exc.args[0]}", file=sys.stderr)
         return 2
+    except UnicodeDecodeError:
+        # Refused, not repaired: a dated file holding a mangled copy of the
+        # diagnosis would be read by the next run as what was found.
+        print(
+            f"dex-lens: the report must be UTF-8 text, and {args.source} is not. "
+            "Nothing was written.",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as exc:
+        print(f"dex-lens: could not read the report: {exc}", file=sys.stderr)
+        return 2
     try:
         store = _store(None)
     except ValueError as exc:
         print(f"dex-lens: {exc}", file=sys.stderr)
         return 2
 
-    problems = _gate(markdown, store.last(label=args.label))
+    label = args.label or DEFAULT_LABEL
+    problems = _gate(markdown, store.last(label=label))
     if problems:
         _report_problems(problems)
         return 2
@@ -175,6 +218,15 @@ def _save(args: argparse.Namespace) -> int:
         markdown = _read_source(args.source)
     except FileNotFoundError as exc:
         print(f"dex-lens: no such report file: {exc.args[0]}", file=sys.stderr)
+        return 2
+    except UnicodeDecodeError:
+        # Refused, not repaired: a dated file holding a mangled copy of the
+        # diagnosis would be read by the next run as what was found.
+        print(
+            f"dex-lens: the report must be UTF-8 text, and {args.source} is not. "
+            "Nothing was written.",
+            file=sys.stderr,
+        )
         return 2
     except OSError as exc:
         print(f"dex-lens: could not read the report: {exc}", file=sys.stderr)
@@ -194,7 +246,8 @@ def _save(args: argparse.Namespace) -> int:
 
     # Read before writing: once the new report is on disk it is the most
     # recent one, and the previous one is what the reader wants pointed out.
-    previous = store.last(label=args.label)
+    label = args.label or DEFAULT_LABEL
+    previous = store.last(label=label)
 
     # The evidence rule is checked here, where skipping it is not an option
     # that exists. A rule that lives only in the skill's prose holds until the
@@ -209,7 +262,7 @@ def _save(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        saved = store.save(markdown, label=args.label)
+        saved = store.save(markdown, label=label)
     except ValueError as exc:
         print(f"dex-lens: {exc}", file=sys.stderr)
         return 2
@@ -258,6 +311,14 @@ def _show(action: str, args: argparse.Namespace) -> int:
             print(report.path)
             return 0
         print(f"dex-lens: {report.path}", file=sys.stderr)
+        if not report.is_valid_utf8:
+            # Said out loud rather than degraded quietly: the file is shown
+            # with its undecodable bytes marked, and nothing on disk changes.
+            print(
+                "dex-lens: this file is not UTF-8 text. Bytes that could not be "
+                "read are shown as \ufffd; the file itself is untouched.",
+                file=sys.stderr,
+            )
         print(report.read(), end="")
         return 0
 
