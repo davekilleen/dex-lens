@@ -112,7 +112,7 @@ else
 fi
 
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/pyproject.toml" ] &&
-  [ -d "$SCRIPT_DIR/skill/dex-lens" ]; then
+  [ -d "$SCRIPT_DIR/src/capability_exchange/skill/dex-lens" ]; then
   SOURCE_KIND="here"
   INSTALL_FROM="$SCRIPT_DIR"
 else
@@ -186,7 +186,7 @@ ln -sf "$VENV_DIR/bin/dex-lens" "$BIN_DIR/dex-lens"
 mkdir -p "$SKILLS_DIR"
 STAGING="$SKILLS_DIR/.dex-lens.installing.$$"
 rm -rf "$STAGING"
-cp -R "$INSTALL_FROM/skill/dex-lens" "$STAGING" ||
+cp -R "$INSTALL_FROM/src/capability_exchange/skill/dex-lens" "$STAGING" ||
   fail "I could not stage the Dex Lens skill in $SKILLS_DIR."
 rm -rf "$SKILL_DEST"
 mv "$STAGING" "$SKILL_DEST" ||

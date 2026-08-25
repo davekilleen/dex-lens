@@ -14,7 +14,15 @@ from pathlib import Path
 
 from capability_exchange.reports.store import missing_report_requirements
 
-SKILL = Path(__file__).resolve().parent.parent / "skill" / "dex-lens" / "SKILL.md"
+# The one canonical copy: inside the package, so the signed wheel ships it.
+SKILL = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "capability_exchange"
+    / "skill"
+    / "dex-lens"
+    / "SKILL.md"
+)
 _FENCE = re.compile(r"```markdown\n(.*?)```", re.DOTALL)
 
 

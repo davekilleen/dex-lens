@@ -22,8 +22,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "install.sh"
+#: The source-install line: what this script answers, and the documented
+#: fallback for development and unreleased changes.
 INSTALL_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash"
+)
+
+#: The headline line: the signed release installer, rendered and published by
+#: the release workflow. This script is not that installer, but both READMEs
+#: lead with it, and a README leading anywhere else is an install nobody gets.
+RELEASE_INSTALL_COMMAND = (
+    "curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh"
+    " | bash"
 )
 
 
@@ -175,11 +185,17 @@ def test_an_unknown_option_fails_loudly(tmp_path: Path) -> None:
     assert "do not understand" in result.stderr
 
 
-def test_the_documented_command_is_the_command_this_script_answers(script: str) -> None:
-    """A README one-liner pointing anywhere else is an install nobody gets."""
+def test_the_documented_commands_are_the_commands_that_exist(script: str) -> None:
+    """A README one-liner pointing anywhere else is an install nobody gets.
+
+    Both lines must appear in both READMEs: the signed release first (the one
+    a person is told to use), the source install as the stated fallback, and
+    this script must name itself by the source line it answers.
+    """
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    skill_readme = (REPO_ROOT / "skill" / "README.md").read_text(encoding="utf-8")
+    skill_readme = (REPO_ROOT / "docs" / "skill-README.md").read_text(encoding="utf-8")
 
     assert INSTALL_COMMAND in script
-    assert INSTALL_COMMAND in readme
-    assert INSTALL_COMMAND in skill_readme
+    for document in (readme, skill_readme):
+        assert RELEASE_INSTALL_COMMAND in document
+        assert INSTALL_COMMAND in document

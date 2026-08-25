@@ -24,7 +24,15 @@ Dex's, and reducing a large system to something that fits in a context window.
 
 ## Install
 
-One line, from nothing installed to ready to ask:
+One line, from nothing installed to ready to ask — the signed release, every
+downloaded file checked on your machine against a fingerprint signed when the
+release was built:
+
+```sh
+curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
+```
+
+To install from source instead — for development, or unreleased changes:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash

@@ -87,11 +87,16 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "openssl dgst -sha256 -verify" in installer
     assert "--no-index" in installer
     assert "--only-binary=:all:" in installer
-    assert "dex-lens --choose-folder" in installer
-    assert "No folder is read until you approve it inside Dex Lens." in installer
+    # The product is the skill plus the command: the installer must place the
+    # skill out of the verified wheel — never a separate download — and must
+    # end at the person's real first step, not by launching the frozen
+    # browser journey.
+    assert "skill/dex-lens/SKILL.md" in installer
+    assert 'files("capability_exchange")' in installer
+    assert "Have a look at my setup and tell me what Dex has that I do not." in installer
+    assert "dex-lens --choose-folder" not in installer
     assert "Python 3.11 through 3.14" in installer
     assert "https://www.python.org/downloads/" in installer
-    assert "paste the same Dex Lens install command again" in installer
     assert "Library/Application Support" in installer
     assert "XDG_DATA_HOME" not in installer
     assert '"$DEX_LENS_VENV/bin/dex-lens" --help' in installer
