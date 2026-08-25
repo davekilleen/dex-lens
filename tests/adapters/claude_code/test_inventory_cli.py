@@ -646,3 +646,52 @@ def test_a_single_drifted_item_is_reported_in_the_singular(
     out = capsys.readouterr().out
     assert "1 item exists in more than one version" in out
     assert "1 items" not in out
+
+
+class TestTheFolderDefaultsToWhereYouAre:
+    """The one-line pitch is that the person names nothing: the assistant is
+    opened in the system it is meant to read, and that folder is the default.
+    """
+
+    def test_no_folder_reads_the_current_directory(
+        self, system: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(system)
+        code = inventory_main([])
+        captured = capsys.readouterr()
+        assert code == 0
+        assert f"# System inventory: {system.resolve()}" in captured.out
+        assert "reading the current folder" in captured.err
+        assert "week-review" in captured.out
+
+    def test_an_explicit_folder_still_wins_over_the_current_one(
+        self, system: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        inventory_main([str(system)])
+        assert f"# System inventory: {system.resolve()}" in capsys.readouterr().out
+
+    def test_a_current_folder_that_is_not_a_system_says_so(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        bare = tmp_path / "just-a-project"
+        bare.mkdir()
+        (bare / "main.py").write_text("print('hi')\n", encoding="utf-8")
+        monkeypatch.chdir(bare)
+        inventory_main([])
+        assert "does not look like a personal AI system" in capsys.readouterr().err
+
+    def test_the_current_folder_being_home_is_refused_not_tracebacked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        monkeypatch.chdir(home)
+        code = inventory_main([])
+        assert code == 2
+        assert "too broad to read as one system" in capsys.readouterr().err

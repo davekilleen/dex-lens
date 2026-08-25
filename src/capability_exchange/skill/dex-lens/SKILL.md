@@ -173,8 +173,15 @@ first run. Say so once, and skip the "since last time" section of the report.
 ## Phase 1: read the system
 
 ```
-dex-lens inventory <folder> --out /tmp/dex-lens-inventory.md
+dex-lens inventory --out /tmp/dex-lens-inventory.md
 ```
+
+With no folder given, this reads the folder you are open in — which is the
+folder the person ran you in, the system they want looked at. Do not ask
+which folder first; read the current one. Only pass an explicit
+`dex-lens inventory <folder>` when the person tells you their system is
+somewhere else, or when the command reports that the current folder has no
+instruction files, settings or skills and so is not a personal AI system.
 
 This lists every instruction file, settings file and skill with the
 description it declares for itself, and folds duplicates together. A real
@@ -691,11 +698,15 @@ cleanly is part of feeling looked after.
 
 ## When the folder is not obvious
 
-If you do not know which folder holds their system, ask once, and offer the
-likely candidates you can see rather than an open question. If they have
-several, do them one at a time; a combined inventory across unrelated roots
-reads as one incoherent system. Give each one its own `--label` when you save
-the report, so their two systems keep two separate histories.
+The default is the folder you are open in, and it is almost always right:
+`dex-lens inventory` with no folder reads it. You only need to think about
+this when the current folder turns out not to be their system — the command
+says so — or when the person tells you they keep several systems. Then ask
+once, offering the likely candidates you can see rather than an open question,
+and if they have several, do them one at a time: a combined inventory across
+unrelated roots reads as one incoherent system. Give each one its own
+`--label` when you save the report, so their two systems keep two separate
+histories.
 
 ## When they push back
 

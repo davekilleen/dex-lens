@@ -36,7 +36,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
+from capability_exchange.adapters.claude_code.allowlist import (
+    AllowlistError,
+    CanonicalAllowlist,
+)
 from capability_exchange.adapters.claude_code.contract import (
     CLAUDE_CODE_DIAGNOSTIC_BASENAMES,
     claude_code_contract,
@@ -587,7 +590,16 @@ def inventory_main(argv: list[str] | None = None) -> int:
             "it reads; --out saves one copy somewhere else."
         ),
     )
-    parser.add_argument("root", type=Path, help="The folder to inspect.")
+    parser.add_argument(
+        "root",
+        type=Path,
+        nargs="?",
+        help=(
+            "The folder to inspect. Defaults to the current folder, so the "
+            "assistant reads the system it was opened in without being told "
+            "where it is."
+        ),
+    )
     parser.add_argument(
         "--max-files",
         type=int,
@@ -616,9 +628,31 @@ def inventory_main(argv: list[str] | None = None) -> int:
         fragment.strip().lower() for fragment in (args.names or "").split(",") if fragment.strip()
     )
 
-    root = args.root.expanduser().resolve()
+    if args.root is not None:
+        root = args.root.expanduser().resolve()
+    else:
+        # The whole point of one pasted line is that the person names nothing.
+        # The assistant is opened in the system it is meant to read, so that
+        # folder is the default; an explicit path only when it is elsewhere.
+        root = Path.cwd().resolve()
+        print(f"dex-lens: reading the current folder, {root}.", file=sys.stderr)
+
     if not root.is_dir():
         print(f"dex-lens: not a folder: {root}", file=sys.stderr)
+        return 2
+
+    # Home or the filesystem root is never one system: it is every folder the
+    # person has, read as though it were a single vault. The allowlist refuses
+    # both, but a bare refusal here reads better than a caught error, and it is
+    # the likeliest way a defaulted run goes wrong — the assistant opened
+    # somewhere too high up.
+    if root == Path.home().resolve() or root == Path(root.anchor):
+        print(
+            f"dex-lens: {root} is too broad to read as one system — it holds "
+            "everything, not one personal AI setup. Open the assistant in the "
+            "folder your system lives in, or pass that folder.",
+            file=sys.stderr,
+        )
         return 2
 
     if args.out is not None:
@@ -641,12 +675,33 @@ def inventory_main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    contract = claude_code_contract((str(root),))
-    allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
+    try:
+        contract = claude_code_contract((str(root),))
+        allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
+    except (AllowlistError, ValueError) as exc:
+        print(f"dex-lens: cannot read {root}: {exc}", file=sys.stderr)
+        return 2
     snapshot = take_snapshot(
         allowlist,
         bounds=CollectionBounds(max_file_count=args.max_files),
     )
+
+    # Defaulting to the current folder is only kind when it is the right
+    # folder. Opened somewhere with no instruction files, settings or skills,
+    # the honest thing is to say so — not to hand back an all-empty inventory
+    # that reads like a finding about the person's system.
+    captured_a_system = any(
+        Path(path).name in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
+        for path in snapshot.canonical_paths()
+    )
+    if args.root is None and not captured_a_system:
+        print(
+            "dex-lens: the current folder has no CLAUDE.md, AGENTS.md, "
+            "settings.json or skills, so it does not look like a personal AI "
+            "system. If yours lives elsewhere, run this in that folder or pass "
+            "its path.",
+            file=sys.stderr,
+        )
 
     try:
         rendered = _render(snapshot, root, names)
