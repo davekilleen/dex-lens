@@ -6,7 +6,7 @@
 curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
 ```
 
-Then open Claude Code and ask, in your own words:
+Then open the AI assistant you already use, Claude Code or Codex, and ask in your own words:
 
 > Have a look at my setup and tell me what Dex has that I don't.
 
@@ -60,10 +60,12 @@ It does not ask you to move to Dex, replace your existing system or accept a
 made-up score. The first diagnosis is read-only: Lens explains what it finds
 and leaves every decision with you.
 
-> **The current pilot candidate supports personal AI systems built in Claude
-> Code on a Mac.** Claude Code is simply where the system currently lives; Dex
-> Lens is assessing the whole personal AI operating system built around your
-> work.
+> **Dex Lens works with the assistant you already use.** Claude Code has the
+> deepest support and Codex works too: the installer places the skill for
+> both, reads both assistants' instruction files (`CLAUDE.md` and
+> `AGENTS.md`), and starts whichever assistant your machine has. The
+> assistant is simply where your system lives; Dex Lens assesses the whole
+> personal AI operating system built around your work.
 
 ## Why this matters
 

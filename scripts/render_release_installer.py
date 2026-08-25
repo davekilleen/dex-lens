@@ -305,15 +305,15 @@ ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 # The skill is the product: the file the person's own assistant reads to run
 # a diagnosis. It ships inside the verified wheel, so what lands here is
 # covered by the same signature as everything else — it is copied out of the
-# installed package, never downloaded separately.
-DEX_LENS_SKILLS_DIR="${{DEX_LENS_SKILLS_DIR:-$HOME/.claude/skills}}"
-case "$DEX_LENS_SKILLS_DIR" in
-  /*) ;;
-  *) die "Dex Lens needs an absolute skills folder. The command is installed; the skill is not." ;;
-esac
-DEX_LENS_SKILL_HOME="$DEX_LENS_SKILLS_DIR/dex-lens"
-mkdir -p "$DEX_LENS_SKILL_HOME"
-"$DEX_LENS_VENV/bin/python" - "$DEX_LENS_SKILL_HOME/SKILL.md" <<'PY'
+# installed package, never downloaded separately. It goes wherever an
+# assistant will actually look: Claude Code's home always, and the homes
+# Codex and the shared ~/.agents convention read only when those already
+# exist, because creating them would claim this machine uses a tool it does
+# not. DEX_LENS_SKILLS_DIR overrides everything with one explicit place.
+place_lens_skill() {{
+  skill_home="$1/dex-lens"
+  mkdir -p "$skill_home"
+  "$DEX_LENS_VENV/bin/python" - "$skill_home/SKILL.md" <<'PY'
 import sys
 from importlib.resources import files
 from pathlib import Path
@@ -321,8 +321,43 @@ from pathlib import Path
 skill = files("capability_exchange").joinpath("skill/dex-lens/SKILL.md").read_text(encoding="utf-8")
 Path(sys.argv[1]).write_text(skill, encoding="utf-8")
 PY
-test -s "$DEX_LENS_SKILL_HOME/SKILL.md" \\
-  || die "Dex Lens installed but its skill did not land in $DEX_LENS_SKILL_HOME."
+  test -s "$skill_home/SKILL.md" \\
+    || die "Dex Lens installed but its skill did not land in $skill_home."
+}}
+
+if [ -n "${{DEX_LENS_SKILLS_DIR:-}}" ]; then
+  case "$DEX_LENS_SKILLS_DIR" in
+    /*) ;;
+    *) die "Dex Lens needs an absolute skills folder; the skill was not placed." ;;
+  esac
+  place_lens_skill "$DEX_LENS_SKILLS_DIR"
+  DEX_LENS_SKILL_HOME="$DEX_LENS_SKILLS_DIR/dex-lens"
+else
+  place_lens_skill "$HOME/.claude/skills"
+  DEX_LENS_SKILL_HOME="$HOME/.claude/skills/dex-lens"
+  for lens_extra_home in "$HOME/.codex/skills" "$HOME/.agents/skills"; do
+    if [ -d "$(dirname "$lens_extra_home")" ]; then
+      place_lens_skill "$lens_extra_home"
+    fi
+  done
+fi
+
+# One anonymous "someone installed this" note: sent once, the first time an
+# install on this machine succeeds, and declared on the page in these same
+# words — the Lens version and machine type, nothing else. Never during the
+# install-only proof, never on a re-run (the marker), never if the person
+# set DEX_LENS_NO_PING=1, and a failed note never fails an install.
+DEX_LENS_PING_MARKER="$DEX_LENS_DATA_HOME/dex-lens/.install-recorded"
+if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" != "1" ] && \\
+  [ "${{DEX_LENS_NO_PING:-0}}" != "1" ] && [ ! -f "$DEX_LENS_PING_MARKER" ]; then
+  mkdir -p "$DEX_LENS_DATA_HOME/dex-lens"
+  if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \\
+    -H "Content-Type: application/json" \\
+    -d "{{\"lens_version\":\"$DEX_LENS_VERSION\",\"target\":\"$DEX_LENS_TARGET\"}}" \\
+    >/dev/null 2>&1; then
+    touch "$DEX_LENS_PING_MARKER"
+  fi || true
+fi
 
 printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
 printf '%s\\n' "The Dex Lens skill is in $DEX_LENS_SKILL_HOME."
@@ -342,8 +377,16 @@ trap - EXIT
 # over with the first question already asked. stdin is the curl pipe, so the
 # terminal is reattached from /dev/tty; without one, print the question.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I do not."
-if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] &&
-  command -v claude >/dev/null 2>&1 &&
+# Whichever assistant this machine actually has gets the hand-over: Claude
+# Code first because its skill loading is what the skill was written
+# against, then Codex. Neither present, or no terminal: print the question.
+DEX_LENS_ASSISTANT=""
+if command -v claude >/dev/null 2>&1; then
+  DEX_LENS_ASSISTANT="claude"
+elif command -v codex >/dev/null 2>&1; then
+  DEX_LENS_ASSISTANT="codex"
+fi
+if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] &&
   [ -r /dev/tty ] && [ -w /dev/tty ]; then
   printf '%s\\n' \\
     "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
@@ -351,10 +394,10 @@ if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] &&
   # The assistant will call `dex-lens` by name; on a fresh machine its folder
   # may not be on PATH yet. The launched process gets it either way.
   export PATH="$DEX_LENS_BIN_HOME:$PATH"
-  exec claude "$DEX_LENS_ASK" < /dev/tty
+  exec "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK" < /dev/tty
 fi
 printf '%s\\n' ""
-printf '%s\\n' "Now open Claude Code and ask, in your own words:"
+printf '%s\\n' "Now open your assistant and ask, in your own words:"
 printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
 '''
 

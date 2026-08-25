@@ -56,7 +56,8 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
     "skills-present",
 )
 
-#: File names every probe in :data:`CLAUDE_CODE_EVIDENCE_PROBES` depends on.
+#: File names the diagnosis reads: the probes' inputs plus the instruction
+#: files of the other assistants a real system is built with.
 #:
 #: This does **not** widen the approved scope — it orders capture inside it.
 #: An approved root is often a whole working folder, so the admitted set can
@@ -65,8 +66,15 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
 #: were reached, and the presence probes then reported on an arbitrary
 #: fraction of the scope. Capturing declared names first makes the bound bite
 #: on material the diagnosis does not use.
+#:
+#: ``AGENTS.md`` is here because personal AI systems are rarely one-harness:
+#: the same setup carries Claude Code instructions AND the AGENTS.md that
+#: Codex and Cursor read, often as paired copies of the same intent. An
+#: inventory blind to one half cannot see the drift between them — and on
+#: the reference vault that drift is one of the largest real findings.
 CLAUDE_CODE_DIAGNOSTIC_BASENAMES: frozenset[str] = frozenset(
     {
+        "AGENTS.md",
         "CLAUDE.md",
         "SKILL.md",
         "settings.json",

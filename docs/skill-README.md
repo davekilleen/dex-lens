@@ -38,7 +38,8 @@ To install from source instead — for development, or unreleased changes:
 curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
 ```
 
-It puts the skill in `~/.claude/skills/dex-lens`, builds the `dex-lens`
+It puts the skill where your assistants look for it (Claude Code always;
+Codex and shared `~/.agents` homes when they exist), builds the `dex-lens`
 command its own Python environment in `~/.local/share/dex-lens`, links the
 command into `~/.local/bin`, and prints exactly what it changed. Run it again
 to update; running it twice is safe. `--dry-run` says what it would do and

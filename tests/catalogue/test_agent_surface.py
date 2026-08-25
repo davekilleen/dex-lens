@@ -129,3 +129,20 @@ class TestLookup:
         entry = capability_by_id(_catalogue(), "health-observer")
 
         assert entry.title == "Health Observer"
+
+
+class TestReversibility:
+    def test_every_brief_opens_the_build_with_making_it_reversible(self) -> None:
+        """The reassurance the page promises has to live in the brief itself.
+
+        Lens never changes anything, so the only place a "you can always go
+        back" promise can be kept is in the instructions handed to whichever
+        AI eventually builds the thing: copy first, prove the way back, build
+        removable. A brief without that section outsources the promise to
+        hope.
+        """
+        brief = render_capability_brief_markdown(_catalogue(), "durable-memory-boost")
+
+        assert "First, make it reversible" in brief
+        assert brief.index("make it reversible") < brief.index("Prerequisites")
+        assert "checked" in brief and "before the first edit" in brief

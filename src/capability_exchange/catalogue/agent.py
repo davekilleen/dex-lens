@@ -236,6 +236,17 @@ def render_capability_brief_markdown(
             "",
             "## Before starting",
             "",
+            "### First, make it reversible",
+            "",
+            "- Take a copy of the system before building anything: a git "
+            "commit if the system lives in one, otherwise a plain copy of "
+            "the folder, made and *checked* before the first edit.",
+            "- Prove the way back exists before going forward: the person "
+            "should be able to say, in one sentence, how this change would "
+            "be undone.",
+            "- Build the change so it can be removed cleanly: new files over "
+            "edits to load-bearing ones, wherever the pattern allows.",
+            "",
             "### Prerequisites",
             "",
             *_bullets(entry.prerequisites),

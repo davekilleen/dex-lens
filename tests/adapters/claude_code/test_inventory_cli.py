@@ -309,3 +309,27 @@ class TestNarrowingByName:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "reading an empty list as an absence" in captured.err
+
+
+class TestOtherAssistantsInstructions:
+    def test_agents_md_is_inventoried_alongside_claude_md(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A real system is rarely one-harness, and drift hides in the half
+        the inventory cannot see.
+
+        The same setup often carries Claude Code instructions AND the
+        AGENTS.md that Codex and Cursor read, frequently as paired copies of
+        one intent. On the reference vault, Claude/Codex skill variants
+        drifting apart was among the largest genuine findings — invisible to
+        an inventory that only knows one assistant's file names.
+        """
+        (system / "AGENTS.md").write_text(
+            "# House rules, for Codex\n\nBe brief.\n", encoding="utf-8"
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## AGENTS.md (1 distinct, 1 files)" in out
+        assert "House rules, for Codex" in out

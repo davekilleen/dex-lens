@@ -99,10 +99,20 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     # Claude Code when it exists and a real terminal is attached — and only
     # then. The install-only proof must exit before any launch is reachable,
     # so CI never starts an assistant.
-    assert 'exec claude "$DEX_LENS_ASK" < /dev/tty' in installer
+    assert 'exec "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK" < /dev/tty' in installer
+    assert 'command -v codex' in installer, 'Codex is a first-class assistant too'
+    # The first-install note: declared, triple-gated, and harmless on failure.
+    assert "https://heydex.ai/lens/installed" in installer
+    assert '"${DEX_LENS_INSTALL_ONLY:-0}" != "1"' in installer, "CI proofs must never ping"
+    assert "DEX_LENS_NO_PING" in installer, "the off-switch is part of the declaration"
+    assert ".install-recorded" in installer, "re-installs are silent"
+    ping_at = installer.index("lens/installed")
+    assert installer.index("Install-only check complete") > 0
+    assert "fi || true" in installer[ping_at : ping_at + 600], "a failed note never fails an install"
     assert "command -v claude" in installer
     assert "DEX_LENS_NO_LAUNCH" in installer
-    assert installer.index("Install-only check complete") < installer.index("exec claude")
+    launch_at = installer.index('exec "$DEX_LENS_ASSISTANT"')
+    assert installer.index("Install-only check complete") < launch_at
     assert "Python 3.11 through 3.14" in installer
     assert "https://www.python.org/downloads/" in installer
     assert "Library/Application Support" in installer

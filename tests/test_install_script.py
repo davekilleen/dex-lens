@@ -103,7 +103,11 @@ class TestDryRun:
         honour DEX_LENS_NO_LAUNCH for scripts, and a dry run must exit long
         before reaching it.
         """
-        assert 'exec claude "$DEX_LENS_ASK" < /dev/tty' in script
+        assert 'exec "$ASSISTANT" "$DEX_LENS_ASK" < /dev/tty' in script
+        assert 'command -v codex' in script, 'Codex is a first-class assistant too'
+        assert "https://heydex.ai/lens/installed" in script
+        assert "DEX_LENS_NO_PING" in script
+        assert ".install-recorded" in script
         assert "command -v claude" in script
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout
