@@ -183,9 +183,13 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     # The product is the skill plus the command: the installer must place the
     # skill out of the verified wheel — never a separate download — and must
     # end at the person's real first step, not by launching the frozen
-    # browser journey.
-    assert "skill/dex-lens/SKILL.md" in installer
-    assert 'files("capability_exchange")' in installer
+    # browser journey. It places the whole skill directory, not only SKILL.md:
+    # the skill reads a bundled capability reference next to it, and a copy
+    # that took only SKILL.md left the skill comparing against a quarter of Dex.
+    assert 'files("capability_exchange").joinpath("skill/dex-lens")' in installer
+    assert 'dex-capabilities.json' in installer, (
+        "the installer must place the bundled capability reference, not only SKILL.md"
+    )
     assert "Have a look at my setup and tell me what Dex has that I don't." in installer
     assert "that I do not." not in installer, (
         "two spellings of the one line people paste is one spelling too many"
