@@ -302,25 +302,43 @@ elif [ -e "$DEX_LENS_LAUNCHER" ]; then
 fi
 ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 
-printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
-printf '%s\\n' \\
-  "It will now open your folder chooser. No folder is read until you approve it inside Dex Lens."
-case ":$PATH:" in
-  *":$DEX_LENS_BIN_HOME:"*)
-    printf '%s\\n' "To reopen it later, run: dex-lens --choose-folder"
-    ;;
-  *)
-    printf '%s\\n' \\
-      "To reopen it later, paste the same Dex Lens install command again."
-    ;;
+# The skill is the product: the file the person's own assistant reads to run
+# a diagnosis. It ships inside the verified wheel, so what lands here is
+# covered by the same signature as everything else — it is copied out of the
+# installed package, never downloaded separately.
+DEX_LENS_SKILLS_DIR="${{DEX_LENS_SKILLS_DIR:-$HOME/.claude/skills}}"
+case "$DEX_LENS_SKILLS_DIR" in
+  /*) ;;
+  *) die "Dex Lens needs an absolute skills folder. The command is installed; the skill is not." ;;
 esac
+DEX_LENS_SKILL_HOME="$DEX_LENS_SKILLS_DIR/dex-lens"
+mkdir -p "$DEX_LENS_SKILL_HOME"
+"$DEX_LENS_VENV/bin/python" - "$DEX_LENS_SKILL_HOME/SKILL.md" <<'PY'
+import sys
+from importlib.resources import files
+from pathlib import Path
+
+skill = files("capability_exchange").joinpath("skill/dex-lens/SKILL.md").read_text(encoding="utf-8")
+Path(sys.argv[1]).write_text(skill, encoding="utf-8")
+PY
+test -s "$DEX_LENS_SKILL_HOME/SKILL.md" \\
+  || die "Dex Lens installed but its skill did not land in $DEX_LENS_SKILL_HOME."
+
+printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
+printf '%s\\n' "The Dex Lens skill is in $DEX_LENS_SKILL_HOME."
+printf '%s\\n' ""
+printf '%s\\n' "Now open Claude Code and ask, in your own words:"
+printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
+printf '%s\\n' ""
+printf '%s\\n' \\
+  "Nothing has been read yet: Dex Lens looks at nothing until you ask it to," \\
+  "and it never changes what it looks at."
 if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
   printf '%s\\n' "Install-only check complete; Dex Lens was not started."
   exit 0
 fi
 rm -rf "$DEX_LENS_TMP"
 trap - EXIT
-exec "$DEX_LENS_LAUNCHER" --choose-folder
 '''
 
 

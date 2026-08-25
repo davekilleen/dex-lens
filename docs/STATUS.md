@@ -192,7 +192,7 @@ Decisions taken with it:
   setup can get a second opinion without adopting Dex. That was always the
   point.
 
-See `skill/README.md`.
+See `docs/skill-README.md`.
 
 ## First real-machine run, 2026-08-21
 

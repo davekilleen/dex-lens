@@ -96,12 +96,16 @@ def run_smoke_proof(*, artifacts: Path, installer: Path) -> None:
 
         data_home = proof_root / "data"
         bin_home = proof_root / "bin"
+        skills_home = proof_root / "skills"
         environment = os.environ | {
             "DEX_LENS_RELEASE_FIXTURE": str(artifacts.resolve()),
             "DEX_LENS_INSTALL_ONLY": "1",
             "DEX_LENS_BIN_HOME": str(bin_home),
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
             "DEX_LENS_DATA_HOME": str(data_home),
+            # Point the skill somewhere disposable, so the proof never touches
+            # the runner's real ~/.claude and its landing can be asserted.
+            "DEX_LENS_SKILLS_DIR": str(skills_home),
         }
         installed = subprocess.run(  # noqa: S603 - exact reviewed installer path
             ["bash", str(installer.resolve())],
@@ -117,6 +121,12 @@ def run_smoke_proof(*, artifacts: Path, installer: Path) -> None:
             )
         if "Install-only check complete" not in installed.stdout:
             raise SmokeProofError("installer did not report its completed install-only proof")
+
+        # The skill is the product; a release whose installer leaves it behind
+        # installs a command with nothing to drive it.
+        skill_file = skills_home / "dex-lens" / "SKILL.md"
+        if not skill_file.is_file() or not skill_file.read_text(encoding="utf-8").strip():
+            raise SmokeProofError("installer did not place the Dex Lens skill")
 
         command = bin_home / "dex-lens"
         launched = subprocess.run(  # noqa: S603 - newly installed exact release command

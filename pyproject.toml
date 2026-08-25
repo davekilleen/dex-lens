@@ -47,6 +47,11 @@ where = ["src"]
 # tests/test_packaging.py builds a real wheel and asserts every non-Python
 # file under src/ is inside it.
 [tool.setuptools.package-data]
+# The Dex Lens skill is the product: the wheel must carry it so the signed
+# release installs it without a second, driftable copy in the repo. The
+# canonical file lives inside the package, and everything else — the source
+# installer, the release installer, the template test — reads that one copy.
+"capability_exchange" = ["skill/dex-lens/SKILL.md"]
 "capability_exchange.boundary" = ["*.yaml"]
 "capability_exchange.adapters.claude_code" = ["profiles/*.sb"]
 "capability_exchange.contribution" = ["moderation_policy.v1.json"]

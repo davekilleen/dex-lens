@@ -3,7 +3,7 @@
 ## Install on Mac or Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
 ```
 
 Then open Claude Code and ask, in your own words:
@@ -12,19 +12,23 @@ Then open Claude Code and ask, in your own words:
 
 That is the whole first run. The installer puts the Dex Lens skill in
 `~/.claude/skills/dex-lens`, gives the `dex-lens` command its own Python
-environment in `~/.local/share/dex-lens` so it cannot disturb anything else,
-links the command into `~/.local/bin`, and prints exactly what it changed.
-Running it again updates it; running it twice is safe. `--dry-run` shows what
-it would do and does none of it.
+environment so it cannot disturb anything else, links the command into
+`~/.local/bin`, and prints exactly what it changed. Running it again is safe.
+
+This is the **signed release**: everything it downloads is checked on your
+machine against a fingerprint that was signed when the release was built, so
+what you install is exactly what was built and proven, byte for byte. It is
+published only after the same installer has passed a real install on a clean
+Apple Silicon Mac and a clean Linux machine.
 
 It reads your machine to check the pieces it needs. It does not read, change,
 or send anything about the AI system you will later ask Lens to look at.
 
-**What this is not yet:** a *signed release* download. The one line above
-installs from source on the public repository, which is what the pilot uses.
-The signed, checksum-verified release bundle is still in preparation, so do
-not use an installer command copied from a branch or an unofficial message —
-use the line above, from this README.
+For development, or to run unreleased changes, install from source instead:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+```
 
 ## A private second opinion on your personal AI operating system
 
