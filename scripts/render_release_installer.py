@@ -77,6 +77,42 @@ die() {{
   exit 1
 }}
 
+dex_lens_step() {{
+  printf '  %s\\n' "$*"
+}}
+
+# This installer is pasted from a web page, and that page documents two
+# options, so the two options have to exist here: one that says what would
+# happen and does none of it, one that says what the options are. Both are
+# answered before a single byte is fetched or written; anything else stops.
+DEX_LENS_DRY_RUN=0
+
+usage() {{
+  printf '%s\\n' \\
+    "Dex Lens installer, signed release $DEX_LENS_VERSION." \\
+    "" \\
+    "  --dry-run   Say exactly what would happen and change nothing." \\
+    "  --help      This text." \\
+    "" \\
+    "Environment overrides, for people who keep things elsewhere:" \\
+    "  DEX_LENS_DATA_HOME    where the private install lives" \\
+    "  DEX_LENS_BIN_HOME     where the dex-lens command is linked (default ~/.local/bin)" \\
+    "  DEX_LENS_SKILLS_DIR   where the skill is placed (default ~/.claude/skills)" \\
+    "  DEX_LENS_NO_PING=1    send no first-install note" \\
+    "  DEX_LENS_NO_LAUNCH=1  never start your assistant at the end"
+}}
+
+for dex_lens_argument in "$@"; do
+  case "$dex_lens_argument" in
+    --dry-run) DEX_LENS_DRY_RUN=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *) die "I do not understand the option '$dex_lens_argument'. Try --help." ;;
+  esac
+done
+
 for tool in curl openssl; do
   command -v "$tool" >/dev/null 2>&1 || die "This installer needs $tool. Nothing was installed."
 done
@@ -126,6 +162,128 @@ Nothing was installed."
 
 [ -n "${{HOME:-}}" ] || die \\
   "Your home folder is unavailable, so Dex Lens cannot create its private install folder."
+
+case "$DEX_LENS_TARGET" in
+  macos-arm64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/Library/Application Support" ;;
+  linux-x86_64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/.local/share" ;;
+esac
+DEX_LENS_DATA_HOME="${{DEX_LENS_DATA_HOME:-$DEX_LENS_DEFAULT_DATA_HOME}}"
+case "$DEX_LENS_DATA_HOME" in
+  /*) ;;
+  *) die "Dex Lens needs an absolute private install folder. Nothing was installed." ;;
+esac
+DEX_LENS_INSTALL_ROOT="$DEX_LENS_DATA_HOME/dex-lens/versions/v$DEX_LENS_VERSION"
+DEX_LENS_VENV="$DEX_LENS_INSTALL_ROOT/venv"
+DEX_LENS_BIN_HOME="${{DEX_LENS_BIN_HOME:-$HOME/.local/bin}}"
+case "$DEX_LENS_BIN_HOME" in
+  /*) ;;
+  *) die "Dex Lens needs an absolute command folder. Nothing was installed." ;;
+esac
+DEX_LENS_LAUNCHER="$DEX_LENS_BIN_HOME/dex-lens"
+
+# One marker shared with the source installer, so a machine that runs both
+# still sends exactly one note, ever.
+DEX_LENS_PING_STATE_DIR="${{XDG_STATE_HOME:-$HOME/.local/state}}/dex-lens"
+DEX_LENS_PING_MARKER="$DEX_LENS_PING_STATE_DIR/.install-recorded"
+
+# The skill goes wherever an assistant will actually look: Claude Code's home
+# always, and the homes Codex and the shared ~/.agents convention read only
+# when those already exist, because creating them would claim this machine
+# uses a tool it does not. DEX_LENS_SKILLS_DIR overrides everything with one
+# explicit place. Decided once, here, so the dry run below cannot name a
+# different set of homes than the install itself writes.
+DEX_LENS_SKILL_HOMES=""
+if [ -n "${{DEX_LENS_SKILLS_DIR:-}}" ]; then
+  case "$DEX_LENS_SKILLS_DIR" in
+    /*) ;;
+    *) die "Dex Lens needs an absolute skills folder; the skill was not placed." ;;
+  esac
+  DEX_LENS_SKILL_HOMES="$DEX_LENS_SKILLS_DIR
+"
+else
+  DEX_LENS_SKILL_HOMES="$HOME/.claude/skills
+"
+  # The Codex home also counts as present when the `codex` command exists:
+  # a machine that can launch Codex must never launch it blind to the skill.
+  if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
+    DEX_LENS_SKILL_HOMES="$DEX_LENS_SKILL_HOMES$HOME/.codex/skills
+"
+  fi
+  if [ -d "$HOME/.agents" ]; then
+    DEX_LENS_SKILL_HOMES="$DEX_LENS_SKILL_HOMES$HOME/.agents/skills
+"
+  fi
+fi
+
+# Whichever assistant this machine actually has gets the hand-over: Claude
+# Code first because its skill loading is what the skill was written
+# against, then Codex. Decided here so the dry run can name the ending a
+# real run would reach.
+DEX_LENS_ASSISTANT=""
+if command -v claude >/dev/null 2>&1; then
+  DEX_LENS_ASSISTANT="claude"
+elif command -v codex >/dev/null 2>&1; then
+  DEX_LENS_ASSISTANT="codex"
+fi
+
+if [ "$DEX_LENS_DRY_RUN" = "1" ]; then
+  printf '%s\\n' \\
+    "" \\
+    "This is a dry run. Nothing below has happened, and nothing has changed." \\
+    "" \\
+    "What a real run would do:"
+  dex_lens_step \\
+    "download the signed $DEX_LENS_TARGET release from $DEX_LENS_RELEASE_URL into a \\
+temporary folder under ${{TMPDIR:-/tmp}}, and delete that folder again"
+  dex_lens_step \\
+    "refuse all of it unless the manifest verifies against the public key inside \\
+this installer and the bundle matches its checksum"
+  if [ -x "$DEX_LENS_VENV/bin/dex-lens" ]; then
+    dex_lens_step "leave the Dex Lens $DEX_LENS_VERSION already installed in \\
+$DEX_LENS_INSTALL_ROOT exactly as it is"
+  elif [ -e "$DEX_LENS_INSTALL_ROOT" ]; then
+    dex_lens_step "stop, leaving the part-finished install at $DEX_LENS_INSTALL_ROOT untouched"
+  else
+    dex_lens_step "install Dex Lens $DEX_LENS_VERSION into $DEX_LENS_INSTALL_ROOT, \\
+in its own copy of Python that nothing else uses"
+  fi
+  dex_lens_step "link the dex-lens command into $DEX_LENS_LAUNCHER"
+  while IFS= read -r dex_lens_skill_home; do
+    [ -n "$dex_lens_skill_home" ] || continue
+    dex_lens_step "put the Dex Lens skill in $dex_lens_skill_home/dex-lens"
+  done <<DEX_LENS_SKILL_PLAN
+$DEX_LENS_SKILL_HOMES
+DEX_LENS_SKILL_PLAN
+  # The dry run must name every path a real run would write, under the same
+  # gates the real run uses — an honesty feature that overstates is not one.
+  if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" != "1" ] &&
+    [ "${{DEX_LENS_NO_PING:-0}}" != "1" ] && [ ! -f "$DEX_LENS_PING_MARKER" ]; then
+    dex_lens_step "record the install in $DEX_LENS_PING_STATE_DIR, so this machine \\
+never sends a second note"
+    dex_lens_step "send one anonymous first-install note to heydex.ai (version and \\
+machine type only; DEX_LENS_NO_PING=1 disables)"
+  fi
+  # How a real run ends is a change to this terminal, so it is named too.
+  if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
+    dex_lens_step "stop there, because DEX_LENS_INSTALL_ONLY=1 asks for the install alone"
+  elif [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] &&
+    [ -t 0 ]; then
+    dex_lens_step "hand this terminal over to your assistant ($DEX_LENS_ASSISTANT) \\
+with the first question already asked, replacing this shell"
+  elif [ -n "$DEX_LENS_ASSISTANT" ]; then
+    dex_lens_step "print the one line to paste that starts your assistant \\
+($DEX_LENS_ASSISTANT) with the first question"
+  else
+    dex_lens_step "print the question to ask your assistant, since neither Claude \\
+Code nor Codex is on this machine"
+  fi
+  printf '%s\\n' \\
+    "" \\
+    "It would not read, change, or send anything about the AI system you" \\
+    "later ask Lens to look at."
+  exit 0
+fi
+
 DEX_LENS_TMP="$(mktemp -d "${{TMPDIR:-/tmp}}/dex-lens-install.XXXXXX")" \\
   || die "Could not create a private temporary folder."
 trap 'rm -rf "$DEX_LENS_TMP"' EXIT
@@ -227,23 +385,6 @@ with tarfile.open(archive_path, "r:gz") as archive:
                 destination.write(chunk)
 PY
 
-case "$DEX_LENS_TARGET" in
-  macos-arm64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/Library/Application Support" ;;
-  linux-x86_64) DEX_LENS_DEFAULT_DATA_HOME="$HOME/.local/share" ;;
-esac
-DEX_LENS_DATA_HOME="${{DEX_LENS_DATA_HOME:-$DEX_LENS_DEFAULT_DATA_HOME}}"
-case "$DEX_LENS_DATA_HOME" in
-  /*) ;;
-  *) die "Dex Lens needs an absolute private install folder. Nothing was installed." ;;
-esac
-DEX_LENS_INSTALL_ROOT="$DEX_LENS_DATA_HOME/dex-lens/versions/v$DEX_LENS_VERSION"
-DEX_LENS_VENV="$DEX_LENS_INSTALL_ROOT/venv"
-DEX_LENS_BIN_HOME="${{DEX_LENS_BIN_HOME:-$HOME/.local/bin}}"
-case "$DEX_LENS_BIN_HOME" in
-  /*) ;;
-  *) die "Dex Lens needs an absolute command folder. Nothing was installed." ;;
-esac
-DEX_LENS_LAUNCHER="$DEX_LENS_BIN_HOME/dex-lens"
 DEX_LENS_NEW_INSTALL=0
 
 cleanup_install() {{
@@ -283,8 +424,10 @@ else
   mkdir -p "$DEX_LENS_INSTALL_ROOT"
   DEX_LENS_NEW_INSTALL=1
   "$DEX_LENS_PYTHON" -m venv "$DEX_LENS_VENV"
-  "$DEX_LENS_VENV/bin/python" -m pip install --no-index --find-links "$DEX_LENS_WHEELHOUSE" \\
-    --only-binary=:all: "capability_exchange==$DEX_LENS_VERSION"
+  "$DEX_LENS_VENV/bin/python" -m pip install --quiet --no-index \\
+    --find-links "$DEX_LENS_WHEELHOUSE" \\
+    --only-binary=:all: "capability_exchange==$DEX_LENS_VERSION" \\
+    || die "Dex Lens could not install the verified release bundle. Nothing was left running."
   "$DEX_LENS_VENV/bin/dex-lens" --help >/dev/null \\
     || die "Dex Lens installed but did not pass its local startup check."
   DEX_LENS_NEW_INSTALL=0
@@ -305,11 +448,9 @@ ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 # The skill is the product: the file the person's own assistant reads to run
 # a diagnosis. It ships inside the verified wheel, so what lands here is
 # covered by the same signature as everything else — it is copied out of the
-# installed package, never downloaded separately. It goes wherever an
-# assistant will actually look: Claude Code's home always, and the homes
-# Codex and the shared ~/.agents convention read only when those already
-# exist, because creating them would claim this machine uses a tool it does
-# not. DEX_LENS_SKILLS_DIR overrides everything with one explicit place.
+# installed package, never downloaded separately. Which homes it lands in was
+# decided above, before anything was written, so the dry run and the install
+# cannot disagree about where the skill goes.
 DEX_LENS_PLACED=""
 
 place_lens_skill() {{
@@ -329,25 +470,12 @@ PY
 "
 }}
 
-if [ -n "${{DEX_LENS_SKILLS_DIR:-}}" ]; then
-  case "$DEX_LENS_SKILLS_DIR" in
-    /*) ;;
-    *) die "Dex Lens needs an absolute skills folder; the skill was not placed." ;;
-  esac
-  place_lens_skill "$DEX_LENS_SKILLS_DIR"
-  DEX_LENS_SKILL_HOME="$DEX_LENS_SKILLS_DIR/dex-lens"
-else
-  place_lens_skill "$HOME/.claude/skills"
-  DEX_LENS_SKILL_HOME="$HOME/.claude/skills/dex-lens"
-  # The Codex home also counts as present when the `codex` command exists:
-  # a machine that can launch Codex must never launch it blind to the skill.
-  if [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1; then
-    place_lens_skill "$HOME/.codex/skills"
-  fi
-  if [ -d "$HOME/.agents" ]; then
-    place_lens_skill "$HOME/.agents/skills"
-  fi
-fi
+while IFS= read -r dex_lens_skill_home; do
+  [ -n "$dex_lens_skill_home" ] || continue
+  place_lens_skill "$dex_lens_skill_home"
+done <<DEX_LENS_SKILL_HOMES_LIST
+$DEX_LENS_SKILL_HOMES
+DEX_LENS_SKILL_HOMES_LIST
 
 # One anonymous "someone installed this" note: sent once, the first time an
 # install on this machine succeeds, and declared on the page in these same
@@ -357,10 +485,13 @@ fi
 # One marker shared with the source installer, so a machine that runs both
 # still sends exactly one note, ever.
 DEX_LENS_PINGED=0
-DEX_LENS_PING_MARKER="${{XDG_STATE_HOME:-$HOME/.local/state}}/dex-lens/.install-recorded"
+DEX_LENS_PING_STATE_DIR_CREATED=0
 if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" != "1" ] && \\
   [ "${{DEX_LENS_NO_PING:-0}}" != "1" ] && [ ! -f "$DEX_LENS_PING_MARKER" ]; then
-  mkdir -p "$(dirname "$DEX_LENS_PING_MARKER")"
+  # Created before the note is even attempted, so it is a change this machine
+  # keeps whether or not the note reaches anywhere. It is named below.
+  [ -d "$DEX_LENS_PING_STATE_DIR" ] || DEX_LENS_PING_STATE_DIR_CREATED=1
+  mkdir -p "$DEX_LENS_PING_STATE_DIR"
   if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \\
     -H "Content-Type: application/json" \\
     -d "{{\"lens_version\":\"$DEX_LENS_VERSION\",\"target\":\"$DEX_LENS_TARGET\"}}" \\
@@ -371,9 +502,14 @@ if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" != "1" ] && \\
 fi
 
 printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
+printf '%s\\n' "The dex-lens command is at $DEX_LENS_LAUNCHER."
 printf '%s' "$DEX_LENS_PLACED" | while IFS= read -r lens_placed_line; do
   [ -n "$lens_placed_line" ] && printf '%s\\n' "The Dex Lens skill is in $lens_placed_line."
 done
+if [ "$DEX_LENS_PING_STATE_DIR_CREATED" = "1" ]; then
+  printf '%s\\n' \\
+    "The record that this machine has already been counted is in $DEX_LENS_PING_STATE_DIR."
+fi
 if [ "$DEX_LENS_PINGED" = "1" ]; then
   printf '%s\\n' \\
     "One anonymous note went to heydex.ai: that an install happened, the" \\
@@ -384,6 +520,23 @@ printf '%s\\n' ""
 printf '%s\\n' \\
   "Nothing has been read yet: Dex Lens looks at nothing until you ask it to," \\
   "and it never changes what it looks at."
+
+# A command nobody's shell can find is not installed as far as the person is
+# concerned, and the very next thing this installer prints is a line that
+# calls it by name. Say so, in the words that fix it.
+case ":$PATH:" in
+  *":$DEX_LENS_BIN_HOME:"*) ;;
+  *)
+    printf '%s\\n' \\
+      "" \\
+      "One thing to fix. Your computer keeps a list of the places it looks for" \\
+      "commands, and $DEX_LENS_BIN_HOME is not on it yet, so the command is" \\
+      "installed but not findable. Add this line to the end of the file your" \\
+      "terminal reads at startup (~/.zshrc on most Macs):" \\
+      ""
+    printf '  export PATH="%s:$PATH"\\n' "$DEX_LENS_BIN_HOME"
+    ;;
+esac
 if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
   printf '%s\\n' "Install-only check complete; Dex Lens was not started."
   exit 0
@@ -395,16 +548,7 @@ trap - EXIT
 # can. Run from a file with a real keyboard, hand straight over. Piped from
 # curl, print the exact start command instead — one paste — because a
 # full-screen assistant started from a piped script comes up deaf.
-DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I do not."
-# Whichever assistant this machine actually has gets the hand-over: Claude
-# Code first because its skill loading is what the skill was written
-# against, then Codex. Neither present, or no terminal: print the question.
-DEX_LENS_ASSISTANT=""
-if command -v claude >/dev/null 2>&1; then
-  DEX_LENS_ASSISTANT="claude"
-elif command -v codex >/dev/null 2>&1; then
-  DEX_LENS_ASSISTANT="codex"
-fi
+DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
 # Hand over only when this script already owns a real keyboard — running
 # from a file, not piped from curl. The first outside tester proved why:
 # exec-ing a full-screen assistant out of a piped script left it running but
@@ -423,10 +567,15 @@ printf '%s\\n' ""
 if [ -n "$DEX_LENS_ASSISTANT" ]; then
   printf '%s\\n' "One more paste and the conversation starts:"
   printf '%s\\n' ""
-  printf '  %s "%s"\\n' "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK"
+  # The assistant calls `dex-lens` by name, and on a fresh machine the
+  # command's folder may not be on PATH yet — the warning above says so. The
+  # pasted line carries the folder itself, so it works today, before the
+  # person has changed anything about their shell.
+  printf '  PATH="%s:$PATH" %s "%s"\\n' \\
+    "$DEX_LENS_BIN_HOME" "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK"
 else
   printf '%s\\n' "Now open your assistant and ask, in your own words:"
-  printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
+  printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I don't."
 fi
 '''
 

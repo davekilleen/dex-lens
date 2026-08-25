@@ -35,6 +35,24 @@ Living System, Capability Catalog, Adaptation, Capability Card, Contribution Pre
 Contribution, Core Candidate. The table's "Avoid" terms (e.g. "primitive", "scorecard",
 "universal scanner", "migration", "telemetry event") must not appear in code, UI, or docs.
 
+## 4. The two installers are one artifact
+
+There are two install scripts: `install.sh` (run from a clone) and the signed release
+installer rendered by `scripts/render_release_installer.py` (served at the address every
+README, both web pages and the product hand to a person). Almost nobody runs the first;
+everybody runs the second.
+
+Any behaviour a person meets — argument handling, `--dry-run`, `--help`, the `PATH`
+warning, the line printed to paste, the summary of what changed, the anonymous note — must
+be present in **both** scripts or in neither. A fix that lands in only one of them is a fix
+the running copy does not have; both worst defects a red-team pass found here were exactly
+that. `tests/release/test_installer_parity.py` executes both and fails when they diverge;
+it is the enforcement, not a note, so do not weaken it to make one side pass.
+
+Fixing installer code is not the same as fixing the install. The served installer is pinned
+to a released version, so work that lands here reaches nobody until a release is cut that
+re-renders it. Ship a release after changing either installer.
+
 ## Practical notes
 
 - Stack: Python 3.11+, pydantic v2 at the serialization boundary, pytest + hypothesis,
