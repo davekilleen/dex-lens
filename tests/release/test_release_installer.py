@@ -108,7 +108,8 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert ".install-recorded" in installer, "re-installs are silent"
     ping_at = installer.index("lens/installed")
     assert installer.index("Install-only check complete") > 0
-    assert "fi || true" in installer[ping_at : ping_at + 600], "a failed note never fails an install"
+    ping_block = installer[ping_at : ping_at + 600]
+    assert "fi || true" in ping_block, "a failed note never fails an install"
     assert "command -v claude" in installer
     assert "DEX_LENS_NO_LAUNCH" in installer
     launch_at = installer.index('exec "$DEX_LENS_ASSISTANT"')
