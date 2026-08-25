@@ -423,7 +423,7 @@ printf '%s\\n' ""
 if [ -n "$DEX_LENS_ASSISTANT" ]; then
   printf '%s\\n' "One more paste and the conversation starts:"
   printf '%s\\n' ""
-  printf '%s\\n' "  $DEX_LENS_ASSISTANT \"$DEX_LENS_ASK\""
+  printf '  %s "%s"\\n' "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK"
 else
   printf '%s\\n' "Now open your assistant and ask, in your own words:"
   printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."

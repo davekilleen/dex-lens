@@ -326,7 +326,7 @@ fi
 if [ -n "$ASSISTANT" ]; then
   say "One more paste and the conversation starts:"
   say ""
-  step "$ASSISTANT \"$DEX_LENS_ASK\""
+  printf '  %s "%s"\n' "$ASSISTANT" "$DEX_LENS_ASK"
   say ""
 else
   say "To start, open your assistant (Claude Code or Codex) and ask, in your own words:"

@@ -106,6 +106,29 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     )
     assert "/dev/tty" not in installer, "the deaf-assistant hand-off shape must not return"
     assert "One more paste and the conversation starts" in installer
+
+    # Execute the hand-off line rather than pattern-matching it. The bug a
+    # real tester hit was invisible to a substring check: the rendered line
+    # left $DEX_LENS_ASK unquoted, the shell split it into fourteen words,
+    # and printf faithfully printed one word per line. Running it is the
+    # only check that would have caught that.
+    hand_off = next(
+        line.strip()
+        for line in installer.splitlines()
+        if line.strip().startswith("printf") and '%s "%s"' in line
+    )
+    printed = subprocess.run(  # noqa: S602 - fixed line from the rendered installer
+        f'DEX_LENS_ASSISTANT=claude; DEX_LENS_ASK="Do a thing for me, please."; {hand_off}',
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert printed.returncode == 0, printed.stderr
+    assert printed.stdout.count("\n") == 1, (
+        f"the start command must print as one line, got: {printed.stdout!r}"
+    )
+    assert printed.stdout.strip() == 'claude "Do a thing for me, please."', printed.stdout
     assert 'command -v codex' in installer, 'Codex is a first-class assistant too'
     # The first-install note: declared, triple-gated, and harmless on failure.
     assert "https://heydex.ai/lens/installed" in installer

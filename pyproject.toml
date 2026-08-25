@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capability_exchange"
-version = "0.1.3"
+version = "0.1.4"
 description = "Dex Capability Exchange: private, read-only diagnosis of an existing personal AI system at the user-job level."
 readme = "README.md"
 requires-python = ">=3.11"
