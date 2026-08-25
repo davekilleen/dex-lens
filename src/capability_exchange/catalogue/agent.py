@@ -128,8 +128,8 @@ def render_catalogue_digest(
         lines.append("")
         for entry in sorted(in_job, key=lambda item: item.capability_id):
             lines.append(
-                f"- **{_safe_markdown(entry.title)}** (`{entry.capability_id}`) — "
-                f"{_safe_markdown(entry.value)}"
+                f"- **{_safe_markdown(entry.title)}** (`{entry.capability_id}`)"
+                f"{_class_tier_tag(entry)} — {_safe_markdown(entry.value)}"
             )
         lines.append("")
 
@@ -145,8 +145,8 @@ def render_catalogue_digest(
         lines.extend(["## Not listed under any known job", ""])
         for entry in sorted(unplaced, key=lambda item: item.capability_id):
             lines.append(
-                f"- **{_safe_markdown(entry.title)}** (`{entry.capability_id}`) — "
-                f"{_safe_markdown(entry.value)}"
+                f"- **{_safe_markdown(entry.title)}** (`{entry.capability_id}`)"
+                f"{_class_tier_tag(entry)} — {_safe_markdown(entry.value)}"
             )
         lines.append("")
 
@@ -155,6 +155,31 @@ def render_catalogue_digest(
 
 def _bullets(values: Sequence[str]) -> list[str]:
     return [f"- {_safe_markdown(value)}" for value in values]
+
+
+_CLASS_LABELS = {
+    "mcp-server": "MCP server",
+    "scheduled-automation": "automation",
+    "system-engine": "engine",
+}
+
+
+def _class_tier_tag(entry: CatalogueCapabilityEntryV2) -> str:
+    """A short parenthetical marking a non-skill or ranked capability.
+
+    An entry with no class and no tier renders exactly as it did before this
+    existed, so a catalogue that predates the four-class model reads
+    unchanged. A skill is not tagged as a skill — only the three other kinds
+    are named, so a person is never told an MCP server is a skill; and where a
+    rank is present it is shown, because ranking is the point of it.
+    """
+    parts: list[str] = []
+    label = _CLASS_LABELS.get(entry.capability_class)
+    if label is not None:
+        parts.append(label)
+    if entry.impact_tier is not None:
+        parts.append(entry.impact_tier)
+    return f" _({' · '.join(parts)})_" if parts else ""
 
 
 def render_capability_brief_markdown(
@@ -176,6 +201,34 @@ def render_capability_brief_markdown(
     """
     entry = capability_by_id(catalogue, capability_id)
     brief = entry.portable_brief
+
+    if brief is None:
+        # Only a skill has a rebuild brief. An MCP server, an automation or a
+        # system engine is adopted inside Dex, not recreated from a page, so
+        # the honest answer is to say what it is and that it has no portable
+        # rebuild — never to fabricate steps that would not work.
+        kind = _CLASS_LABELS.get(entry.capability_class, entry.capability_class)
+        return "\n".join(
+            [
+                f"# {_safe_markdown(entry.title)}",
+                "",
+                _GUIDANCE_ONLY,
+                "",
+                f"This is a Dex **{_safe_markdown(kind)}**, not a skill, so it has "
+                "no portable rebuild brief: it is part of how Dex works "
+                "internally, adopted by running Dex, not recreated from a "
+                "description in another system.",
+                "",
+                "## What it does",
+                "",
+                _safe_markdown(entry.summary),
+                "",
+                "## Why it is worth having",
+                "",
+                _safe_markdown(entry.value),
+                "",
+            ]
+        ).rstrip() + "\n"
 
     lines = [
         f"# Portable brief: {_safe_markdown(entry.title)}",

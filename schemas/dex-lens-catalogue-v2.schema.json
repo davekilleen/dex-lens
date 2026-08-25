@@ -193,6 +193,17 @@
     "CatalogueCapabilityEntryV2": {
       "additionalProperties": false,
       "properties": {
+        "capability_class": {
+          "default": "active-skill",
+          "enum": [
+            "active-skill",
+            "mcp-server",
+            "scheduled-automation",
+            "system-engine"
+          ],
+          "title": "Capability Class",
+          "type": "string"
+        },
         "capability_id": {
           "pattern": "^[a-z][a-z0-9-]{2,80}$",
           "title": "Capability Id",
@@ -226,6 +237,24 @@
           "title": "Evidence",
           "type": "array"
         },
+        "impact_tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "core",
+                "high",
+                "medium",
+                "niche"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Impact Tier"
+        },
         "jobs": {
           "items": {
             "pattern": "^[a-z][a-z0-9-]{2,80}$",
@@ -238,7 +267,15 @@
           "uniqueItems": true
         },
         "portable_brief": {
-          "$ref": "#/$defs/CapabilityPortableBriefV2"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapabilityPortableBriefV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "prerequisites": {
           "items": {
@@ -300,8 +337,7 @@
         "docs_url",
         "since_release",
         "changed_in",
-        "release_provenance",
-        "portable_brief"
+        "release_provenance"
       ],
       "title": "CatalogueCapabilityEntryV2",
       "type": "object"

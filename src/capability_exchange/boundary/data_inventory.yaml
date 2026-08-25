@@ -5703,6 +5703,26 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  CatalogueCapabilityEntryV2.capability_class:
+    description: "which of Dex's four capability kinds this entry is (skill, MCP server, automation, system engine)"
+    collection: "set by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal; absent entries read as active-skill for backward compatibility"
+    display: "shown locally beside the capability so a non-skill is not mistaken for a skill"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CatalogueCapabilityEntryV2.impact_tier:
+    description: "public impact ranking of a Dex capability (core, high, medium, niche)"
+    collection: "set by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal or absent; used only to order what is shown"
+    display: "shown locally to rank which capabilities matter most for this person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
   PortableBriefContractV2.format:
     description: "closed output format for the portable brief contract"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
