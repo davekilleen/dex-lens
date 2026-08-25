@@ -95,6 +95,14 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert 'files("capability_exchange")' in installer
     assert "Have a look at my setup and tell me what Dex has that I do not." in installer
     assert "dex-lens --choose-folder" not in installer
+    # One pasted line ends in the conversation: the installer hands over to
+    # Claude Code when it exists and a real terminal is attached — and only
+    # then. The install-only proof must exit before any launch is reachable,
+    # so CI never starts an assistant.
+    assert 'exec claude "$DEX_LENS_ASK" < /dev/tty' in installer
+    assert "command -v claude" in installer
+    assert "DEX_LENS_NO_LAUNCH" in installer
+    assert installer.index("Install-only check complete") < installer.index("exec claude")
     assert "Python 3.11 through 3.14" in installer
     assert "https://www.python.org/downloads/" in installer
     assert "Library/Application Support" in installer

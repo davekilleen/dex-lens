@@ -327,9 +327,6 @@ test -s "$DEX_LENS_SKILL_HOME/SKILL.md" \\
 printf '%s\\n' "Dex Lens is installed privately in $DEX_LENS_INSTALL_ROOT."
 printf '%s\\n' "The Dex Lens skill is in $DEX_LENS_SKILL_HOME."
 printf '%s\\n' ""
-printf '%s\\n' "Now open Claude Code and ask, in your own words:"
-printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
-printf '%s\\n' ""
 printf '%s\\n' \\
   "Nothing has been read yet: Dex Lens looks at nothing until you ask it to," \\
   "and it never changes what it looks at."
@@ -339,6 +336,23 @@ if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
 fi
 rm -rf "$DEX_LENS_TMP"
 trap - EXIT
+
+# One pasted line should end in the conversation, not in instructions for a
+# second step. When Claude Code is here and a real terminal is attached, hand
+# over with the first question already asked. stdin is the curl pipe, so the
+# terminal is reattached from /dev/tty; without one, print the question.
+DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I do not."
+if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] &&
+  command -v claude >/dev/null 2>&1 &&
+  [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  printf '%s\\n' \\
+    "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
+    "which folder it may look at."
+  exec claude "$DEX_LENS_ASK" < /dev/tty
+fi
+printf '%s\\n' ""
+printf '%s\\n' "Now open Claude Code and ask, in your own words:"
+printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I do not."
 '''
 
 

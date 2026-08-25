@@ -93,6 +93,21 @@ class TestDryRun:
         ):
             assert expected in dry_run.stdout, expected
 
+    def test_a_dry_run_never_starts_an_assistant(
+        self, dry_run: subprocess.CompletedProcess[str], script: str
+    ) -> None:
+        """The hand-over to Claude Code is real, gated, and skippable.
+
+        It must exist (one pasted line should end in the conversation), it
+        must check for a terminal and for Claude Code before trying, it must
+        honour DEX_LENS_NO_LAUNCH for scripts, and a dry run must exit long
+        before reaching it.
+        """
+        assert 'exec claude "$DEX_LENS_ASK" < /dev/tty' in script
+        assert "command -v claude" in script
+        assert "DEX_LENS_NO_LAUNCH" in script
+        assert "Starting your assistant" not in dry_run.stdout
+
     def test_it_changes_nothing(self, tmp_path: Path) -> None:
         """`--dry-run` is the honesty check on everything the script claims."""
         home = tmp_path / "home"

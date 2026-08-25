@@ -494,12 +494,24 @@ What it would cost: <time, overlap, what it duplicates>
 - `<capability-id>` — <one line reason>
 - `<capability-id>` — <one line reason>
 
+## What you decided
+- `<capability-id>` — taken | declined | deferred<, " because <their words>" when they gave a reason>
+- (First run, or nothing suggested: "No decisions were on the table this time.")
+
 ## What happens next
 - Nothing has changed on your machine.
 - This report: <path printed by `dex-lens reports save`>
 - If you want one of these, say which, and I will hand you the brief.
 - <the recurring check offer, if they said yes>
 ```
+
+The **What you decided** section is what makes the next run a relationship
+rather than a rerun. Record every suggestion's fate in their own words:
+taken, declined, deferred. Next time, read it back before suggesting
+anything — a capability adopted last run should be checked ("you took
+backup-restore in March; it is in place and has run"), and one declined
+twice should stop being suggested unless something material changed. Being
+remembered accurately is most of what people mean by a good concierge.
 
 Fill every section or say why it is empty. "No contradictions found" is a
 result. A missing section is not.
@@ -549,6 +561,24 @@ reworded summary from a reworked capability. Better a cosmetic change reported
 than a real one dropped — but you are still the filter. Read the last saved
 report before you say a word to them, and stay quiet unless what changed
 clears the same bar as the original recommendations.
+
+## Phase 10: sign off like a concierge
+
+End the session properly. Not a summary — they just read the report — but
+the handful of things a good concierge says at the door, in your own words:
+
+- **How to come back.** "Whenever you want another look, just ask me to run
+  Dex Lens again — the same sentence you used today works, or type
+  `/dex-lens`. Takes a couple of minutes."
+- **That you will remember.** "Your report is saved. Next time I'll start
+  from it: what got fixed, what you decided, what's new since."
+- **Where the report lives**, as a path they can open, and that it is theirs
+  to keep or share.
+- **The watching offer**, once, if Phase 9 did not already settle it.
+
+Keep it to a few lines. Do not re-explain the product, do not re-list the
+findings, and do not ask another question — the session is over, and ending
+cleanly is part of feeling looked after.
 
 ---
 

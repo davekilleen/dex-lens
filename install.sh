@@ -221,6 +221,22 @@ case ":$PATH:" in
     ;;
 esac
 
+# --- 7. Start the conversation --------------------------------------------
+# The whole point of one pasted line is that the person never has to learn a
+# second step. If Claude Code is here and a real terminal is attached, hand
+# straight over to it with the first question already asked. stdin is the
+# pipe when this script arrives via curl, so the terminal is reattached from
+# /dev/tty; without one (scripts, CI), fall back to printing the question.
+DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
+if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] &&
+  command -v claude >/dev/null 2>&1 &&
+  [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  say "Starting your assistant now. Dex Lens reads nothing until you tell it"
+  say "which folder it may look at, and it never changes what it looks at."
+  say ""
+  exec claude "$DEX_LENS_ASK" < /dev/tty
+fi
+
 say "To start, open Claude Code and ask, in your own words:"
 say ""
 step "Have a look at my setup and tell me what Dex has that I don't."
