@@ -82,6 +82,35 @@ def _frontmatter(content: bytes) -> dict[str, str]:
     return found
 
 
+#: Frontmatter that switches a skill off explicitly, rather than by the name
+#: of its folder. This is the signal that does not lie: a name is a guess, but
+#: ``enabled: false`` in the file is the author saying so. Detecting it is what
+#: lets the housekeeping section find a skill the person genuinely turned off
+#: without depending on how they happened to name the folder.
+_DISABLING_FRONTMATTER: tuple[tuple[str, str], ...] = (
+    ("enabled", "false"),
+    ("disabled", "true"),
+    ("active", "false"),
+)
+
+
+def _declares_disabled(content: bytes) -> bool:
+    """Whether the file's own frontmatter says it is switched off."""
+    match = _FRONTMATTER.match(content)
+    if match is None:
+        return False
+    block = match.group(1).decode("utf-8", "replace")
+    for line in block.splitlines():
+        key_value = _KEY_VALUE.match(line)
+        if key_value is None:
+            continue
+        key = key_value.group(1).strip().lower()
+        value = key_value.group(2).strip().strip("\"'").lower()
+        if (key, value) in _DISABLING_FRONTMATTER:
+            return True
+    return False
+
+
 def _first_heading(content: bytes) -> str:
     for raw in content.decode("utf-8", "replace").splitlines():
         line = raw.strip()
@@ -320,6 +349,7 @@ def _render(
     working_copies: Counter[str] = Counter()
     working_copy_files = 0
     matched = 0
+    disabled_by_frontmatter: set[str] = set()
 
     for basename, paths in by_name.items():
         if not paths:
@@ -347,6 +377,9 @@ def _render(
         total_distinct += len(grouped)
         for label, group in grouped.items():
             all_groups[(basename, label)] = group
+            best_copy = group.copies[_shortest(group.relative_paths)]
+            if _declares_disabled(snapshot.content_of(best_copy)):
+                disabled_by_frontmatter.add(label)
 
         # Narrowing hides rows, never facts: the counts in the heading and
         # everything under Housekeeping are still about the whole folder.
@@ -376,6 +409,7 @@ def _render(
             working_copy_files,
             total_copies,
             total_distinct,
+            disabled_by_frontmatter,
         )
     )
 
@@ -438,6 +472,7 @@ def _render_housekeeping(
     working_copy_files: int,
     total_copies: int,
     total_distinct: int,
+    disabled_by_frontmatter: set[str],
 ) -> list[str]:
     """The findings about the system itself, stated as findings.
 
@@ -513,21 +548,29 @@ def _render_housekeeping(
             lines.append(f"- …and {len(drifted) - 15} more")
         lines.append("")
 
-    disabled = sorted(
-        label for (_basename, label) in all_groups if _DISABLED_NAME.match(label)
-    )
-    if disabled:
+    # Two signals, and they are not equal. Frontmatter that says ``enabled:
+    # false`` is the author stating it outright; a folder name beginning
+    # "disabled-" is a guess that a name carries intent, and a name can lie
+    # (an active `disabled-notifications` skill is not switched off). Both are
+    # listed, each marked as what it is, and neither is called "unmet intent" —
+    # a name match is not evidence of a wish, only a thing worth a glance.
+    by_name = {label for (_basename, label) in all_groups if _DISABLED_NAME.match(label)}
+    declared = disabled_by_frontmatter & {label for (_basename, label) in all_groups}
+    if declared or by_name:
         lines.extend(
             [
-                "### Switched off by name",
+                "### Switched off",
                 "",
-                "Named as disabled rather than removed. Usually a capability "
-                "someone wanted but the implementation fell short, which makes "
-                "each one a statement of unmet intent.",
+                "Skills that look switched off rather than removed. Whether "
+                "that is still what you want is your call; this only surfaces "
+                "them.",
                 "",
             ]
         )
-        lines.extend(f"- **{label}**" for label in disabled)
+        for label in sorted(declared):
+            lines.append(f"- **{label}** — its own frontmatter switches it off")
+        for label in sorted(by_name - declared):
+            lines.append(f"- **{label}** — named as disabled (from the folder name only)")
         lines.append("")
 
     return lines

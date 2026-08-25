@@ -386,6 +386,49 @@ class TestSurvey:
         reasons = {(d.relative_path, d.reason) for d in outcome.excluded}
         assert ("node_modules", "ignored-directory") in reasons
 
+    def test_vendored_plugin_marketplace_is_pruned_by_position(
+        self, claude_root: Path
+    ) -> None:
+        # The exact tree one real machine read 83,088 files from: installed
+        # third-party plugins under plugins/marketplaces, including a plugin's
+        # own test fixture named "disabled-skill". None of it is the person's
+        # system, and a bare-name prune cannot tell it apart.
+        fixture = (
+            claude_root
+            / "plugins"
+            / "marketplaces"
+            / "compound-engineering-plugin"
+            / "tests"
+            / "fixtures"
+            / "sample-plugin"
+            / "skills"
+            / "disabled-skill"
+        )
+        fixture.mkdir(parents=True)
+        (fixture / "SKILL.md").write_text(
+            "---\nname: disabled-skill\ndescription: model invocation disabled\n---\n",
+            encoding="utf-8",
+        )
+        outcome = CanonicalAllowlist([claude_root]).survey()
+        assert all(
+            "marketplaces" not in (d.relative_path or "") for d in outcome.admitted_files
+        )
+        reasons = {(d.relative_path, d.reason) for d in outcome.excluded}
+        assert ("plugins/marketplaces", "vendored-subtree") in reasons
+
+    def test_a_person_named_marketplaces_folder_is_not_pruned(
+        self, claude_root: Path
+    ) -> None:
+        # Only the position under plugins/ is vendored. A person's own folder
+        # that happens to be called "marketplaces" is theirs, and stays.
+        mine = claude_root / "notes" / "marketplaces"
+        mine.mkdir(parents=True)
+        (mine / "CLAUDE.md").write_text("# my market research\n", encoding="utf-8")
+        outcome = CanonicalAllowlist([claude_root]).survey()
+        assert "notes/marketplaces/CLAUDE.md" in {
+            d.relative_path for d in outcome.admitted_files
+        }
+
     def test_gitignored_file_still_inspected(self, claude_root: Path) -> None:
         # Ignored-file policy: .gitignore'd files are NOT skipped — skipping
         # them would miss planted secrets (G1 hostile fixture 3).

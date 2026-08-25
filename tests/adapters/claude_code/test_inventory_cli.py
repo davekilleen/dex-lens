@@ -194,7 +194,7 @@ class TestHousekeeping:
         assert "3 copies in 2 versions" in out
         assert "(2 versions)" in out, "the listing itself carries the version count"
 
-    def test_disabled_names_surface_as_unmet_intent(
+    def test_a_name_only_disabled_skill_is_marked_as_name_only(
         self, system: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         _skill(
@@ -207,8 +207,30 @@ class TestHousekeeping:
         inventory_main([str(system)])
 
         out = capsys.readouterr().out
-        assert "### Switched off by name" in out
+        assert "### Switched off" in out
         assert "_disabled_commitment-scan" in out
+        # A folder name is a guess, never a wish. The section must not dress a
+        # name match up as intent, and must say the signal is the name alone.
+        assert "from the folder name only" in out
+        assert "unmet intent" not in out
+
+    def test_frontmatter_disabled_skill_is_found_regardless_of_its_name(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # The name gives nothing away; the frontmatter is the whole signal.
+        (system / ".claude" / "skills" / "nightly-backup").mkdir(parents=True)
+        (system / ".claude" / "skills" / "nightly-backup" / "SKILL.md").write_text(
+            "---\nname: nightly-backup\ndescription: Back up every night\n"
+            "enabled: false\n---\n# nightly-backup\n",
+            encoding="utf-8",
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "### Switched off" in out
+        assert "nightly-backup" in out
+        assert "its own frontmatter switches it off" in out
 
     def test_a_clean_system_gets_no_empty_housekeeping_subsections(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

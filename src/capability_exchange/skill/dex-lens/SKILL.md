@@ -256,10 +256,13 @@ The four findings the inventory hands you, and what each one means:
    Cost: they edit one and get the behaviour of another, and nobody can tell
    which is live. Checking: compare the copies, keep one, decide deliberately
    if a difference was intended.
-3. **Switched off by name.** Someone wanted that capability and the
-   implementation fell short. That is a statement of unmet intent, and unmet
-   intent is exactly what Phase 6 should try to serve. Say what the disabled
-   skill was trying to do.
+3. **Switched off.** A skill the person appears to have turned off rather than
+   removed. The section marks how it knows: frontmatter that says so is the
+   author stating it; "named as disabled" is only the folder name, which can
+   be an active skill about disabling something rather than a disabled one.
+   Where it is genuinely switched off it may be unmet intent worth serving in
+   Phase 6 — but confirm what the skill was for before you treat it as a wish,
+   and never treat a name-only match as one.
 4. **Size.** The distinct count versus the file count, stated plainly, because
    most people have never seen either number.
 
@@ -396,8 +399,10 @@ For each job in the catalogue, ask:
    the right answer, and no whole-capability recommendation can express it.
 3. If they do not, would it help *them*? This is the judgement. A capability
    is worth suggesting when it serves work you can see them doing, and a
-   switched-off skill in the Housekeeping section is the strongest signal
-   there is: they already wanted it. Someone whose vault is full of customer
+   genuinely switched-off skill in the Housekeeping section — one its own
+   frontmatter disables, not one merely named that way — is a strong signal:
+   they already wanted it. Confirm it is really theirs and really off before
+   leaning on it. Someone whose vault is full of customer
    accounts and deal notes has an obvious use for account planning. The same
    capability is noise to someone whose system is entirely about writing.
 
