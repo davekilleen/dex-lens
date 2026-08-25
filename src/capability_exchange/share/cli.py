@@ -98,16 +98,21 @@ def _preview(card: bytes, *, channel: str, contact: str) -> None:
     if not card.endswith(b"\n"):
         print()
     print("--->8---------------------------------------------------------")
-    if contact:
-        print(f"Plus this contact line, because one was given: {contact}")
-    else:
-        print("No name, no contact, nothing else: the card above is the whole of it.")
     if channel == "github":
+        print("Nothing else travels: the link below carries the card and only the card.")
         print(
             "Channel: a pre-filled GitHub issue link. Nothing is posted by this "
             "command; the person submits it themselves, under their own name."
         )
     else:
+        if contact:
+            print(f"Plus this contact line, because one was given: {contact}")
+        else:
+            print("No name, no contact.")
+        # Every byte that leaves is in the preview — including the one this
+        # command adds itself. A preview that omits anything the send
+        # includes is a preview that lies by silence.
+        print(f"Plus the version of Lens doing the sending: {_lens_version()}")
         print("Channel: one anonymous request to Dex's intake at " + INTAKE_URL + ".")
     print()
     print("Nothing has been sent. To send after the person has read this and")
@@ -205,6 +210,18 @@ def share_main(argv: list[str] | None = None) -> int:
 
     if len(args.contact) > 200:
         print("dex-lens: the contact line is longer than 200 characters.", file=sys.stderr)
+        return 2
+
+    if args.to == "github" and args.contact:
+        # Not silently dropped, and not silently included either: a GitHub
+        # issue is already submitted under the person's own name, and a
+        # public issue is no place to publish an email address.
+        print(
+            "dex-lens: --contact is for the anonymous channel. A GitHub issue "
+            "is submitted under your own name, which is already the way to "
+            "reach you; a public issue is no place for a contact line.",
+            file=sys.stderr,
+        )
         return 2
 
     card = _read_card(args.card)

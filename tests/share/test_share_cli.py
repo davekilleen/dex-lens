@@ -50,12 +50,18 @@ class TestPreviewIsTheDefault:
         assert "Nothing has been sent" in out
         assert no_network == []
 
-    def test_the_preview_says_when_the_card_is_the_whole_of_it(
+    def test_the_preview_shows_every_field_the_send_includes(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """The send posts card, contact, and lens_version; the preview must
+        account for all three, including the one this command adds itself.
+        A preview that omits anything the send includes lies by silence."""
         cli.share_main([str(card_file)])
 
-        assert "the card above is the whole of it" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "No name, no contact." in out
+        assert "version of Lens doing the sending" in out
+        assert cli._lens_version() in out
 
     def test_a_given_contact_is_previewed_too(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
@@ -108,6 +114,21 @@ class TestSending:
 
 
 class TestGitHubChannel:
+    def test_a_contact_on_the_github_channel_is_refused_not_dropped(
+        self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The preview and the send must be the same thing by construction.
+
+        Silently dropping the contact would make the preview a lie; silently
+        including it would publish an email in a public issue. Refusing with
+        the reason is the only shape where nothing surprises anyone.
+        """
+        assert cli.share_main([str(card_file), "--to", "github", "--contact", "x@y.z"]) == 2
+
+        err = capsys.readouterr().err
+        assert "anonymous channel" in err
+        assert "under your own name" in err
+
     def test_it_prints_a_prefilled_link_and_never_touches_the_network(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
