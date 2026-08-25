@@ -113,6 +113,21 @@ class TestDryRun:
         )
         assert "/dev/tty" not in script, "the deaf-assistant hand-off shape must not return"
         assert "One more paste and the conversation starts" in script
+
+        hand_off = next(
+            line.strip()
+            for line in script.splitlines()
+            if line.strip().startswith("printf") and '%s "%s"' in line
+        )
+        printed = subprocess.run(  # noqa: S602 - fixed line from this script
+            f'ASSISTANT=claude; DEX_LENS_ASK="Do a thing for me, please."; {hand_off}',
+            shell=True,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert printed.stdout.count("\n") == 1, printed.stdout
+        assert printed.stdout.strip() == 'claude "Do a thing for me, please."', printed.stdout
         assert 'command -v codex' in script, 'Codex is a first-class assistant too'
         assert "https://heydex.ai/lens/installed" in script
         assert "DEX_LENS_NO_PING" in script
