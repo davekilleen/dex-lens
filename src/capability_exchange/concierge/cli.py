@@ -10,11 +10,21 @@ Subcommands are dispatched by hand rather than through argparse subparsers so
 that ``dex-lens /some/folder`` keeps working exactly as it always did. A
 folder cannot be mistaken for a subcommand: dispatch requires an exact match,
 and no subcommand name begins with ``/``, ``~`` or ``.``.
+
+The reverse must hold too, and it is the harder half. A bare word that is not
+a subcommand — ``inventary``, ``Inventory``, ``reports-save`` — is a mistyped
+command, not a folder, even on the days it happens to name one in the current
+directory. Serving it would start the frozen journey and hang, silently, on
+the strength of a typo. So a bare word fails closed with the nearest real
+command; a folder is opened when it is *written* as a path, which is what
+``./inventary`` is for.
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
+import os
 import sys
 import webbrowser
 from pathlib import Path
@@ -53,23 +63,60 @@ You do not run it from here. Open Claude Code and ask, in your own words:
 
 Your assistant does the reading and calls these when it needs them:
 
-    dex-lens inventory <folder>     what your system is made of
+    dex-lens inventory <folder>    what your system is made of
     dex-lens catalogue             what Dex publishes, signature checked here
     dex-lens brief <id>            how to rebuild one capability yourself
     dex-lens reports               the dated reports past looks left behind
+    dex-lens share <card>          send one idea card back to Dex, preview first
 
 Add --help to any of them.
 """
+
+#: Written on their own, these ask for the welcome rather than for the frozen
+#: browser journey's argparse usage. The welcome is where every command
+#: is named, so it is the only useful answer to "what is this".
+_HELP_WORDS = frozenset({"--help", "-h", "help"})
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] in _SUBCOMMANDS:
         return _SUBCOMMANDS[arguments[0]](arguments[1:])
-    if not arguments:
+    if not arguments or (len(arguments) == 1 and arguments[0] in _HELP_WORDS):
         print(_WELCOME, end="")
         return 0
+    if _is_written_as_a_command(arguments[0]):
+        return _refuse_unknown_command(arguments[0])
     return _serve_main(arguments)
+
+
+def _is_written_as_a_command(word: str) -> bool:
+    """Is this first argument a word someone typed *as a command*?
+
+    A folder written as a path never is: it begins with ``/``, ``~`` or
+    ``.``, or it carries a separator. A flag never is either — those belong
+    to the folder doorway. Everything else is a bare word, and by this point
+    it is not one of ``_SUBCOMMANDS``.
+    """
+    if word.startswith(("/", "~", ".", "-")):
+        return False
+    separators = {separator for separator in (os.sep, os.altsep, "/") if separator}
+    return not any(separator in word for separator in separators)
+
+
+def _refuse_unknown_command(word: str) -> int:
+    """Say what was probably meant, and stop. Never guess by running one."""
+    known = sorted(_SUBCOMMANDS)
+    near = difflib.get_close_matches(word.lower(), known, n=1)
+    lines = [f"dex-lens: {word!r} is not a dex-lens command."]
+    if near:
+        lines.append(f"Did you mean: dex-lens {near[0]}")
+    else:
+        lines.append("Commands: " + ", ".join(known))
+    lines.append(f"If you meant the folder, write it as a path: dex-lens ./{word}")
+    lines.append("Run dex-lens on its own for what each command is for.")
+    print("\n".join(lines), file=sys.stderr)
+    return 2
 
 
 def _serve_main(argv: list[str] | None = None) -> int:

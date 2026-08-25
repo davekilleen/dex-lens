@@ -186,11 +186,10 @@ entry = next(
     if item.group == 'console_scripts' and item.name == 'dex-lens'
 )
 try:
-    entry.load()(['--help'])
+    outcome = entry.load()(['--help'])
 except SystemExit as exc:
-    assert exc.code == 0
-else:
-    raise AssertionError('dex-lens --help did not exit through argparse')
+    outcome = exc.code
+assert outcome in (0, None), outcome
 """
     environment = environ.copy()
     environment["PYTHONPATH"] = str(target)
@@ -204,4 +203,8 @@ else:
         check=False,
     )
     assert invoked.returncode == 0, invoked.stderr
-    assert "local, read-only Dex Lens alpha" in invoked.stdout
+    # The wheel's console script has to answer with the product, not with the
+    # frozen browser journey's argparse help. Asserting on that help let the
+    # packaging gate pass on a wheel whose real commands had all gone missing.
+    for name in ("inventory", "catalogue", "brief", "reports", "share"):
+        assert f"dex-lens {name}" in invoked.stdout, name

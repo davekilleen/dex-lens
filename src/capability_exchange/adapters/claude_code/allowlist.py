@@ -43,6 +43,7 @@ from enum import StrEnum
 
 __all__ = [
     "IGNORED_DIRECTORY_NAMES",
+    "IGNORED_RELATIVE_SUBTREES",
     "MOUNTINFO_PATH",
     "AllowlistError",
     "CanonicalAllowlist",
@@ -77,6 +78,27 @@ IGNORED_DIRECTORY_NAMES: frozenset[str] = frozenset(
         "node_modules",
         "vendor",
         "venv",
+    }
+)
+
+#: Subtrees pruned by their position, not their bare name — a directory is
+#: pruned when the tail of its path (relative to the approved root) matches one
+#: of these segment sequences. This is what separates *the system the person
+#: built* from *code other people wrote that happens to live under it*.
+#:
+#: ``plugins/marketplaces`` is Claude Code's cache of installed third-party
+#: plugins: whole cloned repositories, their own tests and fixtures. Walking it
+#: made the inventory describe tens of thousands of vendored files as the
+#: person's own — one real machine read 83,088 files it should never have
+#: opened, and reported a plugin's test fixture named ``disabled-skill`` as the
+#: person's own switched-off intent. A bare-name prune cannot express this:
+#: ``marketplaces`` and ``fixtures`` are common words a person may use for
+#: their own work, so only the *position* under ``plugins`` (or under
+#: ``tests``) marks the copy as not theirs.
+IGNORED_RELATIVE_SUBTREES: frozenset[tuple[str, ...]] = frozenset(
+    {
+        ("plugins", "marketplaces"),
+        ("tests", "fixtures"),
     }
 )
 
@@ -197,6 +219,7 @@ class CanonicalAllowlist:
         *,
         denied_paths: Iterable[str | os.PathLike[str]] = (),
         ignored_directory_names: frozenset[str] = IGNORED_DIRECTORY_NAMES,
+        ignored_relative_subtrees: frozenset[tuple[str, ...]] = IGNORED_RELATIVE_SUBTREES,
     ) -> None:
         roots: list[str] = []
         devices: dict[str, int] = {}
@@ -231,6 +254,7 @@ class CanonicalAllowlist:
             )
         )
         self._ignored_directory_names = ignored_directory_names
+        self._ignored_relative_subtrees = ignored_relative_subtrees
         self._mount_points: frozenset[str] = frozenset()
         self._refresh_mount_topology()
 
@@ -439,6 +463,19 @@ class CanonicalAllowlist:
             is_directory=stat.S_ISDIR(metadata.st_mode),
         )
 
+    def _is_ignored_subtree(self, relative_path: str) -> bool:
+        """Whether a directory sits at a pruned position, not merely a name.
+
+        Matched on the tail of the path so ``plugins/marketplaces`` is pruned
+        wherever the approved root falls above it, while a lone ``marketplaces``
+        or ``fixtures`` the person named themselves is left alone.
+        """
+        parts = tuple(part for part in relative_path.split(os.sep) if part not in ("", "."))
+        return any(
+            len(parts) >= len(sequence) and parts[-len(sequence) :] == sequence
+            for sequence in self._ignored_relative_subtrees
+        )
+
     def survey(self) -> SurveyOutcome:
         """Walk the approved roots and decide every entry. Deterministic order.
 
@@ -498,6 +535,19 @@ class CanonicalAllowlist:
                                 canonical_path=None,
                                 relative_path=os.path.relpath(full, root),
                                 reason="ignored-directory",
+                                is_directory=True,
+                            )
+                        )
+                        continue
+                    relative = os.path.relpath(full, root)
+                    if self._is_ignored_subtree(relative):
+                        excluded.append(
+                            PathDecision(
+                                verdict=PathVerdict.BLOCKED,
+                                given_path=full,
+                                canonical_path=None,
+                                relative_path=relative,
+                                reason="vendored-subtree",
                                 is_directory=True,
                             )
                         )

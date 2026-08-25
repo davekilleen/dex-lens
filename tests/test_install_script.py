@@ -15,6 +15,7 @@ have to write into the developer's live system to do it.
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -24,8 +25,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "install.sh"
 #: The source-install line: what this script answers, and the documented
 #: fallback for development and unreleased changes.
-MARKER_PATH = "{XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded"
+#: One marker shared with the signed release installer, so a machine that runs
+#: both installers still sends exactly one note, ever. Both halves are checked
+#: because the path is now built in two steps: the folder is a change worth
+#: listing on its own, and the file inside it is the marker.
+MARKER_STATE_DIR = "{XDG_STATE_HOME:-$HOME/.local/state}/dex-lens"
+MARKER_FILE = "/.install-recorded"
 CODEX_GATE = '[ -d "$HOME/.codex" ] || command -v codex'
+
+#: A line of this script's own source, printed where help text belongs. The
+#: header used to be read by a hard-coded line range; the header shrank, the
+#: range did not, and `--help` ended on `set -euo pipefail`.
+SHELL_SOURCE = re.compile(
+    r"^\s*(set -|readonly |export |local |trap |eval |source |printf |echo |"
+    r"if |fi$|then$|else$|elif |for |done$|while |case |esac$|#!|"
+    r"[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{)"
+)
 
 INSTALL_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash"
@@ -43,6 +58,129 @@ RELEASE_INSTALL_COMMAND = (
 @pytest.fixture(scope="module")
 def script() -> str:
     return INSTALLER.read_text(encoding="utf-8")
+
+
+def documented_header(script: str) -> str:
+    """The comment header, exactly as `--help` has to print it.
+
+    Computed the way the script itself has to read it — from the line after
+    the shebang to the first line that is not a comment — rather than by a
+    line number, because a line number in the test drifts in step with the
+    line number in the script and so catches nothing.
+    """
+    lines: list[str] = []
+    for line in script.splitlines()[1:]:
+        if not line.startswith("#"):
+            break
+        lines.append(re.sub(r"^# ?", "", line))
+    return "".join(f"{line}\n" for line in lines)
+
+
+def run_installer(
+    home: Path, *arguments: str, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    environment = {"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"}
+    return subprocess.run(
+        ["bash", str(INSTALLER), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment | (extra_env or {}),
+    )
+
+
+def hand_off_line(script: str) -> str:
+    """The whole printf that prints the start command, continuations joined."""
+    lines = script.splitlines()
+    start = next(
+        index
+        for index, line in enumerate(lines)
+        if line.strip().startswith("printf") and '%s "%s"' in line
+    )
+    collected = []
+    while True:
+        current = lines[start].strip()
+        collected.append(current.removesuffix("\\").strip())
+        if not current.endswith("\\"):
+            break
+        start += 1
+    return " ".join(collected)
+
+
+def printed_start_line(script: str, bin_dir: Path) -> str:
+    """Run that line the way the installer runs it, and return what it printed."""
+    printed = subprocess.run(  # noqa: S602 - fixed line taken from this script
+        f"BIN_DIR={shlex.quote(str(bin_dir))}; ASSISTANT=claude; "
+        f'DEX_LENS_ASK="Do a thing for me, please."; {hand_off_line(script)}',
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert printed.returncode == 0, printed.stderr
+    assert printed.stdout.count("\n") == 1, (
+        f"the start command must print as one line, got: {printed.stdout!r}"
+    )
+    return printed.stdout.strip()
+
+
+def piped_installer(home: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """The documented shape: `curl … | bash -s -- …`, with no file to read."""
+    return subprocess.run(
+        ["bash", "-s", "--", *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+        input=INSTALLER.read_text(encoding="utf-8"),
+        cwd="/",
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+    )
+
+
+class TestHelp:
+    """Help says what the options are, and never a line of the script itself.
+
+    Nothing here invoked `--help` at all until it printed `set -euo pipefail`
+    at a person under the heading of documentation. Both documented shapes
+    are exercised, because only one of them has a file to read the header out
+    of: piped from curl there is none, and the fallback text is all there is.
+    """
+
+    def test_from_a_file_it_prints_the_header_and_stops_at_it(
+        self, tmp_path: Path, script: str
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = run_installer(home, "--help")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == documented_header(script), result.stdout
+        assert "set -euo pipefail" not in result.stdout
+        assert list(home.iterdir()) == []
+
+    def test_piped_in_it_still_answers_for_itself(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = piped_installer(home, "--help")
+
+        assert result.returncode == 0, result.stderr
+        assert "--dry-run" in result.stdout
+        assert "DEX_LENS_HOME" in result.stdout
+        assert list(home.iterdir()) == []
+
+    @pytest.mark.parametrize("piped", [False, True])
+    def test_no_line_of_help_is_a_line_of_shell(self, tmp_path: Path, piped: bool) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = piped_installer(home, "--help") if piped else run_installer(home, "--help")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip(), "help that prints nothing is not help"
+        for line in result.stdout.splitlines():
+            assert not SHELL_SOURCE.match(line), f"help printed a line of shell source: {line!r}"
 
 
 def test_the_installer_is_executable_and_parses(script: str) -> None:
@@ -97,7 +235,7 @@ class TestDryRun:
             assert expected in dry_run.stdout, expected
 
     def test_a_dry_run_never_starts_an_assistant(
-        self, dry_run: subprocess.CompletedProcess[str], script: str
+        self, dry_run: subprocess.CompletedProcess[str], script: str, tmp_path: Path
     ) -> None:
         """The hand-over to Claude Code is real, gated, and skippable.
 
@@ -114,26 +252,15 @@ class TestDryRun:
         assert "/dev/tty" not in script, "the deaf-assistant hand-off shape must not return"
         assert "One more paste and the conversation starts" in script
 
-        hand_off = next(
-            line.strip()
-            for line in script.splitlines()
-            if line.strip().startswith("printf") and '%s "%s"' in line
-        )
-        printed = subprocess.run(  # noqa: S602 - fixed line from this script
-            f'ASSISTANT=claude; DEX_LENS_ASK="Do a thing for me, please."; {hand_off}',
-            shell=True,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert printed.stdout.count("\n") == 1, printed.stdout
-        assert printed.stdout.strip() == 'claude "Do a thing for me, please."', printed.stdout
+        start_line = printed_start_line(script, tmp_path / "bin")
+        assert start_line.endswith('claude "Do a thing for me, please."'), start_line
         assert 'command -v codex' in script, 'Codex is a first-class assistant too'
         assert "https://heydex.ai/lens/installed" in script
         assert "DEX_LENS_NO_PING" in script
         assert ".install-recorded" in script
         # The five review findings, held down:
-        assert MARKER_PATH in script, "one shared marker; both installers, one ping ever"
+        assert MARKER_STATE_DIR in script, "one shared marker; both installers, one ping ever"
+        assert f'"$PING_STATE_DIR{MARKER_FILE}"' in script, "the marker sits in that one folder"
         assert CODEX_GATE in script, "a machine that can launch codex never launches it blind"
         assert "open your assistant" in script, "the fallback names no single assistant"
         assert "PLACED_SKILLS" in script, "the summary names every skill home written"
@@ -164,6 +291,49 @@ class TestDryRun:
         assert result.returncode == 0, result.stderr
         assert "/.codex/skills/dex-lens" in result.stdout
         assert "/.agents/skills/dex-lens" in result.stdout
+
+    def test_it_promises_the_note_only_where_a_real_run_would_send_one(
+        self, tmp_path: Path
+    ) -> None:
+        """An honesty feature that overstates is not one.
+
+        The dry run announced a first-install note under every condition,
+        including the two where a real run sends nothing at all: the
+        off-switch set, and a machine this note has already been sent from.
+        """
+        clean = tmp_path / "clean"
+        clean.mkdir()
+
+        first_run = run_installer(clean, "--dry-run")
+
+        assert "anonymous" in first_run.stdout
+        assert "/.local/state/dex-lens" in first_run.stdout, (
+            "sending the note leaves a folder behind, so a real run writes there too"
+        )
+
+        switched_off = run_installer(clean, "--dry-run", extra_env={"DEX_LENS_NO_PING": "1"})
+
+        assert "anonymous" not in switched_off.stdout, switched_off.stdout
+
+        counted = tmp_path / "counted"
+        (counted / ".local" / "state" / "dex-lens").mkdir(parents=True)
+        (counted / ".local" / "state" / "dex-lens" / ".install-recorded").touch()
+
+        already_counted = run_installer(counted, "--dry-run")
+
+        assert "anonymous" not in already_counted.stdout, already_counted.stdout
+
+    def test_it_names_the_hand_over_a_real_run_would_make(
+        self, dry_run: subprocess.CompletedProcess[str]
+    ) -> None:
+        """A real run can replace this very shell with an assistant.
+
+        That is the largest thing it does to the terminal it was pasted into,
+        and the dry run used to be the one place that never mentioned it.
+        """
+        assert dry_run.returncode == 0, dry_run.stderr
+        assert "your assistant" in dry_run.stdout, dry_run.stdout
+        assert "Starting your assistant" not in dry_run.stdout
 
     def test_it_changes_nothing(self, tmp_path: Path) -> None:
         """`--dry-run` is the honesty check on everything the script claims."""
@@ -242,6 +412,62 @@ class TestThePipedInstall:
         )
 
         assert f"install Dex Lens from this copy: {REPO_ROOT}" in result.stdout
+
+
+def test_the_printed_start_line_runs_where_the_command_is_not_yet_on_path(
+    tmp_path: Path, script: str
+) -> None:
+    """The documented install used to end in `dex-lens: command not found`.
+
+    The installer prints one line to paste, and the person pastes it into the
+    shell they already have — the shell whose PATH the installer has just
+    warned them about. So the line has to carry the command's folder itself.
+    Proved by running it in a shell that has never heard of that folder.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "dex-lens").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (bin_dir / "dex-lens").chmod(0o755)
+    assistant_dir = tmp_path / "assistant"
+    assistant_dir.mkdir()
+    (assistant_dir / "claude").write_text(
+        '#!/usr/bin/env bash\nprintf "asked: %s\\n" "$1"\n'
+        'printf "found: %s\\n" "$(command -v dex-lens || echo nowhere)"\n',
+        encoding="utf-8",
+    )
+    (assistant_dir / "claude").chmod(0o755)
+
+    start_line = printed_start_line(script, bin_dir)
+
+    pasted = subprocess.run(  # noqa: S602 - the line the installer told the person to paste
+        start_line,
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={"HOME": str(tmp_path), "PATH": f"{assistant_dir}:/usr/bin:/bin"},
+    )
+
+    assert pasted.returncode == 0, pasted.stderr
+    assert "asked: Do a thing for me, please." in pasted.stdout, pasted.stdout
+    assert f"found: {bin_dir / 'dex-lens'}" in pasted.stdout, (
+        "the pasted line has to find dex-lens in a shell that never had it on PATH"
+    )
+
+
+def test_the_summary_lists_the_places_that_used_to_go_unmentioned(script: str) -> None:
+    """"Prints exactly what it changed" was false in two places.
+
+    The folder behind the first-install note is created before the note is
+    even attempted, and pip fills its own cache on any install. Neither was
+    listed, under a closing sentence claiming nothing else on the machine had
+    been touched.
+    """
+    assert "Nothing else about this machine was touched" not in script, (
+        "an absolute that is false is worse than no absolute"
+    )
+    assert "PING_STATE_DIR_CREATED" in script, "the note's folder is a change, so it is listed"
+    assert "pip cache dir" in script, "pip's cache is named rather than quietly denied"
 
 
 def test_an_unknown_option_fails_loudly(tmp_path: Path) -> None:

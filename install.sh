@@ -33,6 +33,11 @@ readonly SOURCE_DIR="$LENS_HOME/source"
 readonly VENV_DIR="$LENS_HOME/venv"
 readonly SKILL_DEST="$SKILLS_DIR/dex-lens"
 readonly MIN_PYTHON="3.11"
+# One marker shared with the signed release installer, so a machine that runs
+# both still sends exactly one note, ever. Declared up here because the dry
+# run has to read the same gate the real run uses.
+readonly PING_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dex-lens"
+readonly PING_MARKER="$PING_STATE_DIR/.install-recorded"
 
 DRY_RUN=0
 
@@ -49,9 +54,11 @@ fail() {
 
 # `$0` is "bash" when this script is piped in, so there is no file to read the
 # header out of. The documented install shape must not be the one that breaks.
+# The header is read only as far as the first line that is not a comment, so
+# help can never drift into printing a line of this script's own source.
 usage() {
   if [ -r "${BASH_SOURCE[0]:-}" ]; then
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
   else
     say "Dex Lens installer."
     say ""
@@ -120,6 +127,17 @@ else
   INSTALL_FROM="$SOURCE_DIR"
 fi
 
+# Whichever assistant this machine actually has gets the hand-over: Claude
+# Code first because its skill loading is what the skill was written against,
+# then Codex. Neither present, or no terminal: print the question instead.
+# Decided here so the dry run can name the ending a real run would reach.
+ASSISTANT=""
+if command -v claude >/dev/null 2>&1; then
+  ASSISTANT="claude"
+elif command -v codex >/dev/null 2>&1; then
+  ASSISTANT="codex"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   say ""
   say "This is a dry run. Nothing below has happened, and nothing has changed."
@@ -143,7 +161,18 @@ if [ "$DRY_RUN" -eq 1 ]; then
       step "put the Dex Lens skill in $HOME/.agents/skills/dex-lens too, for your shared skills home"
     fi
   fi
-  step "send one anonymous first-install note to heydex.ai (version and machine type only; DEX_LENS_NO_PING=1 disables)"
+  if [ "${DEX_LENS_NO_PING:-0}" != "1" ] && [ ! -f "$PING_MARKER" ]; then
+    step "record the install in $PING_STATE_DIR, so this machine never sends a second note"
+    step "send one anonymous first-install note to heydex.ai (version and machine type only; DEX_LENS_NO_PING=1 disables)"
+  fi
+  # How a real run ends is a change to this terminal, so it is named too.
+  if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
+    step "hand this terminal over to your assistant ($ASSISTANT) with the first question already asked, replacing this shell"
+  elif [ -n "$ASSISTANT" ]; then
+    step "print the one line to paste that starts your assistant ($ASSISTANT) with the first question"
+  else
+    step "print the question to ask your assistant, since neither Claude Code nor Codex is on this machine"
+  fi
   say ""
   say "It would not read, change, or send anything about the AI system you"
   say "later ask Lens to look at."
@@ -239,16 +268,18 @@ ANSWERS="$("$VENV_DIR/bin/dex-lens" >/dev/null 2>&1 && echo yes || echo no)"
 # on the page in the same words as here: the Lens version and the machine
 # type, nothing else — no name, no identifier, nothing about the system Lens
 # will later look at. Re-runs are silent (the marker below), failure never
-# breaks an install, and DEX_LENS_NO_PING=1 switches even this off.
-# One marker shared with the signed release installer, so a machine that
-# runs both still sends exactly one note, ever.
-PING_MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded"
+# breaks an install, and DEX_LENS_NO_PING=1 switches even this off. The
+# marker itself is declared at the top, where the dry run can read it.
 PINGED=0
+PING_STATE_DIR_CREATED=0
 if [ "${DEX_LENS_NO_PING:-0}" != "1" ] && [ ! -f "$PING_MARKER" ]; then
   LENS_VERSION="$("$VENV_DIR/bin/python" -c \
     'from importlib.metadata import version; print(version("capability_exchange"))' \
     2>/dev/null || echo unknown)"
-  mkdir -p "$(dirname "$PING_MARKER")"
+  # Created before the note is even attempted, so it is a change this machine
+  # keeps whether or not the note goes anywhere. The summary below says so.
+  [ -d "$PING_STATE_DIR" ] || PING_STATE_DIR_CREATED=1
+  mkdir -p "$PING_STATE_DIR"
   if curl -fsS --max-time 3 -X POST https://heydex.ai/lens/installed \
     -H "Content-Type: application/json" \
     -d "{\"lens_version\":\"$LENS_VERSION\",\"target\":\"source-$(uname -s | tr 'A-Z' 'a-z')\"}" \
@@ -266,9 +297,19 @@ printf '%s' "$PLACED_SKILLS" | while IFS= read -r placed_line; do
 done
 step "$BIN_DIR/dex-lens — the command the skill runs"
 step "$VENV_DIR — its own Python environment, used by nothing else"
+if [ "$PING_STATE_DIR_CREATED" = "1" ]; then
+  step "$PING_STATE_DIR — the record that this machine has already been counted"
+fi
+# pip fills its own cache on any install, here as everywhere else. It is not
+# ours, it is not inside $LENS_HOME, and a summary that claimed nothing else
+# was touched while it sat there would be false — so it is named.
+PIP_CACHE_HOME="$("$VENV_DIR/bin/python" -m pip cache dir 2>/dev/null || true)"
+if [ -n "$PIP_CACHE_HOME" ] && [ -d "$PIP_CACHE_HOME" ]; then
+  step "$PIP_CACHE_HOME — pip's own download cache, filled by this install and yours to delete"
+fi
 say ""
-say "Nothing else about this machine was touched, and nothing about your"
-say "setup was read or sent."
+say "Nothing outside the places listed above was changed, and nothing about"
+say "your setup was read or sent."
 if [ "$PINGED" = "1" ]; then
   say ""
   say "One anonymous note went to heydex.ai: that an install happened, the"
@@ -297,15 +338,6 @@ esac
 # start command instead — one paste — because a full-screen assistant
 # started from a piped script comes up deaf to the keyboard.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
-# Whichever assistant this machine actually has gets the hand-over: Claude
-# Code first because its skill loading is what the skill was written against,
-# then Codex. Neither present, or no terminal: print the question instead.
-ASSISTANT=""
-if command -v claude >/dev/null 2>&1; then
-  ASSISTANT="claude"
-elif command -v codex >/dev/null 2>&1; then
-  ASSISTANT="codex"
-fi
 # Hand over only when this script already owns a real keyboard — running
 # from a file, not piped from curl. The first outside tester proved why:
 # exec-ing a full-screen assistant out of a piped script left it running but
@@ -326,7 +358,11 @@ fi
 if [ -n "$ASSISTANT" ]; then
   say "One more paste and the conversation starts:"
   say ""
-  printf '  %s "%s"\n' "$ASSISTANT" "$DEX_LENS_ASK"
+  # The assistant calls `dex-lens` by name, and on a fresh machine the
+  # command's folder may not be on PATH yet — the warning above says so. The
+  # pasted line carries the folder itself, so it works today, before the
+  # person has changed anything about their shell.
+  printf '  PATH="%s:$PATH" %s "%s"\n' "$BIN_DIR" "$ASSISTANT" "$DEX_LENS_ASK"
   say ""
 else
   say "To start, open your assistant (Claude Code or Codex) and ask, in your own words:"

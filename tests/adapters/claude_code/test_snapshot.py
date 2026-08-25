@@ -21,6 +21,10 @@ from capability_exchange.adapters.claude_code.snapshot import (
 )
 from capability_exchange.evidence import EvidenceState
 
+not_root = pytest.mark.skipif(
+    os.geteuid() == 0, reason="permission fixtures are meaningless as root"
+)
+
 
 def snapshot_of(root: Path, **kwargs):  # type: ignore[no-untyped-def]
     return take_snapshot(CanonicalAllowlist([root]), **kwargs)
@@ -88,6 +92,7 @@ class TestChangeDetection:
         target.unlink()
         assert str(target.resolve()) in snapshot.changed_paths_since_capture()
 
+    @not_root
     def test_recheck_ambiguity_aborts_and_discards(self, claude_root: Path) -> None:
         snapshot = snapshot_of(claude_root)
         target = claude_root / "notes.md"
@@ -157,6 +162,134 @@ class TestBoundedCollection:
 
     def test_within_bounds_is_complete(self, claude_root: Path) -> None:
         assert snapshot_of(claude_root).complete
+
+
+class TestFilesThatWereNotRead:
+    """A file the allowlist admitted and the capture then failed to read.
+
+    This is the worst failure this module can have, because it is invisible
+    downstream: the entry is simply not in the snapshot, and every reader —
+    the presence probes, the inventory — sees a folder that has no such file
+    rather than a file nobody managed to read. The rule is that any admitted
+    file the capture did not read marks the capture incomplete, exactly as a
+    bound does, and is named in ``unread_files`` with the reason.
+    """
+
+    def test_an_oversized_file_marks_the_capture_incomplete(self, tmp_path: Path) -> None:
+        """The route that emptied a real inventory: one file over the bound.
+
+        A folder whose only CLAUDE.md is a byte past ``max_file_bytes`` used
+        to render as "none captured" with no caveat, which reads as "you
+        have no instruction file".
+        """
+        root = tmp_path / "vault"
+        root.mkdir()
+        (root / "CLAUDE.md").write_bytes(b"x" * 2049)
+
+        snapshot = snapshot_of(root, bounds=CollectionBounds(max_file_bytes=2048))
+
+        assert snapshot.canonical_paths() == ()
+        assert not snapshot.complete, "a file that was not read is not a complete capture"
+        assert [(unread.reason, unread.relative_path) for unread in snapshot.unread_files] == [
+            ("read-bound-exceeded", "CLAUDE.md")
+        ]
+
+    def test_a_file_that_grows_past_the_bound_mid_read_marks_incomplete(
+        self, claude_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Small at fstat, oversized by the time it is read: still unread."""
+        target = str((claude_root / "CLAUDE.md").resolve())
+        real_read = os.read
+        grown = {"done": False}
+
+        def growing_read(fd: int, length: int) -> bytes:
+            chunk = real_read(fd, length)
+            if not grown["done"] and os.fstat(fd).st_ino == os.stat(target).st_ino:
+                grown["done"] = True
+                return b"y" * 4096
+            return chunk
+
+        monkeypatch.setattr(os, "read", growing_read)
+        snapshot = snapshot_of(claude_root, bounds=CollectionBounds(max_file_bytes=1024))
+
+        assert target not in snapshot.canonical_paths()
+        assert not snapshot.complete
+        assert any(
+            unread.reason == "read-bound-exceeded" and unread.relative_path == "CLAUDE.md"
+            for unread in snapshot.unread_files
+        )
+
+    def test_a_file_that_cannot_be_opened_marks_the_capture_incomplete(
+        self, claude_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The open failure route, provoked without needing to drop privilege.
+
+        The permission fixture below is the real-world shape of this, but it
+        is meaningless as root, so this gate is kept runnable everywhere:
+        a capture that could not open an admitted file is not complete.
+        """
+        target = str((claude_root / "CLAUDE.md").resolve())
+        real_open = os.open
+
+        def refusing_open(path, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if path == target:
+                raise PermissionError(13, "Permission denied", path)
+            return real_open(path, flags, *args, **kwargs)
+
+        monkeypatch.setattr(os, "open", refusing_open)
+        snapshot = snapshot_of(claude_root)
+
+        assert target not in snapshot.canonical_paths()
+        assert not snapshot.complete, "an unopenable file is not a complete capture"
+        assert any(
+            unread.reason == "read-error" and unread.relative_path == "CLAUDE.md"
+            for unread in snapshot.unread_files
+        )
+
+    @not_root
+    def test_a_permission_denied_file_marks_the_capture_incomplete(
+        self, claude_root: Path
+    ) -> None:
+        target = claude_root / "CLAUDE.md"
+        target.chmod(0o000)
+        try:
+            snapshot = snapshot_of(claude_root)
+        finally:
+            target.chmod(0o644)
+
+        assert str(target.resolve()) not in snapshot.canonical_paths()
+        assert not snapshot.complete
+        assert any(unread.reason == "read-error" for unread in snapshot.unread_files)
+
+    def test_a_bound_that_stops_collection_is_named_too(self, claude_root: Path) -> None:
+        """The bounds already marked incomplete; now they say which files."""
+        snapshot = snapshot_of(claude_root, bounds=CollectionBounds(max_file_count=1))
+
+        reasons = {unread.reason for unread in snapshot.unread_files}
+        assert reasons == {"file-count-bound-reached"}
+        assert all(unread.relative_path for unread in snapshot.unread_files)
+
+    def test_a_hostile_name_is_carried_as_a_token_not_a_broken_reference(
+        self, tmp_path: Path
+    ) -> None:
+        """An unread file's name is untrusted text like any other.
+
+        The reference keeps the safe token; the path is carried beside it so
+        a renderer can decide, and a name too hostile to print is still
+        counted rather than dropped.
+        """
+        root = tmp_path / "vault"
+        root.mkdir()
+        hostile = "-----BEGIN a b c d e name.md"
+        (root / hostile).write_bytes(b"x" * 2049)
+
+        snapshot = snapshot_of(root, bounds=CollectionBounds(max_file_bytes=2048))
+
+        assert len(snapshot.unread_files) == 1
+        unread = snapshot.unread_files[0]
+        assert unread.relative_path == hostile
+        assert unread.token.startswith("sha256:"), "the reference form stays safe"
+        assert any(unread.token in item.reference for item in snapshot.exclusions)
 
 
 class TestFailClosed:

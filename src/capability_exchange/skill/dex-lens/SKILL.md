@@ -173,8 +173,15 @@ first run. Say so once, and skip the "since last time" section of the report.
 ## Phase 1: read the system
 
 ```
-dex-lens inventory <folder> --out /tmp/dex-lens-inventory.md
+dex-lens inventory --out /tmp/dex-lens-inventory.md
 ```
+
+With no folder given, this reads the folder you are open in — which is the
+folder the person ran you in, the system they want looked at. Do not ask
+which folder first; read the current one. Only pass an explicit
+`dex-lens inventory <folder>` when the person tells you their system is
+somewhere else, or when the command reports that the current folder has no
+instruction files, settings or skills and so is not a personal AI system.
 
 This lists every instruction file, settings file and skill with the
 description it declares for itself, and folds duplicates together. A real
@@ -256,10 +263,13 @@ The four findings the inventory hands you, and what each one means:
    Cost: they edit one and get the behaviour of another, and nobody can tell
    which is live. Checking: compare the copies, keep one, decide deliberately
    if a difference was intended.
-3. **Switched off by name.** Someone wanted that capability and the
-   implementation fell short. That is a statement of unmet intent, and unmet
-   intent is exactly what Phase 6 should try to serve. Say what the disabled
-   skill was trying to do.
+3. **Switched off.** A skill the person appears to have turned off rather than
+   removed. The section marks how it knows: frontmatter that says so is the
+   author stating it; "named as disabled" is only the folder name, which can
+   be an active skill about disabling something rather than a disabled one.
+   Where it is genuinely switched off it may be unmet intent worth serving in
+   Phase 6 — but confirm what the skill was for before you treat it as a wish,
+   and never treat a name-only match as one.
 4. **Size.** The distinct count versus the file count, stated plainly, because
    most people have never seen either number.
 
@@ -296,9 +306,12 @@ instruct the assistant to call the banned tool by name. Nobody knew. The
 method is what to reuse, not the example: run the extraction on whatever their
 instruction files actually say.
 
-Report only what you actually saw. If the search comes back clean, say that —
-"I checked the rules in your instruction files against your skills and found
-no conflicts" is a real finding and worth the sentence.
+Report only what you actually saw. If the search comes back clean, say that,
+and name the instruction file you read — "I checked the rules in
+`~/.claude/CLAUDE.md` against your skills and found no conflicts" is a real
+finding and worth the sentence. The path is what separates a hunt that ran
+from a sentence about a hunt, and `dex-lens reports save` will refuse the
+sentence without it.
 
 ## How to judge quality
 
@@ -328,7 +341,8 @@ assumes: yes" means nothing on its own; "verifies rather than assumes — yes,
 it reads the page back after writing: `> then re-open the note and confirm
 the action appears under Commitments`" is a finding.
 
-The verdict is the comparison of scorecards, stated in plain language:
+The verdict is the two sets of checks held side by side, stated in plain
+language:
 "Dex's version verifies and refuses honestly; yours is more proactive and
 better shaped to your accounts, but declares success without checking. If
 you take anything from Dex's, take the verification step." Both sides can
@@ -356,7 +370,7 @@ so the rest is not sitting in your context for the remainder of the
 conversation:
 
 ```
-dex-lens catalogue --jobs remember-what-matters,prepare-for-meetings
+dex-lens catalogue --jobs stay-on-top-of-commitments,process-meetings
 ```
 
 `--only <id>,<id>` does the same by capability. Both refuse rather than print
@@ -392,8 +406,10 @@ For each job in the catalogue, ask:
    the right answer, and no whole-capability recommendation can express it.
 3. If they do not, would it help *them*? This is the judgement. A capability
    is worth suggesting when it serves work you can see them doing, and a
-   switched-off skill in the Housekeeping section is the strongest signal
-   there is: they already wanted it. Someone whose vault is full of customer
+   genuinely switched-off skill in the Housekeeping section — one its own
+   frontmatter disables, not one merely named that way — is a strong signal:
+   they already wanted it. Confirm it is really theirs and really off before
+   leaning on it. Someone whose vault is full of customer
    accounts and deal notes has an obvious use for account planning. The same
    capability is noise to someone whose system is entirely about writing.
 
@@ -519,9 +535,10 @@ What it costs: <plain words>
 How to check it: <what they would do; you do not do it>
 
 ## Contradictions and fragility
-(Required. If the hunt came back clean, this whole section is one sentence:
-"I checked the rules in your instruction files against your skills and found
-no conflicts." Otherwise, one block per conflict:)
+(Required. If the hunt came back clean, this whole section is one sentence
+that names the file you checked: "I checked the rules in
+`~/.claude/CLAUDE.md` against your skills and found no conflicts."
+Otherwise, one block per conflict:)
 ### <the rule that is being broken>
 The rule:
 > <exact words>
@@ -681,11 +698,15 @@ cleanly is part of feeling looked after.
 
 ## When the folder is not obvious
 
-If you do not know which folder holds their system, ask once, and offer the
-likely candidates you can see rather than an open question. If they have
-several, do them one at a time; a combined inventory across unrelated roots
-reads as one incoherent system. Give each one its own `--label` when you save
-the report, so their two systems keep two separate histories.
+The default is the folder you are open in, and it is almost always right:
+`dex-lens inventory` with no folder reads it. You only need to think about
+this when the current folder turns out not to be their system — the command
+says so — or when the person tells you they keep several systems. Then ask
+once, offering the likely candidates you can see rather than an open question,
+and if they have several, do them one at a time: a combined inventory across
+unrelated roots reads as one incoherent system. Give each one its own
+`--label` when you save the report, so their two systems keep two separate
+histories.
 
 ## When they push back
 

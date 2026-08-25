@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +20,14 @@ from scripts.release_bundle import (
 from scripts.render_release_installer import render_installer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+RELEASE_URL = "https://github.com/davekilleen/dex-lens/releases/download/v0.1.0"
+
+#: A line of the installer's own source, printed where help text belongs.
+SHELL_SOURCE = re.compile(
+    r"^\s*(set -|readonly |export |local |trap |eval |source |printf |echo |"
+    r"if |fi$|then$|else$|elif |for |done$|while |case |esac$|#!|"
+    r"[A-Za-z_][A-Za-z0-9_]*\(\)\s*\{)"
+)
 
 
 def _manifest() -> ReleaseManifest:
@@ -59,6 +69,89 @@ def _test_keypair(tmp_path: Path) -> tuple[Path, Path]:
     return private_path, public_path
 
 
+def _rendered_installer(tmp_path: Path) -> Path:
+    _, public_key = _test_keypair(tmp_path)
+    installer_path = tmp_path / "install.sh"
+    installer_path.write_text(
+        render_installer(
+            manifest=_manifest(),
+            release_url=RELEASE_URL,
+            public_key_pem=public_key.read_bytes(),
+        ),
+        encoding="utf-8",
+    )
+    return installer_path
+
+
+def _sealed_network(tmp_path: Path, home: Path) -> tuple[dict[str, str], Path]:
+    """An environment whose curl records the call it should never be asked to make.
+
+    `--help` and `--dry-run` are answers, not installs. Anything they do
+    reaches the network through curl, so a curl that only tells on itself is
+    the whole proof.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    sealed_bin = tmp_path / "sealed-bin"
+    sealed_bin.mkdir(exist_ok=True)
+    curl_called = tmp_path / "curl-called"
+    (sealed_bin / "curl").write_text(
+        f"#!/usr/bin/env bash\ntouch {shlex.quote(str(curl_called))}\nexit 99\n",
+        encoding="utf-8",
+    )
+    (sealed_bin / "curl").chmod(0o755)
+    environment = os.environ | {
+        "HOME": str(home),
+        "PATH": f"{sealed_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+    environment.pop("DEX_LENS_SKILLS_DIR", None)
+    return environment, curl_called
+
+
+def _hand_off_line(text: str) -> str:
+    """The whole printf that prints the start command, continuations joined.
+
+    The line is written across two source lines to stay readable; what the
+    shell sees is one command, and one command is what has to be run here.
+    """
+    lines = text.splitlines()
+    start = next(
+        index
+        for index, line in enumerate(lines)
+        if line.strip().startswith("printf") and '%s "%s"' in line
+    )
+    collected = []
+    while True:
+        current = lines[start].strip()
+        collected.append(current.removesuffix("\\").strip())
+        if not current.endswith("\\"):
+            break
+        start += 1
+    return " ".join(collected)
+
+
+def _start_line(installer: str, bin_home: Path) -> str:
+    """Run the printed hand-off line the way the installer runs it.
+
+    Executed rather than pattern-matched. The bug a real tester hit was
+    invisible to a substring check: the rendered line left $DEX_LENS_ASK
+    unquoted, the shell split it into fourteen words, and printf faithfully
+    printed one word per line.
+    """
+    printed = subprocess.run(  # noqa: S602 - fixed line from the rendered installer
+        f"DEX_LENS_BIN_HOME={shlex.quote(str(bin_home))}; DEX_LENS_ASSISTANT=claude; "
+        f'DEX_LENS_ASK="Do a thing for me, please."; {_hand_off_line(installer)}',
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert printed.returncode == 0, printed.stderr
+    assert printed.stdout.count("\n") == 1, (
+        f"the start command must print as one line, got: {printed.stdout!r}"
+    )
+    return printed.stdout.strip()
+
+
 def test_p256_signature_covers_the_exact_manifest_bytes(tmp_path: Path) -> None:
     manifest_path = tmp_path / "release-manifest.json"
     signature_path = tmp_path / "release-manifest.sig"
@@ -78,7 +171,7 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
 
     installer = render_installer(
         manifest=_manifest(),
-        release_url="https://github.com/davekilleen/dex-lens/releases/download/v0.1.0",
+        release_url=RELEASE_URL,
         public_key_pem=public_key.read_bytes(),
     )
 
@@ -93,7 +186,10 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     # browser journey.
     assert "skill/dex-lens/SKILL.md" in installer
     assert 'files("capability_exchange")' in installer
-    assert "Have a look at my setup and tell me what Dex has that I do not." in installer
+    assert "Have a look at my setup and tell me what Dex has that I don't." in installer
+    assert "that I do not." not in installer, (
+        "two spellings of the one line people paste is one spelling too many"
+    )
     assert "dex-lens --choose-folder" not in installer
     # One pasted line ends in the conversation: the installer hands over to
     # Claude Code when it exists and a real terminal is attached — and only
@@ -107,28 +203,8 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "/dev/tty" not in installer, "the deaf-assistant hand-off shape must not return"
     assert "One more paste and the conversation starts" in installer
 
-    # Execute the hand-off line rather than pattern-matching it. The bug a
-    # real tester hit was invisible to a substring check: the rendered line
-    # left $DEX_LENS_ASK unquoted, the shell split it into fourteen words,
-    # and printf faithfully printed one word per line. Running it is the
-    # only check that would have caught that.
-    hand_off = next(
-        line.strip()
-        for line in installer.splitlines()
-        if line.strip().startswith("printf") and '%s "%s"' in line
-    )
-    printed = subprocess.run(  # noqa: S602 - fixed line from the rendered installer
-        f'DEX_LENS_ASSISTANT=claude; DEX_LENS_ASK="Do a thing for me, please."; {hand_off}',
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert printed.returncode == 0, printed.stderr
-    assert printed.stdout.count("\n") == 1, (
-        f"the start command must print as one line, got: {printed.stdout!r}"
-    )
-    assert printed.stdout.strip() == 'claude "Do a thing for me, please."', printed.stdout
+    start_line = _start_line(installer, tmp_path / "bin")
+    assert start_line.endswith('claude "Do a thing for me, please."'), start_line
     assert 'command -v codex' in installer, 'Codex is a first-class assistant too'
     # The first-install note: declared, triple-gated, and harmless on failure.
     assert "https://heydex.ai/lens/installed" in installer
@@ -136,8 +212,11 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "DEX_LENS_NO_PING" in installer, "the off-switch is part of the declaration"
     assert ".install-recorded" in installer, "re-installs are silent"
     # The five review findings, held down:
-    assert "{XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/.install-recorded" in installer, (
+    assert "{XDG_STATE_HOME:-$HOME/.local/state}/dex-lens" in installer, (
         "one shared marker; both installers, one ping ever"
+    )
+    assert '"$DEX_LENS_PING_STATE_DIR/.install-recorded"' in installer, (
+        "the marker sits in that one folder, which is itself a change worth naming"
     )
     assert '[ -d "$HOME/.codex" ] || command -v codex' in installer, (
         "a machine that can launch codex never launches it blind"
@@ -160,6 +239,20 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "XDG_DATA_HOME" not in installer
     assert '"$DEX_LENS_VENV/bin/dex-lens" --help' in installer
     assert "A partial install from this run was removed safely" in installer
+    # Two options exist because the page that publishes this installer says
+    # they do, and both have to be answered before anything is fetched.
+    assert "--dry-run) DEX_LENS_DRY_RUN=1 ;;" in installer
+    assert "I do not understand the option" in installer
+    # pip's own progress is not the person's business: fourteen "Processing
+    # …whl" lines are what a wheelhouse install prints unasked.
+    assert "-m pip install --quiet --no-index" in installer
+    # A command nobody's shell can find is not installed, as far as the
+    # person holding the terminal is concerned.
+    assert 'case ":$PATH:" in' in installer
+    assert "installed but not findable" in installer
+    assert "The dex-lens command is at $DEX_LENS_LAUNCHER" in installer, (
+        "the closing words name the command they just created"
+    )
     assert "sudo" not in installer
     assert "git clone" not in installer
     assert "curl |" not in installer
@@ -168,6 +261,148 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
         ["bash", "-n"], input=installer, text=True, capture_output=True, check=False
     )
     assert parsed.returncode == 0, parsed.stderr
+
+
+class TestTheOptionsThePageDocuments:
+    """`--dry-run` and `--help`, on the installer people actually run.
+
+    The published installer parsed no arguments at all: `curl … | bash -s --
+    --dry-run` performed a full install, forty-six megabytes of it, while the
+    page beside the command promised that `--dry-run` says what it would do
+    and does none of it. Every test here runs the rendered file.
+    """
+
+    @staticmethod
+    def _run(
+        tmp_path: Path, home: Path, *arguments: str, piped: bool = False, **overrides: str
+    ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+        installer = _rendered_installer(tmp_path)
+        environment, curl_called = _sealed_network(tmp_path, home)
+        environment |= overrides
+        from_a_file = ["bash", str(installer), *arguments]
+        command = ["bash", "-s", "--", *arguments] if piped else from_a_file
+        completed = subprocess.run(  # noqa: S603 - test invokes the rendered installer
+            command,
+            text=True,
+            capture_output=True,
+            env=environment,
+            input=installer.read_text(encoding="utf-8") if piped else None,
+            check=False,
+        )
+        return completed, home, curl_called
+
+    def test_help_answers_before_it_fetches_anything(self, tmp_path: Path) -> None:
+        completed, home, curl_called = self._run(tmp_path, tmp_path / "home", "--help")
+
+        assert completed.returncode == 0, completed.stderr
+        assert "--dry-run" in completed.stdout
+        assert "--help" in completed.stdout
+        assert not curl_called.exists(), "help is an answer, not a download"
+        assert list(home.iterdir()) == []
+
+    def test_help_never_prints_a_line_of_shell(self, tmp_path: Path) -> None:
+        completed, _, _ = self._run(tmp_path, tmp_path / "home", "--help")
+
+        assert completed.stdout.strip(), "help that prints nothing is not help"
+        for line in completed.stdout.splitlines():
+            assert not SHELL_SOURCE.match(line), f"help printed a line of shell source: {line!r}"
+
+    def test_a_piped_dry_run_says_what_it_would_do_and_does_none_of_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The published shape, with the option the published page promises."""
+        completed, home, curl_called = self._run(
+            tmp_path, tmp_path / "home", "--dry-run", piped=True
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert not curl_called.exists(), "a dry run downloads nothing"
+        assert list(home.iterdir()) == [], "a dry run writes nothing"
+        for named in (
+            "dex-lens/versions/v0.1.0",  # the private install root
+            "/.local/bin/dex-lens",  # the command
+            "/.claude/skills/dex-lens",  # the skill, which is the product
+            "/.local/state/dex-lens",  # the folder the first-install note leaves
+            "anonymous",  # the note itself
+            "your assistant",  # how a real run ends
+        ):
+            assert named in completed.stdout, named
+
+    def test_the_dry_run_is_silent_about_a_note_that_would_not_be_sent(
+        self, tmp_path: Path
+    ) -> None:
+        """The same gates as the real run, or the honesty feature overstates."""
+        switched_off, _, _ = self._run(
+            tmp_path, tmp_path / "quiet-home", "--dry-run", DEX_LENS_NO_PING="1"
+        )
+
+        assert switched_off.returncode == 0, switched_off.stderr
+        assert "anonymous" not in switched_off.stdout, switched_off.stdout
+
+        counted = tmp_path / "counted-home"
+        (counted / ".local" / "state" / "dex-lens").mkdir(parents=True)
+        (counted / ".local" / "state" / "dex-lens" / ".install-recorded").touch()
+
+        already_counted, _, _ = self._run(tmp_path, counted, "--dry-run")
+
+        assert already_counted.returncode == 0, already_counted.stderr
+        assert "anonymous" not in already_counted.stdout, already_counted.stdout
+
+    def test_an_option_it_does_not_know_stops_before_the_network(self, tmp_path: Path) -> None:
+        completed, home, curl_called = self._run(
+            tmp_path, tmp_path / "home", "--install-everything"
+        )
+
+        assert completed.returncode != 0
+        assert "do not understand" in completed.stderr
+        assert not curl_called.exists()
+        assert list(home.iterdir()) == []
+
+
+def test_the_printed_start_line_runs_where_the_command_is_not_yet_on_path(
+    tmp_path: Path,
+) -> None:
+    """The documented install used to end in `dex-lens: command not found`.
+
+    This installer has no PATH check and printed a bare `claude "…"` line, so
+    the very command it had just linked into ~/.local/bin was unfindable by
+    the assistant the person was told to paste. The line has to carry the
+    folder itself; proved by running it in a shell that has never heard of it.
+    """
+    _, public_key = _test_keypair(tmp_path)
+    installer = render_installer(
+        manifest=_manifest(), release_url=RELEASE_URL, public_key_pem=public_key.read_bytes()
+    )
+    bin_home = tmp_path / "bin"
+    bin_home.mkdir()
+    (bin_home / "dex-lens").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (bin_home / "dex-lens").chmod(0o755)
+    assistant_dir = tmp_path / "assistant"
+    assistant_dir.mkdir()
+    (assistant_dir / "claude").write_text(
+        '#!/usr/bin/env bash\nprintf "asked: %s\\n" "$1"\n'
+        'printf "found: %s\\n" "$(command -v dex-lens || echo nowhere)"\n',
+        encoding="utf-8",
+    )
+    (assistant_dir / "claude").chmod(0o755)
+
+    start_line = _start_line(installer, bin_home)
+
+    pasted = subprocess.run(  # noqa: S602 - the line the installer told the person to paste
+        start_line,
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={"HOME": str(tmp_path), "PATH": f"{assistant_dir}{os.pathsep}/usr/bin:/bin"},
+    )
+
+    assert pasted.returncode == 0, pasted.stderr
+    assert "asked: Use Dex Lens" not in pasted.stdout  # the ask is substituted, not hard-coded
+    assert "asked: Do a thing for me, please." in pasted.stdout, pasted.stdout
+    assert f"found: {bin_home / 'dex-lens'}" in pasted.stdout, (
+        "the pasted line has to find dex-lens in a shell that never had it on PATH"
+    )
 
 
 def test_rendered_installer_refuses_windows_before_calling_curl(tmp_path: Path) -> None:

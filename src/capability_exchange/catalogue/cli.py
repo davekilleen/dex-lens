@@ -21,6 +21,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from capability_exchange.catalogue.agent import (
     render_capability_brief_markdown,
     render_catalogue_digest,
@@ -41,6 +43,7 @@ from capability_exchange.catalogue.fetch import (
 from capability_exchange.catalogue.subscription import (
     CatalogueSubscriptionStore,
     default_lens_app_storage,
+    require_app_storage_outside_roots,
 )
 from capability_exchange.catalogue.v2 import (
     CatalogueV2,
@@ -91,14 +94,31 @@ def _fetch(url: str, *, offline: bool) -> CatalogueFetchResult | None:
             fetched_at=datetime.now(UTC),
         )
 
-    fetcher = ConsentedCatalogueFetcher(store=store)
-    result = fetcher.fetch(
-        CatalogueFetchConsent(
+    # The pin is the protection, so it stays: an unpinned catalogue URL is a
+    # way to hand someone a list of changes to their system from a host they
+    # never chose. Only the delivery changes. A pydantic traceback reads as a
+    # broken tool rather than a refused request, and buries the reason under a
+    # stack, so the validator's own sentence is what the person is shown.
+    try:
+        consent = CatalogueFetchConsent(
             catalogue_url=url,
             requested_at=datetime.now(UTC),
             statement=CONSENT_STATEMENT,
         )
-    )
+    except ValidationError as exc:
+        for error in exc.errors():
+            reason = str(error.get("msg", "it was refused")).removeprefix("Value error, ")
+            print(f"dex-lens: --url {url!r} was refused: {reason}.", file=sys.stderr)
+        print(
+            f"dex-lens: the one catalogue Lens fetches is {DEFAULT_CATALOGUE_URL}, "
+            "which is the same file for everyone and carries nothing about this "
+            "system. Run without --url to read it.",
+            file=sys.stderr,
+        )
+        return None
+
+    fetcher = ConsentedCatalogueFetcher(store=store)
+    result = fetcher.fetch(consent)
     if result.status is not CatalogueFetchStatus.VERIFIED or result.verified is None:
         print(f"dex-lens: {result.message}", file=sys.stderr)
         if result.stale is not None:
@@ -116,9 +136,10 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
         "--url",
         default=DEFAULT_CATALOGUE_URL,
         help=(
-            "Where to fetch the signed catalogue from. The default is the public "
-            "Dex catalogue, identical for everyone; the request carries nothing "
-            "about this system."
+            "Where to fetch the signed catalogue from: the public Dex catalogue, "
+            "identical for everyone, and the request carries nothing about this "
+            "system. The host is pinned to heydex.ai and the path to a static "
+            "signed JSON file, so any other value is refused."
         ),
     )
     parser.add_argument(
@@ -411,7 +432,10 @@ def brief_main(argv: list[str] | None = None) -> int:
         prog="dex-lens brief",
         description=(
             "Print everything needed to rebuild one Dex capability inside a "
-            "different system. Guidance only; this command changes nothing."
+            "different system. Guidance only: it grants no permission and "
+            "alters nothing in the system it describes. The one file it can "
+            "write is the optional --out copy, which --for keeps outside the "
+            "folder being described."
         ),
     )
     parser.add_argument("capability_id", help="Capability id, as printed by `dex-lens catalogue`.")
@@ -428,9 +452,40 @@ def brief_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        help="Write the brief to this file as well as printing it.",
+        help=(
+            "Write the brief to this file as well as printing it. The brief is "
+            "printed either way, so a copy that cannot be written costs a "
+            "warning and not the brief."
+        ),
+    )
+    parser.add_argument(
+        "--for",
+        dest="inspected_root",
+        type=Path,
+        help=(
+            "The folder this brief is being read against. Given, the command "
+            "proves --out lands outside it before writing anything, so "
+            "guidance cannot install itself as a file inside the system it "
+            "only describes."
+        ),
     )
     args = parser.parse_args(argv)
+
+    # Checked before the catalogue is even read: a refusal that arrives after
+    # the work is a refusal the caller is tempted to route around.
+    if args.out is not None and args.inspected_root is not None:
+        try:
+            require_app_storage_outside_roots(args.out, (args.inspected_root,))
+        except ValueError:
+            print(
+                f"dex-lens: --out {args.out} is inside {args.inspected_root}, "
+                "the folder this brief is being read against. A brief is "
+                "guidance for a person to consider; written in there it "
+                "becomes a file their assistant loads and acts on. Choose a "
+                "path outside that folder.",
+                file=sys.stderr,
+            )
+            return 2
 
     result = _fetch(args.url, offline=args.offline)
     if result is None:
@@ -447,9 +502,28 @@ def brief_main(argv: list[str] | None = None) -> int:
         print(f"dex-lens: {exc.args[0]}", file=sys.stderr)
         return 1
 
-    if args.out is not None:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(brief, encoding="utf-8")
-        print(f"dex-lens: written to {args.out}", file=sys.stderr)
+    # Printed first, and copied second. The copy is the optional half: when it
+    # was attempted first, a directory that could not be made took the whole
+    # brief down with it and the caller was left with neither.
     print(brief, end="")
+
+    if args.out is not None:
+        try:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(brief, encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"dex-lens: the brief above was not written to {args.out}: {exc}. "
+                "The file is a convenience; the brief itself is complete above.",
+                file=sys.stderr,
+            )
+        else:
+            if args.inspected_root is None:
+                print(
+                    "dex-lens: --for was not given, so nothing proved this file "
+                    "lands outside the folder the brief is being read against. "
+                    "Pass --for <folder> to have that checked.",
+                    file=sys.stderr,
+                )
+            print(f"dex-lens: written to {args.out}", file=sys.stderr)
     return 0

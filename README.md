@@ -62,10 +62,13 @@ and leaves every decision with you.
 
 > **Dex Lens works with the assistant you already use.** Claude Code has the
 > deepest support and Codex works too: the installer places the skill for
-> both, reads both assistants' instruction files (`CLAUDE.md` and
-> `AGENTS.md`), and starts whichever assistant your machine has. The
-> assistant is simply where your system lives; Dex Lens assesses the whole
-> personal AI operating system built around your work.
+> Claude Code always and for Codex when this machine has it, and Lens reads
+> both assistants' instruction files (`CLAUDE.md` and `AGENTS.md`). Pasted
+> from `curl`, the installer ends by printing one line that starts your
+> assistant with the first question already in it; run from a saved file,
+> where it has your keyboard, it hands straight over instead. The assistant
+> is simply where your system lives; Dex Lens assesses the whole personal AI
+> operating system built around your work.
 
 ## Why this matters
 
@@ -200,7 +203,7 @@ That bridge is now live. Here is what it does:
 | Your question | Dex Lens promise |
 | --- | --- |
 | **Does diagnosis change my system?** | No. Diagnosis is read-only. |
-| **Does it write anything at all?** | One thing: your dated report, in `~/.local/state/dex-lens/reports/`. Never inside the folder it looked at, and it checks that before writing. |
+| **Does it write anything at all?** | Only inside its own storage, `~/.local/state/dex-lens/`: your dated report, plus the checked copy of Dex's public catalogue and the record of what this machine has already been shown, which is how a later look can tell you only what changed. Both of those are about Dex's catalogue, which is the same file for everyone. Never inside the folder it looked at, and it checks that before writing. |
 | **Does it upload my setup?** | No. The diagnosis runs locally on your Mac. |
 | **Do I need an account?** | No. There is no account or analytics in the diagnosis. |
 | **Can it inspect anything it wants?** | No. You choose the folder, and Lens does not silently widen that boundary. |
@@ -267,7 +270,10 @@ people using it for real work.
 ## For invited testers and technical evaluators
 
 Invited testers get the one-line installer above and a guided handoff. The
-signed release bundle, with a published checksum, is still in preparation.
+signed release bundle is published: each release carries the two platform
+archives, a manifest naming the checksum of each, and a signature over that
+manifest, which the installer checks against a public key written into the
+installer itself before it unpacks anything.
 
 The manual source build below is for evaluators who want to read every step
 before running it. Installing does not scan anything.

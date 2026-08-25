@@ -32,6 +32,7 @@ from capability_exchange.catalogue.subscription import (
 )
 
 __all__ = [
+    "DEFAULT_LABEL",
     "LensReportStore",
     "missing_comparison_with",
     "SavedReport",
@@ -50,7 +51,10 @@ _SEPARATOR = "--"
 #: never mistaken for the second report of "run".
 _COLLISION = "~"
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
-_DEFAULT_LABEL = "diagnosis"
+#: The label a report is filed under when nobody chose one. Public because
+#: the command has to resolve "no label given" to the same word the store
+#: would have used, or a saved report and the search for it disagree.
+DEFAULT_LABEL = "diagnosis"
 
 
 def default_report_directory(
@@ -72,7 +76,20 @@ def default_report_directory(
 def _slug(value: str) -> str:
     """A filename-safe label, or the default when nothing survives."""
     slug = _SLUG_STRIP.sub("-", value.strip().lower()).strip("-")
-    return slug[:60] or _DEFAULT_LABEL
+    return slug[:60] or DEFAULT_LABEL
+
+
+def _decoded(path: Path) -> str:
+    """The file's text, with bytes that are not UTF-8 shown rather than raised.
+
+    The reports directory is the person's own folder — they are told to keep
+    things there and share what is in it — so it will contain files Lens did
+    not write, in encodings Lens did not choose. One `latin-1` note used to
+    end the whole command in a `UnicodeDecodeError` traceback, taking the
+    unsaved diagnosis with it. A file that will not decode is still a file in
+    the folder; it is listed with what could be read of it.
+    """
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _title_of(markdown: str) -> str:
@@ -99,8 +116,25 @@ class SavedReport:
     def size_bytes(self) -> int:
         return self.path.stat().st_size
 
+    @property
+    def is_valid_utf8(self) -> bool:
+        """Whether the file decodes cleanly, so a reader can be told when not."""
+        try:
+            self.path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return False
+        except OSError:
+            return False
+        return True
+
     def read(self) -> str:
-        return self.path.read_text(encoding="utf-8")
+        """The report's text. Undecodable bytes come back as U+FFFD.
+
+        Printing a damaged file with the damage visible beats refusing to
+        print it: the person can still see what is there, and nothing on disk
+        is touched either way.
+        """
+        return _decoded(self.path)
 
     def listing_line(self) -> str:
         """One line a person can read without being told how to read it."""
@@ -119,7 +153,7 @@ class LensReportStore:
         self,
         markdown: str,
         *,
-        label: str = _DEFAULT_LABEL,
+        label: str = DEFAULT_LABEL,
         now: datetime | None = None,
     ) -> SavedReport:
         """Write one dated report and return where it landed.
@@ -189,7 +223,15 @@ class LensReportStore:
 
         A file whose name Lens did not write still gets listed, dated by its
         modification time. Hiding a report because its name is unfamiliar
-        would quietly answer "what did the last run say?" with the wrong file.
+        would quietly answer "what did the last run say?" with the wrong file,
+        and that includes a file whose *contents* are unfamiliar: text in
+        another encoding is listed with whatever could be read of its title.
+
+        Nothing in here may raise. This runs on every listing, and on the way
+        into `save` — one unreadable file in the folder used to end the
+        command in a traceback, with the diagnosis still unwritten. What is
+        skipped is only what holds no report at all: a directory or a broken
+        link that happens to be named `*.md`.
         """
         stem = path.stem
         stamp_text, _, label = stem.partition(_SEPARATOR)
@@ -197,16 +239,20 @@ class LensReportStore:
         try:
             saved_at = datetime.strptime(stamp_text, _STAMP_FORMAT).replace(tzinfo=UTC)
         except ValueError:
-            saved_at = datetime.fromtimestamp(path.stat().st_mtime, UTC).replace(microsecond=0)
+            try:
+                modified = path.stat().st_mtime
+            except OSError:
+                return None
+            saved_at = datetime.fromtimestamp(modified, UTC).replace(microsecond=0)
             label = stem
         try:
-            title = _title_of(path.read_text(encoding="utf-8"))
+            title = _title_of(_decoded(path))
         except OSError:
             return None
         return SavedReport(
             path=path,
             saved_at=saved_at,
-            label=label or _DEFAULT_LABEL,
+            label=label or DEFAULT_LABEL,
             title=title,
         )
 
@@ -255,16 +301,110 @@ _JUDGEMENT_SECTIONS = (
     "worth borrowing",
 )
 
-_QUOTE_LINE = re.compile(r"^\s*>", re.MULTILINE)
+#: One line of a quotation. Matched line by line rather than over the whole
+#: report, because what has to be told apart is a *block* with something in it
+#: from a lone ">" character: the second used to satisfy the evidence rule for
+#: an entire report.
+_QUOTE_LINE = re.compile(r"^\s*>")
+
+#: How far under a quotation its source may sit. The template puts the path on
+#: the last line of the block ("> — `<path>`"); people just as often put it on
+#: its own line under the block. Both are the same act, so both count.
+_CITATION_LINES = 3
+
+#: A file the report says it read. Backticks are how the template writes a
+#: path and how people write one anyway, but a bare path counts too — what is
+#: being looked for is a name the reader could open for themselves, not a
+#: formatting habit.
+_PATH_MENTION = re.compile(
+    r"""
+    <paths?>                                        # the template's placeholder
+    | (?:^|[\s`("'\[])[~.]?[/\\][\w~@+.\-]+         # /vault, ~/.claude, ./notes
+    | [\w~@+\-][\w~@+.\-/\\]*\.(?:md|markdown|txt|json|jsonl|ya?ml|toml|ini|cfg
+        |conf|env|py|js|ts|sh|zsh|bash|rb|go|rs|lock|xml|csv|html?)\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+#: The opening or closing line of a fenced code block.
+_FENCE = re.compile(r"^\s{0,3}(?P<fence>`{3,}|~{3,})")
 
 #: An Unknown *label*, not the word in passing. It has to sit where the report
 #: template puts a label — at the end of the finding's heading, or on a line of
 #: its own — because waiving the evidence requirement on any sentence
 #: containing "unknown" let "it calls an unknown tool" pass an unquoted claim.
 _UNKNOWN_LABEL = re.compile(
-    r"(?:[-\u2014\u2013:|]\s*|^)Unknown\b\.?\s*$", re.IGNORECASE | re.MULTILINE
+    r"(?:[-—–:|]\s*|^)Unknown\b\.?\s*$", re.IGNORECASE | re.MULTILINE
 )
-_HEADING = re.compile(r"^(#{2,3})\s+(.*?)\s*$", re.MULTILINE)
+#: Every heading a report can carry under its title. Levels below "###" are
+#: not decoration: "#### Your router skill is flawless" is the same judgement
+#: as the "###" version of it, and matching only two levels meant the deeper
+#: one was checked by nothing at all.
+_HEADING = re.compile(r"^(#{2,6})\s+(.*?)\s*$", re.MULTILINE)
+
+
+def _without_code_fences(markdown: str) -> str:
+    """The report's own words: everything outside a fenced code block.
+
+    A fence is quoted material, not a claim. A report that pasted the template
+    it was supposed to fill in — "here is what I was going to write" — used to
+    satisfy every heading and every quotation from inside the fence while its
+    own prose said it had done nothing, which is the laziest possible
+    diagnosis passing the check that exists to catch it.
+
+    An unterminated fence swallows the rest of the file. That is the
+    fail-closed reading: text the writer marked as a sample is not the
+    writer's own claim, whether or not they closed the fence.
+    """
+    kept: list[str] = []
+    closing: str | None = None
+    for line in markdown.splitlines():
+        fence = _FENCE.match(line)
+        if closing is None:
+            if fence is not None:
+                closing = fence.group("fence")[0] * 3
+                continue
+            kept.append(line)
+        elif fence is not None and fence.group("fence").startswith(closing):
+            closing = None
+    return "\n".join(kept)
+
+
+def _quotations(markdown: str) -> list[tuple[str, str]]:
+    """Every "> " block in this passage, paired with the lines that cite it.
+
+    The pair is (what was quoted, the block plus the few lines under it), so
+    the two halves of the rule — that something was quoted, and that its path
+    is given — can be asked separately.
+    """
+    lines = markdown.splitlines()
+    blocks: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines):
+        if _QUOTE_LINE.match(lines[index]) is None:
+            index += 1
+            continue
+        start = index
+        while index < len(lines) and _QUOTE_LINE.match(lines[index]) is not None:
+            index += 1
+        block = lines[start:index]
+        quoted = "\n".join(line.lstrip().removeprefix(">") for line in block)
+        citation = "\n".join(block + lines[index : index + _CITATION_LINES])
+        blocks.append((quoted, citation))
+    return blocks
+
+
+def _shows_evidence(markdown: str) -> bool:
+    """Whether this passage carries a quotation with a source beside it.
+
+    Both halves are required, because either alone is satisfied by a report
+    that read nothing: a lone ">" is not a quotation, and a line with no path
+    under it is not something the person can go and check.
+    """
+    return any(
+        quoted.strip() and _PATH_MENTION.search(citation) is not None
+        for quoted, citation in _quotations(markdown)
+    )
 
 
 def missing_comparison_with(previous: SavedReport | None, markdown: str) -> str | None:
@@ -277,7 +417,8 @@ def missing_comparison_with(previous: SavedReport | None, markdown: str) -> str 
     """
     if previous is None:
         return None
-    if any("since" in title.lower() for title in _section_titles(markdown)):
+    titles = _section_titles(_without_code_fences(markdown))
+    if any("since" in title.lower() for title in titles):
         return None
     when = previous.saved_at.strftime("%Y-%m-%d")
     return (
@@ -303,13 +444,18 @@ def missing_report_requirements(markdown: str) -> list[str]:
 
     What is checked is structural, never the wording: that the report says
     what it read and what happens next, that at least one claim is backed by
-    a quotation, that no scored finding stands with neither a quotation nor an
-    honest "Unknown" under it, and that a shortlist is accompanied by the
-    rejections that prove a comparison happened. Each returned line names the
-    fix, because an error that only says "invalid" gets worked around rather
-    than fixed.
+    a quotation with the path it came from, that no scored finding stands
+    with neither a quotation nor an honest "Unknown" under it, and that a
+    shortlist is accompanied by the rejections that prove a comparison
+    happened. Each returned line names the fix, because an error that only
+    says "invalid" gets worked around rather than fixed.
+
+    Everything is read from the report's own prose — fenced code blocks are
+    removed first, so a pasted template cannot answer for a diagnosis that
+    was never done.
     """
-    lowered = markdown.lower()
+    prose = _without_code_fences(markdown)
+    lowered = prose.lower()
     # A required section is a "##" heading, not a phrase somewhere in prose.
     # "No contradictions found" mentioned under The Mirror used to satisfy the
     # contradictions requirement while the dedicated section — and with it the
@@ -317,21 +463,21 @@ def missing_report_requirements(markdown: str) -> list[str]:
     problems = [
         f"add a section: {advice}"
         for phrase, advice in _REQUIRED_SECTIONS
-        if not _has_section_heading(markdown, phrase)
+        if not _has_section_heading(prose, phrase)
     ]
 
-    if not _QUOTE_LINE.search(markdown):
+    if not _shows_evidence(prose):
         problems.append(
             "quote something: every judgement carries a line copied from a file "
             'you read, as a "> " block with the path under it. A report with no '
             "quotations has not shown its work."
         )
 
-    problems.extend(_findings_without_evidence(markdown))
-    problems.extend(_contradiction_hunt_not_shown(markdown))
+    problems.extend(_findings_without_evidence(prose))
+    problems.extend(_contradiction_hunt_not_shown(prose))
 
     if "worth borrowing" in lowered and not _has_section_heading(
-        markdown, "considered and rejected"
+        prose, "considered and rejected"
     ):
         problems.append(
             "add a section: ## Considered and rejected — one line each for what "
@@ -354,34 +500,86 @@ def _has_section_heading(markdown: str, phrase: str) -> bool:
     )
 
 
+def _clean_sweep_shown(body: str) -> bool:
+    """Whether a clean result names what was actually checked.
+
+    The words alone cannot carry this. They are a bag of words over a short
+    window, and prose saying the exact opposite — "I have not checked
+    anything. I would have compared the rules to your skills, but found none
+    of the time needed" — matches them all. No widening fixes that: a
+    sentence about a hunt reads like a hunt.
+
+    What a hunt that ran can do, and a sentence about one cannot, is name a
+    file it read. So that is what is required.
+    """
+    match = _CLEAN_SWEEP.search(body)
+    return match is not None and _PATH_MENTION.search(match.group(0)) is not None
+
+
 def _contradiction_hunt_not_shown(markdown: str) -> list[str]:
     """Whether the contradictions section shows a hunt or only a heading.
 
     An empty heading is the failure mode this guards: the section survives,
     the search never happened, and the reader cannot tell the difference. Two
     things count as having done it — a finding with the rule and the thing
-    breaking it both quoted, or the plain statement that the rules were
-    checked and nothing conflicted.
+    breaking it both quoted, or the plain statement that the rules in a named
+    file were checked and nothing conflicted.
     """
     headings = list(_HEADING.finditer(markdown))
     for index, heading in enumerate(headings):
         if heading.group(1) != "##" or "contradiction" not in heading.group(2).lower():
             continue
-        # The section runs to the next "##"; the "###" findings inside it are
-        # part of it, which is where the quotations live.
+        # The section runs to the next "##"; the findings inside it are part
+        # of it, which is where the quotations live.
         following = [later for later in headings[index + 1 :] if later.group(1) == "##"]
         end = following[0].start() if following else len(markdown)
         body = markdown[heading.end() : end]
-        if _QUOTE_LINE.search(body) or _CLEAN_SWEEP.search(body):
+        if _shows_evidence(body) or _clean_sweep_shown(body):
             return []
         return [
             "show the contradiction hunt: under the contradictions heading, "
             "either quote a rule from an instruction file and the skill that "
-            "breaks it, or say plainly that you checked the rules against the "
+            "breaks it, each with its path, or say plainly that you checked "
+            "the rules — naming the instruction file you read — against the "
             "skills and found no conflicts. Finding none is a real answer; an "
             "empty heading is not."
         ]
     return []
+
+
+def _span_end(markdown: str, headings: list[re.Match[str]], index: int) -> int:
+    """Where a heading's own passage ends: at the next heading as shallow.
+
+    A finding owns whatever is nested under it, so a "###" finding whose
+    evidence sits under a "####" of its own still counts as evidenced.
+    """
+    level = len(headings[index].group(1))
+    for later in headings[index + 1 :]:
+        if len(later.group(1)) <= level:
+            return later.start()
+    return len(markdown)
+
+
+def _is_finding(level: str, section: str, headings: list[re.Match[str]], index: int) -> bool:
+    """Whether this heading makes a judgement that needs evidence under it.
+
+    Anything under a section heading is a finding, at any depth. A section
+    heading is one too when it has no findings beneath it: "## What is strong:
+    your router skill is flawless" is the same claim as the "###" version, and
+    treating every "##" as a container let the judgement be made in the
+    heading with nothing but praise underneath.
+
+    The contradictions section is left to :func:`_contradiction_hunt_not_shown`,
+    which accepts a clean sweep where there is nothing to quote.
+    """
+    if not any(phrase in section for phrase in _JUDGEMENT_SECTIONS):
+        return False
+    if level != "##":
+        return True
+    if "contradiction" in section:
+        return False
+    following = headings[index + 1 :]
+    return not following or following[0].group(1) == "##"
 
 
 def _findings_without_evidence(markdown: str) -> list[str]:
@@ -397,16 +595,14 @@ def _findings_without_evidence(markdown: str) -> list[str]:
     section = ""
     for index, heading in enumerate(headings):
         level, title = heading.group(1), heading.group(2)
-        end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
-        body = markdown[heading.end() : end]
         if level == "##":
             section = title.lower()
+        if not _is_finding(level, section, headings, index):
             continue
-        if not any(phrase in section for phrase in _JUDGEMENT_SECTIONS):
-            continue
+        body = markdown[heading.end() : _span_end(markdown, headings, index)]
         # The label often sits in the heading ("### X - Unknown"), so the
         # heading counts as part of the finding for this check.
-        if _QUOTE_LINE.search(body) or _UNKNOWN_LABEL.search(f"{title}\n{body}"):
+        if _shows_evidence(body) or _UNKNOWN_LABEL.search(f"{title}\n{body}"):
             continue
         problems.append(
             f"back up '{title}' with a quoted line and its path, or "
