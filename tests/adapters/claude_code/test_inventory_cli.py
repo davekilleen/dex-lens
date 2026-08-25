@@ -9,11 +9,15 @@ looked at, and an inventory too large to read produces no analysis at all.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
+from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
+from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.adapters.claude_code.inventory_cli import inventory_main
+from capability_exchange.adapters.claude_code.snapshot import take_snapshot
 
 not_root = pytest.mark.skipif(
     os.geteuid() == 0, reason="permission fixtures are meaningless as root"
@@ -695,3 +699,235 @@ class TestTheFolderDefaultsToWhereYouAre:
         code = inventory_main([])
         assert code == 2
         assert "too broad to read as one system" in capsys.readouterr().err
+
+
+# A fake API key shaped like a real one: the redactor recognizes the shape,
+# and no digit of it may reach the rendered inventory.
+_FAKE_GH_TOKEN = "ghp_FAKEfake0123456789abcdefFAKE0123"
+_FAKE_SK_KEY = "sk-FAKEfake0123456789abcdefghijklmn"
+
+
+def _mcp_json(root: Path, relative: str, body: str) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+
+
+class TestMcpServersAreInventoried:
+    """An assistant is as much what it can reach as what it knows.
+
+    The inventory saw four file basenames and none of them named an MCP
+    server, so every server the person wired in was invisible — the user side
+    under-read exactly the way the catalogue under-reads Dex.
+    """
+
+    def test_servers_are_listed_by_name_from_mcp_json(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _mcp_json(
+            system,
+            ".mcp.json",
+            '{"mcpServers": {"github": {"command": "npx", "args": ["-y", "srv"]},'
+            ' "linear": {"url": "https://mcp.linear.app/sse"}}}',
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## MCP servers (2 configured)" in out
+        assert "**github**" in out
+        assert "**linear**" in out
+        assert "mcp.linear.app" in out
+
+    def test_the_mcp_servers_key_inside_settings_json_is_read_too(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """settings.json is already captured; its mcpServers block was ignored."""
+        (system / ".claude" / "settings.json").write_text(
+            '{"mcpServers": {"notion": {"url": "https://mcp.notion.com/mcp"}}}',
+            encoding="utf-8",
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## MCP servers (1 configured)" in out
+        assert "**notion**" in out
+
+    def test_a_folder_with_no_servers_says_so_without_claiming_absence(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## MCP servers (0 configured)" in out
+        # A global config outside the folder is not proof there are none.
+        assert "not evidence that none are configured" in out
+
+    def test_unparseable_mcp_config_is_named_not_dropped(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _mcp_json(system, ".mcp.json", "{ this is not json ")
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "could not be parsed as JSON" in out
+        assert "`.mcp.json`" in out
+
+
+class TestMcpSecretsAreRedactedBeforeAnythingIsHeld:
+    """The hostile fixture: an .mcp.json with a real-shaped key in its env.
+
+    An MCP config routinely carries API keys and tokens inside a server's
+    ``env`` block. Naming ``.mcp.json`` as a captured file is what routes it
+    through the same collection-time redaction as every other file; the
+    server name is surfaced, the key never is.
+    """
+
+    def _hostile_mcp(self, root: Path) -> None:
+        _mcp_json(
+            root,
+            ".mcp.json",
+            "{\n"
+            '  "mcpServers": {\n'
+            '    "github": {"command": "npx",\n'
+            f'      "env": {{"GITHUB_TOKEN": "{_FAKE_GH_TOKEN}"}}}},\n'
+            '    "openai": {"command": "oai-mcp",\n'
+            f'      "env": {{"OPENAI_API_KEY": "{_FAKE_SK_KEY}"}}}}\n'
+            "  }\n"
+            "}\n",
+        )
+
+    def test_the_key_never_appears_in_the_inventory(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._hostile_mcp(system)
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert _FAKE_GH_TOKEN not in out
+        assert _FAKE_SK_KEY not in out
+        assert "ghp_" not in out
+        assert "sk-FAKE" not in out
+        # The server is still named — redaction hides the key, not the server.
+        assert "**github**" in out
+        assert "**openai**" in out
+
+    def test_the_key_is_redacted_before_it_enters_the_snapshot(
+        self, system: Path
+    ) -> None:
+        """Proof the redaction path runs, not merely that rendering omits env."""
+        self._hostile_mcp(system)
+        contract = claude_code_contract((str(system.resolve()),))
+        allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
+        snapshot = take_snapshot(allowlist)
+
+        (entry,) = snapshot.entries_named(".mcp.json")
+        held = entry.content.decode("utf-8")
+        assert _FAKE_GH_TOKEN not in held
+        assert _FAKE_SK_KEY not in held
+        assert "[REDACTED-SECRET]" in held
+        assert entry.redaction_count == 2
+
+
+class TestAutomationsAreSurfaced:
+    """Scheduled automations are part of a system and were never surfaced."""
+
+    def test_launchd_and_crontab_inside_the_folder_are_listed(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        plist = system / "Library" / "LaunchAgents" / "com.dave.backup.plist"
+        plist.parent.mkdir(parents=True)
+        plist.write_text(
+            '<?xml version="1.0"?><plist><dict>'
+            "<key>Label</key><string>com.dave.backup</string>"
+            "<key>StartCalendarInterval</key><dict><key>Hour</key>"
+            "<integer>2</integer></dict></dict></plist>",
+            encoding="utf-8",
+        )
+        (system / "crontab").write_text(
+            "# jobs\n0 9 * * 1 /usr/bin/weekly-report.sh\n", encoding="utf-8"
+        )
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## Automations" in out
+        assert "com.dave.backup" in out
+        assert "launchd" in out
+        assert "0 9 * * 1" in out
+        assert "weekly-report.sh" in out
+
+    def test_no_automations_is_honest_about_the_platform_not_an_absence(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """launchd is macOS-specific; on Linux we say we cannot inspect it."""
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## Automations" in out
+        if sys.platform == "darwin":
+            assert "outside the inspected scope" in out
+        else:
+            assert "cannot inspect launchd on this platform" in out
+        assert "No automations" not in out  # never the bare false claim
+
+
+class TestVaultShape:
+    def test_a_para_style_second_brain_is_recognized(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        for folder in ("10-Projects", "20-Areas", "People", "Companies"):
+            (system / folder).mkdir()
+            (system / folder / "note.md").write_text("note\n", encoding="utf-8")
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## Shape" in out
+        assert "structured second brain" in out
+        assert "`People`" in out
+
+    def test_a_flat_skills_directory_is_recognized(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = tmp_path / "flat"
+        root.mkdir()
+        _skill(root, ".claude/skills/one/SKILL.md", name="one", description="One.")
+
+        inventory_main([str(root)])
+
+        out = capsys.readouterr().out
+        assert "## Shape" in out
+        assert "flat skills directory" in out
+
+
+class TestTheNewFileTypesAreReadNeverWritten:
+    """READ-ONLY holds for every new file type, proven the existing way."""
+
+    def test_reading_mcp_plist_and_crontab_writes_nothing(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _mcp_json(
+            system,
+            ".mcp.json",
+            f'{{"mcpServers": {{"gh": {{"command": "npx",'
+            f' "env": {{"TOKEN": "{_FAKE_GH_TOKEN}"}}}}}}}}',
+        )
+        plist = system / "Library" / "LaunchAgents" / "com.x.plist"
+        plist.parent.mkdir(parents=True)
+        plist.write_text(
+            "<plist><dict><key>Label</key><string>com.x</string></dict></plist>",
+            encoding="utf-8",
+        )
+        (system / "crontab").write_text("0 * * * * /bin/true\n", encoding="utf-8")
+        for folder in ("10-Projects", "People"):
+            (system / folder).mkdir()
+            (system / folder / "n.md").write_text("n\n", encoding="utf-8")
+
+        before = tree_state(system)
+        assert inventory_main([str(system)]) == 0
+        assert tree_state(system) == before
+        capsys.readouterr()

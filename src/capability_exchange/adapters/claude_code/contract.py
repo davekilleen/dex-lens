@@ -72,8 +72,17 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
 #: Codex and Cursor read, often as paired copies of the same intent. An
 #: inventory blind to one half cannot see the drift between them — and on
 #: the reference vault that drift is one of the largest real findings.
+#:
+#: ``.mcp.json`` is here because the MCP servers a person wired into their
+#: assistant are as much a part of their system as their skills, and the
+#: inventory was blind to all of them. Its capture is *doubly* load-bearing:
+#: an ``.mcp.json`` routinely carries API keys and tokens inside a server's
+#: ``env`` block, so naming it as a captured file is what routes it through
+#: the same collection-time secret redaction as everything else — the server
+#: names are surfaced, the keys never are.
 CLAUDE_CODE_DIAGNOSTIC_BASENAMES: frozenset[str] = frozenset(
     {
+        ".mcp.json",
         "AGENTS.md",
         "CLAUDE.md",
         "SKILL.md",

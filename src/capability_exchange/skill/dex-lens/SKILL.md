@@ -188,6 +188,16 @@ description it declares for itself, and folds duplicates together. A real
 system is large — one reference vault has 6,829 files that turn out to be 240
 distinct capabilities — and the folded count is the honest size.
 
+The inventory also reports the parts of their system that are not skills: the
+**tools their assistant can call directly** (their MCP servers — MCP is just
+the plug that lets an assistant use an outside tool), the **jobs that run on
+their own timetable** (their scheduled automations), and the **shape of their
+vault** — how it is laid out and how it holds its own records. Read those
+sections too. Dex is four kinds of capability, not one, and the comparison in
+Phase 5 is like-for-like: their tools against Dex's tools, their automations
+against Dex's automations, not only their skills against Dex's skills. If you
+only ever look at skills you will miss the findings that matter most.
+
 On a second look, when the previous report named the items you care about,
 you can list just those instead of all of them:
 
@@ -228,9 +238,12 @@ is the most unusual thing here: it pulls transcripts, extracts commitments
 and writes them back to person pages, which is a loop most setups do not
 close."
 
-Name the two or three things that are genuinely strong. If something they
-built is better than the Dex equivalent, say that too, and say why. That
-sentence is why they will trust the rest.
+Name the two or three things that are genuinely strong. Strength is not only
+in their skills: a tool they wired up that saves them a daily detour, or an
+automation that runs every morning without being asked, can be the best thing
+in the system — look across all four kinds of capability, not just the skills.
+If something they built is better than the Dex equivalent, say that too, and
+say why. That sentence is why they will trust the rest.
 
 Judge strength with the quality rubric below, not with adjectives. "Your
 meeting handling is strong" is a compliment; "your meeting handling closes
@@ -354,13 +367,20 @@ its quality is Unknown, and you say so.
 
 ## Phase 4: fetch what Dex has
 
+Dex is four kinds of capability, not one, and you compare against all four.
+That means two sources, and you must keep them straight, because they do not
+carry the same weight.
+
+### The live catalogue — signed and verified, but skills only
+
 ```
 dex-lens catalogue
 ```
 
 This fetches Dex's published catalogue and checks its signature on this
 machine before printing a word of it. If it fails, say so and stop; do not
-work from an unverified list.
+work from an unverified list. Everything in it is verified — and it lists
+**skills**, only skills. That is roughly one quarter of what Dex is.
 
 The output is grouped by **job to be done**, which is the axis the comparison
 runs on.
@@ -377,19 +397,87 @@ dex-lens catalogue --jobs stay-on-top-of-commitments,process-meetings
 an empty list when a name is wrong, so an empty result never gets mistaken
 for "Dex has nothing here".
 
-## Phase 5: compare on jobs, not on names
+### The bundled reference — Dex's broader surface, a snapshot not a signature
 
-For each job in the catalogue, ask:
+The live catalogue cannot yet carry the three other kinds of capability Dex
+runs:
 
-1. Does this person already do this? Look at what their skills *do*, not what
-   they are called. Someone with `week-review`, `friday-wrap` and a habit of
+- **MCP servers** — sets of tools the assistant calls directly and gets the
+  same answer every time (MCP is just the plug that lets an assistant use an
+  outside tool; explain it once, in a sentence, and move on).
+- **Scheduled automations** — jobs that run on their own timetable, with
+  nobody asking.
+- **A brain-and-concierge engine** — the always-on layer underneath: the part
+  that links and cools entities, notices when a relationship or a project has
+  gone quiet, watches system health, and fires the daily rituals. It is not a
+  skill you invoke; it is already running before the person types.
+
+Because the signed catalogue cannot list those yet, this version of Lens
+ships a snapshot of Dex's full surface next to this skill:
+
+```
+src/capability_exchange/skill/dex-lens/dex-capabilities.json
+```
+
+Read it. Its shape: a `source_release` (the Dex version it was captured from),
+a `jobs` list (Dex's jobs to be done), and a `capabilities` list where each
+entry names its `capability_class` (`active-skill`, `mcp-server`,
+`scheduled-automation` or `system-engine`), an `impact_tier` (`core`, `high`,
+`medium` or `niche`), the `jobs_served` it belongs to, and the `since_release`
+it first appeared in.
+
+**Be scrupulous about how you label it, because it is not the same kind of
+thing as the catalogue.** The catalogue is signed and verified on this
+machine. The bundled reference is **not** live-signed data — it is a snapshot
+shipped inside this copy of Lens, current only as of its `source_release`.
+When you lean on it, say so in those words: "Dex's broader capability surface
+as of <the `source_release` you read>", never "the catalogue says". Use the
+catalogue as the source of truth for the skills it lists; use the reference
+for the three classes the catalogue cannot carry yet.
+
+**If the file is missing or will not parse, do not guess.** Fall back to the
+catalogue alone, and say plainly in the report that you compared against Dex's
+published skills only — that its wider surface of tools, automations and
+engine was not available to this run. That is the fail-closed answer, and the
+honest one.
+
+## Phase 5: compare on jobs, across all four kinds of capability
+
+The comparison runs on the **job to be done**, not on names — and now across
+all four kinds of capability, not skills alone. The most valuable "what Dex
+has that you don't" is frequently *not* a skill: it is the deterministic tool
+engine that never guesses, the automation that runs without being asked, or
+the proactive brain that notices a cold relationship before the person does.
+If you only line up skills against skills, those findings never surface.
+
+For each job the person actually does, gather Dex's whole surface for it:
+
+- the **skills** the catalogue lists under that job, and
+- the **MCP servers, automations and engine capabilities** in the bundled
+  reference whose `jobs_served` includes it.
+
+The reference carries Dex's jobs to be done in its `jobs` list; line each
+capability up under the jobs it serves. Then, for that job, ask:
+
+1. **Does this person already do this?** Look at what their system *does*, not
+   what it is called. Someone with `week-review`, `friday-wrap` and a habit of
    writing a Sunday summary already has "review my week" covered three times.
-2. If they do, is theirs better or worse? Apply the quality rubric above to
-   *both* sides, which means having real material for both sides. The
+   And look past their skills: a tool they wired up or an automation that runs
+   nightly may already be doing the job Dex does with a skill.
+2. **Compare like-for-like on the person's side too.** The widened inventory
+   reports not just their skills but their own tools, their own automations,
+   and the shape of their vault. So weigh kind against kind: their tools
+   against Dex's tools, their automations against Dex's automations, their
+   always-on habits against Dex's engine — not just skill against skill. A
+   person whose only scheduled job is a nightly backup has a real gap against
+   an always-on relationship-radar automation, and you will miss it entirely
+   if you only compare skills.
+3. **If they do it, is theirs better or worse?** Apply the quality rubric
+   above to *both* sides, which means having real material for both sides. The
    catalogue digest is one line per capability: enough to shortlist, never
    enough to score, and the rubric's own rule makes an unread capability
-   Unknown. So for each candidate that survives your shortlist, fetch its
-   full brief now:
+   Unknown. So for each *skill* that survives your shortlist, fetch its full
+   brief now:
 
    ```
    dex-lens brief <capability-id>
@@ -404,18 +492,56 @@ For each job in the catalogue, ask:
    actual work; say so with the checks that show it. And a partial verdict
    is allowed: "keep yours, borrow Dex's verification step" is frequently
    the right answer, and no whole-capability recommendation can express it.
-3. If they do not, would it help *them*? This is the judgement. A capability
-   is worth suggesting when it serves work you can see them doing, and a
-   genuinely switched-off skill in the Housekeeping section — one its own
-   frontmatter disables, not one merely named that way — is a strong signal:
-   they already wanted it. Confirm it is really theirs and really off before
-   leaning on it. Someone whose vault is full of customer
-   accounts and deal notes has an obvious use for account planning. The same
-   capability is noise to someone whose system is entirely about writing.
 
-Reject most of the catalogue. If you recommend more than five things out of
-fifty-five you have not really compared, you have listed. Three good
-suggestions with real reasons beat twenty hedged ones.
+   For an **MCP server, automation or engine capability** the reference gives
+   you a `value` line, not a full brief — enough to say what Dex has and why
+   it matters, never enough to score an unread thing. Treat that limit the way
+   the rubric already treats an unread skill: say what it is, rank it by
+   impact, and mark its inner workings Unknown rather than inventing them.
+4. **If they do not, would it help *them*?** This is the judgement. A
+   capability is worth suggesting when it serves work you can see them doing,
+   and a genuinely switched-off skill in the Housekeeping section — one its
+   own frontmatter disables, not one merely named that way — is a strong
+   signal: they already wanted it. Confirm it is really theirs and really off
+   before leaning on it. Someone whose vault is full of customer accounts and
+   deal notes has an obvious use for account planning. The same capability is
+   noise to someone whose system is entirely about writing.
+5. **Rank by impact, across all four classes.** Each capability in the
+   reference carries an `impact_tier`. Surface the **core** and **high** items
+   first, whatever their class — a core automation the person lacks matters
+   more than a niche skill. Let the tier, not the class, decide what leads your
+   shortlist; the deterministic engine and the always-on automations are often
+   where the core-tier gaps are.
+
+Reject most of what Dex has. Its full surface is far larger than a shortlist —
+dozens of skills, plus its tools, its automations and its engine. If you
+recommend more than five capabilities out of all of that, you have not
+compared, you have listed. Three good suggestions with real reasons beat
+twenty hedged ones.
+
+### Never claim a version match you have not earned
+
+The live catalogue is a single Dex release. The person's vault is usually a
+different, often older version — and it may share no lineage with Dex at all.
+Before you frame anything as "behind" or "new since yours":
+
+1. **Never assert a version-matched comparison you have not established.** You
+   are holding today's Dex against a system that was built at some other time;
+   say only what you have actually shown.
+2. **Try to establish the distance, or say you cannot.** Their own
+   `dex-update` or `dex-doctor` skill, their git history, a version string in
+   an instruction file — any of these can tell you roughly how far back their
+   system sits. If none of them do, the distance is Unknown, and you say so
+   rather than guess.
+3. **Use `since_release` only once you have a version to compare against.**
+   When you know roughly where their vault sits, a capability whose
+   `since_release` is later is honestly "new since yours"; when you do not, it
+   is just "something Dex has", and you must not dress it as a delta.
+4. **Some systems are not Dex at all.** If nothing ties their vault to Dex,
+   there is no version to infer and nothing to diff. The honest framing is not
+   a delta but a loan: "here is Dex's capability surface, here is what your
+   system already does, here are the few things worth borrowing." Say that
+   plainly; do not manufacture a lineage to compare against.
 
 **Write the rejections down.** The report has a section for them, and it is
 not optional: a shortlist with no visible rejections is indistinguishable
@@ -509,6 +635,8 @@ Nothing on this machine was changed. This is a read-only second opinion.
 ## What I read
 - Inventory: <folder>, <N> distinct items across <M> files (`dex-lens inventory`)
 - Read in full: <list every file, by path>
+- Dex compared against: signed catalogue + bundled reference <source_release>, or "catalogue only — the wider reference was not available this run"
+- Version distance: <roughly how far the vault sits behind Dex, and how you know — or "Unknown", or "not a Dex-derived system">
 - Not read: <what you deliberately skipped, and why>
 - Limits: <bounded capture, unreadable files, anything Unknown that matters>
 
@@ -550,11 +678,12 @@ Why it matters: <which behaviour is now unpredictable>
 
 ## Worth borrowing from Dex
 ### <capability title> (`<capability-id>`) — Verified | Supported | Unknown
+Kind: <skill | tool set | automation | engine>  ·  impact: <core | high | medium | niche>
 What it does: <one sentence in their language>
 Why I thought of it for you:
 > <quoted evidence from their system>
 > — `<path>`
-Yours versus Dex's, on the six checks: <verdict, with a quote for each side>
+Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
 What it would cost: <time, overlap, what it duplicates>
 
 ## Considered and rejected

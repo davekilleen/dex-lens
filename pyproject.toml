@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capability_exchange"
-version = "0.1.5"
+version = "0.1.6"
 description = "Dex Capability Exchange: private, read-only diagnosis of an existing personal AI system at the user-job level."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,7 +51,7 @@ where = ["src"]
 # release installs it without a second, driftable copy in the repo. The
 # canonical file lives inside the package, and everything else — the source
 # installer, the release installer, the template test — reads that one copy.
-"capability_exchange" = ["skill/dex-lens/SKILL.md"]
+"capability_exchange" = ["skill/dex-lens/SKILL.md", "skill/dex-lens/dex-capabilities.json"]
 "capability_exchange.boundary" = ["*.yaml"]
 "capability_exchange.adapters.claude_code" = ["profiles/*.sb"]
 "capability_exchange.contribution" = ["moderation_policy.v1.json"]
