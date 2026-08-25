@@ -61,8 +61,19 @@ FORBIDDEN_IMPORTS: frozenset[str] = frozenset(
 #: which uses it solely to PROVE the network is denied before any read.
 SOCKET_ALLOWED_IN = "capability_exchange/adapters/claude_code/contained.py"
 
-EGRESS_IMPORT_ALLOWED_IN: dict[str, str] = {
-    "urllib.request": "capability_exchange/catalogue/fetch.py",
+#: The complete set of reviewed egress paths. Each entry is a deliberate,
+#: named decision:
+#: - catalogue/fetch.py — the M3 consented GET of the public signed
+#:   catalogue, identical for everyone, verified on-machine before shown.
+#: - share/cli.py — the consented share-back POST: preview is the default
+#:   and sends nothing, ``--yes`` sends only the exact previewed bytes, and
+#:   the GitHub channel prints a link without touching the network at all
+#:   (tests/share/test_share_cli.py holds all three properties).
+EGRESS_IMPORT_ALLOWED_IN: dict[str, tuple[str, ...]] = {
+    "urllib.request": (
+        "capability_exchange/catalogue/fetch.py",
+        "capability_exchange/share/cli.py",
+    ),
 }
 
 
@@ -94,7 +105,7 @@ def test_g1_no_model_client_or_egress_import_exists_in_the_package() -> None:
             hits = [
                 bad
                 for bad in hits
-                if not str(source_path).endswith(EGRESS_IMPORT_ALLOWED_IN.get(bad, "\0"))
+                if not str(source_path).endswith(EGRESS_IMPORT_ALLOWED_IN.get(bad, ("\0",)))
             ]
             assert not hits, (
                 f"{source_path} imports {hits}: the build must contain no "

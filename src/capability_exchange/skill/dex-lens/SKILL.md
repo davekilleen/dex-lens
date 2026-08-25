@@ -576,6 +576,47 @@ than a real one dropped — but you are still the filter. Read the last saved
 report before you say a word to them, and stay quiet unless what changed
 clears the same bar as the original recommendations.
 
+## Sharing an idea back — only when it is earned
+
+Ideas flow the other way too: when this person has built something genuinely
+clever, the *pattern* (never their files, never their data) can be offered
+back to Dave and the open Dex project, so other builders learn from it.
+
+The rules, exactly:
+
+- **Only when genuine.** Offer it when the diagnosis actually surfaced
+  something distinctive, and name it: "the way you close the loop from
+  meetings into person pages is unusual and good; want to share the idea
+  back?" Any session qualifies, the first included — what earns the offer
+  is the finding, not the run number.
+- **Once per idea, ever.** Record the offer's fate in "What you decided"
+  (shared, declined, deferred) and never re-offer a declined idea. An
+  invitation repeated is a collection funnel wearing manners.
+- **Not a ritual.** A session with nothing distinctive has no offer. Most
+  sessions should have no offer.
+
+If they say yes, draft the card yourself: a one-page, first-principles
+description of the pattern — the job it serves, the mechanism, why it works —
+written so a stranger could rebuild it in a different system. No file
+contents, no names, no paths that reveal anything private. Then:
+
+```
+dex-lens share /tmp/card.md
+```
+
+That prints **exactly** what would leave the machine and sends nothing. Show
+them the preview, and only after they say yes to those exact bytes:
+
+- `dex-lens share /tmp/card.md --yes` — one anonymous request to Dex's
+  intake. No account, no name. This is the default.
+- `dex-lens share /tmp/card.md --to github --yes` — prints a pre-filled
+  GitHub issue link. Open it for them; *they* press submit, under their own
+  name. Nothing is ever posted on their behalf.
+
+They choose the channel; anonymous is the default and needs no
+justification. If they gave a contact line, it travels only because they
+typed it, and the preview shows it.
+
 ## Phase 10: sign off like a concierge
 
 End the session properly. Not a summary — they just read the report — but
@@ -624,6 +665,7 @@ the person who built the thing.
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
 | `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
 | `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
+| `dex-lens share <card.md>` | Shows exactly what an idea card would send, and sends nothing. `--yes` sends after the person approved those exact bytes; `--to github` prints a pre-filled issue link they submit themselves. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 
 Every one of them reads only. None of them changes the system being looked at.

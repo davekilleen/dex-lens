@@ -24,6 +24,7 @@ from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
 from capability_exchange.reports.cli import reports_main
+from capability_exchange.share.cli import share_main
 
 #: Exact first-argument matches that route away from the browser journey.
 _SUBCOMMANDS = {
@@ -31,6 +32,7 @@ _SUBCOMMANDS = {
     "catalogue": catalogue_main,
     "inventory": inventory_main,
     "reports": reports_main,
+    "share": share_main,
 }
 
 
