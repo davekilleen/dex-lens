@@ -290,9 +290,17 @@ role packs and optional career and quarterly-planning capabilities
 
 ## What remains before invited testing
 
-1. Merge the reviewed self-serve release workflow, configure its dedicated
-   signing key, publish the first exact release, and verify the anonymous
-   one-line installer against the served bytes.
+1. Publish a release carrying the installer fixes. The self-serve release
+   workflow is merged, its dedicated signing key is configured, and v0.1.4 is
+   published with both platform archives, its manifest, signature and public
+   key. The remaining half of this item was verifying the one-line installer
+   against the **served** bytes rather than the repository's copy, and doing
+   so found two defects the repository's copy does not have: the served
+   installer parses no arguments at all, so the documented `--dry-run`
+   performs a full install, and it never warns when `~/.local/bin` is off
+   `PATH`, so the line it prints for the person to paste can start an
+   assistant that cannot find `dex-lens`. Both are fixed in this branch and
+   reach a user only when the next release is cut and re-rendered.
 2. Keep automated real-user adaptation disabled until a genuine later-use
    Success Contract outcome procedure exists; configuration presence is not
    outcome proof.

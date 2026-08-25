@@ -328,7 +328,8 @@ assumes: yes" means nothing on its own; "verifies rather than assumes — yes,
 it reads the page back after writing: `> then re-open the note and confirm
 the action appears under Commitments`" is a finding.
 
-The verdict is the comparison of scorecards, stated in plain language:
+The verdict is the two sets of checks held side by side, stated in plain
+language:
 "Dex's version verifies and refuses honestly; yours is more proactive and
 better shaped to your accounts, but declares success without checking. If
 you take anything from Dex's, take the verification step." Both sides can
@@ -356,7 +357,7 @@ so the rest is not sitting in your context for the remainder of the
 conversation:
 
 ```
-dex-lens catalogue --jobs remember-what-matters,prepare-for-meetings
+dex-lens catalogue --jobs stay-on-top-of-commitments,process-meetings
 ```
 
 `--only <id>,<id>` does the same by capability. Both refuse rather than print
