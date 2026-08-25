@@ -72,7 +72,7 @@ The only network request is for Dex's public signed catalogue, which is the
 same file for everyone and carries nothing about you. Its signature is checked
 on your machine before any of it is shown.
 
-## The four commands the skill uses
+## The five commands the skill uses
 
 | Command | What it does |
 | --- | --- |
@@ -80,15 +80,25 @@ on your machine before any of it is shown.
 | `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` prints only the capabilities that are new or changed since this machine last looked, and nothing at all when none are. |
 | `dex-lens brief <id>` | Everything needed to rebuild one capability elsewhere: method, verification, rollback, and Dex's own evidence with its limits. |
 | `dex-lens reports` | The dated reports every diagnosis leaves behind, kept in app storage outside the inspected folder. `save` writes one and refuses a report that quotes no evidence, `check` says whether one is ready, and `--last` prints the previous one so the next run can say what changed. |
+| `dex-lens share <card.md>` | The only way anything goes the other direction, and only when the person asks. It prints exactly what an idea card would send and sends nothing; `--yes` sends after they have approved those exact bytes, and `--to github` prints a pre-filled issue link they submit themselves. |
 
 Each exits non-zero rather than printing anything unverified.
 
 ## What it writes
 
-One thing, in one place: the dated report, under
-`~/.local/state/dex-lens/reports/`. It is never written inside the folder
-being inspected, and the command that writes it checks that separation before
-writing rather than assuming it.
+Everything, in one place: Lens's own storage at `~/.local/state/dex-lens/`.
+Nothing is ever written inside the folder being inspected, and the command
+that writes the report checks that separation before writing rather than
+assuming it.
+
+- `reports/` — the dated report, one per diagnosis. This is the one file
+  written for the person to read.
+- `capability-bridge/` — the verified copy of Dex's catalogue, so a second
+  look need not fetch and re-check it, and the record of which capabilities
+  this machine has already been shown, which is the whole of how
+  `--since-last` knows what is new. Both describe Dex's published catalogue,
+  which is the same file for everyone; neither holds anything about the
+  system that was inspected.
 
 ## The browser journey
 

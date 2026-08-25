@@ -296,9 +296,12 @@ instruct the assistant to call the banned tool by name. Nobody knew. The
 method is what to reuse, not the example: run the extraction on whatever their
 instruction files actually say.
 
-Report only what you actually saw. If the search comes back clean, say that —
-"I checked the rules in your instruction files against your skills and found
-no conflicts" is a real finding and worth the sentence.
+Report only what you actually saw. If the search comes back clean, say that,
+and name the instruction file you read — "I checked the rules in
+`~/.claude/CLAUDE.md` against your skills and found no conflicts" is a real
+finding and worth the sentence. The path is what separates a hunt that ran
+from a sentence about a hunt, and `dex-lens reports save` will refuse the
+sentence without it.
 
 ## How to judge quality
 
@@ -520,9 +523,10 @@ What it costs: <plain words>
 How to check it: <what they would do; you do not do it>
 
 ## Contradictions and fragility
-(Required. If the hunt came back clean, this whole section is one sentence:
-"I checked the rules in your instruction files against your skills and found
-no conflicts." Otherwise, one block per conflict:)
+(Required. If the hunt came back clean, this whole section is one sentence
+that names the file you checked: "I checked the rules in
+`~/.claude/CLAUDE.md` against your skills and found no conflicts."
+Otherwise, one block per conflict:)
 ### <the rule that is being broken>
 The rule:
 > <exact words>
