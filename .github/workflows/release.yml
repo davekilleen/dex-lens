@@ -192,7 +192,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_COMMIT" \
             --title "Dex Lens v$VERSION" \
-            --notes "First signed self-serve Dex Lens release for Apple Silicon Mac and Linux x86_64." \
+            --notes "Signed self-serve Dex Lens release for Apple Silicon Mac and Linux x86_64. See the repository README for the current release details." \
             ${DEX_LENS_PRERELEASE:+--prerelease} \
             --draft
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false

@@ -9,7 +9,7 @@ this package on the diagnosis path must preserve that invariant at the
 OS-capability level (G1), not merely by convention.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.10"
 
 # Standing posture of the diagnosis side (non-negotiable boundary 1):
 # diagnosis is read-only at the operating-system capability level.

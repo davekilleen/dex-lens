@@ -181,6 +181,46 @@ case "$DEX_LENS_BIN_HOME" in
 esac
 DEX_LENS_LAUNCHER="$DEX_LENS_BIN_HOME/dex-lens"
 
+# Running this installer is permission to update a command that can be proven
+# to belong to Dex Lens. The earlier source installer used one exact target;
+# signed releases use the versioned root above. Everything else remains
+# untouched. Decide before the dry run and before any download or write, so
+# both paths make the same ownership promise.
+DEX_LENS_LEGACY_SOURCE_ROOT="$HOME/.local/share/dex-lens"
+DEX_LENS_LEGACY_SOURCE_TARGET="$DEX_LENS_LEGACY_SOURCE_ROOT/venv/bin/dex-lens"
+DEX_LENS_LAUNCHER_STATE="absent"
+DEX_LENS_EXISTING_TARGET=""
+if [ -L "$DEX_LENS_LAUNCHER" ]; then
+  DEX_LENS_EXISTING_TARGET="$(readlink "$DEX_LENS_LAUNCHER")"
+  case "$DEX_LENS_EXISTING_TARGET" in
+    "$DEX_LENS_DATA_HOME/dex-lens/versions/"*)
+      DEX_LENS_LAUNCHER_STATE="signed"
+      ;;
+    "$DEX_LENS_LEGACY_SOURCE_TARGET")
+      DEX_LENS_LAUNCHER_STATE="legacy-source"
+      ;;
+    *)
+      die "Dex Lens found $DEX_LENS_LAUNCHER pointing to \\
+$DEX_LENS_EXISTING_TARGET. It cannot prove that command belongs to Lens, so \\
+it will not overwrite it. Nothing was downloaded or changed."
+      ;;
+  esac
+elif [ -e "$DEX_LENS_LAUNCHER" ]; then
+  die "Dex Lens found an existing command at $DEX_LENS_LAUNCHER. It cannot \\
+prove that command belongs to Lens, so it will not overwrite it. Nothing was \\
+downloaded or changed."
+fi
+
+if [ "$DEX_LENS_LAUNCHER_STATE" = "legacy-source" ]; then
+  printf '%s\\n' \\
+    "It looks like you used Dex Lens before." \\
+    "Because you ran this installer, Dex Lens will update its command and" \\
+    "skill to the signed release." \\
+    "Your earlier private copy at $DEX_LENS_LEGACY_SOURCE_ROOT" \\
+    "will be left in place, so the previous command can be restored if needed." \\
+    ""
+fi
+
 # One marker shared with the source installer, so a machine that runs both
 # still sends exactly one note, ever.
 DEX_LENS_PING_STATE_DIR="${{XDG_STATE_HOME:-$HOME/.local/state}}/dex-lens"
@@ -434,15 +474,6 @@ else
 fi
 
 mkdir -p "$DEX_LENS_BIN_HOME"
-if [ -L "$DEX_LENS_LAUNCHER" ]; then
-  DEX_LENS_EXISTING_TARGET="$(readlink "$DEX_LENS_LAUNCHER")"
-  case "$DEX_LENS_EXISTING_TARGET" in
-    "$DEX_LENS_DATA_HOME/dex-lens/versions/"*) ;;
-    *) die "Refusing to replace a Dex Lens command owned by something else." ;;
-  esac
-elif [ -e "$DEX_LENS_LAUNCHER" ]; then
-  die "Refusing to replace an existing command at $DEX_LENS_LAUNCHER."
-fi
 ln -sfn "$DEX_LENS_VENV/bin/dex-lens" "$DEX_LENS_LAUNCHER"
 
 # The skill is the product: the file the person's own assistant reads to run
@@ -519,6 +550,10 @@ printf '%s\\n' "The dex-lens command is at $DEX_LENS_LAUNCHER."
 printf '%s' "$DEX_LENS_PLACED" | while IFS= read -r lens_placed_line; do
   [ -n "$lens_placed_line" ] && printf '%s\\n' "The Dex Lens skill is in $lens_placed_line."
 done
+if [ "$DEX_LENS_LAUNCHER_STATE" = "legacy-source" ]; then
+  printf '%s\\n' \\
+    "Your earlier private copy is still in $DEX_LENS_LEGACY_SOURCE_ROOT for rollback."
+fi
 if [ "$DEX_LENS_PING_STATE_DIR_CREATED" = "1" ]; then
   printf '%s\\n' \\
     "The record that this machine has already been counted is in $DEX_LENS_PING_STATE_DIR."

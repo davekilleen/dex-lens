@@ -5,11 +5,17 @@ fixtures) land with the containment core; this only proves the package
 skeleton and tooling are wired.
 """
 
+from importlib.metadata import version
+
 import capability_exchange
 
 
 def test_package_imports() -> None:
     assert capability_exchange.__version__
+
+
+def test_runtime_version_matches_installed_package() -> None:
+    assert capability_exchange.__version__ == version("capability_exchange")
 
 
 def test_diagnosis_side_declares_read_only() -> None:

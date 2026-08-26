@@ -96,13 +96,20 @@ def test_live_catalogue_lists_the_host_family_lens_sends() -> None:
         assert capabilities, "a verified catalogue with no capabilities proves nothing"
 
         sent = _production_permission().catalogue_host
+        skills_with_compatibility = [
+            entry for entry in capabilities if getattr(entry, "compatibility", None)
+        ]
+        assert skills_with_compatibility, (
+            "the live catalogue has no skills carrying host compatibility, "
+            "so this check would prove nothing"
+        )
         unlisted = [
             entry.capability_id
-            for entry in capabilities
+            for entry in skills_with_compatibility
             if sent not in entry.compatibility.host_adapters
         ]
         assert not unlisted, (
             f"the live catalogue does not list {sent!r} for {len(unlisted)} of "
-            f"{len(capabilities)} capabilities, so the shelf would report the "
+            f"{len(skills_with_compatibility)} portable skills, so the shelf would report the "
             f"person's host as unsupported: {unlisted[:5]}"
         )

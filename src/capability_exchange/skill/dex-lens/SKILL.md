@@ -368,10 +368,9 @@ its quality is Unknown, and you say so.
 ## Phase 4: fetch what Dex has
 
 Dex is four kinds of capability, not one, and you compare against all four.
-That means two sources, and you must keep them straight, because they do not
-carry the same weight.
+The signed live catalogue is the preferred source for all four.
 
-### The live catalogue — signed and verified, but skills only
+### The live catalogue — all four kinds, signed and verified
 
 ```
 dex-lens catalogue
@@ -379,8 +378,10 @@ dex-lens catalogue
 
 This fetches Dex's published catalogue and checks its signature on this
 machine before printing a word of it. If it fails, say so and stop; do not
-work from an unverified list. Everything in it is verified — and it lists
-**skills**, only skills. That is roughly one quarter of what Dex is.
+work from an unverified list. Everything in it is verified. The current
+catalogue covers skills, MCP servers (the plugs that let an assistant use
+outside tools), scheduled automations (jobs that run on their own timetable),
+and system engines (the behind-the-scenes services those abilities depend on).
 
 The output is grouped by **job to be done**, which is the axis the comparison
 runs on.
@@ -390,17 +391,18 @@ so the rest is not sitting in your context for the remainder of the
 conversation:
 
 ```
-dex-lens catalogue --jobs stay-on-top-of-commitments,process-meetings
+dex-lens catalogue --jobs manage-tasks-reliably,track-people-and-relationships
 ```
 
 `--only <id>,<id>` does the same by capability. Both refuse rather than print
 an empty list when a name is wrong, so an empty result never gets mistaken
 for "Dex has nothing here".
 
-### The bundled reference — Dex's broader surface, a snapshot not a signature
+### The bundled reference — fallback for an older skills-only catalogue
 
-The live catalogue cannot yet carry the three other kinds of capability Dex
-runs:
+This Lens release also carries a snapshot of Dex's broader surface. Use it
+only if the verified catalogue you received is an older compatible version
+that contains skills but not the other three kinds:
 
 - **MCP servers** — sets of tools the assistant calls directly and gets the
   same answer every time (MCP is just the plug that lets an assistant use an
@@ -412,8 +414,7 @@ runs:
   gone quiet, watches system health, and fires the daily rituals. It is not a
   skill you invoke; it is already running before the person types.
 
-Because the signed catalogue cannot list those yet, this version of Lens
-ships a snapshot of Dex's full surface next to this skill:
+The snapshot sits next to this skill:
 
 ```
 src/capability_exchange/skill/dex-lens/dex-capabilities.json
@@ -431,15 +432,15 @@ thing as the catalogue.** The catalogue is signed and verified on this
 machine. The bundled reference is **not** live-signed data — it is a snapshot
 shipped inside this copy of Lens, current only as of its `source_release`.
 When you lean on it, say so in those words: "Dex's broader capability surface
-as of <the `source_release` you read>", never "the catalogue says". Use the
-catalogue as the source of truth for the skills it lists; use the reference
-for the three classes the catalogue cannot carry yet.
+as of <the `source_release` you read>", never "the catalogue says". Do not use
+the snapshot when the verified catalogue already supplies all four kinds.
 
-**If the file is missing or will not parse, do not guess.** Fall back to the
-catalogue alone, and say plainly in the report that you compared against Dex's
-published skills only — that its wider surface of tools, automations and
-engine was not available to this run. That is the fail-closed answer, and the
-honest one.
+**If you need this fallback and the file is missing or will not parse, do not
+guess.** Use the older verified catalogue alone, and say plainly in the report
+that you compared against Dex's published skills only — that its wider surface
+of tools, automations and engine was not available to this run. When the
+verified catalogue already supplies all four kinds, a missing fallback file is
+irrelevant. That is the fail-closed answer, and the honest one.
 
 ## Phase 5: compare on jobs, across all four kinds of capability
 
@@ -450,11 +451,10 @@ engine that never guesses, the automation that runs without being asked, or
 the proactive brain that notices a cold relationship before the person does.
 If you only line up skills against skills, those findings never surface.
 
-For each job the person actually does, gather Dex's whole surface for it:
-
-- the **skills** the catalogue lists under that job, and
-- the **MCP servers, automations and engine capabilities** in the bundled
-  reference whose `jobs_served` includes it.
+For each job the person actually does, gather all four kinds from the signed
+catalogue. If and only if the verified catalogue is an older skills-only
+version, supplement those skills with the **MCP servers, automations and engine
+capabilities** in the bundled reference whose `jobs_served` includes that job.
 
 The reference carries Dex's jobs to be done in its `jobs` list; line each
 capability up under the jobs it serves. Then, for that job, ask:
@@ -635,7 +635,7 @@ Nothing on this machine was changed. This is a read-only second opinion.
 ## What I read
 - Inventory: <folder>, <N> distinct items across <M> files (`dex-lens inventory`)
 - Read in full: <list every file, by path>
-- Dex compared against: signed catalogue + bundled reference <source_release>, or "catalogue only — the wider reference was not available this run"
+- Dex compared against: signed catalogue <core_release> covering all four kinds; or, for an older skills-only catalogue, signed skills catalogue + bundled reference <source_release>
 - Version distance: <roughly how far the vault sits behind Dex, and how you know — or "Unknown", or "not a Dex-derived system">
 - Not read: <what you deliberately skipped, and why>
 - Limits: <bounded capture, unreadable files, anything Unknown that matters>

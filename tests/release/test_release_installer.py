@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -105,6 +107,131 @@ def _sealed_network(tmp_path: Path, home: Path) -> tuple[dict[str, str], Path]:
     }
     environment.pop("DEX_LENS_SKILLS_DIR", None)
     return environment, curl_called
+
+
+def _legacy_source_launcher(home: Path) -> tuple[Path, Path]:
+    """The exact command link written by the earlier official source installer."""
+    legacy = home / ".local" / "share" / "dex-lens" / "venv" / "bin" / "dex-lens"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    legacy.chmod(0o755)
+    launcher = home / ".local" / "bin" / "dex-lens"
+    launcher.parent.mkdir(parents=True)
+    launcher.symlink_to(legacy)
+    return launcher, legacy
+
+
+def _run_sealed_signed_install(
+    tmp_path: Path, home: Path
+) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+    """Run the real rendered installer with every release byte supplied locally."""
+    archive = tmp_path / "release.tar.gz"
+    placeholder = tmp_path / "placeholder.whl"
+    placeholder.write_bytes(b"not installed: signed version is pre-created")
+    with tarfile.open(archive, "w:gz") as bundle:
+        bundle.add(placeholder, arcname="wheelhouse/placeholder.whl")
+    archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+    manifest = ReleaseManifest(
+        version="0.1.0",
+        source_commit="b" * 40,
+        assets=(
+            ReleaseAsset(
+                target="linux-x86_64",
+                filename="dex-lens-v0.1.0-linux-x86_64.tar.gz",
+                sha256=archive_sha,
+            ),
+            ReleaseAsset(
+                target="macos-arm64",
+                filename="dex-lens-v0.1.0-macos-arm64.tar.gz",
+                sha256=archive_sha,
+            ),
+        ),
+    )
+    manifest_path = tmp_path / "release-manifest.json"
+    manifest_path.write_bytes(manifest.to_bytes())
+    signature_path = tmp_path / "release-manifest.sig"
+    signature_path.write_bytes(b"test signature; openssl is sealed below")
+
+    _, public_key = _test_keypair(tmp_path)
+    installer = tmp_path / "signed-install.sh"
+    installer.write_text(
+        render_installer(
+            manifest=manifest,
+            release_url=RELEASE_URL,
+            public_key_pem=public_key.read_bytes(),
+        ),
+        encoding="utf-8",
+    )
+
+    fake_bin = tmp_path / "sealed-release-bin"
+    fake_bin.mkdir()
+    (fake_bin / "curl").write_text(
+        """#!/usr/bin/env bash
+set -eu
+output=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  */release-manifest.json) cp "$DEX_LENS_TEST_MANIFEST" "$output" ;;
+  */release-manifest.sig) cp "$DEX_LENS_TEST_SIGNATURE" "$output" ;;
+  */dex-lens-v0.1.0-*.tar.gz) cp "$DEX_LENS_TEST_ARCHIVE" "$output" ;;
+  *) exit 91 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    (fake_bin / "openssl").write_text(
+        "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8"
+    )
+    for command in (fake_bin / "curl", fake_bin / "openssl"):
+        command.chmod(0o755)
+
+    data_home = tmp_path / "signed-data"
+    signed_target = (
+        data_home
+        / "dex-lens"
+        / "versions"
+        / "v0.1.0"
+        / "venv"
+        / "bin"
+        / "dex-lens"
+    )
+    signed_target.parent.mkdir(parents=True)
+    signed_target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    signed_target.chmod(0o755)
+    signed_python = signed_target.parent / "python"
+    signed_python.write_text(
+        f"#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} \"$@\"\n",
+        encoding="utf-8",
+    )
+    signed_python.chmod(0o755)
+
+    skill_home = tmp_path / "skills"
+    environment = os.environ | {
+        "HOME": str(home),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "DEX_LENS_DATA_HOME": str(data_home),
+        "DEX_LENS_SKILLS_DIR": str(skill_home),
+        "DEX_LENS_INSTALL_ONLY": "1",
+        "DEX_LENS_NO_PING": "1",
+        "DEX_LENS_TEST_MANIFEST": str(manifest_path),
+        "DEX_LENS_TEST_SIGNATURE": str(signature_path),
+        "DEX_LENS_TEST_ARCHIVE": str(archive),
+    }
+    completed = subprocess.run(
+        ["bash", str(installer)],
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+    return completed, signed_target, skill_home
 
 
 def _hand_off_line(text: str) -> str:
@@ -243,6 +370,10 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "XDG_DATA_HOME" not in installer
     assert '"$DEX_LENS_VENV/bin/dex-lens" --help' in installer
     assert "A partial install from this run was removed safely" in installer
+    assert "It looks like you used Dex Lens before" in installer
+    assert "Because you ran this installer" in installer
+    assert "will be left in place" in installer
+    assert "will not overwrite it" in installer
     # Two options exist because the page that publishes this installer says
     # they do, and both have to be answered before anything is fetched.
     assert "--dry-run) DEX_LENS_DRY_RUN=1 ;;" in installer
@@ -361,6 +492,118 @@ class TestTheOptionsThePageDocuments:
         assert "do not understand" in completed.stderr
         assert not curl_called.exists()
         assert list(home.iterdir()) == []
+
+
+def test_a_dry_run_recognises_an_earlier_official_lens_install(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    launcher, legacy = _legacy_source_launcher(home)
+
+    completed, _, curl_called = TestTheOptionsThePageDocuments._run(
+        tmp_path, home, "--dry-run", piped=True
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "It looks like you used Dex Lens before" in completed.stdout
+    assert "Because you ran this installer" in completed.stdout
+    assert str(legacy.parent.parent.parent) in completed.stdout
+    assert "left in place" in completed.stdout
+    assert launcher.resolve() == legacy
+    assert not curl_called.exists()
+
+
+def test_a_foreign_launcher_is_refused_before_network_or_writes(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    foreign = tmp_path / "some-other-tool" / "dex-lens"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    foreign.chmod(0o755)
+    launcher = home / ".local" / "bin" / "dex-lens"
+    launcher.parent.mkdir(parents=True)
+    launcher.symlink_to(foreign)
+
+    completed, _, curl_called = TestTheOptionsThePageDocuments._run(
+        tmp_path, home, "--dry-run", piped=True
+    )
+
+    assert completed.returncode != 0
+    assert str(launcher) in completed.stderr
+    assert str(foreign) in completed.stderr
+    assert "will not overwrite" in completed.stderr
+    assert launcher.resolve() == foreign
+    assert not curl_called.exists()
+
+
+def test_a_regular_launcher_is_refused_before_network_or_writes(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    launcher = home / ".local" / "bin" / "dex-lens"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+
+    completed, _, curl_called = TestTheOptionsThePageDocuments._run(
+        tmp_path, home, "--dry-run", piped=True
+    )
+
+    assert completed.returncode != 0
+    assert str(launcher) in completed.stderr
+    assert "will not overwrite" in completed.stderr
+    assert launcher.is_file()
+    assert not curl_called.exists()
+
+
+def test_a_current_signed_launcher_remains_repeatable(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    data_home = tmp_path / "signed-data"
+    target = (
+        data_home
+        / "dex-lens"
+        / "versions"
+        / "v0.0.9"
+        / "venv"
+        / "bin"
+        / "dex-lens"
+    )
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+    launcher = home / ".local" / "bin" / "dex-lens"
+    launcher.parent.mkdir(parents=True)
+    launcher.symlink_to(target)
+
+    completed, _, curl_called = TestTheOptionsThePageDocuments._run(
+        tmp_path,
+        home,
+        "--dry-run",
+        piped=True,
+        DEX_LENS_DATA_HOME=str(data_home),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert launcher.resolve() == target
+    assert not curl_called.exists()
+
+
+def test_a_real_install_repoints_only_the_official_legacy_launcher(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    launcher, legacy = _legacy_source_launcher(home)
+
+    completed, signed_target, skill_home = _run_sealed_signed_install(tmp_path, home)
+
+    assert completed.returncode == 0, completed.stderr
+    assert launcher.is_symlink()
+    assert launcher.readlink() == signed_target
+    assert legacy.exists(), "the rollback copy must remain untouched"
+    assert (skill_home / "dex-lens" / "SKILL.md").is_file()
+    assert (skill_home / "dex-lens" / "dex-capabilities.json").is_file()
+    assert "It looks like you used Dex Lens before" in completed.stdout
+    assert "Your earlier private copy is still" in completed.stdout
 
 
 def test_the_printed_start_line_runs_where_the_command_is_not_yet_on_path(

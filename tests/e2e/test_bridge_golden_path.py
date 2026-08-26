@@ -579,14 +579,32 @@ def test_section6_evidence_pack_records_complete_catalogue_claim_and_proof() -> 
 def test_public_status_copy_matches_the_live_complete_catalogue() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     status = Path("docs/STATUS.md").read_text(encoding="utf-8")
+    readme_prose = " ".join(readme.split())
 
     for text in (readme, status):
-        assert "55" in text
+        assert "114" in text
+        assert "Core v1.97.1" in text
         assert "v1.95.1" not in text
         assert "Wave 2 expansion is in progress" not in text
         assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
-    assert "Core release v1.96.1" in status
-    assert "live for all 55 signed capabilities" in readme
+    assert "Lens v0.1.10" in readme
+    assert "95 skills" in readme_prose
+    assert "10 connections to outside tools" in readme_prose
+    assert "5 recurring jobs" in readme_prose
+    assert "4 behind-the-scenes services" in readme_prose
+
+
+def test_skill_uses_the_signed_catalogue_for_all_four_capability_kinds() -> None:
+    skill = Path(
+        "src/capability_exchange/skill/dex-lens/SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    assert "The live catalogue — all four kinds, signed and verified" in skill
+    assert "The live catalogue cannot yet carry" not in skill
+    assert "it lists **skills**, only skills" not in skill
+    assert (
+        "signed catalogue <core_release> covering all four kinds" in skill
+    )
 
 
 def test_section6_ci_live_proof_cannot_skip_packet_capture() -> None:

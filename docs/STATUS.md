@@ -1,7 +1,23 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-24. Plain-language companion to
+Last updated: 2026-08-26. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## Signed release and complete live reference, 2026-08-26
+
+Lens v0.1.9 is published as a signed, supported download for Apple Silicon Mac
+and Linux x86_64. Its released reader accepts both the earlier skills-only
+catalogue and the complete four-kind contract.
+
+Core v1.97.1 now publishes that complete signed reference at the live catalogue
+route: 114 entries covering 95 skills, 10 connections to outside tools, 5
+recurring jobs that run on a schedule, and 4 behind-the-scenes services. The
+released Lens v0.1.9 verifier accepted the live bytes using its built-in key.
+The application and its reference data are released separately on purpose:
+Core can keep the reference current without requiring a new Lens download.
+
+This is release proof, not participant-outcome evidence. No real participant
+pilot has run yet.
 
 ## The experience pass: one install, and a report that survives, 2026-08-24
 
@@ -227,31 +243,21 @@ M4–M6 and their final security remediation merged to `main` in PR #5 on
 2026-08-10 (`e139242`) after the Linux/macOS matrix, 1,291 local tests, lint,
 packaging and data-inventory verification were green on the exact candidate.
 
-This does **not** mean Dex Lens is released or that the pilot has happened.
-The public doorway and signed release machinery are now implemented on the
-self-serve launch branch: Lens can open a native folder chooser without scanning
-or reading the selected folder's contents, and the release workflow builds fixed offline bundles,
-signs their exact manifest, installs without administrator access, and runs
-clean consumer proofs on Apple Silicon Mac and Linux x86_64 before publication.
-The Linux installer rehearsal passed locally. There is still no published
-release or supported participant download: the branch must pass GitHub review,
-the dedicated release-signing key must be configured through GitHub's encrypted
-secret route, and both real release smoke jobs must pass before the one-line
-command appears at the top of README. No observed participant evidence or
-completed independent sign-off exists yet.
+Dex Lens is now released, but the pilot has not happened. Lens v0.1.9 is the
+signed public download for Apple Silicon Mac and Linux x86_64. Its release
+workflow built fixed offline bundles, signed the exact manifest, installed
+without administrator access, and passed clean consumer proofs on both
+platforms before publication. No observed participant evidence exists yet.
 
 The **live capability bridge** — the consented connection from a person's own
-system to Dex's signed release catalogue — is built, merged, and proven live.
-The section-6 evidence pack (`docs/pilot/bridge-evidence.md`) records the full
-proof: the signed catalogue from Core release v1.96.1 is served at
-`https://heydex.ai/catalogue/dex-lens/v2.json`, verified on-machine against the
-pinned production key, exercised end to end by three representative non-Dex
-host fixtures, with packet-level evidence that a fresh install makes zero
-requests and a subscribed one makes exactly one per run. Dave approved the
-public availability claim on 2026-08-12. All 55 capabilities across 11 jobs are
-published and accepted by Lens: Wave 2's everyday set plus Wave 3's adoptable
-role packs and optional career and quarterly-planning capabilities
-(design: `docs/superpowers/specs/2026-08-11-dex-lens-live-capability-bridge-design.md`).
+system to Dex's signed release catalogue — is built, merged, released, and
+proven live. The section-6 evidence pack (`docs/pilot/bridge-evidence.md`)
+preserves the earlier skills-only proof as history. The current signed
+catalogue is published by Core v1.97.1 at
+`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.9 accepts
+all 114 entries across the four kinds described above. The privacy boundary is
+unchanged: a fresh install makes no catalogue request, while a person who asks
+for the Dex comparison receives the same public reference as everyone else.
 
 ## Milestones
 
