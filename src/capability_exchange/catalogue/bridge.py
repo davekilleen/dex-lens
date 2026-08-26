@@ -257,29 +257,36 @@ def rank_capability_shelf(
         )
 
         if matched_jobs:
-            match_explanation = (
-                "picked because a matched foundation capability is weak or gappy for "
+            match_detail = (
+                "a matched foundation capability is weak or gappy for "
                 + _join_or_none(matched_jobs, empty="none")
                 + "; matched foundation "
                 + _join_or_none(matched_foundations, empty="none")
             )
             if exact_catalogue_job_matches:
-                match_explanation += (
+                match_detail += (
                     "; exact catalogue job bonus "
                     + _join_or_none(exact_catalogue_job_matches, empty="none")
                 )
         else:
-            match_explanation = (
-                "browse only - no weak or gappy confirmed job shares a foundation; "
+            match_detail = (
+                "no weak or gappy confirmed job shares a foundation; "
                 "matched foundation "
                 + _join_or_none(matched_foundations, empty="none")
             )
         if not is_active:
+            # The availability wording replaces the picked/browse framing:
+            # an explanation must never say "never offered as an active
+            # match" and "picked because" in the same breath.
             match_explanation = (
                 f"browse only - Dex lists this capability as "
                 f"{capability_availability_of(entry)}, so it is never offered as "
-                "an active match; " + match_explanation
+                "an active match; " + match_detail
             )
+        elif matched_jobs:
+            match_explanation = "picked because " + match_detail
+        else:
+            match_explanation = "browse only - " + match_detail
         if best_gap is None:
             gap_explanation = "no matching diagnosis gap was found for this capability"
         else:
@@ -422,6 +429,23 @@ def render_portable_brief_markdown(
             "send, or install anything."
         ),
         "",
+    ]
+    availability = capability_availability_of(capability)
+    if availability != "active":
+        # A dormant skill still validates and its pattern is real, but this
+        # renderer feeds the concierge journey for any shelf selection, so
+        # the brief must carry the same not-on-offer framing the agent brief
+        # does — never read as an adoptable recommendation.
+        lines.extend(
+            [
+                f"Dex lists this skill as **{availability}**: it is not currently "
+                "on offer, and it must not be read as an available "
+                "recommendation. The pattern below is described as history, "
+                "not as a suggestion.",
+                "",
+            ]
+        )
+    lines.extend([
         f"## Selected Job: {_safe_markdown(job.job_id)}",
         "",
         f"- Situation: {_safe_markdown(job.situation)}",
@@ -442,7 +466,7 @@ def render_portable_brief_markdown(
         f"## Portable Pattern: {_safe_markdown(brief.goal)}",
         "",
         "### Method Outline",
-    ]
+    ])
     lines.extend(f"- {_safe_markdown(step)}" for step in brief.method_outline)
     lines.extend(["", "### Verification Checklist"])
     lines.extend(

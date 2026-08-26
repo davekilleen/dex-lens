@@ -24,7 +24,10 @@ from pydantic import TypeAdapter, ValidationError
 from tests.diagnosis.conftest import contract, presence_only_envelope
 
 from capability_exchange.catalogue.agent import render_catalogue_digest
-from capability_exchange.catalogue.bridge import rank_capability_shelf
+from capability_exchange.catalogue.bridge import (
+    rank_capability_shelf,
+    render_portable_brief_markdown,
+)
 from capability_exchange.catalogue.schema_contract import (
     MINIMUM_LENS_VERSION,
     MINIMUM_VERSION_KEYWORD,
@@ -299,6 +302,21 @@ def test_a_dormant_skill_validates_but_is_never_offered_as_active(
     assert match.shelf_section == "browse"
     assert match.availability == "dormant"
     assert "never offered as an active match" in match.match_explanation
+    # The explanation never contradicts itself: a non-active entry with
+    # foundation matches must not also read "picked because".
+    assert "picked because" not in match.match_explanation
+
+    # The bridge portable brief (used by the concierge journey for any shelf
+    # selection) carries the same not-on-offer framing the agent brief does.
+    rendered = render_portable_brief_markdown(
+        verified.catalogue,
+        capability_map,
+        shelf,
+        selected_capability_id="dormant-skill",
+        selected_job_id="weekly-report",
+    )
+    assert "**dormant**" in rendered
+    assert "not currently on offer" in rendered
 
 
 def test_one_mcp_server_with_tool_count_and_example_tools(
