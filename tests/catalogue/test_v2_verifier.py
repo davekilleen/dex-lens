@@ -446,7 +446,6 @@ def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> No
     schema = build_catalogue_schema()
 
     compatibility = schema["$defs"]["CapabilityCompatibilityV2"]["properties"]
-    capability = schema["$defs"]["CatalogueCapabilityEntryV2"]["properties"]
     catalogue = schema["$defs"]["CatalogueV2"]["properties"]
 
     assert schema["$schema"] == CATALOGUE_SCHEMA_DIALECT_ID
@@ -467,10 +466,23 @@ def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> No
         "compounding-correctability",
     }
     assert compatibility["foundation_capabilities"]["uniqueItems"] is True
-    assert capability["jobs"]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
-    assert capability["jobs"]["uniqueItems"] is True
-    assert capability["changed_in"]["items"]["pattern"] == r"^\d+\.\d+\.\d+$"
-    assert capability["changed_in"]["uniqueItems"] is True
+    # Every entry branch of the rollout-compatible union enforces the same
+    # identifier contracts the runtime verifier enforces.
+    for branch in (
+        "LegacySkillCapabilityEntryV2",
+        "ActiveSkillCapabilityEntryV2",
+        "McpServerCapabilityEntryV2",
+        "ScheduledAutomationCapabilityEntryV2",
+        "SystemEngineCapabilityEntryV2",
+    ):
+        capability = schema["$defs"][branch]["properties"]
+        assert capability["capability_id"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
+        assert capability["jobs"]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
+        assert capability["jobs"]["uniqueItems"] is True
+    for branch in ("LegacySkillCapabilityEntryV2", "ActiveSkillCapabilityEntryV2"):
+        capability = schema["$defs"][branch]["properties"]
+        assert capability["changed_in"]["items"]["pattern"] == r"^\d+\.\d+\.\d+$"
+        assert capability["changed_in"]["uniqueItems"] is True
     assert catalogue["jobs_taxonomy"]["uniqueItems"] is True
     assert catalogue["jobs_taxonomy"][UNIQUE_BY_KEYWORD] == "job_id"
     assert catalogue["capabilities"]["uniqueItems"] is True

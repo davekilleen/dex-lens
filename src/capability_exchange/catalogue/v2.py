@@ -19,7 +19,14 @@ from typing import Annotated, Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import Field, PrivateAttr, ValidationError, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.foundations import FoundationCapability
@@ -28,6 +35,28 @@ _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _CatalogueId = Annotated[str, Field(pattern=_ID_RE.pattern)]
 _SemanticVersion = Annotated[str, Field(pattern=_SEMVER_RE.pattern)]
+
+# The four kinds of capability a Dex release can publish, the publisher's
+# reviewed impact ranking, and whether the capability is currently offered.
+# All three are closed: an unknown class, tier, or availability is a schema
+# failure, never a guess.
+CapabilityClassV2 = Literal[
+    "active-skill",
+    "mcp-server",
+    "scheduled-automation",
+    "system-engine",
+]
+ImpactTierV2 = Literal["core", "high", "medium", "niche"]
+CapabilityAvailabilityV2 = Literal["active", "dormant", "parked"]
+
+# A repository-relative path published as public product metadata: never
+# absolute, never traversing upward. Lens only displays these; the pattern
+# keeps a signed catalogue from smuggling an absolute or escaping path into
+# text a person may paste somewhere it resolves.
+SAFE_RELATIVE_PATH_PATTERN = r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+"
+_SafeRelativePath = Annotated[
+    str, Field(min_length=1, max_length=512, pattern=SAFE_RELATIVE_PATH_PATTERN)
+]
 _FoundationCapabilityId = Literal[
     "ownership-portability",
     "privacy-minimal-disclosure",
@@ -203,7 +232,43 @@ class CapabilityPortableBriefV2(InventoriedModel):
     safety_notes: tuple[str, ...] = Field(min_length=1, max_length=20)
 
 
-class CatalogueCapabilityEntryV2(InventoriedModel):
+def _job_ids_are_unique_catalogue_ids(values: tuple[str, ...]) -> tuple[str, ...]:
+    if len(set(values)) != len(values):
+        raise ValueError("duplicate job id on capability entry")
+    for value in values:
+        if not _ID_RE.match(value):
+            raise ValueError(f"{value!r} is not a catalogue job id")
+    return values
+
+
+def _changed_versions_are_unique_semver(values: tuple[str, ...]) -> tuple[str, ...]:
+    if len(set(values)) != len(values):
+        raise ValueError("duplicate changed_in version")
+    for value in values:
+        if not _SEMVER_RE.match(value):
+            raise ValueError(f"{value!r} is not a semantic version")
+    return values
+
+
+def _paths_are_unique(values: tuple[str, ...]) -> tuple[str, ...]:
+    if len(set(values)) != len(values):
+        raise ValueError("duplicate path on capability entry")
+    return values
+
+
+class LegacySkillCapabilityEntryV2(InventoriedModel):
+    """A skill entry exactly as every already-signed catalogue publishes it.
+
+    This is the transition branch of the 0.1.9 contract: the currently
+    published catalogue is skill-only and its entries carry none of the
+    class fields, so this model stays byte-for-byte what those signed
+    catalogues were validated against. It is closed and skill-shaped —
+    every skill field is required and unknown fields are rejected — so a
+    classless non-skill entry cannot slip in through it. Removing this
+    branch is a later, explicit compatibility decision once every supported
+    Core catalogue carries the enriched fields.
+    """
+
     capability_id: str = Field(pattern=_ID_RE.pattern)
     title: str = Field(min_length=1, max_length=140)
     summary: str = Field(min_length=1, max_length=1200)
@@ -221,42 +286,201 @@ class CatalogueCapabilityEntryV2(InventoriedModel):
         max_length=40, json_schema_extra={"uniqueItems": True}
     )
     release_provenance: Literal["core-release"]
-    # Dex is not only skills. A capability is one of four classes, and the
-    # rebuild brief only exists for a skill: an MCP server, a scheduled
-    # automation, or a system engine is adopted, not rebuilt from a page. An
-    # entry that omits the class reads as an active-skill, so every catalogue
-    # published before this field existed still validates unchanged.
-    capability_class: Literal[
-        "active-skill", "mcp-server", "scheduled-automation", "system-engine"
-    ] = "active-skill"
-    impact_tier: Literal["core", "high", "medium", "niche"] | None = None
-    portable_brief: CapabilityPortableBriefV2 | None = None
+    portable_brief: CapabilityPortableBriefV2
+
+    _jobs_unique = field_validator("jobs")(_job_ids_are_unique_catalogue_ids)
+    _changed_in_semver = field_validator("changed_in")(_changed_versions_are_unique_semver)
+
+
+class ActiveSkillCapabilityEntryV2(InventoriedModel):
+    """An enriched skill entry: the legacy skill shape plus the class fields.
+
+    A skill keeps every legacy field — compatibility, docs_url,
+    since_release, changed_in and the portable rebuild brief are skill-only
+    and stay required here, and only here. A dormant skill still validates;
+    consumers must never offer it as an active recommendation.
+    """
+
+    capability_class: Literal["active-skill"]
+    impact_tier: ImpactTierV2
+    availability: Literal["active", "dormant"]
+    capability_id: str = Field(pattern=_ID_RE.pattern)
+    title: str = Field(min_length=1, max_length=140)
+    summary: str = Field(min_length=1, max_length=1200)
+    value: str = Field(min_length=1, max_length=1200)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
+    trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
+    compatibility: CapabilityCompatibilityV2
+    docs_url: str = Field(min_length=1, max_length=300)
+    since_release: str = Field(pattern=_SEMVER_RE.pattern)
+    changed_in: tuple[_SemanticVersion, ...] = Field(
+        max_length=40, json_schema_extra={"uniqueItems": True}
+    )
+    release_provenance: Literal["core-release"]
+    portable_brief: CapabilityPortableBriefV2
+
+    _jobs_unique = field_validator("jobs")(_job_ids_are_unique_catalogue_ids)
+    _changed_in_semver = field_validator("changed_in")(_changed_versions_are_unique_semver)
+
+
+class McpServerCapabilityEntryV2(InventoriedModel):
+    """An MCP server Dex runs: adopted by running Dex, never rebuilt from a page.
+
+    The catalogue id stays kebab-case; the server's own name is preserved
+    separately as ``server_name``. No skill-only field is permitted here.
+    """
+
+    # The safe-relative-path pattern uses lookaheads, which the default rust
+    # regex engine cannot compile; Python's `re` can, and is what the
+    # exported JSON Schema's reference validator uses too.
+    model_config = ConfigDict(extra="forbid", regex_engine="python-re")
+
+    capability_class: Literal["mcp-server"]
+    impact_tier: ImpactTierV2
+    availability: Literal["active"]
+    capability_id: str = Field(pattern=_ID_RE.pattern)
+    title: str = Field(min_length=1, max_length=140)
+    summary: str = Field(min_length=1, max_length=1200)
+    value: str = Field(min_length=1, max_length=1200)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
+    trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
+    release_provenance: Literal["core-release"]
+    server_name: str = Field(pattern=r"^dex-[a-z0-9-]+$")
+    tool_count: int = Field(ge=1)
+    example_tools: tuple[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")], ...] = Field(
+        min_length=1, max_length=5, json_schema_extra={"uniqueItems": True}
+    )
+    source_paths: tuple[_SafeRelativePath, ...] = Field(
+        min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
+    )
+
+    _jobs_unique = field_validator("jobs")(_job_ids_are_unique_catalogue_ids)
+    _paths_unique = field_validator("source_paths")(_paths_are_unique)
+
+    @field_validator("example_tools")
+    @classmethod
+    def _example_tools_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate example tool on capability entry")
+        return values
+
+
+class ScheduledAutomationCapabilityEntryV2(InventoriedModel):
+    """A scheduled automation Dex installs (e.g. a launchd job).
+
+    The catalogue id stays kebab-case (``dex-meeting-intel``); the literal
+    launchd label is preserved separately as ``automation_label``
+    (``com.dex.meeting-intel``). No skill-only field is permitted here.
+    """
+
+    model_config = ConfigDict(extra="forbid", regex_engine="python-re")
+
+    capability_class: Literal["scheduled-automation"]
+    impact_tier: ImpactTierV2
+    availability: Literal["active"]
+    capability_id: str = Field(pattern=_ID_RE.pattern)
+    title: str = Field(min_length=1, max_length=140)
+    summary: str = Field(min_length=1, max_length=1200)
+    value: str = Field(min_length=1, max_length=1200)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
+    trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
+    release_provenance: Literal["core-release"]
+    automation_label: str = Field(pattern=r"^com\.dex\.[a-z0-9.-]+$")
+    cadence: str = Field(min_length=1, max_length=200)
+    source_paths: tuple[_SafeRelativePath, ...] = Field(
+        min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
+    )
+    installer_path: _SafeRelativePath
+    # A program target may be a template that keeps its path token verbatim,
+    # so it is bounded text, not a safe-relative path.
+    program_target: str = Field(min_length=1, max_length=512)
+    run_at_load: bool
+
+    _jobs_unique = field_validator("jobs")(_job_ids_are_unique_catalogue_ids)
+    _paths_unique = field_validator("source_paths")(_paths_are_unique)
+
+
+class SystemEngineCapabilityEntryV2(InventoriedModel):
+    """A multi-component engine inside Dex itself.
+
+    ``parked`` exists for engines that ship but are not currently offered
+    (e.g. ``ritual-intelligence-engine``); a parked entry validates but must
+    never be ranked as an available recommendation. No skill-only field is
+    permitted here.
+    """
+
+    model_config = ConfigDict(extra="forbid", regex_engine="python-re")
+
+    capability_class: Literal["system-engine"]
+    impact_tier: ImpactTierV2
+    availability: Literal["active", "parked"]
+    capability_id: str = Field(pattern=_ID_RE.pattern)
+    title: str = Field(min_length=1, max_length=140)
+    summary: str = Field(min_length=1, max_length=1200)
+    value: str = Field(min_length=1, max_length=1200)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    prerequisites: tuple[str, ...] = Field(min_length=1, max_length=20)
+    trade_offs: tuple[str, ...] = Field(min_length=1, max_length=20)
+    evidence: tuple[CapabilityEvidenceV2, ...] = Field(min_length=1, max_length=20)
+    release_provenance: Literal["core-release"]
+    source_paths: tuple[_SafeRelativePath, ...] = Field(
+        min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
+    )
+    component_count: int = Field(ge=1)
+    example_components: tuple[_SafeRelativePath, ...] = Field(
+        min_length=1, max_length=5, json_schema_extra={"uniqueItems": True}
+    )
+
+    _jobs_unique = field_validator("jobs")(_job_ids_are_unique_catalogue_ids)
+    _paths_unique = field_validator("source_paths")(_paths_are_unique)
+    _examples_unique = field_validator("example_components")(_paths_are_unique)
 
     @model_validator(mode="after")
-    def _skill_entries_carry_a_brief(self) -> CatalogueCapabilityEntryV2:
-        if self.capability_class == "active-skill" and self.portable_brief is None:
-            raise ValueError("an active-skill capability must carry a portable brief")
+    def _components_match_source_paths(self) -> SystemEngineCapabilityEntryV2:
+        if self.component_count != len(self.source_paths):
+            raise ValueError(
+                "component_count must equal the number of source_paths "
+                f"({self.component_count} != {len(self.source_paths)})"
+            )
+        missing = sorted(set(self.example_components) - set(self.source_paths))
+        if missing:
+            raise ValueError(
+                f"example_components not present in source_paths: {', '.join(missing)}"
+            )
         return self
 
-    @field_validator("jobs")
-    @classmethod
-    def _job_ids_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(values)) != len(values):
-            raise ValueError("duplicate job id on capability entry")
-        for value in values:
-            if not _ID_RE.match(value):
-                raise ValueError(f"{value!r} is not a catalogue job id")
-        return values
 
-    @field_validator("changed_in")
-    @classmethod
-    def _changed_versions_are_unique_semver(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(values)) != len(values):
-            raise ValueError("duplicate changed_in version")
-        for value in values:
-            if not _SEMVER_RE.match(value):
-                raise ValueError(f"{value!r} is not a semantic version")
-        return values
+# The enriched entry: exactly one of the four classes, chosen by the closed
+# ``capability_class`` discriminator.
+EnrichedCatalogueCapabilityEntryV2 = Annotated[
+    ActiveSkillCapabilityEntryV2
+    | McpServerCapabilityEntryV2
+    | ScheduledAutomationCapabilityEntryV2
+    | SystemEngineCapabilityEntryV2,
+    Field(discriminator="capability_class"),
+]
+
+# The 0.1.9 rollout-compatible union: Lens must release before Core publishes
+# an enriched catalogue, so this release accepts both the current signed
+# skill-only catalogue (the closed legacy branch) and enriched discriminated
+# entries. The class fields are never optional on the enriched branches.
+CatalogueCapabilityEntryV2 = (
+    LegacySkillCapabilityEntryV2 | EnrichedCatalogueCapabilityEntryV2
+)
 
 
 class PortableBriefContractV2(InventoriedModel):
@@ -438,6 +662,45 @@ def verify_catalogue_envelope_for_stale_display(
     return verified
 
 
+def capability_class_of(entry: CatalogueCapabilityEntryV2) -> CapabilityClassV2:
+    """The entry's class; a legacy skill-only entry reads as an active skill."""
+    return getattr(entry, "capability_class", "active-skill")
+
+
+def capability_availability_of(entry: CatalogueCapabilityEntryV2) -> CapabilityAvailabilityV2:
+    """The entry's availability; a legacy skill-only entry reads as active."""
+    return getattr(entry, "availability", "active")
+
+
+def capability_is_active(entry: CatalogueCapabilityEntryV2) -> bool:
+    """Whether consumers may offer this entry as an active recommendation.
+
+    A ``dormant`` or ``parked`` entry validates and may be displayed as a
+    fact about Dex, but must never enter the active recommendation set.
+    """
+    return capability_availability_of(entry) == "active"
+
+
+def capability_class_fact_lines(entry: CatalogueCapabilityEntryV2) -> list[str]:
+    """The class-specific facts an entry carries, as plain unescaped text."""
+    if isinstance(entry, McpServerCapabilityEntryV2):
+        return [
+            f"MCP server {entry.server_name} exposing {entry.tool_count} tool(s), "
+            f"for example: {', '.join(entry.example_tools)}.",
+        ]
+    if isinstance(entry, ScheduledAutomationCapabilityEntryV2):
+        return [
+            f"Scheduled automation {entry.automation_label}; cadence: {entry.cadence}; "
+            f"runs at load: {'yes' if entry.run_at_load else 'no'}.",
+        ]
+    if isinstance(entry, SystemEngineCapabilityEntryV2):
+        return [
+            f"System engine of {entry.component_count} component(s), "
+            f"for example: {', '.join(entry.example_components)}.",
+        ]
+    return []
+
+
 def render_capability_entry_html(entry: CatalogueCapabilityEntryV2) -> str:
     """Render a catalogue entry as inert HTML text for local Lens pages."""
     evidence = "".join(
@@ -448,14 +711,22 @@ def render_capability_entry_html(entry: CatalogueCapabilityEntryV2) -> str:
         "</li>"
         for item in entry.evidence
     )
-    notes = "".join(
-        f"<li>{html.escape(note)}</li>" for note in entry.portable_brief.method_outline
-    )
+    brief = getattr(entry, "portable_brief", None)
+    if brief is not None:
+        heading = f"<h3>{html.escape(brief.goal)}</h3>"
+        notes = "".join(f"<li>{html.escape(note)}</li>" for note in brief.method_outline)
+    else:
+        # Only a skill has a rebuild brief; the other classes show their own
+        # facts instead of a fabricated method.
+        heading = f"<h3>{html.escape(entry.title)}</h3>"
+        notes = "".join(
+            f"<li>{html.escape(line)}</li>" for line in capability_class_fact_lines(entry)
+        )
     return (
         "<article>"
         f"<h2>{html.escape(entry.title)}</h2>"
         f"<p>{html.escape(entry.summary)}</p>"
-        f"<h3>{html.escape(entry.portable_brief.goal)}</h3>"
+        f"{heading}"
         f"<ul>{evidence}</ul>"
         f"<ol>{notes}</ol>"
         "</article>"

@@ -24,6 +24,24 @@ from capability_exchange.catalogue.v2 import (
 )
 
 CATALOGUE_SCHEMA_ID = "https://heydex.ai/catalogue/dex-lens/v2.schema.json"
+
+# The Lens release floor a producer needs before it may publish enriched
+# four-class entries. Core's preview guard reads this annotation from the
+# exported schema to verify the compatible Lens floor.
+MINIMUM_VERSION_KEYWORD = "x-dex-lens-minimum-version"
+MINIMUM_LENS_VERSION = "0.1.9"
+
+# The five closed entry branches of the rollout-compatible union, in the
+# order the exported ``oneOf`` declares them: the legacy skill-only shape
+# every already-signed catalogue uses, then the four class-discriminated
+# enriched shapes.
+ENTRY_BRANCH_MODELS = (
+    "LegacySkillCapabilityEntryV2",
+    "ActiveSkillCapabilityEntryV2",
+    "McpServerCapabilityEntryV2",
+    "ScheduledAutomationCapabilityEntryV2",
+    "SystemEngineCapabilityEntryV2",
+)
 CATALOGUE_SCHEMA_DIALECT_ID = (
     "https://heydex.ai/catalogue/dex-lens/v2-dialect.schema.json"
 )
@@ -117,14 +135,40 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
 CatalogueContractValidator.META_SCHEMA = build_catalogue_schema_dialect()
 
 
+def _close_entry_union(schema: dict[str, Any]) -> None:
+    """Express the entry union as ``oneOf`` with five closed branches.
+
+    pydantic emits the rollout-compatible union as an ``anyOf`` wrapping a
+    discriminated ``oneOf``. The cross-repo contract states it more plainly:
+    exactly one of five closed object shapes. Every branch forbids unknown
+    fields and the class branches disagree on ``capability_class`` (the
+    legacy branch forbids it entirely), so the branches are mutually
+    exclusive and ``oneOf`` is exact, not merely stylistic.
+    """
+    definitions = schema.get("$defs")
+    if not isinstance(definitions, dict):
+        raise ValueError("catalogue schema has no $defs to build the entry union from")
+    missing = [name for name in ENTRY_BRANCH_MODELS if name not in definitions]
+    if missing:
+        raise ValueError(f"catalogue schema is missing entry branch(es): {missing}")
+    definitions["CatalogueCapabilityEntryV2"] = {
+        "title": "CatalogueCapabilityEntryV2",
+        "oneOf": [{"$ref": f"#/$defs/{name}"} for name in ENTRY_BRANCH_MODELS],
+    }
+    capabilities = definitions["CatalogueV2"]["properties"]["capabilities"]
+    capabilities["items"] = {"$ref": "#/$defs/CatalogueCapabilityEntryV2"}
+
+
 def build_catalogue_schema() -> dict[str, Any]:
     """Build the producer schema with its required dialect declared."""
     schema = SignedCatalogueEnvelopeV2.model_json_schema(
         ref_template="#/$defs/{model}",
         mode="validation",
     )
+    _close_entry_union(schema)
     schema["$schema"] = CATALOGUE_SCHEMA_DIALECT_ID
     schema["$id"] = CATALOGUE_SCHEMA_ID
+    schema[MINIMUM_VERSION_KEYWORD] = MINIMUM_LENS_VERSION
     schema["$comment"] = (
         "This contract requires the Dex Lens unique-by vocabulary. Vanilla "
         "Draft 2020-12 validation alone is incomplete; use the declared dialect "

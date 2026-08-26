@@ -14,7 +14,15 @@ from types import MappingProxyType
 from typing import Literal
 
 from capability_exchange.capmap.model import CapabilityMap
-from capability_exchange.catalogue.v2 import CatalogueCapabilityEntryV2, CatalogueV2
+from capability_exchange.catalogue.v2 import (
+    CapabilityCompatibilityV2,
+    CatalogueCapabilityEntryV2,
+    CatalogueV2,
+    capability_availability_of,
+    capability_class_fact_lines,
+    capability_class_of,
+    capability_is_active,
+)
 from capability_exchange.diagnosis.finding import CapabilityState, Finding
 from capability_exchange.evidence import EvidenceLevel
 from capability_exchange.jobs.contract import JobCadence, JobImportance
@@ -39,6 +47,12 @@ _EVIDENCE_LANGUAGE: MappingProxyType[str, str] = MappingProxyType(
         "reported": "reported - Dex team's account",
         "unknown": "unknown - not established either way",
     }
+)
+# The publisher's reviewed impact tier nudges ordering. It is deliberately
+# smaller than every evidence, host, and gap term so a tier can break ties
+# but can never substitute for evidence and compatibility checks.
+_IMPACT_TIER_SCORE: MappingProxyType[str, int] = MappingProxyType(
+    {"core": 8, "high": 6, "medium": 3, "niche": 1}
 )
 _GAP_SCORE: MappingProxyType[CapabilityState, int] = MappingProxyType(
     {
@@ -72,6 +86,12 @@ class RankedCapabilityMatch:
     gap_explanation: str
     evidence_explanation: str
     compatibility_explanation: str
+    # Class fields survive ranking so a consumer can render an MCP server,
+    # automation, or engine as what it is, and so a dormant or parked entry
+    # is never mistaken for an available recommendation. Defaults keep the
+    # legacy skill-only shape constructible unchanged.
+    capability_class: str = "active-skill"
+    availability: str = "active"
 
 
 def _parse_semver(value: str) -> tuple[int, int, int] | None:
@@ -84,9 +104,11 @@ def _parse_semver(value: str) -> tuple[int, int, int] | None:
         return None
 
 
-def _contract_allows(entry: CatalogueCapabilityEntryV2, lens_contract_version: str) -> bool:
+def _contract_allows(
+    compatibility: CapabilityCompatibilityV2, lens_contract_version: str
+) -> bool:
     current = _parse_semver(lens_contract_version)
-    minimum = _parse_semver(entry.compatibility.minimum_lens_contract)
+    minimum = _parse_semver(compatibility.minimum_lens_contract)
     if current is None or minimum is None:
         return False
     return current >= minimum
@@ -181,9 +203,16 @@ def rank_capability_shelf(
         exact_catalogue_job_matches = tuple(
             job_id for job_id in entry.jobs if job_id in confirmed_job_ids
         )
+        # Host compatibility, contract floors, and foundation matching are
+        # skill facts: only the legacy and enriched skill shapes carry a
+        # compatibility block. The other classes rank on their common fields
+        # and are rendered through their own facts below.
+        compatibility = getattr(entry, "compatibility", None)
         matched_foundations = tuple(
             foundation
-            for foundation in entry.compatibility.foundation_capabilities
+            for foundation in (
+                compatibility.foundation_capabilities if compatibility is not None else ()
+            )
             if foundation in findings_by_foundation
         )
         matching_findings = tuple(
@@ -196,10 +225,18 @@ def rank_capability_shelf(
         best_gap = _best_gap(
             matching_findings
         )
-        host_ok = host_adapter in entry.compatibility.host_adapters
-        contract_ok = _contract_allows(entry, lens_contract_version)
+        host_ok = compatibility is not None and host_adapter in compatibility.host_adapters
+        contract_ok = compatibility is not None and _contract_allows(
+            compatibility, lens_contract_version
+        )
         evidence_level = _max_catalogue_evidence_level(entry)
-        section: Literal["picked", "browse"] = "picked" if matched_jobs else "browse"
+        is_active = capability_is_active(entry)
+        # A dormant or parked capability validates and may be shown as a fact
+        # about Dex, but it is never offered as an active match, however well
+        # it scores.
+        section: Literal["picked", "browse"] = (
+            "picked" if matched_jobs and is_active else "browse"
+        )
         job_weight = sum(
             _importance_score(jobs_by_id[job_id].importance)
             + _cadence_score(jobs_by_id[job_id].cadence)
@@ -214,6 +251,9 @@ def rank_capability_shelf(
             + (10 if contract_ok else 0)
             + _EVIDENCE_SCORE[evidence_level]
             + (_GAP_SCORE[best_gap.capability_state] if best_gap else 0)
+            # The publisher's reviewed tier orders what is shown; it never
+            # replaces the evidence and compatibility terms above.
+            + _IMPACT_TIER_SCORE.get(getattr(entry, "impact_tier", None) or "", 0)
         )
 
         if matched_jobs:
@@ -234,6 +274,12 @@ def rank_capability_shelf(
                 "matched foundation "
                 + _join_or_none(matched_foundations, empty="none")
             )
+        if not is_active:
+            match_explanation = (
+                f"browse only - Dex lists this capability as "
+                f"{capability_availability_of(entry)}, so it is never offered as "
+                "an active match; " + match_explanation
+            )
         if best_gap is None:
             gap_explanation = "no matching diagnosis gap was found for this capability"
         else:
@@ -242,13 +288,23 @@ def rank_capability_shelf(
                 f"{_STATE_LANGUAGE[best_gap.capability_state]} for "
                 f"{best_gap.job_id}; evidence level {best_gap.evidence_level.value}"
             )
-        compatibility_explanation = (
-            f"host adapter {host_adapter} "
-            f"{'is listed' if host_ok else 'is not listed'}; Lens contract "
-            f"{lens_contract_version} "
-            f"{'meets' if contract_ok else 'does not meet'} minimum "
-            f"{entry.compatibility.minimum_lens_contract}"
-        )
+        if compatibility is not None:
+            compatibility_explanation = (
+                f"host adapter {host_adapter} "
+                f"{'is listed' if host_ok else 'is not listed'}; Lens contract "
+                f"{lens_contract_version} "
+                f"{'meets' if contract_ok else 'does not meet'} minimum "
+                f"{compatibility.minimum_lens_contract}"
+            )
+        else:
+            # A non-skill has no host compatibility block: it is adopted by
+            # running Dex, and what Lens can honestly say about it is its
+            # own published facts.
+            facts = " ".join(capability_class_fact_lines(entry))
+            compatibility_explanation = (
+                "no host compatibility declaration: this is not a skill and is "
+                "adopted by running Dex, not installed into this host. " + facts
+            ).rstrip()
         matches.append(
             RankedCapabilityMatch(
                 capability_id=entry.capability_id,
@@ -264,6 +320,8 @@ def rank_capability_shelf(
                     f"{entry.evidence[0].summary} Limitations: {entry.evidence[0].limitations}"
                 ),
                 compatibility_explanation=compatibility_explanation,
+                capability_class=capability_class_of(entry),
+                availability=capability_availability_of(entry),
             )
         )
 
@@ -313,6 +371,46 @@ def render_portable_brief_markdown(
     capability = _capability_by_id(catalogue, selected_capability_id)
     match = _match_by_id(shelf, selected_capability_id)
     job = capability_map.job(selected_job_id).contract
+    brief = getattr(capability, "portable_brief", None)
+    if brief is None:
+        # Only a skill carries a portable rebuild brief. For an MCP server,
+        # an automation, or a system engine the honest brief states what the
+        # entry is and what Dex publishes about it, never fabricated steps.
+        lines = [
+            f"# Not a rebuildable skill: {_safe_markdown(capability.title)}",
+            "",
+            f"Audience: {catalogue.portable_brief.audience}",
+            f"Safety boundary: {_safe_markdown(catalogue.portable_brief.safety_boundary)}",
+            "",
+            (
+                "This is guidance only. It does not grant permission to read, write, "
+                "send, or install anything."
+            ),
+            "",
+            f"This Dex capability is a **{capability_class_of(capability)}**"
+            f" (availability: {capability_availability_of(capability)}), so it has "
+            "no portable rebuild brief: it is adopted by running Dex, not "
+            "recreated from a description in another system.",
+            "",
+            "## What Dex publishes about it",
+            "",
+        ]
+        lines.extend(
+            f"- {_safe_markdown(fact)}" for fact in capability_class_fact_lines(capability)
+        )
+        lines.extend(
+            [
+                "",
+                "## Capability Summary",
+                "",
+                f"> {_safe_markdown(capability.summary)}",
+                "",
+                "Do not treat this brief as proof the capability is live in this system.",
+                "Do not send private material to Dex from this brief.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
     lines = [
         f"# Portable Brief: {_safe_markdown(capability.title)}",
         "",
@@ -341,27 +439,27 @@ def render_portable_brief_markdown(
         "",
         f"> {_safe_markdown(capability.summary)}",
         "",
-        f"## Portable Pattern: {_safe_markdown(capability.portable_brief.goal)}",
+        f"## Portable Pattern: {_safe_markdown(brief.goal)}",
         "",
         "### Method Outline",
     ]
-    lines.extend(f"- {_safe_markdown(step)}" for step in capability.portable_brief.method_outline)
+    lines.extend(f"- {_safe_markdown(step)}" for step in brief.method_outline)
     lines.extend(["", "### Verification Checklist"])
     lines.extend(
         f"- {_safe_markdown(item)}"
-        for item in capability.portable_brief.verification_checklist
+        for item in brief.verification_checklist
     )
     lines.extend(
         [
             "",
             "### Rollback Advice",
             "",
-            f"- {_safe_markdown(capability.portable_brief.rollback_advice)}",
+            f"- {_safe_markdown(brief.rollback_advice)}",
             "",
             "### Safety Notes",
         ]
     )
-    lines.extend(f"- {_safe_markdown(note)}" for note in capability.portable_brief.safety_notes)
+    lines.extend(f"- {_safe_markdown(note)}" for note in brief.safety_notes)
     lines.extend(
         [
             "",
