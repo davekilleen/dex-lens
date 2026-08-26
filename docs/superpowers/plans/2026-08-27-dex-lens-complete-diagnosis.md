@@ -554,7 +554,7 @@ def test_discovers_whole_system_without_equating_presence_with_working(
     fingerprint = discover_fingerprint(system.snapshot, collected_at=NOW)
     by_key = {(item.kind, item.identity): item for item in fingerprint.observations}
 
-    assert by_key[(ObservationKind.RELEASE, "dex-core")].attributes[0].value == "v1.13.0"
+    assert by_key[(ObservationKind.RELEASE, "dex-core")].attributes[0].value == "v0.8.3"
     assert by_key[(ObservationKind.MCP_SERVER, "career-data")].operational_state is OperationalState.DECLARED
     assert by_key[(ObservationKind.AUTOMATION, "nightly-check")].operational_state is OperationalState.IMPLEMENTED
     assert by_key[(ObservationKind.HEALTH_CHECK, "system-doctor")].operational_state is OperationalState.IMPLEMENTED
@@ -1162,7 +1162,7 @@ git commit -m "feat: make Lens diagnosis complete and reciprocal"
 
 ```json
 {
-  "release_id": "v1.13.0",
+  "release_id": "v0.8.3",
   "observations": {
     "mcp_servers_declared": 7,
     "mcp_tools_known": 0,
@@ -1201,9 +1201,9 @@ git commit -m "feat: make Lens diagnosis complete and reciprocal"
 
 ```python
 FILES = {
-    "CHANGELOG.md": "# Changes\n\n## v1.13.0 — Connect Your Tools\n",
+    "CHANGELOG.md": "# Changes\n\n## v0.8.3 — Local Services\n",
     ".mcp.json": json.dumps({"mcpServers": {
-        "career-data": {"command": "python3", "args": ["career_server.py"]},
+        "career-data": {"command": "python3", "args": ["role_data_server.py"]},
         "calendar-data": {"url": "https://example.invalid/mcp"},
     }}),
     ".claude/settings.json": json.dumps({"mcpServers": {
@@ -1214,7 +1214,7 @@ FILES = {
     ".scripts/install-nightly-check.sh": "#!/bin/sh\nexit 0\n",
     ".scripts/nightly-check.plist.template": PLIST_TEMPLATE,
     "core/utils/system_doctor.py": "def check():\n    return {'state': 'unknown'}\n",
-    "core/mcp/career_server.py": CAREER_SERVER_SOURCE,
+    "core/mcp/role_data_server.py": CAREER_SERVER_SOURCE,
     "System/integrations/registry.json": json.dumps({"providers": ["calendar", "work"]}),
     "System/integrations/config.yaml": "calendar:\n  enabled: true\n",
     "skills/career-coach/SKILL.md": CAREER_SKILL,
@@ -1358,7 +1358,7 @@ Run the archive safety preflight again, generate a fresh private fingerprint, an
 - at most three Dex recommendations;
 - no raw path, note prose, secret-shaped value or source identifier in output.
 
-After the result is recorded privately, remove `/home/dexdev/vault-audit-work-20260826` and `/home/dexdev/vault-audit-inbox/Vault-2026-08-26.zip`. Verify both are absent. The owner copy under `/home/ubuntu/vault-backups/` remains untouched and recoverable.
+After the result is recorded privately, resolve the two exact paths from the private audit checkpoint, confirm that neither path is inside a repository, and remove only the temporary fingerprint workspace and the Devbox inbox copy. Verify both are absent. Leave the separately owned source archive untouched and recoverable.
 
 - [ ] **Step 5: Perform GitHub preflight in each runner**
 

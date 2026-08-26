@@ -353,7 +353,7 @@ report:
   system, not just a list of tools;
 - local integration discovery and management directories must contribute
   evidence;
-- Career MCP and every other declared server must be inventoried distinctly;
+- a career-oriented server and every other declared server must be inventoried distinctly;
 - scheduled work must distinguish written, installed, loaded, recently run,
   and outcome-verified states;
 - useful person-built methods must appear under “What Dex should learn from
