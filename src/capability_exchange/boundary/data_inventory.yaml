@@ -5563,7 +5563,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.capability_id:
+  LegacySkillCapabilityEntryV2.capability_id:
     description: "stable public Dex capability id"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated as kebab-case and unique inside the catalogue"
@@ -5573,7 +5573,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.title:
+  LegacySkillCapabilityEntryV2.title:
     description: "human-readable title for a public Dex capability entry"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty text; rendered as escaped text"
@@ -5583,7 +5583,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.summary:
+  LegacySkillCapabilityEntryV2.summary:
     description: "plain public summary of a Dex capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty text; rendered as escaped text"
@@ -5593,7 +5593,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.value:
+  LegacySkillCapabilityEntryV2.value:
     description: "plain public explanation of why a Dex capability may help"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty text; rendered as escaped text"
@@ -5603,7 +5603,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.jobs:
+  LegacySkillCapabilityEntryV2.jobs:
     description: "public job taxonomy ids this capability can help with"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
@@ -5613,7 +5613,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.prerequisites:
+  LegacySkillCapabilityEntryV2.prerequisites:
     description: "public prerequisites for adapting this Dex capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty tuple of escaped text"
@@ -5623,7 +5623,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.trade_offs:
+  LegacySkillCapabilityEntryV2.trade_offs:
     description: "public trade-offs and limits for this Dex capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty tuple of escaped text"
@@ -5633,7 +5633,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.evidence:
+  LegacySkillCapabilityEntryV2.evidence:
     description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated as a non-empty bounded tuple"
@@ -5643,7 +5643,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.compatibility:
+  LegacySkillCapabilityEntryV2.compatibility:
     description: "public compatibility declaration for this capability (nested CapabilityCompatibilityV2 entries apply)"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated structurally before the capability can be shown"
@@ -5653,7 +5653,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.docs_url:
+  LegacySkillCapabilityEntryV2.docs_url:
     description: "public documentation URL for this Dex capability"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded non-empty text; rendered as an inert link target by local views"
@@ -5663,7 +5663,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.since_release:
+  LegacySkillCapabilityEntryV2.since_release:
     description: "public Core release version that first published this capability"
     collection: "derived by the Dex Core release pipeline and verified locally by Lens"
     derivation: "semantic version text used for new-since-last-look markers"
@@ -5673,7 +5673,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.changed_in:
+  LegacySkillCapabilityEntryV2.changed_in:
     description: "public Core release versions where this capability materially changed"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "bounded tuple of semantic version text used for new-since-last-look markers"
@@ -5683,7 +5683,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.release_provenance:
+  LegacySkillCapabilityEntryV2.release_provenance:
     description: "public provenance marker proving this entry came from a Core release"
     collection: "set by the Dex Core release pipeline and verified locally by Lens"
     derivation: "closed literal core-release"
@@ -5693,7 +5693,7 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.portable_brief:
+  LegacySkillCapabilityEntryV2.portable_brief:
     description: "public portable brief content for this capability (nested CapabilityPortableBriefV2 entries apply)"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
     derivation: "validated structurally and rendered as text"
@@ -5703,21 +5703,661 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.capability_class:
+  ActiveSkillCapabilityEntryV2.capability_id:
+    description: "stable public Dex capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and unique across all classes in the catalogue"
+    display: "used locally to identify capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.capability_class:
     description: "which of Dex's four capability kinds this entry is (skill, MCP server, automation, system engine)"
-    collection: "set by the Dex Core release pipeline and verified locally by Lens"
-    derivation: "closed literal; absent entries read as active-skill for backward compatibility"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal discriminator for the class-specific model"
     display: "shown locally beside the capability so a non-skill is not mistaken for a skill"
     storage: none
     sharing: never
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
-  CatalogueCapabilityEntryV2.impact_tier:
-    description: "public impact ranking of a Dex capability (core, high, medium, niche)"
-    collection: "set by the Dex Core release pipeline and verified locally by Lens"
-    derivation: "closed literal or absent; used only to order what is shown"
+  ActiveSkillCapabilityEntryV2.impact_tier:
+    description: "publisher-reviewed impact ranking of a Dex capability (core, high, medium, niche)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal reviewed by the publisher, never inferred from file or tool count"
     display: "shown locally to rank which capabilities matter most for this person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.availability:
+    description: "whether Dex currently offers this capability (active, dormant, parked)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal restricted further by class; non-active entries are never offered as active matches"
+    display: "used locally so a dormant or parked capability is never recommended as available"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.title:
+    description: "human-readable title for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.summary:
+    description: "plain public summary of a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.jobs:
+    description: "public job taxonomy ids this capability can help with"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adopting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.evidence:
+    description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a non-empty bounded tuple"
+    display: "shown locally with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.compatibility:
+    description: "public compatibility declaration for this skill (nested CapabilityCompatibilityV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated structurally before the capability can be shown"
+    display: "used locally for ranking and explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.docs_url:
+    description: "public documentation URL for this Dex skill"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as an inert link target by local views"
+    display: "shown locally as a documentation reference"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.since_release:
+    description: "public Core release version that first published this skill"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining new or changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.changed_in:
+    description: "public Core release versions where this skill materially changed"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded tuple of semantic version text used for new-since-last-look markers"
+    display: "shown locally when explaining changed catalogue entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ActiveSkillCapabilityEntryV2.portable_brief:
+    description: "public portable brief content for this skill (nested CapabilityPortableBriefV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated structurally and rendered as text"
+    display: "included in the local portable brief the person can export"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.capability_id:
+    description: "stable public Dex capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and unique across all classes in the catalogue"
+    display: "used locally to identify capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.capability_class:
+    description: "which of Dex's four capability kinds this entry is (skill, MCP server, automation, system engine)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal discriminator for the class-specific model"
+    display: "shown locally beside the capability so a non-skill is not mistaken for a skill"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.impact_tier:
+    description: "publisher-reviewed impact ranking of a Dex capability (core, high, medium, niche)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal reviewed by the publisher, never inferred from file or tool count"
+    display: "shown locally to rank which capabilities matter most for this person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.availability:
+    description: "whether Dex currently offers this capability (active, dormant, parked)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal restricted further by class; non-active entries are never offered as active matches"
+    display: "used locally so a dormant or parked capability is never recommended as available"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.title:
+    description: "human-readable title for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.summary:
+    description: "plain public summary of a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.jobs:
+    description: "public job taxonomy ids this capability can help with"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adopting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.evidence:
+    description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a non-empty bounded tuple"
+    display: "shown locally with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.server_name:
+    description: "public name of the Dex MCP server this entry describes"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated against the closed dex- server name pattern"
+    display: "shown locally as an MCP server fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.tool_count:
+    description: "public count of tools the Dex MCP server exposes"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a positive integer"
+    display: "shown locally as an MCP server fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.example_tools:
+    description: "public example tool names the Dex MCP server exposes"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded unique tuple of snake_case tool names"
+    display: "shown locally as an MCP server fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.source_paths:
+    description: "public repository-relative paths of the MCP server inside the Dex release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique safe repository-relative paths"
+    display: "shown locally as an MCP server fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.capability_id:
+    description: "stable public Dex capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and unique across all classes in the catalogue"
+    display: "used locally to identify capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.capability_class:
+    description: "which of Dex's four capability kinds this entry is (skill, MCP server, automation, system engine)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal discriminator for the class-specific model"
+    display: "shown locally beside the capability so a non-skill is not mistaken for a skill"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.impact_tier:
+    description: "publisher-reviewed impact ranking of a Dex capability (core, high, medium, niche)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal reviewed by the publisher, never inferred from file or tool count"
+    display: "shown locally to rank which capabilities matter most for this person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.availability:
+    description: "whether Dex currently offers this capability (active, dormant, parked)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal restricted further by class; non-active entries are never offered as active matches"
+    display: "used locally so a dormant or parked capability is never recommended as available"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.title:
+    description: "human-readable title for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.summary:
+    description: "plain public summary of a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.jobs:
+    description: "public job taxonomy ids this capability can help with"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adopting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.evidence:
+    description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a non-empty bounded tuple"
+    display: "shown locally with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.automation_label:
+    description: "public launchd label of the Dex scheduled automation"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated against the closed com.dex. label pattern"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.cadence:
+    description: "public human-readable cadence of the Dex scheduled automation"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.source_paths:
+    description: "public repository-relative paths of the automation inside the Dex release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique safe repository-relative paths"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.installer_path:
+    description: "public repository-relative path of the automation's installer"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as one safe repository-relative path"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.program_target:
+    description: "public program target of the Dex scheduled automation; templates keep their path token"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  ScheduledAutomationCapabilityEntryV2.run_at_load:
+    description: "whether the Dex scheduled automation runs at load"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "boolean published by the Core release"
+    display: "shown locally as an automation fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.capability_id:
+    description: "stable public Dex capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as kebab-case and unique across all classes in the catalogue"
+    display: "used locally to identify capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.capability_class:
+    description: "which of Dex's four capability kinds this entry is (skill, MCP server, automation, system engine)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal discriminator for the class-specific model"
+    display: "shown locally beside the capability so a non-skill is not mistaken for a skill"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.impact_tier:
+    description: "publisher-reviewed impact ranking of a Dex capability (core, high, medium, niche)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal reviewed by the publisher, never inferred from file or tool count"
+    display: "shown locally to rank which capabilities matter most for this person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.availability:
+    description: "whether Dex currently offers this capability (active, dormant, parked)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal restricted further by class; non-active entries are never offered as active matches"
+    display: "used locally so a dormant or parked capability is never recommended as available"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.title:
+    description: "human-readable title for a public Dex capability entry"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.summary:
+    description: "plain public summary of a Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.value:
+    description: "plain public explanation of why a Dex capability may help"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty text; rendered as escaped text"
+    display: "shown locally in the capability shelf and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.jobs:
+    description: "public job taxonomy ids this capability can help with"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally for shelf organization and ranking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.prerequisites:
+    description: "public prerequisites for adopting this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.trade_offs:
+    description: "public trade-offs and limits for this Dex capability"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded non-empty tuple of escaped text"
+    display: "shown locally in the shelf, ranking explanation and brief"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.evidence:
+    description: "public evidence items for this capability entry (nested CapabilityEvidenceV2 entries apply)"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a non-empty bounded tuple"
+    display: "shown locally with the capability entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.release_provenance:
+    description: "public provenance marker proving this entry came from a Core release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal core-release"
+    display: "used locally to distinguish release-backed catalogue entries from unsupported data"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.source_paths:
+    description: "public repository-relative paths of the system engine's components inside the Dex release"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique safe repository-relative paths"
+    display: "shown locally as an engine fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.component_count:
+    description: "public count of the system engine's components"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a positive integer equal to the number of source_paths"
+    display: "shown locally as an engine fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SystemEngineCapabilityEntryV2.example_components:
+    description: "public example component paths of the system engine"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded unique tuple of safe repository-relative paths, each present in source_paths"
+    display: "shown locally as an engine fact"
     storage: none
     sharing: never
     deletion: not-stored

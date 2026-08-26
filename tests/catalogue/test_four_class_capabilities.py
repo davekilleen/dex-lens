@@ -1,26 +1,29 @@
-"""The catalogue can carry all four Dex capability classes, backward-compatibly.
+"""The catalogue carries all four Dex capability classes, backward-compatibly.
 
-Dex is skills, MCP servers, scheduled automations and system engines. The
-catalogue used to be able to express only the first; this proves the model now
-accepts the other three without a rebuild brief, still requires a brief for a
-skill, and — the property that lets it ship safely — validates every catalogue
-that predates the four-class fields unchanged.
+Dex is skills, MCP servers, scheduled automations and system engines. Under
+the 0.1.9 contract an entry is one of five closed shapes: the legacy
+skill-only shape every already-signed catalogue uses, or one of four
+class-discriminated enriched shapes. This file proves the union routes each
+shape to its model, that the skill-only fields stay skill-only, and that the
+agent-facing renderings say what a non-skill is instead of crashing or
+fabricating a rebuild.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from capability_exchange.catalogue.agent import (
     render_capability_brief_markdown,
     render_catalogue_digest,
 )
 from capability_exchange.catalogue.v2 import (
+    ActiveSkillCapabilityEntryV2,
     CatalogueCapabilityEntryV2,
-    SignedCatalogueEnvelopeV2,
+    CatalogueV2,
+    LegacySkillCapabilityEntryV2,
+    McpServerCapabilityEntryV2,
 )
 
 _CONTRACT = {
@@ -28,7 +31,8 @@ _CONTRACT = {
     "audience": "the person's own AI system",
     "safety_boundary": "guidance only; it changes nothing",
 }
-_LIVE = Path("/home/user/lab/cat.json")
+
+_ENTRY_ADAPTER: TypeAdapter = TypeAdapter(CatalogueCapabilityEntryV2)
 
 
 def _skill_entry(**overrides: object) -> dict[str, object]:
@@ -69,30 +73,69 @@ def _skill_entry(**overrides: object) -> dict[str, object]:
     return entry
 
 
-def test_an_entry_with_no_class_reads_as_a_skill() -> None:
-    entry = CatalogueCapabilityEntryV2.model_validate(_skill_entry())
-    assert entry.capability_class == "active-skill"
-    assert entry.impact_tier is None
+def _mcp_entry(**overrides: object) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "capability_id": "dex-work-mcp",
+        "capability_class": "mcp-server",
+        "impact_tier": "core",
+        "availability": "active",
+        "title": "Work MCP server",
+        "summary": "Task and project tools over MCP.",
+        "value": "The system's hands for work items.",
+        "jobs": ["plan-my-work"],
+        "prerequisites": ["a running Dex install"],
+        "trade_offs": ["only inside Dex"],
+        "evidence": [
+            {"level": "supported", "source": "test: x", "summary": "s", "limitations": "l"}
+        ],
+        "release_provenance": "core-release",
+        "server_name": "dex-work",
+        "tool_count": 12,
+        "example_tools": ["list_tasks", "add_note"],
+        "source_paths": ["core/mcp/work/server.py"],
+    }
+    entry.update(overrides)
+    return entry
 
 
-def test_a_non_skill_needs_no_rebuild_brief() -> None:
-    mcp = _skill_entry(
-        capability_id="dex-work-mcp",
-        title="Work MCP server",
-        capability_class="mcp-server",
-        impact_tier="core",
+def test_an_entry_with_no_class_is_the_legacy_skill_shape() -> None:
+    entry = _ENTRY_ADAPTER.validate_python(_skill_entry())
+    assert isinstance(entry, LegacySkillCapabilityEntryV2)
+    assert not hasattr(entry, "capability_class")
+
+
+def test_an_enriched_skill_keeps_every_skill_field() -> None:
+    entry = _ENTRY_ADAPTER.validate_python(
+        _skill_entry(capability_class="active-skill", impact_tier="high", availability="active")
     )
-    del mcp["portable_brief"]
-    entry = CatalogueCapabilityEntryV2.model_validate(mcp)
-    assert entry.capability_class == "mcp-server"
-    assert entry.portable_brief is None
+    assert isinstance(entry, ActiveSkillCapabilityEntryV2)
+    assert entry.portable_brief.goal == "plan the day"
+    assert entry.compatibility.platforms == ("macos",)
+
+
+def test_a_non_skill_carries_its_own_class_fields_and_no_skill_fields() -> None:
+    entry = _ENTRY_ADAPTER.validate_python(_mcp_entry())
+    assert isinstance(entry, McpServerCapabilityEntryV2)
+    assert entry.tool_count == 12
+    assert not hasattr(entry, "portable_brief")
+
+
+def test_a_classed_non_skill_with_skill_fields_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        _ENTRY_ADAPTER.validate_python(_mcp_entry(docs_url="https://example.invalid"))
 
 
 def test_a_skill_without_a_brief_is_refused() -> None:
     bad = _skill_entry()
     del bad["portable_brief"]
-    with pytest.raises(ValueError, match="portable brief"):
-        CatalogueCapabilityEntryV2.model_validate(bad)
+    with pytest.raises(ValidationError):
+        _ENTRY_ADAPTER.validate_python(bad)
+    enriched_bad = _skill_entry(
+        capability_class="active-skill", impact_tier="high", availability="active"
+    )
+    del enriched_bad["portable_brief"]
+    with pytest.raises(ValidationError):
+        _ENTRY_ADAPTER.validate_python(enriched_bad)
 
 
 def test_the_digest_marks_a_non_skill_and_its_rank() -> None:
@@ -105,22 +148,9 @@ def test_the_digest_marks_a_non_skill_and_its_rank() -> None:
                 "confirmed_gap_signals": ["a gap in planning"],
             }
         ],
-        "capabilities": [
-            _skill_entry(),
-            {
-                k: v
-                for k, v in _skill_entry(
-                    capability_id="dex-work-mcp",
-                    title="Work MCP server",
-                    capability_class="mcp-server",
-                    impact_tier="core",
-                ).items()
-                if k != "portable_brief"
-            },
-        ],
+        "capabilities": [_skill_entry(), _mcp_entry()],
         "portable_brief": _CONTRACT,
     }
-    from capability_exchange.catalogue.v2 import CatalogueV2
 
     rendered = render_catalogue_digest(CatalogueV2.model_validate(catalogue))
     assert "MCP server" in rendered and "core" in rendered
@@ -129,8 +159,6 @@ def test_the_digest_marks_a_non_skill_and_its_rank() -> None:
 
 
 def test_brief_on_a_non_skill_explains_rather_than_crashes() -> None:
-    from capability_exchange.catalogue.v2 import CatalogueV2
-
     catalogue = CatalogueV2.model_validate(
         {
             "jobs_taxonomy": [
@@ -141,48 +169,12 @@ def test_brief_on_a_non_skill_explains_rather_than_crashes() -> None:
                     "confirmed_gap_signals": ["a gap"],
                 }
             ],
-            "capabilities": [
-                {
-                    k: v
-                    for k, v in _skill_entry(
-                        capability_id="dex-work-mcp",
-                        title="Work MCP server",
-                        capability_class="mcp-server",
-                    ).items()
-                    if k != "portable_brief"
-                }
-            ],
+            "capabilities": [_mcp_entry()],
             "portable_brief": _CONTRACT,
         }
     )
     out = render_capability_brief_markdown(catalogue, "dex-work-mcp")
     assert "MCP server" in out
     assert "no portable rebuild brief" in out
-
-
-@pytest.mark.skipif(not _LIVE.is_file(), reason="live catalogue snapshot not present")
-def test_the_current_live_catalogue_still_validates_unchanged() -> None:
-    """The backward-compatibility guarantee that lets this ship: a catalogue
-    signed before the four-class fields existed must still verify."""
-    envelope = SignedCatalogueEnvelopeV2.model_validate(json.loads(_LIVE.read_text()))
-    assert envelope.catalogue.capabilities
-    assert all(e.capability_class == "active-skill" for e in envelope.catalogue.capabilities)
-
-
-def test_verify_keeps_the_exact_signed_bytes_for_the_store() -> None:
-    """The store must persist what was signed, not a re-serialised model.
-
-    Re-dumping the model injects a defaulted field the signed original did not
-    carry, so its signature would fail on offline reload. verify keeps the raw
-    bytes for the store to write verbatim.
-    """
-    from capability_exchange.catalogue.v2 import SignedCatalogueEnvelopeV2
-
-    raw = _LIVE.read_text() if _LIVE.is_file() else None
-    if raw is None:
-        pytest.skip("live catalogue snapshot not present")
-    envelope = SignedCatalogueEnvelopeV2.model_validate(json.loads(raw))
-    # A model dump now carries capability_class on every entry; the signed
-    # original did not — so the two are not interchangeable for signing.
-    assert '"capability_class"' in envelope.model_dump_json()
-    assert '"capability_class"' not in raw
+    # The MCP facts are rendered through the class model, not invented.
+    assert "dex-work" in out and "12 tool(s)" in out

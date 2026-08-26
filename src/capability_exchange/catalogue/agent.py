@@ -29,6 +29,9 @@ from collections.abc import Iterable, Sequence
 from capability_exchange.catalogue.v2 import (
     CatalogueCapabilityEntryV2,
     CatalogueV2,
+    capability_availability_of,
+    capability_class_fact_lines,
+    capability_class_of,
 )
 
 __all__ = [
@@ -165,20 +168,26 @@ _CLASS_LABELS = {
 
 
 def _class_tier_tag(entry: CatalogueCapabilityEntryV2) -> str:
-    """A short parenthetical marking a non-skill or ranked capability.
+    """A short parenthetical marking a non-skill, ranked, or shelved capability.
 
-    An entry with no class and no tier renders exactly as it did before this
-    existed, so a catalogue that predates the four-class model reads
+    A legacy entry with no class fields renders exactly as it did before
+    these existed, so a catalogue that predates the four-class model reads
     unchanged. A skill is not tagged as a skill — only the three other kinds
-    are named, so a person is never told an MCP server is a skill; and where a
-    rank is present it is shown, because ranking is the point of it.
+    are named, so a person is never told an MCP server is a skill; where a
+    rank is present it is shown, because ranking is the point of it; and a
+    dormant or parked entry is named as such, because a person must never
+    read one as currently on offer.
     """
     parts: list[str] = []
-    label = _CLASS_LABELS.get(entry.capability_class)
+    label = _CLASS_LABELS.get(capability_class_of(entry))
     if label is not None:
         parts.append(label)
-    if entry.impact_tier is not None:
-        parts.append(entry.impact_tier)
+    tier = getattr(entry, "impact_tier", None)
+    if tier is not None:
+        parts.append(tier)
+    availability = capability_availability_of(entry)
+    if availability != "active":
+        parts.append(availability)
     return f" _({' · '.join(parts)})_" if parts else ""
 
 
@@ -200,25 +209,43 @@ def render_capability_brief_markdown(
     it says nothing about whether it will help this person.
     """
     entry = capability_by_id(catalogue, capability_id)
-    brief = entry.portable_brief
+    brief = getattr(entry, "portable_brief", None)
+    availability = capability_availability_of(entry)
 
     if brief is None:
         # Only a skill has a rebuild brief. An MCP server, an automation or a
         # system engine is adopted inside Dex, not recreated from a page, so
         # the honest answer is to say what it is and that it has no portable
         # rebuild — never to fabricate steps that would not work.
-        kind = _CLASS_LABELS.get(entry.capability_class, entry.capability_class)
-        return "\n".join(
+        entry_class = capability_class_of(entry)
+        kind = _CLASS_LABELS.get(entry_class, entry_class)
+        lines = [
+            f"# {_safe_markdown(entry.title)}",
+            "",
+            _GUIDANCE_ONLY,
+            "",
+            f"This is a Dex **{_safe_markdown(kind)}**, not a skill, so it has "
+            "no portable rebuild brief: it is part of how Dex works "
+            "internally, adopted by running Dex, not recreated from a "
+            "description in another system.",
+            "",
+        ]
+        if availability != "active":
+            lines.extend(
+                [
+                    f"Dex lists this capability as **{availability}**: it is not "
+                    "currently on offer, and it must not be read as an "
+                    "available recommendation.",
+                    "",
+                ]
+            )
+        facts = capability_class_fact_lines(entry)
+        if facts:
+            lines.extend(["## What Dex publishes about it", ""])
+            lines.extend(f"- {_safe_markdown(fact)}" for fact in facts)
+            lines.append("")
+        lines.extend(
             [
-                f"# {_safe_markdown(entry.title)}",
-                "",
-                _GUIDANCE_ONLY,
-                "",
-                f"This is a Dex **{_safe_markdown(kind)}**, not a skill, so it has "
-                "no portable rebuild brief: it is part of how Dex works "
-                "internally, adopted by running Dex, not recreated from a "
-                "description in another system.",
-                "",
                 "## What it does",
                 "",
                 _safe_markdown(entry.summary),
@@ -228,7 +255,8 @@ def render_capability_brief_markdown(
                 _safe_markdown(entry.value),
                 "",
             ]
-        ).rstrip() + "\n"
+        )
+        return "\n".join(lines).rstrip() + "\n"
 
     lines = [
         f"# Portable brief: {_safe_markdown(entry.title)}",
@@ -243,15 +271,31 @@ def render_capability_brief_markdown(
         f"first shipped in {_safe_markdown(entry.since_release)}.",
         f"Reference: {_safe_markdown(entry.docs_url)}",
         "",
-        "## What it does",
-        "",
-        _safe_markdown(entry.summary),
-        "",
-        "## Why it is worth having",
-        "",
-        _safe_markdown(entry.value),
-        "",
     ]
+
+    if availability != "active":
+        lines.extend(
+            [
+                f"Dex lists this skill as **{availability}**: it is not currently "
+                "on offer, and it must not be read as an available "
+                "recommendation. The pattern below is still real, but it is "
+                "described here as history, not as a suggestion.",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## What it does",
+            "",
+            _safe_markdown(entry.summary),
+            "",
+            "## Why it is worth having",
+            "",
+            _safe_markdown(entry.value),
+            "",
+        ]
+    )
 
     if why:
         lines.extend(
