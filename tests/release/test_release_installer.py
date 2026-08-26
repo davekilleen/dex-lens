@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
 import subprocess
 import sys
-import hashlib
 import tarfile
 from pathlib import Path
 
@@ -205,7 +205,12 @@ esac
     signed_target.parent.mkdir(parents=True)
     signed_target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     signed_target.chmod(0o755)
-    (signed_target.parent / "python").symlink_to(sys.executable)
+    signed_python = signed_target.parent / "python"
+    signed_python.write_text(
+        f"#!/usr/bin/env bash\nexec {shlex.quote(sys.executable)} \"$@\"\n",
+        encoding="utf-8",
+    )
+    signed_python.chmod(0o755)
 
     skill_home = tmp_path / "skills"
     environment = os.environ | {
