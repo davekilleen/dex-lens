@@ -88,13 +88,15 @@ harness is selected automatically, several cause the chooser to return, and
 none uses the unsupported-harness fallback.
 
 The preference lives at
-`$DEX_LENS_DATA_HOME/dex-lens/harness-preference`, outside versioned release
-folders and outside every harness-owned folder. It is a private, one-line file
-containing only the stable harness identifier. The installer writes it with
-owner-only permissions via a temporary file in the same directory followed by
-an atomic rename, and refuses to follow an existing symbolic link. A dry run
-names that this preference would be written; normal success does not print its
-filesystem path.
+`${XDG_STATE_HOME:-$HOME/.local/state}/dex-lens/harness-preference`, beside the
+existing shared Lens install-record marker and outside versioned release or
+harness-owned folders. Both installer forms already agree on this state root,
+so a source install followed by a signed install does not ask twice. It is a
+private, one-line file containing only the stable harness identifier. The
+installer writes it with owner-only permissions via a temporary file in the
+same directory followed by an atomic rename, and refuses to follow an existing
+symbolic link. A dry run names that this preference would be written; normal
+success does not print its filesystem path.
 
 ## Terminal hand-off
 
