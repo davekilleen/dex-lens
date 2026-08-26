@@ -15,6 +15,13 @@ That is the whole first run. The installer puts the Dex Lens skill in
 environment so it cannot disturb anything else, links the command into
 `~/.local/bin`, and prints exactly what it changed. Running it again is safe.
 
+Run the same installer again when you want to update Lens. That deliberate run
+updates both the command and the complete skill your assistant reads. If it
+recognises an earlier official Lens installation, it explains the move and
+leaves the old private copy in place for rollback. Lens does not silently
+update its software in the background; its signed public Dex reference can
+refresh separately when you ask Lens to make a comparison.
+
 This is the **signed release**: everything it downloads is checked on your
 machine against a fingerprint that was signed when the release was built, so
 what you install is exactly what was built and proven, byte for byte. It is

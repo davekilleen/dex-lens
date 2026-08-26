@@ -370,6 +370,10 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
     assert "XDG_DATA_HOME" not in installer
     assert '"$DEX_LENS_VENV/bin/dex-lens" --help' in installer
     assert "A partial install from this run was removed safely" in installer
+    assert "It looks like you used Dex Lens before" in installer
+    assert "Because you ran this installer" in installer
+    assert "will be left in place" in installer
+    assert "will not overwrite it" in installer
     # Two options exist because the page that publishes this installer says
     # they do, and both have to be answered before anything is fetched.
     assert "--dry-run) DEX_LENS_DRY_RUN=1 ;;" in installer

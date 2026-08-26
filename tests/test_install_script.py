@@ -492,8 +492,11 @@ def test_the_documented_commands_are_the_commands_that_exist(script: str) -> Non
     """
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     skill_readme = (REPO_ROOT / "docs" / "skill-README.md").read_text(encoding="utf-8")
+    readme_prose = " ".join(readme.split())
 
     assert INSTALL_COMMAND in script
     for document in (readme, skill_readme):
         assert RELEASE_INSTALL_COMMAND in document
         assert INSTALL_COMMAND in document
+    assert "Run the same installer again when you want to update Lens" in readme_prose
+    assert "does not silently update its software" in readme_prose
