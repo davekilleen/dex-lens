@@ -1215,6 +1215,390 @@ fields:
     deletion: not-stored
     audit: "ephemeral derived count; cannot be supplied separately from the ledger"
 
+  ApprovedScopeReceipt.run_id:
+    description: "opaque identity of the diagnosis run whose scope was approved"
+    collection: "assigned locally when prepare records candidate locators"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "returned to CLI and MCP as the run handle"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run identity only; contains no approved-root path"
+
+  ApprovedScopeReceipt.scope_references:
+    description: "non-raw scope digests for the roots approved in this receipt"
+    collection: "copied from the local consent snapshot after /approve"
+    derivation: "validated as unique scope:sha256 references; raw paths are refused"
+    display: "used to bind later checkpoints to the approved scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "opaque scope locators only; canonical roots stay in the consent session"
+
+  ApprovedScopeReceipt.scope_digest:
+    description: "SHA-256 binding over the exact approved scope references"
+    collection: "calculated locally from the receipt references"
+    derivation: "sha256 of sorted compact JSON of the reference tuple"
+    display: "used to detect scope drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "content-bound digest; no raw path"
+
+  ApprovedScopeReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the loopback session token at /approve"
+    derivation: "session-prefixed truncated token; not the raw bearer cookie"
+    display: "not shown; retained to prove the receipt came from local consent"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local session binding; raw cookie value is not stored"
+
+  ApprovedScopeReceipt.approved_at:
+    description: "timezone-aware moment the local consent surface approved the scope"
+    collection: "recorded by the consent authority clock at approval"
+    derivation: "naive timestamps are rejected"
+    display: "available for local run diagnostics"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local approval time only"
+
+  RunIdentity.run_id:
+    description: "opaque public identity for one diagnosis run"
+    collection: "assigned at prepare before any read"
+    derivation: "validated as a run-prefixed token"
+    display: "returned by status, advance, and result"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle; no personal path"
+
+  RunIdentity.engine_version:
+    description: "engine version bound into the run identity"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded product version string"
+    display: "shown in local diagnostics when a run is stale"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  RunIdentity.input_schema_version:
+    description: "schema version of the content-bound diagnosis input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded integer-like version string"
+    display: "used to refuse mixed-schema resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product schema marker only"
+
+  RunIdentity.created_at:
+    description: "timezone-aware moment the run identity was created"
+    collection: "recorded when prepare allocates the run"
+    derivation: "naive timestamps are rejected"
+    display: "available for local resume listing"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local creation time only"
+
+  DiagnosisInput.run_id:
+    description: "run identity carried by the content-bound execution input"
+    collection: "copied from the prepared run"
+    derivation: "validated as a run-prefixed token"
+    display: "binds checkpoints to one run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisInput.engine_version:
+    description: "engine version bound into the execution input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "a changed engine version creates a new input identity"
+    display: "used to refuse stale resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  DiagnosisInput.input_schema_version:
+    description: "schema version bound into the execution input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "a changed schema version creates a new input identity"
+    display: "used to refuse mixed-schema resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product schema marker only"
+
+  DiagnosisInput.adapter_version:
+    description: "collector adapter version used for this run"
+    collection: "copied from the selected local adapter"
+    derivation: "bounded version string"
+    display: "used to explain why a fingerprint cannot be reused"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "adapter version only; no observation payload"
+
+  DiagnosisInput.approved_scope_receipt:
+    description: "nested approved-scope receipt bound into the execution input"
+    collection: "copied from the local consent authority after /approve"
+    derivation: "nested ApprovedScopeReceipt; independent numbers are refused"
+    display: "proves later stages still use the consented scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "nested inventoried receipt; raw roots remain outside this model"
+
+  DiagnosisInput.fingerprint_sha256:
+    description: "SHA-256 of the consented evidence fingerprint"
+    collection: "calculated after capture of the approved scope"
+    derivation: "exactly 64 lowercase hexadecimal characters"
+    display: "used to detect fingerprint drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digest only; observation payloads stay in the fingerprint"
+
+  DiagnosisInput.catalogue_version:
+    description: "verified catalogue version bound into the execution input"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "positive integer"
+    display: "identifies the Dex release surface compared by this run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue version only"
+
+  DiagnosisInput.catalogue_sha256:
+    description: "SHA-256 of the exact verified catalogue bytes"
+    collection: "copied from the signature-verified catalogue envelope"
+    derivation: "exactly 64 lowercase hexadecimal characters"
+    display: "used to detect catalogue drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue digest only"
+
+  DiagnosisInput.confirmed_jobs:
+    description: "confirmed success contracts this diagnosis may use"
+    collection: "copied from the local job-confirmation stage"
+    derivation: "tuple of inventoried SuccessContract records"
+    display: "limits comparison to jobs the person confirmed"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "nested inventoried contracts; no unconfirmed drafts"
+
+  DiagnosisInput.assessed_at:
+    description: "timezone-aware assessment instant fixed for this run"
+    collection: "recorded when the execution input is materialised"
+    derivation: "naive timestamps are rejected; the value does not change mid-run"
+    display: "used for staleness rules"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local assessment time only"
+
+  DiagnosisCheckpoint.run_id:
+    description: "run identity stored on one diagnosis checkpoint"
+    collection: "copied from the prepared run"
+    derivation: "validated as a run-prefixed token"
+    display: "used to load and resume one run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisCheckpoint.stage:
+    description: "closed diagnosis stage recorded in this checkpoint"
+    collection: "advanced by the engine after a lawful transition"
+    derivation: "validated through the closed DiagnosisStage vocabulary"
+    display: "shown as proved progress and next required action"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "stage name only"
+
+  DiagnosisCheckpoint.previous_digest:
+    description: "SHA-256 of the previous checkpoint payload, if any"
+    collection: "calculated locally when the run advances"
+    derivation: "sha256 binding or omitted at created"
+    display: "used to verify checkpoint chains"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "content-bound previous state; no user content"
+
+  DiagnosisCheckpoint.input_identity:
+    description: "SHA-256 of the content-bound execution input"
+    collection: "copied from DiagnosisInput.identity_digest when available"
+    derivation: "sha256 binding"
+    display: "used to refuse stale resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "input digest only"
+
+  DiagnosisCheckpoint.artifact_digests:
+    description: "SHA-256 bindings for artefacts completed at this stage"
+    collection: "recorded by the engine after a lawful transition"
+    derivation: "unique sha256 bindings; unknown references are refused"
+    display: "used to resume without repeating completed work"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digests only; artefact bytes live in their own stores"
+
+  DiagnosisCheckpoint.next_action:
+    description: "plain-language next required action for this checkpoint"
+    collection: "selected from the closed stage-to-action map"
+    derivation: "bounded product sentence; not free-form model prose"
+    display: "shown by CLI and MCP status"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product guidance only"
+
+  DiagnosisCheckpoint.engine_version:
+    description: "engine version recorded on this checkpoint"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded product version string"
+    display: "used to refuse mixed-engine resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  DiagnosisCheckpoint.created_at:
+    description: "timezone-aware moment this checkpoint was written"
+    collection: "recorded by the engine clock"
+    derivation: "naive timestamps are rejected"
+    display: "used to order resumable runs"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local checkpoint time only"
+
+  DiagnosisRunView.run_id:
+    description: "opaque run identity in the public diagnosis view"
+    collection: "copied from the current checkpoint or prepare result"
+    derivation: "validated as a run-prefixed token"
+    display: "returned to CLI and MCP"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisRunView.stage:
+    description: "proved diagnosis stage in the public view"
+    collection: "copied from the current checkpoint"
+    derivation: "closed DiagnosisStage value"
+    display: "shown as current progress"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "stage name only"
+
+  DiagnosisRunView.next_action:
+    description: "plain-language next required action in the public view"
+    collection: "copied from the current checkpoint"
+    derivation: "bounded product sentence"
+    display: "shown by CLI and MCP status"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product guidance only"
+
+  DiagnosisRunView.input_identity:
+    description: "optional SHA-256 of the execution input once it exists"
+    collection: "copied after scope approval binds an input identity"
+    derivation: "sha256 binding or omitted before the input exists"
+    display: "used to detect stale views"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digest only"
+
+  DiagnosisRunView.approval_url:
+    description: "optional local loopback URL for the consent surface"
+    collection: "assigned when prepare starts the existing local doorway"
+    derivation: "loopback URL only; omitted until a server is listening"
+    display: "shown so the person can approve the exact scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local URL only; no token query string"
+
   SafeAttribute.key:
     description: "closed allowlisted name for one privacy-safe observation attribute"
     collection: "selected locally by a bounded discovery parser"

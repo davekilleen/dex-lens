@@ -62,6 +62,7 @@ from capability_exchange.concierge.collection import (
     CollectionResult,
     ScopeSnapshot,
 )
+from capability_exchange.concierge.consent import LocalScopeConsentAuthority
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
@@ -170,6 +171,8 @@ class ConciergeSession:
     app_storage: Path | None = None
     catalogue_subscription_store: CatalogueSubscriptionStore | None = None
     startup_catalogue_fetch_result: CatalogueFetchResult | None = None
+    diagnosis_consent: LocalScopeConsentAuthority | None = None
+    diagnosis_run_id: str | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -361,6 +364,17 @@ class ConciergeSession:
             thread.start()
         return thread
 
+    def _issue_diagnosis_scope_receipt(self) -> None:
+        """Bind a prepared diagnosis run to this authenticated /approve action."""
+
+        if self.diagnosis_consent is None or not self.diagnosis_run_id:
+            return
+        self.diagnosis_consent.approve_from_local_session(
+            run_id=self.diagnosis_run_id,
+            scope_snapshot=self._consent_scope,
+            authenticated_session_id=self.session_token,
+        )
+
     def _begin_collection(self) -> None:
         with self._state_lock:
             if self.closed or self.expired():
@@ -370,6 +384,7 @@ class ConciergeSession:
             except ValueError:
                 self.terminate()
                 raise
+            self._issue_diagnosis_scope_receipt()
             self.journey.begin_collection()
 
     def _finish_collection_in_background(self) -> None:
