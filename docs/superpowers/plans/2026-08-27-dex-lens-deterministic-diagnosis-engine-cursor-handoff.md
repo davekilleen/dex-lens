@@ -8,6 +8,7 @@
 - Approved design: `docs/superpowers/specs/2026-08-27-dex-lens-deterministic-diagnosis-engine-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-08-27-dex-lens-deterministic-diagnosis-engine.md`
 - Design PR: https://github.com/davekilleen/dex-lens/pull/45
+- Implementation PR: https://github.com/davekilleen/dex-lens/pull/46
 - Mission Control card PR: https://github.com/davekilleen/dex-cards/pull/99
 
 This is a clean continuation point, not a restart. Do not merge, publish, release,
