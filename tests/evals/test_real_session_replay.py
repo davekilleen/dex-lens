@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from tests.evals.real_session_fixture import (
     CANARY,
     EXPECTED_COUNTS,
+    NOW,
     real_session_fingerprint,
     real_session_input,
     real_session_ledger,
@@ -20,7 +21,14 @@ from tests.evals.real_session_fixture import (
 )
 
 from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis.orchestrator import VerifiedCatalogueSlice
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
+from capability_exchange.evaluation.replay import (
+    FIXED_RUN_ID,
+    ReplayBundle,
+    ReplayHarness,
+    run_direct,
+)
 
 EXPECTED = Path(__file__).parents[1] / "fixtures" / "evals" / "real-session-expected.json"
 FALSE_COVERAGE_CLAIM = "93 capabilities are already covered"
@@ -233,3 +241,62 @@ def test_report_cannot_claim_93_covered_when_80_are_not_assessed() -> None:
     assert any("ledger-derived facts" in item for item in result.report_errors), (
         result.report_errors
     )
+
+
+def _order(items: tuple[object, ...], ordering: str) -> tuple[object, ...]:
+    if ordering == "forward":
+        return items
+    if ordering == "reverse":
+        return tuple(reversed(items))
+    if ordering == "rotated":
+        if not items:
+            return items
+        return items[1:] + items[:1]
+    raise ValueError(f"unknown replay ordering: {ordering}")
+
+
+def real_session_replay(*, ordering: str = "forward") -> ReplayBundle:
+    """Sanitised real-session input with a fixed clock and run id."""
+
+    fingerprint = real_session_fingerprint()
+    fingerprint = fingerprint.model_copy(
+        update={"observations": _order(fingerprint.observations, ordering)}
+    )
+    ledger = real_session_ledger()
+    ledger = ledger.model_copy(
+        update={
+            "capabilities": _order(ledger.capabilities, ordering),
+            "entries": _order(ledger.entries, ordering),
+        }
+    )
+    return ReplayBundle(
+        fingerprint=fingerprint,
+        catalogue=VerifiedCatalogueSlice(
+            version=ledger.catalogue_version,
+            sha256=ledger.catalogue_sha256,
+            catalogue_ids=tuple(item.catalogue_id for item in ledger.entries),
+            capability_ids=tuple(item.capability_id for item in ledger.capabilities),
+            unavailable_ids=(),
+            family_contract_present=False,
+        ),
+        ledger=ledger,
+        proposals=(),
+        clock=NOW,
+        run_id=FIXED_RUN_ID,
+    )
+
+
+def test_engine_replay_never_retains_the_session_canary(tmp_path: Path) -> None:
+    replay = real_session_replay(ordering="forward")
+    harness = ReplayHarness(replay, tmp_path)
+    result = harness.run_to_closed()
+    retained = "\n".join(
+        (
+            harness.retained_text(),
+            result.dump_for_storage().__repr__(),
+            json.dumps(result.dump_for_storage(), default=str),
+            run_direct(replay).decode("utf-8"),
+        )
+    )
+    assert CANARY not in retained
+    assert replay.fingerprint.model_dump_json().find(CANARY) == -1
