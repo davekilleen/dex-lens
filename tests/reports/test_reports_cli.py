@@ -19,6 +19,7 @@ from capability_exchange.reports import cli
 def reports_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "state" / "reports"
     monkeypatch.setattr(cli, "default_report_directory", lambda _roots: directory)
+    monkeypatch.setattr(cli, "_ledger_gate", lambda _path: (None, []))
     return directory
 
 
@@ -38,14 +39,21 @@ def _complete(title: str) -> str:
         f"# {title}\n\n"
         "## What I read\n"
         "- Inventory: /tmp/vault, 12 distinct items across 40 files\n\n"
-        "## The mirror\n"
-        "### Leftover working copies\n"
+        "## What is working especially well\n"
+        "### Careful inventory boundaries\n"
         "> 6,405 of the 6,829 files (94%) sit inside `worktrees` folders\n"
         "> - `inventory.md`\n"
-        "What it costs: 6.2 GB, and every count you see is wrong.\n\n"
-        "## Contradictions and fragility\n"
+        "The setup distinguishes active work from old working copies.\n\n"
+        "## What Dex should learn from you\n"
+        "No transferable method cleared the evidence bar.\n\n"
+        "## Worth borrowing from Dex\n"
+        "No Dex addition cleared the evidence bar this time.\n\n"
+        "## Fragility and contradictions\n"
         "I checked the rules in `~/.claude/CLAUDE.md` against your skills and "
         "found no conflicts.\n\n"
+        "## Coverage and limits\n"
+        "- Every signed catalogue entry has a disposition in the accompanying ledger.\n"
+        "- Live operating-system state was not assessed.\n\n"
         "## Since the last look\n"
         "- Nothing has changed since then.\n\n"
         "## What happens next\n"
@@ -69,6 +77,29 @@ class TestSave:
         assert saved.parent == reports_directory
         assert saved.read_text(encoding="utf-8").startswith("# Dex Lens: my vault")
         assert "nothing in that folder was changed" in captured.err
+
+    def test_save_keeps_the_ledger_beside_the_report(
+        self,
+        tmp_path: Path,
+        reports_directory: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        ledger = tmp_path / "ledger.json"
+        ledger.write_text('{"catalogue_version":5}', encoding="utf-8")
+        monkeypatch.setattr(cli, "_ledger_gate", lambda _path: (object(), []))
+
+        assert (
+            cli.reports_main(
+                ["save", _report(tmp_path, _complete("With ledger")), "--ledger", str(ledger)]
+            )
+            == 0
+        )
+
+        saved = Path(capsys.readouterr().out.strip())
+        assert saved.with_suffix(".ledger.json").read_text(encoding="utf-8") == (
+            '{"catalogue_version":5}'
+        )
 
     def test_the_first_report_says_there_is_nothing_to_compare_with(
         self,

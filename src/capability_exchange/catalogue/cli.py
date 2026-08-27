@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from capability_exchange.catalogue.agent import (
     render_capability_brief_markdown,
     render_catalogue_digest,
+    render_catalogue_ledger_template,
 )
 from capability_exchange.catalogue.delta import (
     CatalogueDelta,
@@ -267,6 +268,14 @@ def catalogue_main(argv: list[str] | None = None) -> int:
         help="Print the verified catalogue as JSON instead of a readable digest.",
     )
     parser.add_argument(
+        "--ledger-template",
+        action="store_true",
+        help=(
+            "Print a complete not-yet-assessed comparison ledger bound to the verified "
+            "catalogue bytes."
+        ),
+    )
+    parser.add_argument(
         "--since",
         type=int,
         metavar="VERSION",
@@ -306,6 +315,19 @@ def catalogue_main(argv: list[str] | None = None) -> int:
             "--json prints the signed catalogue as it was published; narrowing it "
             "would print something Dex never signed. Narrow the readable digest instead"
         )
+    if args.ledger_template and any(
+        (
+            args.json,
+            args.since is not None,
+            args.since_last,
+            bool(args.jobs),
+            bool(args.only),
+        )
+    ):
+        parser.error(
+            "--ledger-template accounts for the complete verified catalogue and cannot be "
+            "combined with another output format or narrowing"
+        )
 
     result = _fetch(args.url, offline=args.offline)
     if result is None:
@@ -314,6 +336,10 @@ def catalogue_main(argv: list[str] | None = None) -> int:
     envelope = result.verified
     catalogue = envelope.catalogue
     version = envelope.metadata.catalog_version
+
+    if args.ledger_template:
+        print(render_catalogue_ledger_template(envelope), end="")
+        return 0
 
     # `--since` decides whether there is anything to print at all, so it is
     # answered before the output format. Checking it after the `--json` branch

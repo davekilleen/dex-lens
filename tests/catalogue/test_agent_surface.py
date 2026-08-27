@@ -9,14 +9,24 @@ person's behalf without them.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from tests.catalogue.test_bridge import _catalogue
+from tests.catalogue.test_v2_verifier import NOW, sign_envelope, unsigned_envelope
 
 from capability_exchange.catalogue.agent import (
     capability_by_id,
     render_capability_brief_markdown,
     render_catalogue_digest,
+    render_catalogue_ledger_template,
 )
+from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
+from capability_exchange.diagnosis.comparison import ComparisonLedger
 
 
 class TestDigest:
@@ -72,6 +82,37 @@ class TestDigest:
             1 for job in catalogue.jobs_taxonomy if job.job_id in wanted.jobs
         )
         assert f"1 capabilities across {shown_jobs} jobs" in digest
+
+
+def test_ledger_template_contains_every_entry_and_release_identity() -> None:
+    signing_key = Ed25519PrivateKey.from_private_bytes(b"ledger-template-test-key".ljust(32, b"!"))
+    public_key = signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    keyring = KeyRing(
+        {"ledger-template-test": base64.b64encode(public_key).decode("ascii")}
+    )
+    raw = sign_envelope(
+        unsigned_envelope(version=5, key_id="ledger-template-test"), signing_key
+    )
+    verified = verify_catalogue_envelope(raw, keyring=keyring, now=NOW)
+
+    rendered = json.loads(render_catalogue_ledger_template(verified))
+    parsed = ComparisonLedger.model_validate(rendered)
+    rebound = ComparisonLedger.for_catalogue(
+        verified.catalogue,
+        catalogue_version=parsed.catalogue_version,
+        catalogue_sha256=parsed.catalogue_sha256,
+        capabilities=parsed.capabilities,
+        entries=parsed.entries,
+        reciprocal_answer=parsed.reciprocal_answer,
+    )
+
+    assert rendered["catalogue_version"] == 5
+    assert rendered["catalogue_sha256"] == hashlib.sha256(raw.encode()).hexdigest()
+    assert {item["catalogue_id"] for item in rendered["entries"]} == {
+        item.capability_id for item in verified.catalogue.capabilities
+    }
+    assert all(item["disposition"] == "not-assessed" for item in rendered["entries"])
+    assert rebound == parsed
 
 
 class TestBrief:

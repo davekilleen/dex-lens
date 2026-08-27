@@ -183,6 +183,25 @@ which folder first; read the current one. Only pass an explicit
 somewhere else, or when the command reports that the current folder has no
 instruction files, settings or skills and so is not a personal AI system.
 
+The first inventory may tell you that important assistant configuration sits
+outside the folder it was allowed to read. Do not quietly widen the search.
+Name the exact additional folder and ask one plain question, for example:
+"Your shared assistant settings may be in `~/.claude`. Would you like me to
+include that folder in this read-only inventory?" Wait for the answer. Only
+after a clear yes may you rerun:
+
+```
+dex-lens inventory <folder> --also <the-exact-approved-folder> --out /tmp/dex-lens-inventory.md
+```
+
+If the inventory finds scheduled work, you may separately ask: "Would you
+like me to ask your operating system whether those scheduled jobs are loaded?"
+Explain that **loaded** only means the computer recognises the job; it does
+not prove the job ran successfully or produced the right result. Wait for a
+clear yes before adding `--include-live-state`. After a no, use neither flag
+and do not ask again in the same run. Never substitute a broader folder for
+the one the person approved.
+
 This lists every instruction file, settings file and skill with the
 description it declares for itself, and folds duplicates together. A real
 system is large — one reference vault has 6,829 files that turn out to be 240
@@ -190,13 +209,18 @@ distinct capabilities — and the folded count is the honest size.
 
 The inventory also reports the parts of their system that are not skills: the
 **tools their assistant can call directly** (their MCP servers — MCP is just
-the plug that lets an assistant use an outside tool), the **jobs that run on
-their own timetable** (their scheduled automations), and the **shape of their
+the plug that lets an assistant use an outside tool), the **connections it
+knows how to manage**, the **hooks that react at named moments**, the **jobs
+that run on their own timetable**, and any **health or recovery checks** it
+can recognise. It also shows release identity and the **shape of their
 vault** — how it is laid out and how it holds its own records. Read those
-sections too. Dex is four kinds of capability, not one, and the comparison in
-Phase 5 is like-for-like: their tools against Dex's tools, their automations
-against Dex's automations, not only their skills against Dex's skills. If you
-only ever look at skills you will miss the findings that matter most.
+sections too. A configured doorway is not proof that the tools behind it
+work, and a written scheduled job is not proof that the computer loaded or
+ran it; the inventory says that distinction in ordinary words. Dex is four
+kinds of capability, not one, and the comparison in Phase 5 is like-for-like:
+their tools against Dex's tools, their automations against Dex's automations,
+not only their skills against Dex's skills. If you only ever look at skills
+you will miss the findings that matter most.
 
 On a second look, when the previous report named the items you care about,
 you can list just those instead of all of them:
@@ -374,14 +398,17 @@ The signed live catalogue is the preferred source for all four.
 
 ```
 dex-lens catalogue
+dex-lens catalogue --ledger-template > /tmp/dex-lens-ledger.json
 ```
 
-This fetches Dex's published catalogue and checks its signature on this
-machine before printing a word of it. If it fails, say so and stop; do not
-work from an unverified list. Everything in it is verified. The current
-catalogue covers skills, MCP servers (the plugs that let an assistant use
-outside tools), scheduled automations (jobs that run on their own timetable),
-and system engines (the behind-the-scenes services those abilities depend on).
+The first command fetches Dex's published catalogue and checks its signature
+on this machine before printing a word of it. The second creates the complete
+comparison ledger for that exact signed catalogue. If either fails, say so and
+stop; do not work from an unverified or incomplete list. Everything in it is
+verified. The current catalogue covers skills, MCP servers (the plugs that let
+an assistant use outside tools), scheduled automations (jobs that run on their
+own timetable), and system engines (the behind-the-scenes services those
+abilities depend on).
 
 The output is grouped by **job to be done**, which is the axis the comparison
 runs on.
@@ -444,6 +471,26 @@ irrelevant. That is the fail-closed answer, and the honest one.
 
 ## Phase 5: compare on jobs, across all four kinds of capability
 
+Follow this sequence. Do not jump from the inventory to a shortlist:
+
+1. Read the previous report and the person's earlier decisions.
+2. Ask separately for each additional global folder or live-state check.
+3. Build the evidence fingerprint and establish the system's release distance,
+   or record that the distance is Unknown.
+4. Verify the signed catalogue and create its complete ledger template.
+5. Build the person's human Capabilities first: what work gets done, by what
+   method, with which supporting machinery and evidence.
+6. Group the relevant catalogue entries beneath those human Capabilities.
+7. Fetch a full brief for every possible recommendation and every verdict that
+   the person and Dex share a Capability.
+8. Fill every ledger disposition. Unavailable entries cannot be recommended.
+9. Choose two to five earned strengths, at least one reciprocal answer (or the
+   honest empty result), and at most three Dex recommendations.
+10. Keep fragility and housekeeping separate from strengths and suggestions.
+11. Check and save the report and its ledger together.
+12. In chat, repeat the best strength, the reciprocal answer and the most
+    useful next move.
+
 The comparison runs on the **job to be done**, not on names — and now across
 all four kinds of capability, not skills alone. The most valuable "what Dex
 has that you don't" is frequently *not* a skill: it is the deterministic tool
@@ -455,6 +502,16 @@ For each job the person actually does, gather all four kinds from the signed
 catalogue. If and only if the verified catalogue is an older skills-only
 version, supplement those skills with the **MCP servers, automations and engine
 capabilities** in the bundled reference whose `jobs_served` includes that job.
+
+**A matching name is a candidate, not proof. Compare the method, supporting
+machinery, version and usable state before calling a Capability shared.**
+
+**A configured MCP server is not its tool list. Unless the tools were
+enumerated safely, say the doorway is configured and the tools are Unknown.**
+
+**Written is not running. A script, installer or schedule template proves
+implementation only; installed, loaded, recently run and outcome-verified are
+separate claims.**
 
 The reference carries Dex's jobs to be done in its `jobs` list; line each
 capability up under the jobs it serves. Then, for that job, ask:
@@ -514,10 +571,10 @@ capability up under the jobs it serves. Then, for that job, ask:
    where the core-tier gaps are.
 
 Reject most of what Dex has. Its full surface is far larger than a shortlist —
-dozens of skills, plus its tools, its automations and its engine. If you
-recommend more than five capabilities out of all of that, you have not
-compared, you have listed. Three good suggestions with real reasons beat
-twenty hedged ones.
+dozens of skills, plus its tools, its automations and its engine. Recommend at
+most three capabilities out of all of that. More means you have listed rather
+than compared. Three good suggestions with real reasons beat twenty hedged
+ones.
 
 ### Never claim a version match you have not earned
 
@@ -590,7 +647,7 @@ one abandoned.
 Write the report to a temporary file using the template below, then:
 
 ```
-dex-lens reports save /tmp/dex-lens-report.md --label <short-system-name> --for <folder>
+dex-lens reports save /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json --label <short-system-name> --for <folder>
 ```
 
 It prints where the report went. Tell the person that path in your last
@@ -603,7 +660,8 @@ check that before it writes anything, which is the read-only promise being
 proved rather than asserted.
 
 **Saving refuses a report that has not shown its work.** It checks that the
-report says what you read, says what happens next, quotes at least one line
+report says what you read, gives earned praise and a reciprocal answer, says
+what happens next, quotes at least one line
 from a real file, leaves no scored finding standing with neither a quotation
 nor an honest Unknown, pairs any shortlist with the rejections, and shows the
 contradiction hunt — either a conflict with both sides quoted, or the sentence
@@ -616,7 +674,7 @@ something is missing it names it and writes nothing; fix it and save again.
 To check before you write anything final:
 
 ```
-dex-lens reports check /tmp/dex-lens-report.md
+dex-lens reports check /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json
 ```
 
 This is deliberate. If the rule lived only in this file, it would hold until
@@ -648,21 +706,38 @@ Nothing on this machine was changed. This is a read-only second opinion.
 with yet." Once a previous report exists this section is required, and
 "nothing has changed since then" is a complete answer.)
 
-## What is strong
+## What is working especially well
 ### <name of the capability>  — Verified | Supported | Reported
 > <exact quoted line>
 > — `<path>`
 Why it clears the bar: <which of the six checks, named, one sentence each>
 
-## The mirror
-### <finding, e.g. leftover working copies>  — Verified | Supported
-Evidence:
-> <quoted line or inventory count>
+## What Dex should learn from you
+### <the method this person does especially well> — Verified | Supported
+> <exact quoted line showing the method, not merely a matching name>
 > — `<path>`
-What it costs: <plain words>
-How to check it: <what they would do; you do not do it>
+What Dex should borrow from this method: <one concrete lesson>
+(If no method clears the evidence bar, replace the entire contents of this
+section with exactly: "No transferable method cleared the evidence bar.")
 
-## Contradictions and fragility
+## Worth borrowing from Dex
+### <capability title> (`<capability-id>`) — Verified | Supported | Unknown
+Kind: <skill | tool set | automation | engine>  ·  impact: <core | high | medium | niche>
+What it does: <one sentence in their language>
+Why I thought of it for you:
+> <quoted evidence from their system>
+> — `<path>`
+Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
+What it would cost: <time, overlap, what it duplicates>
+(Recommend no more than three. If none clears the evidence bar, write:
+"No Dex addition cleared the evidence bar this time.")
+
+## Considered and rejected
+- `<capability-id>` — <one line reason>
+- `<capability-id>` — <one line reason>
+(Include this section when at least one Dex addition is recommended.)
+
+## Fragility and contradictions
 (Required. If the hunt came back clean, this whole section is one sentence
 that names the file you checked: "I checked the rules in
 `~/.claude/CLAUDE.md` against your skills and found no conflicts."
@@ -676,19 +751,11 @@ What contradicts it:
 > — `<path>`
 Why it matters: <which behaviour is now unpredictable>
 
-## Worth borrowing from Dex
-### <capability title> (`<capability-id>`) — Verified | Supported | Unknown
-Kind: <skill | tool set | automation | engine>  ·  impact: <core | high | medium | niche>
-What it does: <one sentence in their language>
-Why I thought of it for you:
-> <quoted evidence from their system>
-> — `<path>`
-Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
-What it would cost: <time, overlap, what it duplicates>
-
-## Considered and rejected
-- `<capability-id>` — <one line reason>
-- `<capability-id>` — <one line reason>
+## Coverage and limits
+- Catalogue accounting: <every signed entry has one disposition in the ledger>
+- Approved folders: <the exact folders read>
+- Live state: <assessed with permission, or not assessed>
+- Unknown: <anything the evidence could not prove>
 
 ## What you decided
 - `<capability-id>` — taken | declined | deferred<, " because <their words>" when they gave a reason>
@@ -810,6 +877,12 @@ typed it, and the preview shows it.
 End the session properly. Not a summary — they just read the report — but
 the handful of things a good concierge says at the door, in your own words:
 
+- **Repeat the best strength.** Lead with the most useful, evidence-backed
+  thing they are already doing well; earned praise is part of the answer.
+- **Repeat the reciprocal answer.** Say what Dex should learn from their
+  method, or say plainly that no transferable method cleared the evidence bar.
+- **Name the first useful move.** Give the best of the zero-to-three Dex
+  suggestions, without turning it into permission to install or change it.
 - **How to come back.** "Whenever you want another look, just ask me to run
   Dex Lens again — the same sentence you used today works, or type
   `/dex-lens`. Takes a couple of minutes."
@@ -819,9 +892,10 @@ the handful of things a good concierge says at the door, in your own words:
   to keep or share.
 - **The watching offer**, once, if Phase 9 did not already settle it.
 
-Keep it to a few lines. Do not re-explain the product, do not re-list the
-findings, and do not ask another question — the session is over, and ending
-cleanly is part of feeling looked after.
+Keep it brief. The final chat answer is incomplete unless it repeats the best
+evidenced strength, the reciprocal answer and the first recommended move. Do
+not re-explain the product, re-list every finding, or ask another question —
+the session is over, and ending cleanly is part of feeling looked after.
 
 ---
 
@@ -855,8 +929,8 @@ the person who built the thing.
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
 | `dex-lens catalogue --since-last` | The recurring check: only what is new or changed since this machine last looked. Silent when nothing has changed. |
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
-| `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
-| `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
+| `dex-lens reports save <file> --ledger <ledger.json> --label <name> --for <folder>` | Saves the dated report and its complete catalogue ledger outside the inspected folder. Refuses a report with missing evidence or catalogue entries. |
+| `dex-lens reports check <file> --ledger <ledger.json>` | Says whether the report and its catalogue accounting are ready to save. Writes nothing either way. |
 | `dex-lens share <card.md>` | Shows exactly what an idea card would send, and sends nothing. `--yes` sends after the person approved those exact bytes; `--to github` prints a pre-filled issue link they submit themselves. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 

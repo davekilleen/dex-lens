@@ -1015,6 +1015,286 @@ fields:
     deletion: delete-adaptation-journals
     audit: "checksummed canonical local JSON"
 
+  CatalogueDisposition.catalogue_id:
+    description: "exact signed catalogue capability identity receiving one disposition"
+    collection: "copied locally from the verified catalogue"
+    derivation: "matched against the complete verified catalogue identity set"
+    display: "used to explain how every Dex capability was considered"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral comparison identity; public Dex product metadata only"
+
+  CatalogueDisposition.disposition:
+    description: "closed two-way comparison answer for one catalogue entry"
+    collection: "assigned locally from the person's evidence and the verified Dex method"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "places the capability in strength, shared, borrowing, learning, fragility, or limits"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-led judgement"
+
+  CatalogueDisposition.capability_id:
+    description: "human-meaningful capability identity grouping this catalogue entry"
+    collection: "assigned locally during comparison"
+    derivation: "matched to a HumanCapability or the explicit unassigned placeholder"
+    display: "groups technical catalogue entries into a job-level explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural identity"
+
+  CatalogueDisposition.evidence_references:
+    description: "non-raw local evidence references grounding a scored disposition"
+    collection: "copied locally from bounded observation references"
+    derivation: "validated as unique locators or digests, never payloads"
+    display: "supports the comparison judgement in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral references; raw file content is unrepresentable"
+
+  CatalogueDisposition.method_compared:
+    description: "whether the local and Dex operating methods were compared beyond their names"
+    collection: "assigned locally after evidence-led method comparison"
+    derivation: "required before a catalogue entry may be marked shared"
+    display: "prevents name similarity being presented as equivalent capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral comparison guard"
+
+  CatalogueDisposition.reason:
+    description: "bounded one-line explanation for the disposition"
+    collection: "authored locally from the comparison evidence"
+    derivation: "bounded single-line text"
+    display: "explains why the catalogue entry received its disposition"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  HumanCapability.capability_id:
+    description: "stable local identity of one human-meaningful capability"
+    collection: "assigned locally while grouping related system observations"
+    derivation: "validated as a bounded identity"
+    display: "names the capability in the two-way report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  HumanCapability.title:
+    description: "bounded plain-language title for one human-meaningful capability"
+    collection: "authored locally from observed work and catalogue language"
+    derivation: "bounded text"
+    display: "shown as the person-facing capability title"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local label"
+
+  HumanCapability.job_ids:
+    description: "unique user-job identities served by one human capability"
+    collection: "assigned locally during jobs-first comparison"
+    derivation: "validated as unique bounded identities"
+    display: "connects the capability to work the person is trying to do"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural mapping"
+
+  HumanCapability.catalogue_ids:
+    description: "unique verified Dex catalogue identities grouped into one human capability"
+    collection: "copied locally from the verified catalogue"
+    derivation: "checked against the complete catalogue identity set"
+    display: "shows which Dex entries informed the comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral mapping over public Dex product metadata"
+
+  HumanCapability.person_observation_ids:
+    description: "unique local observation identities supporting one human capability"
+    collection: "copied locally from the evidence fingerprint"
+    derivation: "validated as unique bounded identities"
+    display: "connects the person's evidence to the comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral identity mapping; observation payloads remain separate"
+
+  ComparisonLedger.catalogue_version:
+    description: "exact verified catalogue version compared in this ledger"
+    collection: "copied locally from verified catalogue metadata"
+    derivation: "none"
+    display: "identifies the Dex release surface covered by the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public release metadata"
+
+  ComparisonLedger.catalogue_sha256:
+    description: "SHA-256 binding the ledger to exact verified catalogue bytes"
+    collection: "copied locally from the verified catalogue state"
+    derivation: "SHA-256 of the verified catalogue envelope bytes"
+    display: "used to prove the report compared the intended catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  ComparisonLedger.capabilities:
+    description: "human-meaningful capability groupings used in the two-way comparison"
+    collection: "assembled locally from the fingerprint and verified catalogue"
+    derivation: "tuple of closed HumanCapability records"
+    display: "organises the report around work rather than implementation names"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local comparison structure"
+
+  ComparisonLedger.entries:
+    description: "one explicit disposition for every verified catalogue entry"
+    collection: "assembled locally during complete comparison"
+    derivation: "validated for exact identity coverage, uniqueness, and recommendation bounds"
+    display: "provides the coverage accounting behind the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral complete comparison ledger"
+
+  ComparisonLedger.reciprocal_answer:
+    description: "bounded answer describing what Dex could learn from the person's system"
+    collection: "authored locally from evidenced transferable methods"
+    derivation: "may use the exact honest empty-result sentence when no method clears the bar"
+    display: "shown in the reciprocal value section of the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local answer; never transmitted without a later separate consent path"
+
+  SafeAttribute.key:
+    description: "closed allowlisted name for one privacy-safe observation attribute"
+    collection: "selected locally by a bounded discovery parser"
+    derivation: "validated against the closed safe-attribute key set"
+    display: "used in the local inventory and diagnosis report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural metadata; raw configuration keys are never retained"
+
+  SafeAttribute.value:
+    description: "bounded single-line non-secret value for one allowlisted attribute"
+    collection: "derived locally from an approved read-only evidence scope"
+    derivation: "bounded and rejected when secret-shaped or multiline"
+    display: "used in the local inventory and diagnosis report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral safe metadata; commands, URLs, environment values, and raw content are excluded"
+
+  Observation.kind:
+    description: "closed class of one whole-system observation"
+    collection: "assigned locally by the matching bounded discovery parser"
+    derivation: "validated through the closed ObservationKind vocabulary"
+    display: "groups observations in the local inventory and diagnosis report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural metadata for the approved inspection session"
+
+  Observation.identity:
+    description: "bounded stable identity of one observed capability"
+    collection: "derived locally from safe configuration identity, never from private content"
+    derivation: "normalised and validated as a bounded machine identity"
+    display: "used to account for the observation without retaining raw payloads"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral identity for local exact-match and duplicate checks"
+
+  Observation.label:
+    description: "bounded human-readable label for one observed capability"
+    collection: "derived locally from a safe capability or service name"
+    derivation: "bounded text; commands, arguments, URLs, and raw note content are excluded"
+    display: "shown in the local inventory and diagnosis report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral label visible only during the local session"
+
+  Observation.operational_state:
+    description: "closed state describing how far a capability is proved to operate"
+    collection: "assigned locally from the evidence actually observed"
+    derivation: "validated through OperationalState separately from evidence provenance"
+    display: "explains whether something is declared, installed, running, or outcome-verified"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local assessment that never upgrades configuration into outcome proof"
+
+  Observation.evidence:
+    description: "typed evidence item supporting one operational observation"
+    collection: "produced locally from the approved read-only evidence scope"
+    derivation: "nested closed EvidenceItem with source age and non-raw reference"
+    display: "supports the observation and its uncertainty in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence; nested fields remain independently inventoried"
+
+  Observation.attributes:
+    description: "zero or more allowlisted safe attributes for one observation"
+    collection: "produced locally only by bounded parsers for explicitly safe facts"
+    derivation: "tuple of closed SafeAttribute records"
+    display: "adds safe explanatory detail to the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral metadata; raw configuration, commands, and secret values are unrepresentable"
+
+  EvidenceFingerprint.adapter_id:
+    description: "stable identity of the read-only adapter that produced the fingerprint"
+    collection: "authored with the adapter implementation"
+    derivation: "none"
+    display: "names the local inspection method in the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "static adapter metadata carried only in memory"
+
+  EvidenceFingerprint.collected_at:
+    description: "timezone-aware time at which the local fingerprint was collected"
+    collection: "recorded locally when approved inspection begins"
+    derivation: "none"
+    display: "shows the age of the local inventory"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local timestamp"
+
+  EvidenceFingerprint.observations:
+    description: "unique closed observations collected from the approved read-only scopes"
+    collection: "assembled locally by the adapter discovery pipeline"
+    derivation: "exact duplicate identities are folded or rejected before diagnosis"
+    display: "forms the evidence-led whole-system inventory"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tuple; nested observations remain independently inventoried"
+
+  EvidenceFingerprint.limits:
+    description: "bounded statements describing what the local inspection could not assess"
+    collection: "derived locally from adapter coverage and explicitly approved scope"
+    derivation: "fixed product language, never raw error or private content"
+    display: "shown so the person can see the diagnosis limits"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local transparency statements"
+
   EvidenceItem.state:
     description: "closed R2 evidence-state vocabulary value for one evidence item"
     collection: "assigned locally by the adapter/diagnosis pipeline that produced the item"

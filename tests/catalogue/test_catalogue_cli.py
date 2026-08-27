@@ -177,6 +177,31 @@ class TestOffline:
         assert captured.out == ""
         assert "Tampered" not in captured.out
 
+    def test_ledger_template_is_json_from_the_verified_complete_catalogue(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert cli.catalogue_main(["--offline", "--ledger-template"]) == 0
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["catalogue_version"] == 7
+        assert len(payload["catalogue_sha256"]) == 64
+        assert [item["catalogue_id"] for item in payload["entries"]] == [
+            "dex-durable-memory-provenance"
+        ]
+        assert payload["entries"][0]["disposition"] == "not-assessed"
+
+    def test_tampered_cache_never_produces_a_ledger_template(
+        self, cached_catalogue: VerifiedCatalogueStore, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        payload = json.loads(cached_catalogue.cache_path.read_text(encoding="utf-8"))
+        envelope = json.loads(payload["verified_envelope_json"])
+        envelope["catalogue"]["capabilities"][0]["title"] = "Tampered"
+        payload["verified_envelope_json"] = json.dumps(envelope, sort_keys=True)
+        cached_catalogue.cache_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        assert cli.catalogue_main(["--offline", "--ledger-template"]) == 1
+        assert capsys.readouterr().out == ""
+
 
 class TestSince:
     def test_an_unchanged_catalogue_prints_nothing(

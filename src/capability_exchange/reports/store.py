@@ -117,6 +117,11 @@ class SavedReport:
         return self.path.stat().st_size
 
     @property
+    def ledger_path(self) -> Path:
+        """The machine-checkable catalogue accounting saved with this report."""
+        return self.path.with_suffix(".ledger.json")
+
+    @property
     def is_valid_utf8(self) -> bool:
         """Whether the file decodes cleanly, so a reader can be told when not."""
         try:
@@ -155,6 +160,7 @@ class LensReportStore:
         *,
         label: str = DEFAULT_LABEL,
         now: datetime | None = None,
+        ledger_json: str | None = None,
     ) -> SavedReport:
         """Write one dated report and return where it landed.
 
@@ -170,12 +176,21 @@ class LensReportStore:
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self._free_path(stamp, slug)
         path.write_text(markdown, encoding="utf-8")
-        return SavedReport(
+        saved = SavedReport(
             path=path,
             saved_at=stamp.replace(microsecond=0),
             label=slug,
             title=_title_of(markdown),
         )
+        if ledger_json is not None:
+            try:
+                saved.ledger_path.write_text(ledger_json, encoding="utf-8")
+            except OSError:
+                # Never leave a prose report that claims complete catalogue
+                # coverage without the ledger that proves it.
+                path.unlink(missing_ok=True)
+                raise
+        return saved
 
     def _free_path(self, stamp: datetime, slug: str) -> Path:
         """A path this second's report can have without overwriting another.
@@ -257,20 +272,30 @@ class LensReportStore:
         )
 
 
-#: Section headings every report must carry, matched on the phrase rather than
-#: the exact line so a report may title its own sections a little differently.
-#: "What I read" is the boundary of the diagnosis and "What happens next"
-#: is where the person is told nothing changed; a report missing either is
-#: not a second opinion, it is an assertion.
-_REQUIRED_SECTIONS = (
-    ("what i read", "## What I read — what the diagnosis is actually based on"),
-    (
-        "contradiction",
-        "## Contradictions and fragility — what you found when you checked the "
-        "rules in the instruction files against the skills",
-    ),
-    ("what happens next", "## What happens next — including that nothing changed"),
+#: The report is a two-way exchange, in this order: evidence boundary,
+#: deserved praise, reciprocal learning, selective borrowing, fragility,
+#: honest coverage, and a no-surprises close.
+_REQUIRED_TWO_WAY_SECTIONS = (
+    "what i read",
+    "what is working especially well",
+    "what dex should learn from you",
+    "worth borrowing from dex",
+    "fragility and contradictions",
+    "coverage and limits",
+    "what happens next",
 )
+
+_SECTION_DISPLAY = {
+    "what i read": "What I read",
+    "what is working especially well": "What is working especially well",
+    "what dex should learn from you": "What Dex should learn from you",
+    "worth borrowing from dex": "Worth borrowing from Dex",
+    "fragility and contradictions": "Fragility and contradictions",
+    "coverage and limits": "Coverage and limits",
+    "what happens next": "What happens next",
+}
+
+_NO_TRANSFERABLE_METHOD = "No transferable method cleared the evidence bar."
 
 #: A search that came back clean. The hunt is the most valuable thing in the
 #: diagnosis and the easiest to quietly not do, so "I looked and found nothing"
@@ -295,10 +320,15 @@ _CLEAN_SWEEP = re.compile(
 #: Headings whose findings are judgements, and therefore need evidence under
 #: them. A finding under any of these that quotes nothing has been asserted.
 _JUDGEMENT_SECTIONS = (
+    "what is working especially well",
+    "what dex should learn from you",
+    "fragility and contradictions",
+    "worth borrowing",
+    # Older headings remain judgement-bearing while saved reports and
+    # hand-written reports migrate to the required two-way structure.
     "what is strong",
     "the mirror",
     "contradictions",
-    "worth borrowing",
 )
 
 #: One line of a quotation. Matched line by line rather than over the whole
@@ -455,16 +485,59 @@ def missing_report_requirements(markdown: str) -> list[str]:
     was never done.
     """
     prose = _without_code_fences(markdown)
-    lowered = prose.lower()
-    # A required section is a "##" heading, not a phrase somewhere in prose.
-    # "No contradictions found" mentioned under The Mirror used to satisfy the
-    # contradictions requirement while the dedicated section — and with it the
-    # content check that the hunt actually ran — was skipped entirely.
-    problems = [
-        f"add a section: {advice}"
-        for phrase, advice in _REQUIRED_SECTIONS
-        if not _has_section_heading(prose, phrase)
+    headings = [
+        match
+        for match in _HEADING.finditer(prose)
+        if match.group(1) == "##"
     ]
+    found_positions: list[int] = []
+    problems: list[str] = []
+    for phrase in _REQUIRED_TWO_WAY_SECTIONS:
+        matching = [
+            index
+            for index, heading in enumerate(headings)
+            if phrase in heading.group(2).lower()
+        ]
+        if not matching:
+            problems.append(f"add a section: ## {_SECTION_DISPLAY[phrase]}")
+        else:
+            found_positions.append(matching[0])
+    if len(found_positions) == len(_REQUIRED_TWO_WAY_SECTIONS) and found_positions != sorted(
+        found_positions
+    ):
+        problems.append(
+            "put the seven required two-way sections in their documented order: "
+            + ", ".join(_SECTION_DISPLAY[item] for item in _REQUIRED_TWO_WAY_SECTIONS)
+        )
+
+    strength_bodies = _section_bodies(prose, "what is working especially well")
+    if strength_bodies and not any(_shows_evidence(body) for body in strength_bodies):
+        problems.append(
+            "show one evidenced strength under What is working especially well: "
+            "quote the line that earns the praise and name its path."
+        )
+
+    reciprocal_bodies = _section_bodies(prose, "what dex should learn from you")
+    if reciprocal_bodies and not any(
+        body.strip() == _NO_TRANSFERABLE_METHOD or _shows_evidence(body)
+        for body in reciprocal_bodies
+    ):
+        problems.append(
+            "ground What Dex should learn from you with quoted method evidence, "
+            f"or use exactly: {_NO_TRANSFERABLE_METHOD}"
+        )
+
+    recommendation_count = sum(
+        1
+        for body in _section_bodies(prose, "worth borrowing from dex")
+        for heading in _HEADING.finditer(body)
+        if heading.group(1) == "###"
+    )
+    if recommendation_count > 3:
+        problems.append(
+            f"recommend at most three Dex additions; this report contains "
+            f"{recommendation_count}."
+        )
 
     if not _shows_evidence(prose):
         problems.append(
@@ -476,15 +549,26 @@ def missing_report_requirements(markdown: str) -> list[str]:
     problems.extend(_findings_without_evidence(prose))
     problems.extend(_contradiction_hunt_not_shown(prose))
 
-    if "worth borrowing" in lowered and not _has_section_heading(
-        prose, "considered and rejected"
-    ):
+    if recommendation_count and not _has_section_heading(prose, "considered and rejected"):
         problems.append(
             "add a section: ## Considered and rejected — one line each for what "
             "you looked at and ruled out. A shortlist with no visible rejections "
             "cannot be told apart from one that never compared."
         )
     return problems
+
+
+def _section_bodies(markdown: str, phrase: str) -> list[str]:
+    """Bodies of all level-two sections whose heading contains ``phrase``."""
+    headings = list(_HEADING.finditer(markdown))
+    bodies: list[str] = []
+    for index, heading in enumerate(headings):
+        if heading.group(1) != "##" or phrase not in heading.group(2).lower():
+            continue
+        following = [later for later in headings[index + 1 :] if later.group(1) == "##"]
+        end = following[0].start() if following else len(markdown)
+        bodies.append(markdown[heading.end() : end])
+    return bodies
 
 
 def _has_section_heading(markdown: str, phrase: str) -> bool:
@@ -600,6 +684,16 @@ def _findings_without_evidence(markdown: str) -> list[str]:
         if not _is_finding(level, section, headings, index):
             continue
         body = markdown[heading.end() : _span_end(markdown, headings, index)]
+        if (
+            "what dex should learn from you" in section
+            and body.strip() == _NO_TRANSFERABLE_METHOD
+        ):
+            continue
+        if (
+            "worth borrowing from dex" in section
+            and body.strip() == "No Dex addition cleared the evidence bar this time."
+        ):
+            continue
         # The label often sits in the heading ("### X - Unknown"), so the
         # heading counts as part of the finding for this check.
         if _shows_evidence(body) or _UNKNOWN_LABEL.search(f"{title}\n{body}"):

@@ -29,14 +29,12 @@ skill the person's assistant loads on the next run.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from capability_exchange.adapters.claude_code.allowlist import (
     AllowlistError,
@@ -44,8 +42,11 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.contract import (
     CLAUDE_CODE_DIAGNOSTIC_BASENAMES,
+    GLOBALLY_DENIED_PATHS,
     claude_code_contract,
 )
+from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+from capability_exchange.adapters.claude_code.live_state import collect_live_states
 from capability_exchange.adapters.claude_code.snapshot import (
     CollectionBounds,
     InspectionSnapshot,
@@ -53,6 +54,12 @@ from capability_exchange.adapters.claude_code.snapshot import (
     take_snapshot,
 )
 from capability_exchange.catalogue.subscription import require_app_storage_outside_roots
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    Observation,
+    ObservationKind,
+    OperationalState,
+)
 
 __all__ = ["inventory_main"]
 
@@ -308,206 +315,6 @@ _QUOTED_NOT_ADDRESSED = (
 )
 
 
-#: The captured files that can carry an ``mcpServers`` block. A project's
-#: ``.mcp.json`` holds it at the top level; ``settings.json`` holds it under
-#: the same key. Both are already captured and already redacted, so reading
-#: the server names out of them adds no new read and holds no new secret.
-_MCP_SOURCE_BASENAMES: tuple[str, ...] = (".mcp.json", "settings.json")
-
-
-def _mcp_shape(config: object) -> str:
-    """How one MCP server reaches its tool, named without its secrets.
-
-    A server's ``env`` block is where the API keys live and is never touched
-    here: only the transport is surfaced — the local command that is run, or
-    the host a remote server is reached at, with any query string or userinfo
-    dropped so a token smuggled into a URL cannot ride along.
-    """
-    if not isinstance(config, dict):
-        return "declared (shape not readable)"
-    command = config.get("command")
-    if isinstance(command, str) and command.strip():
-        return f"local command `{_one_line(Path(command.strip()).name, limit=60)}`"
-    for url_key in ("url", "httpUrl", "serverUrl"):
-        url = config.get(url_key)
-        if isinstance(url, str) and url.strip():
-            parts = urlsplit(url.strip())
-            host = parts.hostname or ""
-            shown = f"{parts.scheme}://{host}" if host else "(host not readable)"
-            return f"remote {_one_line(shown, limit=80)}"
-    return "declared"
-
-
-def _collect_mcp_servers(
-    snapshot: InspectionSnapshot,
-) -> tuple[dict[str, tuple[str, str]], list[str]]:
-    """Every configured MCP server, by name, and the files that would not parse.
-
-    The value is the shape and the source file the name was read from. When
-    the same server is declared in more than one file the shortest source
-    wins, so a name appears once. Content that will not parse as JSON — a
-    real possibility on files written by hand — is not guessed at: the file
-    is named as unreadable rather than dropped, the same honesty the rest of
-    the inventory keeps about what it could not read.
-    """
-    servers: dict[str, tuple[str, str]] = {}
-    unparsed: list[str] = []
-    for basename in _MCP_SOURCE_BASENAMES:
-        for entry in snapshot.entries_named(basename):
-            try:
-                document = json.loads(entry.content.decode("utf-8", "replace"))
-            except (ValueError, UnicodeError):
-                unparsed.append(entry.relative_path)
-                continue
-            block = document.get("mcpServers") if isinstance(document, dict) else None
-            if not isinstance(block, dict):
-                continue
-            for raw_name, config in block.items():
-                name = _one_line(str(raw_name), limit=80)
-                if not name:
-                    continue
-                shape = _mcp_shape(config)
-                existing = servers.get(name)
-                if existing is None or entry.relative_path.count("/") < existing[1].count("/"):
-                    servers[name] = (shape, entry.relative_path)
-    return servers, unparsed
-
-
-def _render_mcp_servers(snapshot: InspectionSnapshot) -> list[str]:
-    """The MCP servers the person wired in, by name — never by key.
-
-    An assistant is as much what it can reach as what it knows, and the
-    inventory was blind to every server the person connected. Their names are
-    surfaced from the same already-redacted capture as everything else; the
-    keys in their ``env`` blocks went through collection-time redaction and
-    are never rendered here.
-    """
-    servers, unparsed = _collect_mcp_servers(snapshot)
-    lines = [
-        f"## MCP servers ({len(servers)} configured)",
-        "",
-    ]
-    if servers:
-        lines.append(
-            "The servers this system can reach, read from its `.mcp.json` and "
-            "`settings.json`. Named, never keyed: any token in a server's `env` "
-            "was redacted at capture and is not shown."
-        )
-        lines.append("")
-        for name in sorted(servers):
-            shape, source = servers[name]
-            lines.append(f"- **{name}** — {shape}")
-            lines.append(f"  - `{source}`")
-    else:
-        lines.append(
-            "No MCP servers were declared in this folder's `.mcp.json` or "
-            "`settings.json`. A global config outside this folder (for example "
-            "`~/.claude.json`) is not part of the inspected scope and is not read, "
-            "so this is not evidence that none are configured anywhere."
-        )
-    if unparsed:
-        lines.append("")
-        lines.append(
-            f"{len(unparsed)} MCP config {_plural(len(unparsed), 'file')} could not be "
-            "parsed as JSON, so any servers declared in "
-            f"{_plural(len(unparsed), 'it', 'them')} are not listed above:"
-        )
-        for path in sorted(unparsed)[:10]:
-            lines.append(f"- `{_one_line(path, limit=200)}`")
-    lines.append("")
-    return lines
-
-
-#: Files that describe a scheduled automation. launchd plists are macOS's
-#: mechanism; a ``crontab`` file is the cross-platform one. Matched inside the
-#: inspected folder only — the live launchd domain and the system crontab live
-#: outside any approved scope and are never read.
-_PLIST_LABEL = re.compile(rb"<key>\s*Label\s*</key>\s*<string>([^<]*)</string>", re.IGNORECASE)
-_PLIST_INTERVAL = re.compile(rb"<key>\s*StartInterval\s*</key>\s*<integer>\s*(\d+)", re.IGNORECASE)
-_PLIST_CALENDAR = re.compile(rb"<key>\s*StartCalendarInterval\s*</key>", re.IGNORECASE)
-_CRON_FIELD = r"[-\d*/,]+"
-_CRON_LINE = re.compile(
-    r"^\s*(" + r"\s+".join([_CRON_FIELD] * 5) + r")\s+(\S.*)$"
-)
-
-
-def _plist_cadence(content: bytes) -> str:
-    if _PLIST_CALENDAR.search(content):
-        return "on a calendar schedule"
-    interval = _PLIST_INTERVAL.search(content)
-    if interval:
-        return f"every {interval.group(1).decode('ascii', 'replace')}s"
-    return "cadence not readable"
-
-
-def _render_automations(snapshot: InspectionSnapshot) -> list[str]:
-    """Scheduled automations found inside the inspected folder, said honestly.
-
-    This is best-effort and platform-specific. The person's live launchd
-    domain and their system crontab live outside any folder the inspection
-    was given, so they are never read; what can be surfaced is the automation
-    files that happen to sit inside the inspected system. On a platform that
-    is not macOS the launchd side cannot be inspected at all, and the section
-    says exactly that rather than reporting an absence it did not verify.
-    """
-    launchd: list[tuple[str, str]] = []
-    crontabs: list[tuple[str, list[str]]] = []
-    for canonical_path in snapshot.canonical_paths():
-        entry = snapshot.entry_for(canonical_path)
-        base = Path(entry.relative_path).name
-        if base.endswith(".plist"):
-            match = _PLIST_LABEL.search(entry.content)
-            label = _one_line(match.group(1).decode("utf-8", "replace"), 80) if match else base
-            launchd.append((label or base, _plist_cadence(entry.content)))
-        elif base == "crontab" or base.endswith(".cron") or base == "crontab.txt":
-            jobs = []
-            for raw in entry.content.decode("utf-8", "replace").splitlines():
-                cron = _CRON_LINE.match(raw)
-                if cron:
-                    command = _one_line(cron.group(2), 60)
-                    jobs.append(f"`{cron.group(1)}` — {command}")
-            crontabs.append((entry.relative_path, jobs))
-
-    lines = ["## Automations", ""]
-    found = bool(launchd or any(jobs for _, jobs in crontabs))
-    if found:
-        lines.append(
-            "Scheduled automations found inside this folder. This is best-effort: "
-            "the live launchd domain and the system crontab are outside the "
-            "inspected scope and are not read."
-        )
-        lines.append("")
-        for label, cadence in sorted(launchd):
-            lines.append(f"- **{label}** (launchd) — {cadence}")
-        for source, jobs in sorted(crontabs):
-            if not jobs:
-                continue
-            lines.append(f"- `{source}` (crontab) — {len(jobs)} {_plural(len(jobs), 'job')}")
-            for job in jobs[:10]:
-                lines.append(f"  - {job}")
-    else:
-        lines.append(
-            "No automation files were found inside this folder. This is not the "
-            "same as none existing:"
-        )
-        lines.append("")
-        if sys.platform == "darwin":
-            lines.append(
-                "- the live launchd domain (`~/Library/LaunchAgents` and the "
-                "loaded jobs) is outside the inspected scope and was not read"
-            )
-        else:
-            lines.append(
-                "- cannot inspect launchd on this platform; it is macOS-specific, "
-                "and this run is not on macOS"
-            )
-        lines.append(
-            "- the system crontab is outside the inspected scope and was not read"
-        )
-    lines.append("")
-    return lines
-
-
 #: Top-level folder names that mark a structured "second brain" rather than a
 #: bare skills directory: a numbered/dated PARA layout, or a named area a
 #: person keeps for the entities their work is about.
@@ -581,8 +388,144 @@ def _render_shape(snapshot: InspectionSnapshot) -> list[str]:
     return lines
 
 
+def _safe_attribute(observation: Observation, key: str) -> str | None:
+    return next((item.value for item in observation.attributes if item.key == key), None)
+
+
+def _observations(
+    fingerprint: EvidenceFingerprint, *kinds: ObservationKind
+) -> tuple[Observation, ...]:
+    wanted = frozenset(kinds)
+    return tuple(item for item in fingerprint.observations if item.kind in wanted)
+
+
+def _render_fingerprint(fingerprint: EvidenceFingerprint) -> list[str]:
+    """Render whole-system facts without promoting configuration into proof."""
+    lines: list[str] = []
+
+    releases = _observations(fingerprint, ObservationKind.RELEASE)
+    lines.extend(["## Release identity", ""])
+    if releases:
+        for item in releases:
+            release_id = _safe_attribute(item, "release-id") or "version not readable"
+            lines.append(f"- **{item.label}** — {release_id}")
+    else:
+        lines.append(
+            "No readable Dex release marker was captured. This does not prove the system has "
+            "never been installed or updated."
+        )
+    lines.append("")
+
+    servers = _observations(fingerprint, ObservationKind.MCP_SERVER)
+    tools = _observations(fingerprint, ObservationKind.MCP_TOOL)
+    tool_count_by_server: Counter[str] = Counter(
+        item.identity.partition(":")[0] for item in tools
+    )
+    lines.extend([f"## MCP servers ({len(servers)} configured)", ""])
+    if servers:
+        lines.append(
+            "These are configured doorways to outside tools. A doorway in a settings file "
+            "does not prove the server starts or that its tools work."
+        )
+        lines.append("")
+        for item in servers:
+            transport = _safe_attribute(item, "transport") or "transport not readable"
+            count = tool_count_by_server[item.identity]
+            tool_fact = (
+                f"{count} {_plural(count, 'tool')} enumerated"
+                if count
+                else "tools not enumerated"
+            )
+            lines.append(
+                f"- **{item.label}** — configured doorway; {tool_fact}; {transport}"
+            )
+    else:
+        lines.append(
+            "No MCP server declaration was captured in the approved folders. Global assistant "
+            "configuration outside those folders was not read, so this is not evidence that "
+            "none are configured elsewhere."
+        )
+    lines.append("")
+
+    hooks = _observations(fingerprint, ObservationKind.HOOK)
+    lines.extend([f"## Hooks ({len(hooks)} configured)", ""])
+    if hooks:
+        lines.append(
+            "Hooks ask the assistant to run an action at a named moment. Lens counts the actions "
+            "but never retains or prints their commands."
+        )
+        lines.append("")
+        for item in hooks:
+            count = _safe_attribute(item, "tool-count") or "unknown"
+            lines.append(f"- **{item.label}** — {count} configured actions; not proved to run")
+    else:
+        lines.append("No hook declaration was captured in the approved folders.")
+    lines.append("")
+
+    registries = _observations(fingerprint, ObservationKind.INTEGRATION_REGISTRY)
+    lines.extend(["## Integrations", ""])
+    if registries:
+        for item in registries:
+            count = _safe_attribute(item, "provider-count") or "unknown"
+            lines.append(
+                f"- **{item.label}** — {count} providers declared; the registry exists, "
+                "but individual connections and outcomes were not tested"
+            )
+    else:
+        lines.append(
+            "No local integration registry was captured in the approved folders. This does "
+            "not assess cloud-managed connection services outside those folders."
+        )
+    lines.append("")
+
+    automations = _observations(fingerprint, ObservationKind.AUTOMATION)
+    lines.extend([f"## Scheduled work ({len(automations)} found)", ""])
+    if automations:
+        for item in automations:
+            schedule = _safe_attribute(item, "schedule")
+            detail = f"; schedule {schedule}" if schedule else ""
+            if item.operational_state is OperationalState.IMPLEMENTED:
+                state = "written, not proved installed or running"
+            else:
+                state = item.operational_state.value.replace("-", " ")
+            lines.append(f"- **{item.label}** — {state}{detail}")
+    else:
+        lines.append(
+            "No scheduled-work definition was captured in the approved folders. Live operating-"
+            "system jobs are a separate check and were not inferred from absence here."
+        )
+    lines.append("")
+
+    checks = _observations(
+        fingerprint, ObservationKind.HEALTH_CHECK, ObservationKind.RECOVERY_PROOF
+    )
+    lines.extend(["## Health and recovery", ""])
+    if checks:
+        for item in checks:
+            if item.kind is ObservationKind.RECOVERY_PROOF:
+                meaning = "a proof definition exists; the recovery outcome was not verified"
+            else:
+                meaning = "a health check is written; its latest outcome was not verified"
+            lines.append(f"- **{item.label}** — {meaning}")
+    else:
+        lines.append(
+            "No bounded health-check or recovery-proof definition was recognised in the approved "
+            "folders."
+        )
+    lines.append("")
+
+    lines.extend(["## Inspection limits", ""])
+    lines.extend(f"- {limit}" for limit in fingerprint.limits)
+    lines.append("")
+    return lines
+
+
 def _render(
-    snapshot: InspectionSnapshot, root: Path, names: Sequence[str] = ()
+    snapshot: InspectionSnapshot,
+    fingerprint: EvidenceFingerprint,
+    root: Path,
+    names: Sequence[str] = (),
+    additional_roots: Sequence[Path] = (),
 ) -> str:
     lines = [
         f"# System inventory: {root}",
@@ -590,6 +533,14 @@ def _render(
         _QUOTED_NOT_ADDRESSED,
         "",
     ]
+    if additional_roots:
+        lines.extend(
+            [
+                "> **Additional approved folders.** This run also read: "
+                + ", ".join(f"`{path}`" for path in additional_roots),
+                "",
+            ]
+        )
     if names:
         lines.extend(
             [
@@ -707,8 +658,7 @@ def _render(
             lines.append(f"- `{folder}` — {count}")
         lines.append("")
 
-    lines.extend(_render_mcp_servers(snapshot))
-    lines.extend(_render_automations(snapshot))
+    lines.extend(_render_fingerprint(fingerprint))
     lines.extend(_render_shape(snapshot))
 
     lines.extend(_render_how_this_ends())
@@ -891,6 +841,24 @@ def inventory_main(argv: list[str] | None = None) -> int:
         help="Bound on files captured. Reaching it is reported, never hidden.",
     )
     parser.add_argument(
+        "--also",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="FOLDER",
+        help=(
+            "An additional folder the person explicitly approved for this read-only inventory."
+        ),
+    )
+    parser.add_argument(
+        "--include-live-state",
+        action="store_true",
+        help=(
+            "Run fixed read-only operating-system status commands; never runs a command found "
+            "in the inspected system."
+        ),
+    )
+    parser.add_argument(
         "--names",
         metavar="TEXT[,TEXT...]",
         help=(
@@ -939,6 +907,45 @@ def inventory_main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    additional_roots: list[Path] = []
+    globally_denied = tuple(
+        Path(path).expanduser().resolve(strict=False) for path in GLOBALLY_DENIED_PATHS
+    )
+    for given in args.also:
+        candidate = given.expanduser().resolve()
+        if not candidate.is_dir():
+            print(f"dex-lens: additional scope is not a folder: {candidate}", file=sys.stderr)
+            return 2
+        if candidate == Path.home().resolve() or candidate == Path(candidate.anchor):
+            print(
+                f"dex-lens: {candidate} is too broad to approve as an additional folder.",
+                file=sys.stderr,
+            )
+            return 2
+        if any(
+            candidate == denied
+            or candidate.is_relative_to(denied)
+            or denied.is_relative_to(candidate)
+            for denied in globally_denied
+        ):
+            print(
+                f"dex-lens: {candidate} overlaps a credential folder that Lens never reads.",
+                file=sys.stderr,
+            )
+            return 2
+        additional_roots.append(candidate)
+
+    approved_roots = (root, *additional_roots)
+    for index, first in enumerate(approved_roots):
+        for second in approved_roots[index + 1 :]:
+            if first == second or first.is_relative_to(second) or second.is_relative_to(first):
+                print(
+                    "dex-lens: duplicate or overlapping approved folders are refused; "
+                    "name each read-only scope once.",
+                    file=sys.stderr,
+                )
+                return 2
+
     if args.out is not None:
         try:
             # The same guard `reports save --for` uses, and for the same
@@ -948,7 +955,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
             # read-only command would have edited the thing it was measuring.
             # Checked before anything is read, so a refused destination costs
             # the person nothing.
-            require_app_storage_outside_roots(args.out, (root,))
+            require_app_storage_outside_roots(args.out, approved_roots)
         except ValueError:
             print(
                 f"dex-lens: refusing to write inside the folder it read: {args.out}. "
@@ -960,7 +967,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
             return 2
 
     try:
-        contract = claude_code_contract((str(root),))
+        contract = claude_code_contract(tuple(str(path) for path in approved_roots))
         allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
     except (AllowlistError, ValueError) as exc:
         print(f"dex-lens: cannot read {root}: {exc}", file=sys.stderr)
@@ -968,6 +975,12 @@ def inventory_main(argv: list[str] | None = None) -> int:
     snapshot = take_snapshot(
         allowlist,
         bounds=CollectionBounds(max_file_count=args.max_files),
+    )
+    live_states = collect_live_states() if args.include_live_state else ()
+    fingerprint = discover_fingerprint(
+        snapshot,
+        collected_at=snapshot.taken_at,
+        live_states=live_states,
     )
 
     # Defaulting to the current folder is only kind when it is the right
@@ -988,7 +1001,13 @@ def inventory_main(argv: list[str] | None = None) -> int:
         )
 
     try:
-        rendered = _render(snapshot, root, names)
+        rendered = _render(
+            snapshot,
+            fingerprint,
+            root,
+            names,
+            additional_roots=additional_roots,
+        )
     except _NothingMatched as nothing:
         print(
             f"dex-lens: nothing in this folder is named like {', '.join(nothing.names)}. "
