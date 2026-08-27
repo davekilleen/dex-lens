@@ -10,13 +10,14 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from mcp import MCPError
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import INVALID_REQUEST, ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ConfigDict
 
 from capability_exchange.diagnosis.run import DiagnosisStateError
 
@@ -50,20 +51,49 @@ _READ_ONLY = ToolAnnotations(
 )
 
 
-class PrepareDiagnosisRequest(BaseModel):
+@dataclass(frozen=True)
+class PrepareDiagnosisRequest:
     """Candidate roots for the local consent surface. Nothing is read here."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    roots: tuple[str, ...]
 
-    roots: tuple[str, ...] = Field(min_length=1)
+    def __post_init__(self) -> None:
+        if not self.roots:
+            raise ValueError("prepare requires at least one candidate root")
+
+    @classmethod
+    def from_mapping(cls, payload: dict[str, object]) -> PrepareDiagnosisRequest:
+        extra = set(payload) - {"roots"}
+        if extra:
+            raise ValueError("unknown fields are forbidden on prepare requests")
+        roots = payload.get("roots")
+        if not isinstance(roots, list | tuple) or not roots:
+            raise ValueError("prepare requires at least one candidate root")
+        if not all(isinstance(item, str) for item in roots):
+            raise ValueError("prepare roots must be strings")
+        return cls(roots=tuple(str(item) for item in roots))
 
 
-class SpecialistProposal(BaseModel):
+@dataclass(frozen=True)
+class SpecialistProposal:
     """Translation-only wire shape. Task 7 owns the real proposal schema."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
     claims: tuple[str, ...] = ()
+
+    @classmethod
+    def from_mapping(cls, payload: dict[str, object]) -> SpecialistProposal:
+        extra = set(payload) - {"claims"}
+        if extra:
+            raise ValueError("unknown fields are forbidden on specialist proposals")
+        claims = payload.get("claims", ())
+        if not isinstance(claims, list | tuple):
+            raise ValueError("specialist proposal claims must be a sequence")
+        if not all(isinstance(item, str) for item in claims):
+            raise ValueError("specialist proposal claims must be strings")
+        return cls(claims=tuple(str(item) for item in claims))
+
+    def model_dump(self) -> dict[str, object]:
+        return {"claims": list(self.claims)}
 
 
 @runtime_checkable
@@ -118,7 +148,7 @@ def register_prepare_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def prepare_diagnosis(roots: list[str]) -> dict[str, object]:
         """Create a pending run and return the local consent action without reading."""
-        request = PrepareDiagnosisRequest(roots=tuple(roots))
+        request = PrepareDiagnosisRequest.from_mapping({"roots": list(roots)})
         return _dump(engine.prepare, request)
 
 
@@ -127,8 +157,8 @@ def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     def submit_specialist_proposal(run_id: str, proposal: dict[str, object]) -> dict[str, object]:
         """Offer typed, evidence-referenced semantic help for later validation."""
         try:
-            parsed = SpecialistProposal.model_validate(proposal)
-        except ValidationError as exc:
+            parsed = SpecialistProposal.from_mapping(proposal)
+        except (TypeError, ValueError) as exc:
             raise ToolError("specialist proposal is not a closed typed payload") from exc
         _refuse_hostile_payload(parsed.model_dump())
         return _dump(engine.submit, run_id, parsed)

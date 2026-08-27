@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 from mcp import Client, MCPError
 from mcp.client.stdio import StdioServerParameters
-from pydantic import ValidationError
 from tests.evals.real_session_fixture import CANARY
 
 from capability_exchange.diagnosis.mcp_server import (
@@ -222,8 +221,8 @@ def test_build_engine_is_injectable_and_does_not_construct_task_8() -> None:
 
 
 def test_prepare_request_refuses_unknown_fields() -> None:
-    with pytest.raises(ValidationError):
-        PrepareDiagnosisRequest.model_validate({"roots": ["vault"], "extra": 1})
+    with pytest.raises(ValueError, match="unknown fields"):
+        PrepareDiagnosisRequest.from_mapping({"roots": ["vault"], "extra": 1})
 
 
 _STDIO_SMOKE = r"""
