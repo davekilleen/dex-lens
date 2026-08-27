@@ -59,7 +59,7 @@ def test_handoff_records_d0_authorization_and_pr4_merge_state() -> None:
     assert "raw personal material" in handoff
     assert "strict majority" in handoff
     assert "merged in PR #4" in status
-    assert "draft PR #4" not in status
+    assert re.search(r"draft PR #4(?!\d)", status) is None
     assert "No product code exists yet" not in handoff
 
 

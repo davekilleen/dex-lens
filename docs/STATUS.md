@@ -5,7 +5,7 @@ Last updated: 2026-08-27. Plain-language companion to
 
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The approved engine is **implemented on draft PR #46** and locally verified.
+The approved engine is **implemented on draft pull request #46** and locally verified.
 It is **not merged, not released, not registered, and not live**. The public
 product remains signed Lens **v0.1.12**. Installer registration, signing,
 beta promotion and publication each remain a later explicit Dave decision.
