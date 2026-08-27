@@ -23,12 +23,16 @@ from capability_exchange.adapter import (
 )
 
 __all__ = [
+    "AUTOMATION_SUFFIXES",
     "CLAUDE_CODE_ADAPTER_ID",
     "CLAUDE_CODE_CATALOGUE_HOST_ADAPTER",
     "CLAUDE_CODE_CONTRACT_VERSION",
     "CLAUDE_CODE_DIAGNOSTIC_BASENAMES",
     "CLAUDE_CODE_EVIDENCE_PROBES",
     "GLOBALLY_DENIED_PATHS",
+    "INTEGRATION_BASENAMES",
+    "MCP_CONFIG_BASENAMES",
+    "RELEASE_BASENAMES",
     "claude_code_contract",
 ]
 
@@ -56,6 +60,15 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
     "skills-present",
 )
 
+MCP_CONFIG_BASENAMES: frozenset[str] = frozenset(
+    {".mcp.json", "mcp.json", "settings.json", ".claude.json", "config.toml"}
+)
+AUTOMATION_SUFFIXES: frozenset[str] = frozenset({".plist", ".cron", ".service", ".timer"})
+INTEGRATION_BASENAMES: frozenset[str] = frozenset(
+    {"registry.json", "config.yaml", "config.yml"}
+)
+RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", "VERSION", ".dex-version"})
+
 #: File names the diagnosis reads: the probes' inputs plus the instruction
 #: files of the other assistants a real system is built with.
 #:
@@ -82,11 +95,14 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
 #: names are surfaced, the keys never are.
 CLAUDE_CODE_DIAGNOSTIC_BASENAMES: frozenset[str] = frozenset(
     {
-        ".mcp.json",
+        *MCP_CONFIG_BASENAMES,
+        *INTEGRATION_BASENAMES,
+        *RELEASE_BASENAMES,
         "AGENTS.md",
         "CLAUDE.md",
         "SKILL.md",
-        "settings.json",
+        "crontab",
+        "crontab.txt",
     }
 )
 

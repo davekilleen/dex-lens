@@ -9,7 +9,6 @@ looked at, and an inventory too large to read produces no analysis at all.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -737,7 +736,8 @@ class TestMcpServersAreInventoried:
         assert "## MCP servers (2 configured)" in out
         assert "**github**" in out
         assert "**linear**" in out
-        assert "mcp.linear.app" in out
+        assert "configured doorway; tools not enumerated" in out
+        assert "mcp.linear.app" not in out, "remote URLs are not retained or rendered"
 
     def test_the_mcp_servers_key_inside_settings_json_is_read_too(
         self, system: Path, capsys: pytest.CaptureFixture[str]
@@ -772,8 +772,8 @@ class TestMcpServersAreInventoried:
         inventory_main([str(system)])
 
         out = capsys.readouterr().out
-        assert "could not be parsed as JSON" in out
-        assert "`.mcp.json`" in out
+        assert "MCP configuration file could not be parsed" in out
+        assert "its declarations were not assessed" in out
 
 
 class TestMcpSecretsAreRedactedBeforeAnythingIsHeld:
@@ -854,9 +854,9 @@ class TestAutomationsAreSurfaced:
         inventory_main([str(system)])
 
         out = capsys.readouterr().out
-        assert "## Automations" in out
+        assert "## Scheduled work" in out
         assert "com.dave.backup" in out
-        assert "launchd" in out
+        assert "written, not proved installed or running" in out
         assert "0 9 * * 1" in out
         assert "weekly-report.sh" in out
 
@@ -867,12 +867,45 @@ class TestAutomationsAreSurfaced:
         inventory_main([str(system)])
 
         out = capsys.readouterr().out
-        assert "## Automations" in out
-        if sys.platform == "darwin":
-            assert "outside the inspected scope" in out
-        else:
-            assert "cannot inspect launchd on this platform" in out
+        assert "## Scheduled work" in out
+        assert "Live operating-system state was not assessed" in out
         assert "No automations" not in out  # never the bare false claim
+
+
+class TestWholeSystemSections:
+    def test_release_hooks_integrations_health_and_recovery_are_explained(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (system / "VERSION").write_text("v0.8.3\n", encoding="utf-8")
+        (system / ".claude" / "settings.json").write_text(
+            '{"hooks":{"PostToolUse":[{"hooks":[{"command":"private-runner"}]}]}}',
+            encoding="utf-8",
+        )
+        registry = system / "System" / "integrations" / "registry.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(
+            '{"providers":{"calendar":{},"crm":{},"documents":{}}}',
+            encoding="utf-8",
+        )
+        doctor = system / "scripts" / "system-doctor.py"
+        doctor.parent.mkdir()
+        doctor.write_text("# check local system health\n", encoding="utf-8")
+        restore = system / "checks" / "restore-proof.json"
+        restore.parent.mkdir()
+        restore.write_text('{"status":"passed"}\n', encoding="utf-8")
+
+        inventory_main([str(system)])
+
+        out = capsys.readouterr().out
+        assert "## Release identity" in out
+        assert "v0.8.3" in out
+        assert "## Hooks (1 configured)" in out
+        assert "private-runner" not in out, "hook command text is never part of the report"
+        assert "## Integrations" in out
+        assert "3 providers declared" in out
+        assert "## Health and recovery" in out
+        assert "system-doctor" in out
+        assert "restore-proof" in out
 
 
 class TestVaultShape:
