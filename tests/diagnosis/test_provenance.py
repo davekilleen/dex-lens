@@ -87,8 +87,13 @@ def test_duplicate_kind_identity_and_source_id_is_rejected() -> None:
         "skills/planner/secrets.env",
         "skills/planner/credentials.json",
         "skills/planner/private_key.pem",
+        "skills/planner/api_key.env",
+        "skills/planner/api-key.json",
+        "skills/planner/apikey.txt",
+        "skills/planner/passwd",
         "skills/planner\n/SKILL.md",
         "skills/planner\x7f/SKILL.md",
+        "skills/planner\u0085/SKILL.md",
         "-----BEGIN PRIVATE KEY-----",
     ),
 )

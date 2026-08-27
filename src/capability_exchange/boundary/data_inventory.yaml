@@ -1315,6 +1315,56 @@ fields:
     deletion: not-stored
     audit: "ephemeral optional digest; snapshot keyed references remain separate"
 
+  ApprovedSnapshotSource.source_id:
+    description: "opaque identity of one source approved for the inspection snapshot"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated through SourceProvenance before capture; the canonical root is omitted"
+    display: "supports local attribution even when the approved source contains no captured files"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory provenance only; no raw path or user content is retained"
+
+  ApprovedSnapshotSource.source_class:
+    description: "closed ownership class of one source approved for the inspection snapshot"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated against the closed SourceClass vocabulary before snapshot collection"
+    display: "explains the local ownership class of an approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory classification; never persisted or transmitted"
+
+  ApprovedSnapshotSource.scope_reference:
+    description: "one-way scope reference for an approved snapshot source"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated as a scope-prefixed SHA-256 reference; the canonical root is excluded"
+    display: "supports local scope matching without revealing an absolute source path"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory locator; raw approved roots are not retained in this record"
+
+  InspectionSnapshot.approved_sources:
+    description: "immutable tuple of every approved source descriptor, including empty sources"
+    collection: "assembled locally from the exact consent-approved descriptor set during capture"
+    derivation: "contains only ApprovedSnapshotSource records and excludes canonical roots"
+    display: "preserves complete local source coverage for deterministic diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "exists only for the in-memory inspection lifetime and cannot be reassigned or deleted"
+
+  SnapshotEntry.source:
+    description: "closed provenance attached to one captured snapshot entry"
+    collection: "assigned locally by matching the admitted file to its consent-approved source"
+    derivation: "nested immutable SourceProvenance with unsafe relative names replaced by opaque tokens"
+    display: "attributes local evidence to the correct approved source without exposing its root"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral per-entry provenance; raw absolute roots and secret-shaped names are excluded"
+
   EvidenceFingerprint.adapter_id:
     description: "stable identity of the read-only adapter that produced the fingerprint"
     collection: "authored with the adapter implementation"

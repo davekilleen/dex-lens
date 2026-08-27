@@ -166,6 +166,17 @@ class TestSnapshotReads:
         with pytest.raises(AttributeError, match="immutable|read-only|assign"):
             setattr(snapshot, attribute, value)
 
+    @pytest.mark.parametrize("attribute", ("_approved_sources", "_entries"))
+    def test_snapshot_state_cannot_be_deleted_after_capture(
+        self,
+        claude_root: Path,
+        attribute: str,
+    ) -> None:
+        snapshot = snapshot_of(claude_root)
+
+        with pytest.raises(AttributeError, match="immutable|read-only|delete"):
+            delattr(snapshot, attribute)
+
 
 class TestSecretHandlingAtCollection:
     def test_raw_secret_bytes_never_stored(self, secret_bearing_root: Path) -> None:

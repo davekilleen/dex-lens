@@ -309,6 +309,11 @@ class InspectionSnapshot:
             raise AttributeError("InspectionSnapshot is immutable after capture")
         object.__setattr__(self, name, value)
 
+    def __delattr__(self, name: str) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError("InspectionSnapshot is immutable; state cannot be deleted")
+        object.__delattr__(self, name)
+
     @property
     def taken_at(self) -> datetime:
         return self._taken_at

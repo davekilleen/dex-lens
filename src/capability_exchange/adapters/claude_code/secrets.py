@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from capability_exchange.boundary.secret_markers import CREDENTIAL_NAME_PATTERN_BYTES
+
 __all__ = [
     "REDACTION_MARK",
     "RedactionOutcome",
@@ -59,8 +61,7 @@ _PEM_BLOCK = re.compile(
 #: Credential-style assignment: the *value* group is what gets redacted.
 _ASSIGNMENT = re.compile(
     rb"(?im)^[ \t]*(?:export[ \t]+)?"
-    rb"[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth(?:orization)?|"
-    rb"secret|passwd|password)[A-Za-z0-9_-]*[ \t]*[:=][ \t]*"
+    rb"[A-Za-z0-9_-]*" + CREDENTIAL_NAME_PATTERN_BYTES + rb"[A-Za-z0-9_-]*[ \t]*[:=][ \t]*"
     rb"(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s#]+))"
 )
 
