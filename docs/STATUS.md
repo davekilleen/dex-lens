@@ -34,6 +34,14 @@ Local verification on this Cloud Agent VM, commit after Task 12 merge:
   contained full journey, and the legacy-system filesystem eval. Those
   guards were not weakened. GitHub CI remains the authority for that
   containment matrix.
+- GitHub Ubuntu legs on this branch are green, including G1 bind-mount,
+  M3 egress, M5 contribution egress, and the live-bridge proof skip/run
+  path. The earlier macOS red was only
+  `test_a_piped_dry_run_says_what_it_would_do_and_does_none_of_it`: the
+  test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
+  macos-14. The live installer was not changed; the test now keeps a
+  3.11–3.14 interpreter on that sealed PATH so it still hides assistant
+  choosers.
 - Ruff: clean on `src` and `tests`.
 - Inventory: **771** fields; **145** stored with registered deletion paths;
   **1** transmitted through closed reviewed paths.
