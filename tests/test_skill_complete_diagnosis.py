@@ -30,9 +30,9 @@ def test_skill_requires_praise_reciprocity_and_three_or_fewer() -> None:
     assert "repeat the best strength" in text
 
 
-def test_skill_requires_a_complete_catalogue_ledger() -> None:
+def test_skill_requires_engine_owned_catalogue_completeness() -> None:
     text = SKILL.read_text(encoding="utf-8")
 
-    assert "--ledger-template" in text
-    assert "Fill every ledger disposition" in text
+    assert "The engine owns the ledger" in text
+    assert "Do not calculate or rewrite catalogue totals" in text
     assert "Unavailable entries cannot be recommended" in text
