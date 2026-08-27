@@ -636,11 +636,12 @@ The approved design is implemented only when all of the following are proved:
 
 ### Candidate proof, 2026-08-27
 
-The implementation candidate on draft PR #46 proves the engine interface,
-ledger-derived facts, receipt-backed decisions, atomic resume, specialist
-validation without authority, and byte-identical direct/CLI/MCP replay.
-Capability-family version delta remains disabled until a signed family
-contract exists. Full GitHub CI, signed-release checks and a public-install
+The implementation candidate on draft pull request #46 proves the engine
+interface, ledger-derived facts, receipt-backed decisions, atomic resume,
+specialist validation without authority, and byte-identical direct/CLI/MCP
+replay. GitHub CI is green at `572f2d8`, including the exact pilot-build
+G1–G6 + R3 gate. Capability-family version delta remains disabled until a
+signed family contract exists. Signed-release checks and a public-install
 rehearsal are still required before any publication decision. This document
 does not authorise merge or release.
 

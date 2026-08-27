@@ -13,6 +13,8 @@ Pass as a **candidate proof**, not as a publication proof.
   (diagnosis, reports, evals except the known legacy-system mount-point
   crossings, skill, packaging, diagnosis consent, diagnosis import
   surface). 3 deselected. 0 failed.
+- GitHub CI on `572f2d8` is green: Ubuntu and macOS 3.11/3.12, G1, M3,
+  M5, Section-6, and the exact pilot-build G1–G6 + R3 gate.
 - Ruff clean on `src` and `tests` (`ruff check .`).
 - Inventory: 774 fields, 148 stored, 1 transmitted.
 - Privacy grep: no real personal paths or session URLs in product/replay

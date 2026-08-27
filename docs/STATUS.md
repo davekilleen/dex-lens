@@ -5,10 +5,11 @@ Last updated: 2026-08-27. Plain-language companion to
 
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The approved engine is **implemented on draft pull request #46** and locally verified.
-It is **not merged, not released, not registered, and not live**. The public
-product remains signed Lens **v0.1.12**. Installer registration, signing,
-beta promotion and publication each remain a later explicit Dave decision.
+The approved engine is **implemented on draft pull request #46** and
+**GitHub CI is green** at `572f2d8`. It is **not merged, not released,
+not registered, and not live**. The public product remains signed Lens
+**v0.1.12**. Installer registration, signing, beta promotion and
+publication each remain a later explicit Dave decision.
 
 What the candidate owns, on `codex/lens-deterministic-diagnosis-engine-build`:
 
@@ -35,13 +36,17 @@ Local verification on this Cloud Agent VM, after the process-default engine:
   fixtures, the contained full journey, and the legacy-system filesystem
   eval. Those guards were not weakened. GitHub CI remains the authority
   for that containment matrix.
-- GitHub Ubuntu and macOS legs on this branch are the publication gate.
-  The earlier macOS red was only
+- GitHub CI on `572f2d8` is green: Ubuntu and macOS 3.11/3.12 pytest,
+  G1 bind-mount, M3 egress, M5 contribution egress, Section-6 live
+  bridge, and the exact pilot-build G1–G6 + R3 gate. The earlier macOS
+  red was only
   `test_a_piped_dry_run_says_what_it_would_do_and_does_none_of_it`: the
   test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
   macos-14. The live installer was not changed; the test now keeps a
   3.11–3.14 interpreter on that sealed PATH so it still hides assistant
-  choosers.
+  choosers. Publication remains a later Dave decision. The prepared
+  checklist is
+  `docs/superpowers/plans/2026-08-27-dex-lens-diagnosis-engine-publication-checklist.md`.
 - Ruff: clean on `src` and `tests`.
 - Inventory: **774** fields; **148** stored with registered deletion paths;
   **1** transmitted through closed reviewed paths.
