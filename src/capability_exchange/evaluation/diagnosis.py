@@ -14,6 +14,7 @@ from capability_exchange.diagnosis.observations import (
     ObservationKind,
     OperationalState,
 )
+from capability_exchange.diagnosis.report import ledger_derived_fact_errors
 from capability_exchange.reports.store import missing_report_requirements
 
 __all__ = ["EvaluationResult", "evaluate_diagnosis"]
@@ -163,6 +164,7 @@ def _report_errors(
         for claim in forbidden:
             if str(claim).lower() in lowered:
                 errors.append(f"forbidden unsupported claim: {claim}")
+    errors.extend(ledger_derived_fact_errors(report_markdown, ledger))
     return tuple(errors)
 
 

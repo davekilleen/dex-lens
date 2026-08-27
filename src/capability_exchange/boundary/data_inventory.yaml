@@ -1175,6 +1175,46 @@ fields:
     deletion: not-stored
     audit: "ephemeral local answer; never transmitted without a later separate consent path"
 
+  LedgerSummary.total:
+    description: "exact catalogue entry count derived from one comparison ledger"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "length of the ledger entry tuple; refused unless created through from_ledger"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; never an independently supplied number"
+
+  LedgerSummary.by_disposition:
+    description: "closed disposition counts derived from one comparison ledger"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "one integer for every Disposition; the sum must equal total"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived counts; independent construction is refused"
+
+  LedgerSummary.assessed:
+    description: "count of ledger entries that are not not-assessed"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "total minus the not-assessed count"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; cannot be supplied separately from the ledger"
+
+  LedgerSummary.unknown:
+    description: "count of ledger entries still not assessed"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "count of Disposition.NOT_ASSESSED entries"
+    display: "shown in the canonical coverage fact block as remaining Unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; cannot be supplied separately from the ledger"
+
   SafeAttribute.key:
     description: "closed allowlisted name for one privacy-safe observation attribute"
     collection: "selected locally by a bounded discovery parser"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -23,6 +23,9 @@ _ID_PATTERN = r"^[a-z0-9][a-z0-9._:-]{0,159}$"
 _HEX_SHA256_PATTERN = r"^[0-9a-f]{64}$"
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _NO_TRANSFERABLE_METHOD = "No transferable method cleared the evidence bar."
+
+if TYPE_CHECKING:
+    from capability_exchange.diagnosis.report import LedgerSummary
 
 
 class Disposition(StrEnum):
@@ -207,3 +210,10 @@ class ComparisonLedger(InventoriedModel):
             entries=entries,
             reciprocal_answer=reciprocal_answer,
         )
+
+    def derived_summary(self) -> LedgerSummary:
+        """Return coverage counts calculated from this ledger's entries."""
+
+        from capability_exchange.diagnosis.report import LedgerSummary
+
+        return LedgerSummary.from_ledger(self)

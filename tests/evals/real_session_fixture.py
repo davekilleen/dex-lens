@@ -182,7 +182,9 @@ def real_session_ledger() -> ComparisonLedger:
 
 
 def real_session_report() -> str:
-    return """# Invented diagnosis
+    from capability_exchange.diagnosis.report import canonical_fact_block
+
+    return f"""# Invented diagnosis
 
 ## What I read
 - Invented inventory: `file-token:invented-inventory.md`
@@ -210,7 +212,7 @@ I checked the rules in `file-token:invented-rules.md` against the
 invented skills and found no conflicts.
 
 ## Coverage and limits
-- 80 capabilities remain Unknown.
+{canonical_fact_block(real_session_ledger())}- 80 capabilities remain Unknown.
 - Every identity and evidence reference in this replay is invented.
 
 ## What happens next
