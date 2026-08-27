@@ -587,7 +587,7 @@ def test_public_status_copy_matches_the_live_complete_catalogue() -> None:
         assert "v1.95.1" not in text
         assert "Wave 2 expansion is in progress" not in text
         assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
-    assert "Lens v0.1.12" in readme
+    assert "Lens v0.1.13" in readme
     assert "94 skills" in readme_prose
     assert "11 connection systems containing 146 individual tools" in readme_prose
     assert "5 recurring jobs" in readme_prose

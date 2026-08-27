@@ -1,12 +1,9 @@
 # Dex Lens deterministic diagnosis engine and MCP design
 
 **Date:** 2026-08-27
-**Status:** Candidate implemented on draft PR
-https://github.com/davekilleen/dex-lens/pull/46 (2026-08-27). Locally
-verified against the golden replay and the engine-owned suite. Not merged,
-not released, not registered, not live. Public release remains v0.1.12.
-Publication, installer changes and tester direction remain separate Dave
-decisions.
+**Status:** Implemented on `main` as Lens v0.1.13 after Dave approved
+publication on 2026-08-27. Signed public download follows the release
+workflow. This document does not hand-edit the live installer.
 **Supersedes:** The orchestration and report-truth portions of
 `2026-08-26-dex-lens-complete-diagnosis-eval-design.md`
 **Keeps:** Its read-only containment, bounded discovery, operational-state,

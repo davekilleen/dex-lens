@@ -33,7 +33,7 @@ what you install is exactly what was built and proven, byte for byte. It is
 published only after the same installer has passed a real install on a clean
 Apple Silicon Mac and a clean Linux machine.
 
-The current Lens software is **Lens v0.1.12**. Its current Dex reference is
+The current Lens software is **Lens v0.1.13**. Its current Dex reference is
 published by **Core v1.97.2**. Lens checks that signed reference when you use
 it, so Dex can keep the list accurate without asking you to reinstall Lens
 each time the list changes.
@@ -263,7 +263,7 @@ outcome that has genuinely improved someone’s work.
 
 ## Current status
 
-Dex Lens v0.1.12 is a signed public release for Apple Silicon Macs and Linux
+Dex Lens v0.1.13 is a signed public release for Apple Silicon Macs and Linux
 x86_64 machines. It is ready for invited beta testers on those two platforms.
 
 - No real participant pilot has run yet, so we do not claim real-world outcome
