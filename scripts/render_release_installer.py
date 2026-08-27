@@ -99,7 +99,8 @@ usage() {{
     "  DEX_LENS_BIN_HOME     where the dex-lens command is linked (default ~/.local/bin)" \\
     "  DEX_LENS_SKILLS_DIR   where the skill is placed (default ~/.claude/skills)" \\
     "  DEX_LENS_NO_PING=1    send no first-install note" \\
-    "  DEX_LENS_NO_LAUNCH=1  never start your assistant at the end"
+    "  DEX_LENS_NO_LAUNCH=1  never start your assistant at the end" \\
+    "  DEX_LENS_PREFERRED_ASSISTANT=claude|codex  choose when both are installed"
 }}
 
 for dex_lens_argument in "$@"; do
@@ -255,14 +256,24 @@ else
   fi
 fi
 
-# Whichever assistant this machine actually has gets the hand-over: Claude
-# Code first because its skill loading is what the skill was written
-# against, then Codex. Decided here so the dry run can name the ending a
-# real run would reach.
+# Whichever assistant this machine actually has gets the hand-over. A terminal
+# cannot know which one a person intends when Claude Code and Codex both exist,
+# so that one case gets a one-key choice rather than silently preferring one.
+# Decided here so the dry run can name the ending a real run would reach.
 DEX_LENS_ASSISTANT=""
+DEX_LENS_CLAUDE_AVAILABLE=0
+DEX_LENS_CODEX_AVAILABLE=0
 if command -v claude >/dev/null 2>&1; then
+  DEX_LENS_CLAUDE_AVAILABLE=1
+fi
+if command -v codex >/dev/null 2>&1; then
+  DEX_LENS_CODEX_AVAILABLE=1
+fi
+if [ "$DEX_LENS_CLAUDE_AVAILABLE" -eq 1 ] && [ "$DEX_LENS_CODEX_AVAILABLE" -eq 1 ]; then
+  DEX_LENS_ASSISTANT="choose"
+elif [ "$DEX_LENS_CLAUDE_AVAILABLE" -eq 1 ]; then
   DEX_LENS_ASSISTANT="claude"
-elif command -v codex >/dev/null 2>&1; then
+elif [ "$DEX_LENS_CODEX_AVAILABLE" -eq 1 ]; then
   DEX_LENS_ASSISTANT="codex"
 fi
 
@@ -306,6 +317,8 @@ machine type only; DEX_LENS_NO_PING=1 disables)"
   # How a real run ends is a change to this terminal, so it is named too.
   if [ "${{DEX_LENS_INSTALL_ONLY:-0}}" = "1" ]; then
     dex_lens_step "stop there, because DEX_LENS_INSTALL_ONLY=1 asks for the install alone"
+  elif [ "$DEX_LENS_ASSISTANT" = "choose" ]; then
+    dex_lens_step "ask you to choose Claude Code or Codex before starting the conversation"
   elif [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] &&
     [ -t 0 ]; then
     dex_lens_step "hand this terminal over to your assistant ($DEX_LENS_ASSISTANT) \\
@@ -594,15 +607,49 @@ trap - EXIT
 
 # One pasted line should end as close to the conversation as it honestly
 # can. Run from a file with a real keyboard, hand straight over. Piped from
-# curl, print the exact start command instead — one paste — because a
+# curl, say how to rerun the installer with the keyboard still attached — a
 # full-screen assistant started from a piped script comes up deaf.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
+choose_assistant() {{
+  if [ "$DEX_LENS_ASSISTANT" != "choose" ]; then
+    return
+  fi
+
+  case "${{DEX_LENS_PREFERRED_ASSISTANT:-}}" in
+    claude | codex)
+      DEX_LENS_ASSISTANT="$DEX_LENS_PREFERRED_ASSISTANT"
+      return
+      ;;
+    "") ;;
+    *)
+      die "DEX_LENS_PREFERRED_ASSISTANT must be claude or codex. Nothing was started."
+      ;;
+  esac
+
+  printf '%s\\n' "I found both Claude Code and Codex. Which would you like to open?"
+  while :; do
+    printf '%s' "  1) Claude Code   2) Codex [1]: "
+    IFS= read -r dex_lens_choice || die "No choice was received. Nothing was started."
+    case "$dex_lens_choice" in
+      "" | 1 | claude | Claude | "Claude Code")
+        DEX_LENS_ASSISTANT="claude"
+        return
+        ;;
+      2 | codex | Codex)
+        DEX_LENS_ASSISTANT="codex"
+        return
+        ;;
+      *) printf '%s\\n' "Please type 1 for Claude Code or 2 for Codex." ;;
+    esac
+  done
+}}
 # Hand over only when this script already owns a real keyboard — running
 # from a file, not piped from curl. The first outside tester proved why:
 # exec-ing a full-screen assistant out of a piped script left it running but
 # deaf, the report printed and every keystroke dead. When stdin is the pipe,
 # the honest hand-over is the exact command, ready to paste.
 if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] && [ -t 0 ]; then
+  choose_assistant
   printf '%s\\n' \\
     "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
     "which folder it may look at."
@@ -613,14 +660,12 @@ if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] && [ 
 fi
 printf '%s\\n' ""
 if [ -n "$DEX_LENS_ASSISTANT" ]; then
-  printf '%s\\n' "One more paste and the conversation starts:"
+  printf '%s\\n' \\
+    "This installer was run through a pipe, so it cannot safely open an" \\
+    "interactive assistant here."
+  printf '%s\\n' "Run this one line to start directly with your keyboard attached:"
   printf '%s\\n' ""
-  # The assistant calls `dex-lens` by name, and on a fresh machine the
-  # command's folder may not be on PATH yet — the warning above says so. The
-  # pasted line carries the folder itself, so it works today, before the
-  # person has changed anything about their shell.
-  printf '  PATH="%s:$PATH" %s "%s"\\n' \\
-    "$DEX_LENS_BIN_HOME" "$DEX_LENS_ASSISTANT" "$DEX_LENS_ASK"
+  printf '%s\\n' "  bash <(curl -fsSL https://heydex.ai/lens)"
 else
   printf '%s\\n' "Now open your assistant and ask, in your own words:"
   printf '%s\\n' "  Have a look at my setup and tell me what Dex has that I don't."

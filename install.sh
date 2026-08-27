@@ -8,7 +8,7 @@
 # needs; it does not read, change, or send anything about the AI system you
 # will later ask Lens to look at.
 #
-#   curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+#   bash <(curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh)
 #
 # Run it again any time to update: it is safe to repeat, and says what it did
 # rather than what it intended to do.
@@ -22,6 +22,7 @@
 #   DEX_LENS_BIN         where the `dex-lens` command is linked (default ~/.local/bin)
 #   DEX_LENS_SKILLS_DIR  where skills live (default ~/.claude/skills)
 #   DEX_LENS_REPO        the source to install from (default the public repository)
+#   DEX_LENS_PREFERRED_ASSISTANT  claude or codex, when both are installed
 
 set -euo pipefail
 
@@ -65,7 +66,7 @@ usage() {
     say "  --dry-run   Say exactly what would happen and change nothing."
     say "  --help      This text."
     say ""
-    say "Overrides: DEX_LENS_HOME, DEX_LENS_BIN, DEX_LENS_SKILLS_DIR, DEX_LENS_REPO."
+    say "Overrides: DEX_LENS_HOME, DEX_LENS_BIN, DEX_LENS_SKILLS_DIR, DEX_LENS_REPO, DEX_LENS_PREFERRED_ASSISTANT."
   fi
 }
 
@@ -127,14 +128,24 @@ else
   INSTALL_FROM="$SOURCE_DIR"
 fi
 
-# Whichever assistant this machine actually has gets the hand-over: Claude
-# Code first because its skill loading is what the skill was written against,
-# then Codex. Neither present, or no terminal: print the question instead.
+# Whichever assistant this machine actually has gets the hand-over. A terminal
+# cannot know which one a person intends when Claude Code and Codex both exist,
+# so that one case gets a one-key choice rather than silently preferring one.
 # Decided here so the dry run can name the ending a real run would reach.
 ASSISTANT=""
+CLAUDE_AVAILABLE=0
+CODEX_AVAILABLE=0
 if command -v claude >/dev/null 2>&1; then
+  CLAUDE_AVAILABLE=1
+fi
+if command -v codex >/dev/null 2>&1; then
+  CODEX_AVAILABLE=1
+fi
+if [ "$CLAUDE_AVAILABLE" -eq 1 ] && [ "$CODEX_AVAILABLE" -eq 1 ]; then
+  ASSISTANT="choose"
+elif [ "$CLAUDE_AVAILABLE" -eq 1 ]; then
   ASSISTANT="claude"
-elif command -v codex >/dev/null 2>&1; then
+elif [ "$CODEX_AVAILABLE" -eq 1 ]; then
   ASSISTANT="codex"
 fi
 
@@ -166,7 +177,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     step "send one anonymous first-install note to heydex.ai (version and machine type only; DEX_LENS_NO_PING=1 disables)"
   fi
   # How a real run ends is a change to this terminal, so it is named too.
-  if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
+  if [ "$ASSISTANT" = "choose" ]; then
+    step "ask you to choose Claude Code or Codex before starting the conversation"
+  elif [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
     step "hand this terminal over to your assistant ($ASSISTANT) with the first question already asked, replacing this shell"
   elif [ -n "$ASSISTANT" ]; then
     step "print the one line to paste that starts your assistant ($ASSISTANT) with the first question"
@@ -338,12 +351,46 @@ esac
 # start command instead — one paste — because a full-screen assistant
 # started from a piped script comes up deaf to the keyboard.
 DEX_LENS_ASK="Use Dex Lens to have a look at my setup and tell me what Dex has that I don't."
+choose_assistant() {
+  if [ "$ASSISTANT" != "choose" ]; then
+    return
+  fi
+
+  case "${DEX_LENS_PREFERRED_ASSISTANT:-}" in
+    claude | codex)
+      ASSISTANT="$DEX_LENS_PREFERRED_ASSISTANT"
+      return
+      ;;
+    "") ;;
+    *)
+      fail "DEX_LENS_PREFERRED_ASSISTANT must be claude or codex. Nothing was started."
+      ;;
+  esac
+
+  say "I found both Claude Code and Codex. Which would you like to open?"
+  while :; do
+    printf '  1) Claude Code   2) Codex [1]: '
+    IFS= read -r choice || fail "No choice was received. Nothing was started."
+    case "$choice" in
+      "" | 1 | claude | Claude | "Claude Code")
+        ASSISTANT="claude"
+        return
+        ;;
+      2 | codex | Codex)
+        ASSISTANT="codex"
+        return
+        ;;
+      *) say "Please type 1 for Claude Code or 2 for Codex." ;;
+    esac
+  done
+}
 # Hand over only when this script already owns a real keyboard — running
 # from a file, not piped from curl. The first outside tester proved why:
 # exec-ing a full-screen assistant out of a piped script left it running but
 # deaf, the report printed and every keystroke dead. When stdin is the pipe,
 # the honest hand-over is the exact command, ready to paste.
 if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
+  choose_assistant
   say "Starting your assistant now. Dex Lens reads nothing until you tell it"
   say "which folder it may look at, and it never changes what it looks at."
   say ""
@@ -356,13 +403,10 @@ if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; the
 fi
 
 if [ -n "$ASSISTANT" ]; then
-  say "One more paste and the conversation starts:"
+  say "This installer was run through a pipe, so it cannot safely open an interactive assistant here."
+  say "Run this one line to start directly with your keyboard attached:"
   say ""
-  # The assistant calls `dex-lens` by name, and on a fresh machine the
-  # command's folder may not be on PATH yet — the warning above says so. The
-  # pasted line carries the folder itself, so it works today, before the
-  # person has changed anything about their shell.
-  printf '  PATH="%s:$PATH" %s "%s"\n' "$BIN_DIR" "$ASSISTANT" "$DEX_LENS_ASK"
+  printf '%s\n' "  bash <(curl -fsSL https://heydex.ai/lens)"
   say ""
 else
   say "To start, open your assistant (Claude Code or Codex) and ask, in your own words:"

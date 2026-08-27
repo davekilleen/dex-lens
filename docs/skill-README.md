@@ -31,13 +31,13 @@ downloaded file checked on your machine against a fingerprint signed when the
 release was built:
 
 ```sh
-curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
+bash <(curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh)
 ```
 
 To install from source instead — for development, or unreleased changes:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh)
 ```
 
 It puts the skill where your assistants look for it (Claude Code always;
