@@ -1,18 +1,18 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-26. Plain-language companion to
+Last updated: 2026-08-27. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
-## Signed release and complete live reference, 2026-08-26
+## Signed release and complete live reference, 2026-08-27
 
-Lens v0.1.9 is published as a signed, supported download for Apple Silicon Mac
+Lens v0.1.11 is published as a signed, supported download for Apple Silicon Mac
 and Linux x86_64. Its released reader accepts both the earlier skills-only
 catalogue and the complete four-kind contract.
 
-Core v1.97.1 now publishes that complete signed reference at the live catalogue
-route: 114 entries covering 95 skills, 10 connections to outside tools, 5
-recurring jobs that run on a schedule, and 4 behind-the-scenes services. The
-released Lens v0.1.9 verifier accepted the live bytes using its built-in key.
+Core v1.97.2 now publishes that complete signed reference at the live catalogue
+route: 115 entries covering 94 skills, 11 connection systems containing 146
+individual tools, 5 recurring jobs that run on a schedule, and 5 behind-the-scenes
+services. The released Lens v0.1.11 verifier accepted the live bytes using its built-in key.
 The application and its reference data are released separately on purpose:
 Core can keep the reference current without requiring a new Lens download.
 
@@ -243,7 +243,7 @@ M4–M6 and their final security remediation merged to `main` in PR #5 on
 2026-08-10 (`e139242`) after the Linux/macOS matrix, 1,291 local tests, lint,
 packaging and data-inventory verification were green on the exact candidate.
 
-Dex Lens is now released, but the pilot has not happened. Lens v0.1.9 is the
+Dex Lens is now released, but the pilot has not happened. Lens v0.1.11 is the
 signed public download for Apple Silicon Mac and Linux x86_64. Its release
 workflow built fixed offline bundles, signed the exact manifest, installed
 without administrator access, and passed clean consumer proofs on both
@@ -253,9 +253,9 @@ The **live capability bridge** — the consented connection from a person's own
 system to Dex's signed release catalogue — is built, merged, released, and
 proven live. The section-6 evidence pack (`docs/pilot/bridge-evidence.md`)
 preserves the earlier skills-only proof as history. The current signed
-catalogue is published by Core v1.97.1 at
-`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.9 accepts
-all 114 entries across the four kinds described above. The privacy boundary is
+catalogue is published by Core v1.97.2 at
+`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.11 accepts
+all 115 entries across the four kinds described above. The privacy boundary is
 unchanged: a fresh install makes no catalogue request, while a person who asks
 for the Dex comparison receives the same public reference as everyone else.
 

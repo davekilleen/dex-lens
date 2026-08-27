@@ -582,16 +582,16 @@ def test_public_status_copy_matches_the_live_complete_catalogue() -> None:
     readme_prose = " ".join(readme.split())
 
     for text in (readme, status):
-        assert "114" in text
-        assert "Core v1.97.1" in text
+        assert "115" in text
+        assert "Core v1.97.2" in text
         assert "v1.95.1" not in text
         assert "Wave 2 expansion is in progress" not in text
         assert "Wave 2 expansion (nineteen further capabilities) is in progress" not in text
-    assert "Lens v0.1.10" in readme
-    assert "95 skills" in readme_prose
-    assert "10 connections to outside tools" in readme_prose
+    assert "Lens v0.1.11" in readme
+    assert "94 skills" in readme_prose
+    assert "11 connection systems containing 146 individual tools" in readme_prose
     assert "5 recurring jobs" in readme_prose
-    assert "4 behind-the-scenes services" in readme_prose
+    assert "5 behind-the-scenes services" in readme_prose
 
 
 def test_skill_uses_the_signed_catalogue_for_all_four_capability_kinds() -> None:
