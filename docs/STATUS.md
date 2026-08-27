@@ -5,11 +5,11 @@ Last updated: 2026-08-27. Plain-language companion to
 
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The approved engine is **on `main` as Lens v0.1.13**. Dave approved
-publication on 2026-08-27. The first signed candidate failed install
-proof because the offline wheelhouse omitted `mcp`; the lock now
-vendors it. The public one-line install still serves v0.1.12 until the
-release workflow is re-run. This commit does not hand-edit `install.sh`.
+The approved engine is **live as signed Lens v0.1.13**. Dave approved
+publication on 2026-08-27. GitHub Release `v0.1.13` is latest (source
+commit `5f6fee6`, run `33122132016`). The public one-line install
+serves the signed installer with `DEX_LENS_VERSION=0.1.13`. The
+repository `install.sh` was not hand-edited.
 
 What v0.1.13 owns:
 
@@ -44,7 +44,7 @@ Local verification on this Cloud Agent VM, after the process-default engine:
   test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
   macos-14. The live installer was not changed; the test now keeps a
   3.11–3.14 interpreter on that sealed PATH so it still hides assistant
-  choosers. Publication remains a later Dave decision. The prepared
+  choosers. Publication is complete: signed v0.1.13 is latest. The
   checklist is
   `docs/superpowers/plans/2026-08-27-dex-lens-diagnosis-engine-publication-checklist.md`.
 - Ruff: clean on `src` and `tests`.
@@ -61,10 +61,10 @@ Mission Control: davekilleen/dex-cards#99
 
 ## Signed release and complete live reference, 2026-08-27
 
-Lens v0.1.13 is the current software on `main` and the version being signed
-for Apple Silicon Mac and Linux x86_64. It includes the deterministic
-diagnosis engine. Its reader accepts both the earlier skills-only catalogue
-and the complete four-kind contract.
+Lens v0.1.13 is the signed public download for Apple Silicon Mac and
+Linux x86_64. It includes the deterministic diagnosis engine. Its reader
+accepts both the earlier skills-only catalogue and the complete four-kind
+contract.
 
 Core v1.97.2 now publishes that complete signed reference at the live catalogue
 route: 115 entries covering 94 skills, 11 connection systems containing 146
