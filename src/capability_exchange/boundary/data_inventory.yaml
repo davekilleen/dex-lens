@@ -1285,6 +1285,186 @@ fields:
     deletion: not-stored
     audit: "ephemeral limit text; no invented coverage numbers"
 
+  ReportModel.decisions:
+    description: "typed recommendation fates bound into the diagnosis report"
+    collection: "copied from local decision-surface outcomes for this run"
+    derivation: "tuple of RecommendationDecision records; chosen and completed require a DecisionReceipt"
+    display: "rendered under What you decided; taken appears only for receipt-backed chosen or completed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral typed decisions; no free-form taken or shared prose field"
+
+  ReportModel.share_state:
+    description: "closed share fate bound into the diagnosis report"
+    collection: "copied from the local share surface or left as not-offered"
+    derivation: "must match share_receipt.state when a receipt exists; sent requires a sent receipt"
+    display: "rendered in the close as a separate sharing choice"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral share state; preview cannot be narrated as shared"
+
+  ReportModel.share_receipt:
+    description: "optional local proof of a share preview or confirmed send"
+    collection: "issued by the local consent surface when a disclosure is previewed or sent"
+    derivation: "nested ShareReceipt; sent requires destination class, disclosure digest and response digest"
+    display: "used to render honest share wording in the close"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral receipt; diagnosis does not send or persist a disclosure"
+
+  DecisionReceipt.run_id:
+    description: "opaque identity of the diagnosis run this decision belongs to"
+    collection: "copied from the local decision surface for this run"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "not shown; binds the receipt to one run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle; no personal path"
+
+  DecisionReceipt.catalogue_id:
+    description: "signed catalogue identity the person was offered or chose"
+    collection: "copied from the recommendation shown on the local decision surface"
+    derivation: "validated kebab-style catalogue id; not a free-form title"
+    display: "shown under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral catalogue identity only"
+
+  DecisionReceipt.created_at:
+    description: "timezone-aware UTC time the local decision surface issued this receipt"
+    collection: "stamped by the local decision surface"
+    derivation: "naive or non-UTC timestamps are refused"
+    display: "not shown in the report body"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral UTC timestamp"
+
+  DecisionReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the local decision surface at choice time"
+    derivation: "session-prefixed token; not a raw bearer cookie"
+    display: "not shown; proves the fate came from local consent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local session proof"
+
+  DecisionReceipt.state:
+    description: "closed decision fate this receipt confirms"
+    collection: "recorded by the local decision surface"
+    derivation: "member of offered, chosen, completed"
+    display: "used to choose offered versus taken wording"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; taken requires this receipt"
+
+  RecommendationDecision.catalogue_id:
+    description: "signed catalogue identity whose fate is recorded"
+    collection: "copied from the recommendation shown to the person"
+    derivation: "must match DecisionReceipt.catalogue_id when a receipt exists"
+    display: "shown under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral catalogue identity only"
+
+  RecommendationDecision.state:
+    description: "closed recommendation fate for one catalogue identity"
+    collection: "recorded after the person sees or chooses the recommendation"
+    derivation: "chosen and completed are refused without a local DecisionReceipt"
+    display: "rendered as offered or taken under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; no declined or held invention"
+
+  RecommendationDecision.receipt:
+    description: "local decision receipt backing a chosen or completed fate"
+    collection: "issued by the local decision surface; absent only while offered"
+    derivation: "nested DecisionReceipt whose catalogue and state must match"
+    display: "not shown; required before the report may say taken"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local proof; free-form prose cannot substitute"
+
+  ShareReceipt.run_id:
+    description: "opaque identity of the diagnosis run this share action belongs to"
+    collection: "copied from the local share surface for this run"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "not shown; binds the receipt to one run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle; diagnosis does not send"
+
+  ShareReceipt.disclosure_sha256:
+    description: "SHA-256 of the exact disclosed bytes that were previewed or sent"
+    collection: "calculated locally over the previewed disclosure bytes"
+    derivation: "64 lowercase hex characters; the report cannot invent a digest"
+    display: "shown in the close only for a confirmed sent receipt"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral content binding; preview is not a send"
+
+  ShareReceipt.created_at:
+    description: "timezone-aware UTC time the local share surface issued this receipt"
+    collection: "stamped by the local share surface"
+    derivation: "naive or non-UTC timestamps are refused"
+    display: "not shown in the report body"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral UTC timestamp"
+
+  ShareReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the local share surface at preview or send time"
+    derivation: "session-prefixed token; not a raw bearer cookie"
+    display: "not shown; proves the share fate came from local consent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local session proof"
+
+  ShareReceipt.state:
+    description: "closed share fate this receipt records"
+    collection: "recorded by the local share surface"
+    derivation: "member of offered, previewed, sent; preview never implies sent"
+    display: "used to render honest share wording in the close"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; shared requires sent plus destination and response"
+
+  ShareReceipt.destination_class:
+    description: "bounded destination class of a confirmed send"
+    collection: "selected from the closed DestinationClass vocabulary at send time"
+    derivation: "required for sent; diagnosis does not import share or contribution packages"
+    display: "shown in the close only when the receipt was sent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed class; not a free-form destination"
+
+  ShareReceipt.response_receipt_digest:
+    description: "SHA-256 binding of the confirmed destination response"
+    collection: "copied from the destination response receipt after a confirmed send"
+    derivation: "required for sent; refused on preview receipts"
+    display: "shown in the close only when the receipt was sent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response proof; assistant prose cannot substitute"
+
   ApprovedScopeReceipt.run_id:
     description: "opaque identity of the diagnosis run whose scope was approved"
     collection: "assigned locally when prepare records candidate locators"

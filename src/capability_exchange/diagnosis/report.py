@@ -14,6 +14,12 @@ from pydantic import ConfigDict, Field, model_validator
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
 from capability_exchange.diagnosis.finding import Finding
+from capability_exchange.diagnosis.receipts import (
+    DecisionState,
+    RecommendationDecision,
+    ShareReceipt,
+    ShareState,
+)
 from capability_exchange.diagnosis.run import RunIdentity
 
 __all__ = [
@@ -179,6 +185,9 @@ class ReportModel(InventoriedModel):
     reciprocal_findings: tuple[Finding, ...] = ()
     reliability_findings: tuple[Finding, ...] = ()
     limits: tuple[str, ...] = ()
+    decisions: tuple[RecommendationDecision, ...] = ()
+    share_state: ShareState = ShareState.NOT_OFFERED
+    share_receipt: ShareReceipt | None = None
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         if not _FROM_RESULT.get():
@@ -194,6 +203,9 @@ class ReportModel(InventoriedModel):
         ledger_sha256: str,
         findings: tuple[Finding, ...] = (),
         limits: tuple[str, ...] = (),
+        decisions: tuple[RecommendationDecision, ...] = (),
+        share_state: ShareState = ShareState.NOT_OFFERED,
+        share_receipt: ShareReceipt | None = None,
     ) -> Self:
         expected = canonical_ledger_digest(ledger)
         supplied = (
@@ -211,9 +223,32 @@ class ReportModel(InventoriedModel):
                 reciprocal_findings=(),
                 reliability_findings=(),
                 limits=limits,
+                decisions=decisions,
+                share_state=share_state,
+                share_receipt=share_receipt,
             )
         finally:
             _FROM_RESULT.reset(token)
+
+    @model_validator(mode="after")
+    def _share_and_decisions_are_receipt_backed(self) -> Self:
+        if self.share_receipt is None:
+            if self.share_state is ShareState.SENT:
+                raise ValueError("sent share state requires a share receipt")
+            if self.share_state is ShareState.PREVIEWED:
+                raise ValueError("previewed share state requires a share receipt")
+        else:
+            if self.share_receipt.run_id != self.run_identity.run_id:
+                raise ValueError("share receipt run_id must match the report run")
+            if self.share_state is not self.share_receipt.state:
+                raise ValueError("share_state must match the share receipt")
+            if self.share_state is ShareState.SENT and not self.share_receipt.was_sent:
+                raise ValueError("sent share state requires a sent share receipt")
+        for decision in self.decisions:
+            receipt = decision.receipt
+            if receipt is not None and receipt.run_id != self.run_identity.run_id:
+                raise ValueError("decision receipt run_id must match the report run")
+        return self
 
     def render_markdown(self, ledger: ComparisonLedger) -> str:
         block = canonical_fact_block(ledger)
@@ -224,7 +259,90 @@ class ReportModel(InventoriedModel):
             "## Coverage and limits\n"
             f"{block}"
             f"{extra}"
+            "\n"
+            f"{self._render_decisions()}"
+            "\n"
+            f"{self._render_close()}"
         )
+
+    def _render_decisions(self) -> str:
+        lines = ["## What you decided"]
+        if not self.decisions:
+            lines.append("No decisions were on the table this time.")
+            return "\n".join(lines) + "\n"
+        for decision in self.decisions:
+            fate = "offered" if decision.state is DecisionState.OFFERED else "taken"
+            lines.append(f"- {decision.catalogue_id} — {fate}")
+        return "\n".join(lines) + "\n"
+
+    def _render_share_choice(self) -> str:
+        receipt = self.share_receipt
+        if (
+            receipt is not None
+            and receipt.was_sent
+            and receipt.destination_class is not None
+            and receipt.response_receipt_digest is not None
+        ):
+            destination = receipt.destination_class.value
+            return (
+                f"This disclosure was shared to {destination} "
+                f"with digest {receipt.disclosure_sha256} "
+                f"and response {receipt.response_receipt_digest}."
+            )
+        if self.share_state is ShareState.PREVIEWED:
+            return "A contribution preview was shown. Nothing was sent."
+        if self.share_state is ShareState.OFFERED:
+            return "Sharing was offered. Nothing was sent."
+        return "Sharing was not offered."
+
+    def _render_close(self) -> str:
+        strongest = (
+            self.strongest_findings[0].practical_implication
+            if self.strongest_findings
+            else "No grounded strength cleared the evidence bar."
+        )
+        learn = (
+            self.reciprocal_findings[0].practical_implication
+            if self.reciprocal_findings
+            else "No transferable method cleared the evidence bar."
+        )
+        first_move = (
+            self.strongest_findings[0].recommended_next_move
+            if self.strongest_findings
+            else "No first move cleared the bar."
+        )
+        return (
+            "## What happens next\n"
+            f"- Already doing: {strongest}\n"
+            f"- Dex should learn: {learn}\n"
+            f"- First move: {first_move}\n"
+            "- Report location: This report has not been saved yet.\n"
+            f"- Return to this run: {self.run_identity.run_id}\n"
+            f"- Sharing: {self._render_share_choice()}\n"
+            "- Future watch: Future-watch is a separate choice from sharing. "
+            "It was not started by this report.\n"
+        )
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update and any(
+            field in update for field in ("ledger_summary", "ledger_sha256", "run_identity")
+        ):
+            raise TypeError("ReportModel can only be created with from_result()")
+        token = _FROM_RESULT.set(True)
+        try:
+            values = {
+                field_name: getattr(self, field_name) for field_name in type(self).model_fields
+            }
+            if update:
+                values.update(update)
+            return type(self).model_validate(values)
+        finally:
+            _FROM_RESULT.reset(token)
 
     def copy(self, **kwargs: object) -> Self:
         raise TypeError("copy() is disabled for ReportModel; use from_result()")
