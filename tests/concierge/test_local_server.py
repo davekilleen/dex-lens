@@ -89,6 +89,9 @@ class RunningServer(AbstractContextManager["RunningServer"]):
         *,
         approved_root: Path | None = None,
         adapter_contract: object | None = None,
+        contribution_identity: object | None = None,
+        contribution_intake: object | None = None,
+        app_storage: Path | None = None,
     ) -> None:
         self.calls = 0
         self.tempdir = tempfile.TemporaryDirectory()
@@ -108,6 +111,9 @@ class RunningServer(AbstractContextManager["RunningServer"]):
             collector=counted_collector,
             now=lambda: COLLECTED_AT,
             adapter_contract=adapter_contract,
+            contribution_identity=contribution_identity,  # type: ignore[arg-type]
+            contribution_intake=contribution_intake,  # type: ignore[arg-type]
+            app_storage=app_storage,
         )
         self.server = ConciergeServer(("127.0.0.1", 0), self.session)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

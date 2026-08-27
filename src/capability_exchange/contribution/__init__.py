@@ -36,6 +36,15 @@ from capability_exchange.contribution.moderation import (
     ScannerTimeout,
     ScannerUnavailable,
 )
+from capability_exchange.contribution.privacy import (
+    LOOKS_PERSONAL_CONFIRMATION,
+    ContributionCandidate,
+    ContributionDeclineStore,
+    ContributionPrivacyGate,
+    ContributionPrivacyPreview,
+    SensitiveCategory,
+    candidate_from_proposal,
+)
 from capability_exchange.contribution.provenance import (
     ContributorReference,
     VersionProvenance,
@@ -78,4 +87,11 @@ __all__ = [
     "VersionConsent",
     "build_provenance",
     "pseudonymous_contributor_ref",
+    "LOOKS_PERSONAL_CONFIRMATION",
+    "ContributionCandidate",
+    "ContributionDeclineStore",
+    "ContributionPrivacyGate",
+    "ContributionPrivacyPreview",
+    "SensitiveCategory",
+    "candidate_from_proposal",
 ]

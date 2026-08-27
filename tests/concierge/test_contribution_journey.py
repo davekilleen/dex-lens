@@ -6,20 +6,27 @@ import html
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlencode
 
 import pytest
 from tests.cards.test_model import make_card
 from tests.concierge.test_adaptation_journey import _journey, _select
+from tests.concierge.test_local_server import RunningServer, envelope
 
 from capability_exchange.cards import CapabilityCard, build_disclosure_manifest
 from capability_exchange.concierge.journey import (
     ConciergeStage,
+    ContractFields,
     ContributionEgressError,
     ContributionIntakePort,
     JourneyStateError,
 )
 from capability_exchange.concierge.views import render_journey
 from capability_exchange.contribution import ContributionState, InMemoryStore, PermissionSet
+from capability_exchange.contribution.privacy import (
+    LOOKS_PERSONAL_CONFIRMATION,
+    ContributionDeclineStore,
+)
 
 
 class RecordingIdentity:
@@ -116,11 +123,158 @@ def _contribution_journey(
     return journey
 
 
+def test_personal_candidate_requires_exact_local_abstraction_confirmation(
+    tmp_path: Path,
+) -> None:
+    identity = RecordingIdentity()
+    intake = StructuredIntake()
+    journey = _contribution_journey(  # type: ignore[arg-type]
+        tmp_path,
+        identity=identity,
+        intake=intake,
+        store=InMemoryStore("exchange-cards"),
+    )
+    private_text = "Text Sarah at Sentinel Meridian Ltd about chemotherapy at 08:30"
+    card = make_card(method=private_text)
+
+    journey.choose_contribution()
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY
+    preview = journey.preview_contribution(card)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
+    assert preview.looks_personal is True
+    assert identity.calls == 0
+    assert intake.submissions == []
+
+    page = render_journey(journey, csrf_token="csrf")
+    assert "Retained" in page
+    assert "Removed" in page
+    assert LOOKS_PERSONAL_CONFIRMATION in html.unescape(page)
+    assert private_text not in page
+    assert "Sentinel Meridian" not in page
+
+    with pytest.raises(JourneyStateError, match="exact looks-personal confirmation"):
+        journey.confirm_contribution_privacy("yes")
+    assert identity.calls == 0
+
+    built = journey.confirm_contribution_privacy(LOOKS_PERSONAL_CONFIRMATION)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_REVIEW
+    assert private_text not in built.model_dump_json()
+    journey.review_contribution()
+    manifest = journey.disclose_contribution(("selected_job", "method"))
+    assert private_text not in manifest.display_text
+    assert "Sarah" not in manifest.display_text
+    assert identity.calls == 0
+    assert intake.submissions == []
+
+    journey.approve_contribution(_permissions())
+    assert identity.calls == 1
+    assert intake.submissions == []
+
+
+def test_declined_candidate_is_not_reoffered_in_a_fresh_journey(tmp_path: Path) -> None:
+    store_path = tmp_path / "app-storage" / "contribution-candidate-declines.json"
+    first = _contribution_journey(
+        tmp_path / "first",
+        identity=RecordingIdentity(),
+        intake=RecordingIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    decline_store = ContributionDeclineStore(
+        store_path,
+        inspected_roots=tuple(Path(root) for root in first.permission.approved_roots),
+    )
+    first.configure_contribution_privacy(decline_store)
+    first.choose_contribution()
+    first.preview_contribution(make_card())
+    first.decline_contribution_candidate()
+    assert first.stage is ConciergeStage.CAPABILITY_MAP
+
+    second = _contribution_journey(
+        tmp_path / "second",
+        identity=RecordingIdentity(),
+        intake=RecordingIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    second.configure_contribution_privacy(
+        ContributionDeclineStore(
+            store_path,
+            inspected_roots=tuple(Path(root) for root in second.permission.approved_roots),
+        )
+    )
+    assert second.available_contribution_candidates == ()
+    with pytest.raises(JourneyStateError, match="previously declined"):
+        second.choose_contribution()
+
+
+def test_local_server_routes_private_preview_before_build_or_identity(tmp_path: Path) -> None:
+    identity = RecordingIdentity()
+    intake = StructuredIntake()
+    with RunningServer(
+        envelope,
+        contribution_identity=identity,
+        contribution_intake=intake,
+        app_storage=tmp_path / "app-storage",
+    ) as running:
+        running.bootstrap()
+        assert running.post("/approve")[0] == 200
+        running.wait_for_collection()
+        journey = running.session.journey
+        first_job = journey.pending_job_ids[0]
+        journey.select_jobs((first_job,))
+        journey.confirm_job(
+            first_job,
+            ContractFields(
+                success_evidence=("The recurring workflow reaches its requested output",),
+                privacy_limits=("No inspected content leaves this device",),
+                approval_limits=("Ask before sharing",),
+                autonomy_limits=("Never publish automatically",),
+                importance="medium",
+                cadence="weekly",
+            ),
+        )
+        journey.diagnose()
+
+        status, _, page = running.post("/contribution/choose")
+        assert status == 400
+        assert "choose one reusable contribution candidate explicitly" in page
+        assert journey.stage is ConciergeStage.CAPABILITY_MAP
+        candidate = journey.available_contribution_candidates[0]
+        status, _, page = running.post(
+            "/contribution/choose",
+            urlencode({"candidate_digest": candidate.candidate_digest}),
+        )
+        assert status == 200
+        assert "Build a private abstraction preview" in page
+        private_text = "Cancer care schedule for Sentinel Meridian Ltd at 08:30"
+        card = make_card(method=private_text)
+        status, _, page = running.post(
+            "/contribution/privacy-preview",
+            urlencode({"card_json": card.model_dump_json()}),
+        )
+        assert status == 200
+        assert "Retained" in page and "Removed" in page
+        assert private_text not in page
+        assert identity.calls == 0
+        assert intake.submissions == []
+
+        status, _, page = running.post(
+            "/contribution/privacy-confirm",
+            urlencode({"confirmation": LOOKS_PERSONAL_CONFIRMATION}),
+        )
+        assert status == 200
+        assert "Review the Capability Card" in page
+        assert private_text not in page
+        assert identity.calls == 0
+        assert intake.submissions == []
+
+
 def _reach_approval(journey):
     card = make_card()
     journey.choose_contribution()
-    assert journey.stage is ConciergeStage.CONTRIBUTION_BUILD
-    journey.build_contribution(card)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY
+    preview = journey.preview_contribution(card)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
+    journey.confirm_contribution_privacy(preview.confirmation_statement)
     assert journey.stage is ConciergeStage.CONTRIBUTION_REVIEW
     journey.review_contribution()
     assert journey.stage is ConciergeStage.CONTRIBUTION_DISCLOSE
@@ -205,9 +359,9 @@ def test_each_transition_fails_closed_without_skipping_a_stage(tmp_path: Path) -
     )
 
     journey.choose_contribution()
-    with pytest.raises(JourneyStateError, match="contribution-build"):
+    with pytest.raises(JourneyStateError, match="contribution-privacy"):
         journey.review_contribution()
-    assert journey.stage is ConciergeStage.CONTRIBUTION_BUILD
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY
     assert identity.calls == 0
     assert intake.submissions == []
 
@@ -229,8 +383,8 @@ def test_edit_redacts_into_new_version_and_clears_disclosure(tmp_path: Path) -> 
 
     comparison = journey.edit_contribution(revised)
 
-    assert journey.stage is ConciergeStage.CONTRIBUTION_REVIEW
-    assert journey.contribution_card == revised
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
+    assert journey.contribution_card == original
     assert journey.contribution_manifest is None
     assert comparison.previous_version_hash == original.version_hash
     assert comparison.revised_version_hash == revised.version_hash
@@ -238,11 +392,47 @@ def test_edit_redacts_into_new_version_and_clears_disclosure(tmp_path: Path) -> 
     assert old_manifest.byte_hash not in comparison.revised_exact_json
     assert identity.calls == 0
     assert intake.submissions == []
+    preview = journey.contribution_privacy_preview
+    assert preview is not None
+    journey.confirm_contribution_privacy(preview.confirmation_statement)
+    assert journey.stage is ConciergeStage.CONTRIBUTION_REVIEW
+    assert journey.contribution_card == revised
     page = render_journey(journey, csrf_token="csrf")
     assert 'action="/contribution/edit"' in page
     assert "Previous exact JSON" in page
     assert "Revised exact JSON" in page
     assert 'name="approved_field"' not in page
+
+
+def test_personal_edit_reenters_privacy_gate_before_disclosure(tmp_path: Path) -> None:
+    journey = _contribution_journey(
+        tmp_path,
+        identity=RecordingIdentity(),
+        intake=RecordingIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    original, _ = _reach_approval(journey)
+    private_text = "Cancer care schedule for Sentinel Meridian Ltd at 08:30"
+    edited = make_card(
+        card_id=original.card_id,
+        version=original.version + 1,
+        method=private_text,
+    )
+
+    journey.edit_contribution(edited)
+
+    assert journey.stage is ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
+    page = render_journey(journey, csrf_token="csrf")
+    assert private_text not in page
+    with pytest.raises(JourneyStateError, match="contribution-privacy-confirm"):
+        journey.review_contribution()
+    preview = journey.contribution_privacy_preview
+    assert preview is not None
+    built = journey.confirm_contribution_privacy(preview.confirmation_statement)
+    assert private_text not in built.model_dump_json()
+    journey.review_contribution()
+    manifest = journey.disclose_contribution(("selected_job", "method"))
+    assert private_text not in manifest.display_text
 
 
 @pytest.mark.parametrize(
@@ -297,10 +487,13 @@ def test_edited_version_requires_fresh_disclosure_and_approval(tmp_path: Path) -
     journey.edit_contribution(revised)
     assert not old_ledger.is_current(first.card, first.manifest)
 
-    with pytest.raises(JourneyStateError, match="contribution-review"):
+    with pytest.raises(JourneyStateError, match="contribution-privacy-confirm"):
         journey.approve_contribution(_permissions())
     assert identity.calls == 1
 
+    preview = journey.contribution_privacy_preview
+    assert preview is not None
+    journey.confirm_contribution_privacy(preview.confirmation_statement)
     journey.review_contribution()
     manifest = journey.disclose_contribution(("selected_job", "method"))
     contribution = journey.approve_contribution(_permissions())

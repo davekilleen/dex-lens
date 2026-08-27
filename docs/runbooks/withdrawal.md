@@ -23,5 +23,14 @@ After an exact affirmative hosted withdrawal, the matching local authority is
 deleted and absence is verified. The raw revocation token is never transmitted
 or stored in that file.
 
+An explicit contribution-candidate decline is a separate local suppression
+record, not contribution content. `contribution-candidate-declines.json` lives
+in the same app-storage boundary and contains only opaque candidate SHA-256
+values plus its schema version. It is intentionally durable so a fresh session
+does not repeat a declined offer. A request to clear that preference uses the
+registered `delete-contribution-candidate-declines` path and verifies absence;
+no proposal prose, sensitive category, timestamp, file reference or inspected
+value exists in the file.
+
 **Tabletop:** the deterministic M6 drill writes a synthetic canary receipt,
 deletes it, and verifies that the path no longer exists.

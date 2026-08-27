@@ -21,6 +21,140 @@ inventory_version: 2
 
 fields:
 
+  ContributionCandidate.candidate_digest:
+    description: "opaque local identity of a reusable contribution candidate"
+    collection: "derived from the proposal candidate id, never proposal prose or evidence references"
+    derivation: "SHA-256 over a domain-separated candidate identifier"
+    display: "used locally to bind the privacy preview and decline action"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral opaque binding; never contains matched private text"
+
+  ContributionCandidate.pattern_id:
+    description: "closed generic reusable-pattern label"
+    collection: "mapped locally from the existing candidate-job proposal vocabulary"
+    derivation: "allowlisted mapping with a generic fallback"
+    display: "shown as the candidate's non-personal pattern"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral generic label; proposal prose and references are excluded"
+
+  ContributionCandidate.source_kind:
+    description: "whether the local candidate came from an inferred proposal or explicit manual choice"
+    collection: "set locally when the person initiates contribution"
+    derivation: "closed two-value vocabulary"
+    display: "explains candidate provenance without source content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural provenance"
+
+  ContributionCandidate.retained_primitives:
+    description: "generic non-raw primitives retained from proposal and evidence types"
+    collection: "mapped from allowlisted proposal identity and evidence state only"
+    derivation: "static safe labels; evidence references and values are excluded"
+    display: "shown in the abstraction accounting"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral labels with no inspected content"
+
+  ContributionPrivacyPreview.candidate_digest:
+    description: "opaque candidate identity bound to one privacy preview"
+    collection: "copied from the local ContributionCandidate"
+    derivation: "none"
+    display: "used locally to bind confirmation or decline to the previewed candidate"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral binding only"
+
+  ContributionPrivacyPreview.looks_personal:
+    description: "conservative local sensitivity-gate outcome"
+    collection: "derived from local category and hostile-content classification"
+    derivation: "true when any safe category label or private-content class matches"
+    display: "controls the exact looks-personal confirmation screen"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral boolean; matched text is never retained"
+
+  ContributionPrivacyPreview.sensitive_categories:
+    description: "closed sensitivity category labels with no matched values"
+    collection: "derived locally from in-memory structured Card text"
+    derivation: "deterministic rules for health, family or care, finances, personnel, and named companies"
+    display: "shown as category labels in the removed column"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral labels only; matched text is deliberately unrepresentable"
+
+  ContributionPrivacyPreview.retained:
+    description: "safe structural elements retained in the abstraction"
+    collection: "authored from a fixed privacy-safe accounting vocabulary"
+    derivation: "static labels based on whether the candidate looked personal"
+    display: "shown in the retained column before confirmation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral fixed labels"
+
+  ContributionPrivacyPreview.removed:
+    description: "safe class labels for source material removed from the abstraction"
+    collection: "authored from a fixed privacy-safe accounting vocabulary plus closed category labels"
+    derivation: "contains no matched source value or locator"
+    display: "shown in the removed column before confirmation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral labels; no redacted copy or private metadata"
+
+  ContributionPrivacyPreview.confirmation_statement:
+    description: "exact sentence required to confirm the local abstraction"
+    collection: "selected from fixed product copy by the looks-personal result"
+    derivation: "none"
+    display: "shown beside the explicit confirmation control"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral fixed product copy"
+
+  ContributionPrivacyPreview.abstract_card:
+    description: "closed structured Card after source prose is either validated or wholly replaced"
+    collection: "built locally from the candidate and submitted Card structure"
+    derivation: "personal candidates replace every prose-bearing field with fixed generic declarations"
+    display: "shown exactly before the separate disclosure-field choice"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral pre-build abstraction; later egress uses only a separately approved DisclosureManifest"
+
+  ContributionDeclineLedger.candidate_digests:
+    description: "opaque identities of contribution candidates permanently declined on this device"
+    collection: "added only when the person explicitly declines a candidate"
+    derivation: "copied from domain-separated candidate SHA-256 digests"
+    display: "not displayed; used only to prevent a fresh session re-offering the candidate"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-contribution-candidate-declines
+    audit: "canonical private JSON contains only opaque digests; no prose, categories, timestamps, or references"
+
+  ContributionDeclineLedger.schema_version:
+    description: "version of the opaque contribution-decline ledger"
+    collection: "static product constant"
+    derivation: "none"
+    display: "not displayed"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until user-requested deletion"
+    sharing: never
+    deletion: delete-contribution-candidate-declines
+    audit: "canonical private JSON structural version only"
+
   MutationContract.contract_id:
     description: "stable kebab-case identity of one host mutation contract"
     collection: "authored with the host-specific adaptation implementation"

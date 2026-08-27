@@ -1,6 +1,6 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-24. Plain-language companion to
+Last updated: 2026-08-27. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
 ## The experience pass: one install, and a report that survives, 2026-08-24
@@ -270,10 +270,16 @@ role packs and optional career and quarterly-planning capabilities
    approval, recovery, receipt, and undo are exercised on isolated synthetic
    files. Real-user automation refuses because Lens cannot yet observe the job
    outcome after real use; diagnosis and guidance remain available.
-5. **M5 — optional contribution: merged locally; hosted connection is an
-   unreleased candidate.** Capability Cards, exact disclosure, fresh
+5. **M5 — optional contribution: merged locally; hosted connection and privacy
+   gate are unreleased candidates.** Capability Cards, exact disclosure, fresh
    per-version consent, moderation, catalogue trust, withdrawal, and
-   stage-nine user control are in place. The current candidate wires that
+   stage-nine user control are in place. Before Card build, the current
+   candidate derives a generic reusable pattern from non-raw proposal
+   primitives, checks explicit sensitive categories locally, shows retained
+   versus removed abstraction classes without repeating matched text, and
+   requires the exact personal-looking confirmation. Decline stores only an
+   opaque candidate digest outside inspected roots and prevents a fresh session
+   offering it again. The current candidate then wires that
    explicit stage-nine approval to the authenticated `https://api.heydex.ai`
    intake contract. The approved manifest remains the sole request body;
    closed inventoried headers carry consent and receipt controls, and minimal

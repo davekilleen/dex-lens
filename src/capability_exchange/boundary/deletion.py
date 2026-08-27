@@ -108,6 +108,7 @@ TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
 LENS_CATALOGUE_SUBSCRIPTION_FILE = "lens-catalogue-v2-subscription.json"
 HOSTED_CONTRIBUTION_RECEIPTS_FILE = "hosted-contribution-receipts.json"
+CONTRIBUTION_CANDIDATE_DECLINES_FILE = "contribution-candidate-declines.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -218,4 +219,16 @@ def delete_hosted_contribution_receipts(directory: Path) -> list[Path]:
 register_deletion_path(
     "delete-hosted-contribution-receipts",
     delete_hosted_contribution_receipts,
+)
+
+
+def delete_contribution_candidate_declines(directory: Path) -> list[Path]:
+    """Remove the opaque permanent-suppression ledger on request."""
+
+    return _delete_matching(directory, CONTRIBUTION_CANDIDATE_DECLINES_FILE)
+
+
+register_deletion_path(
+    "delete-contribution-candidate-declines",
+    delete_contribution_candidate_declines,
 )

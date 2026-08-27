@@ -53,6 +53,14 @@ from capability_exchange.contribution import (
     PermissionSet,
 )
 from capability_exchange.contribution.lifecycle import StorePort
+from capability_exchange.contribution.privacy import (
+    ContributionCandidate,
+    ContributionDeclineStore,
+    ContributionPrivacyGate,
+    ContributionPrivacyPreview,
+    candidate_from_proposal,
+    user_initiated_candidate,
+)
 from capability_exchange.diagnosis import assess
 from capability_exchange.evidence import EvidenceItem, EvidenceLevel, EvidenceState
 from capability_exchange.evidence.item import reference_rejection_reason
@@ -251,6 +259,8 @@ class ConciergeStage(StrEnum):
     ADAPT_VERIFY = "adaptation-verify"
     UNDO = "adaptation-undo"
     CONTRIBUTION_BUILD = "contribution-build"
+    CONTRIBUTION_PRIVACY = "contribution-privacy"
+    CONTRIBUTION_PRIVACY_CONFIRM = "contribution-privacy-confirm"
     CONTRIBUTION_REVIEW = "contribution-review"
     CONTRIBUTION_DISCLOSE = "contribution-disclose"
     CONTRIBUTION_APPROVE = "contribution-approve"
@@ -674,6 +684,15 @@ class ConciergeJourney:
         self._contribution_manifest: DisclosureManifest | None = None
         self._contribution: Contribution | None = None
         self._contribution_handle: ContributionHandle | None = None
+        self._contribution_privacy_gate = ContributionPrivacyGate()
+        self._contribution_decline_store = ContributionDeclineStore(
+            self.job_store.directory.parent / "contribution-candidate-declines.json",
+            inspected_roots=tuple(Path(root) for root in self.permission.approved_roots),
+        )
+        self._contribution_candidate: ContributionCandidate | None = None
+        self._contribution_privacy_preview: ContributionPrivacyPreview | None = None
+        self._pending_contribution_comparison: ContributionVersionComparison | None = None
+        self._contribution_return_stage = ConciergeStage.CAPABILITY_MAP
         self._pending_withdrawal_version_hash: str | None = None
         self._intake_submission_attempted = False
         self._pending_withdrawal = False
@@ -722,6 +741,41 @@ class ConciergeJourney:
     @property
     def contribution(self) -> Contribution | None:
         return self._contribution
+
+    @property
+    def contribution_privacy_preview(self) -> ContributionPrivacyPreview | None:
+        return self._contribution_privacy_preview
+
+    @property
+    def contribution_candidate(self) -> ContributionCandidate | None:
+        return self._contribution_candidate
+
+    @property
+    def available_contribution_candidates(self) -> tuple[ContributionCandidate, ...]:
+        """Safe candidates not permanently declined on this device."""
+
+        candidates: list[ContributionCandidate] = []
+        seen: set[str] = set()
+        for proposal in self.proposals:
+            candidate = candidate_from_proposal(proposal)
+            if (
+                candidate.candidate_digest not in seen
+                and not self._contribution_decline_store.is_declined(candidate)
+            ):
+                seen.add(candidate.candidate_digest)
+                candidates.append(candidate)
+        if not self.proposals:
+            candidate = user_initiated_candidate()
+            if not self._contribution_decline_store.is_declined(candidate):
+                candidates.append(candidate)
+        return tuple(candidates)
+
+    def configure_contribution_privacy(self, store: ContributionDeclineStore) -> None:
+        """Use durable app storage for permanent candidate suppression."""
+
+        if not isinstance(store, ContributionDeclineStore):
+            raise TypeError("contribution privacy store is invalid")
+        self._contribution_decline_store = store
 
     @property
     def contribution_available(self) -> bool:
@@ -1711,7 +1765,7 @@ class ConciergeJourney:
     # M5 optional contribution stage (9)
     # ------------------------------------------------------------------
 
-    def choose_contribution(self) -> None:
+    def choose_contribution(self, candidate_digest: str | None = None) -> None:
         """Enter stage 9 only after a separate, explicit contribution choice."""
 
         self._require(
@@ -1721,17 +1775,86 @@ class ConciergeJourney:
         )
         if self._contribution_identity is None or self._contribution_intake is None:
             raise JourneyStateError("contribution intake and identity ports are unavailable")
-        self.stage = ConciergeStage.CONTRIBUTION_BUILD
+        candidates = self.available_contribution_candidates
+        if not candidates:
+            raise JourneyStateError("this contribution candidate was previously declined")
+        if candidate_digest is None and len(candidates) > 1:
+            raise JourneyStateError("choose one reusable contribution candidate explicitly")
+        if candidate_digest is None:
+            candidate = candidates[0]
+        else:
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item.candidate_digest == candidate_digest
+                ),
+                None,
+            )
+            if candidate is None:
+                raise JourneyStateError("contribution candidate is unavailable or declined")
+        self._contribution_return_stage = self.stage
+        self._contribution_candidate = candidate
+        self._contribution_privacy_preview = None
+        self.stage = ConciergeStage.CONTRIBUTION_PRIVACY
 
-    def build_contribution(self, card: CapabilityCard) -> CapabilityCard:
-        """Accept one closed, inert Card through the hardened Card validator."""
+    def preview_contribution(self, card: CapabilityCard) -> ContributionPrivacyPreview:
+        """Classify locally and retain only the display-safe abstraction."""
 
-        self._require(ConciergeStage.CONTRIBUTION_BUILD)
-        require_valid_card(card)
+        self._require(ConciergeStage.CONTRIBUTION_PRIVACY)
+        candidate = self._contribution_candidate
+        if candidate is None:
+            raise JourneyStateError("choose a contribution candidate before privacy review")
+        preview = self._contribution_privacy_gate.preview(candidate, card)
+        self._contribution_privacy_preview = preview
+        self.stage = ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
+        return preview
+
+    def confirm_contribution_privacy(self, statement: str) -> CapabilityCard:
+        """Build only after the exact sentence shown with this preview."""
+
+        self._require(ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM)
+        preview = self._contribution_privacy_preview
+        if preview is None:
+            raise JourneyStateError("a local privacy preview is required before build")
+        if statement != preview.confirmation_statement:
+            label = (
+                "exact looks-personal confirmation"
+                if preview.looks_personal
+                else "exact abstraction confirmation"
+            )
+            raise JourneyStateError(f"{label} is required before contribution build")
+        card = self._contribution_privacy_gate.require_minimized(preview.abstract_card)
         self._contribution_card = card
-        self._contribution_comparison = None
+        self._contribution_comparison = self._pending_contribution_comparison
+        self._pending_contribution_comparison = None
         self.stage = ConciergeStage.CONTRIBUTION_REVIEW
         return card
+
+    def decline_contribution_candidate(self) -> None:
+        """Permanently suppress this safe candidate digest, then leave stage 9."""
+
+        self._require(
+            ConciergeStage.CONTRIBUTION_PRIVACY,
+            ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM,
+        )
+        candidate = self._contribution_candidate
+        if candidate is None:
+            raise JourneyStateError("there is no contribution candidate to decline")
+        self._contribution_decline_store.decline(candidate)
+        self._contribution_candidate = None
+        self._contribution_privacy_preview = None
+        self._pending_contribution_comparison = None
+        self._contribution_card = None
+        self.stage = self._contribution_return_stage
+
+    def build_contribution(self, card: CapabilityCard) -> CapabilityCard:
+        """Legacy direct build is unreachable without the S2 privacy step."""
+
+        del card
+        raise JourneyStateError(
+            "preview and explicitly confirm the contribution abstraction before build"
+        )
 
     def edit_contribution(self, edited: CapabilityCard) -> ContributionVersionComparison:
         """Replace a local draft with exactly one explicit, reviewable new version."""
@@ -1745,37 +1868,52 @@ class ConciergeJourney:
         previous = self._contribution_card
         if previous is None:
             raise JourneyStateError("build a valid Capability Card before editing it")
-        require_valid_card(edited)
+        edited = CapabilityCard.model_validate(edited.model_dump(mode="python"))
         if edited.card_id != previous.card_id:
             raise JourneyStateError("an edited Card must retain the same card_id")
         if edited.version != previous.version + 1:
             raise JourneyStateError("an edited Card must increment version by exactly one")
-        previous_bytes = canonical_card_bytes(previous)
-        revised_bytes = canonical_card_bytes(edited)
         previous_fields = previous.model_dump(mode="json")
         revised_fields = edited.model_dump(mode="json")
-        changed = tuple(
+        requested_changes = tuple(
             field
             for field in previous.__class__.model_fields
             if previous_fields[field] != revised_fields[field]
         )
-        if not any(field != "version" for field in changed):
+        if not any(field != "version" for field in requested_changes):
             raise JourneyStateError(
                 "an edited Card version must change at least one content field"
             )
+        if self._intake_submission_attempted:
+            raise JourneyStateError("an already submitted contribution must be withdrawn")
+        candidate = self._contribution_candidate
+        if candidate is None:
+            raise JourneyStateError("the contribution candidate binding is unavailable")
+        preview = self._contribution_privacy_gate.preview(
+            candidate,
+            edited,
+            stable_card_id=previous.card_id,
+        )
+        revised = preview.abstract_card
+        previous_bytes = canonical_card_bytes(previous)
+        revised_bytes = canonical_card_bytes(revised)
+        revised_safe_fields = revised.model_dump(mode="json")
+        changed = tuple(
+            field
+            for field in previous.__class__.model_fields
+            if previous_fields[field] != revised_safe_fields[field]
+        )
         comparison = ContributionVersionComparison(
             previous_version_hash=previous.version_hash,
-            revised_version_hash=edited.version_hash,
+            revised_version_hash=revised.version_hash,
             changed_fields=changed,
             previous_exact_json=previous_bytes.decode("utf-8"),
             revised_exact_json=revised_bytes.decode("utf-8"),
         )
-        if self._intake_submission_attempted:
-            raise JourneyStateError("an already submitted contribution must be withdrawn")
         if self._contribution_consent is not None and self._contribution_manifest is not None:
             self._contribution_consent.withdraw(previous, self._contribution_manifest)
-        self._contribution_card = edited
-        self._contribution_comparison = comparison
+        self._contribution_privacy_preview = preview
+        self._pending_contribution_comparison = comparison
         self._contribution_manifest = None
         self._contribution_consent = None
         self._contribution_lifecycle = None
@@ -1784,7 +1922,7 @@ class ConciergeJourney:
         self._pending_withdrawal_version_hash = None
         self._intake_submission_attempted = False
         self._pending_withdrawal = False
-        self.stage = ConciergeStage.CONTRIBUTION_REVIEW
+        self.stage = ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM
         return comparison
 
     def review_contribution(self) -> CapabilityCard:
@@ -1808,6 +1946,7 @@ class ConciergeJourney:
         card = self._contribution_card
         if card is None:
             raise JourneyStateError("review a valid Capability Card before disclosure")
+        self._contribution_privacy_gate.require_minimized(card)
         manifest = build_disclosure_manifest(card, approved_fields=tuple(approved_fields))
         self._contribution_manifest = manifest
         self.stage = ConciergeStage.CONTRIBUTION_APPROVE
@@ -2136,6 +2275,9 @@ class ConciergeJourney:
             if not self._pending_withdrawal:
                 self._contribution_lifecycle = None
             self._contribution_card = None
+            self._contribution_candidate = None
+            self._contribution_privacy_preview = None
+            self._pending_contribution_comparison = None
             self._contribution_manifest = None
             self._contribution = None
             if not self._pending_withdrawal:

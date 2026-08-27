@@ -48,7 +48,31 @@ Load-bearing boundaries between modules:
 ### M5 hosted contribution boundary (unreleased candidate)
 
 The optional stage-nine connection is deliberately not a general network
-client. After the person edits and approves one canonical DisclosureManifest,
+client. It begins only when the person chooses to contribute. Reusable
+candidate patterns are projected locally from the existing candidate-job id
+and inferred evidence state; proposal prose and evidence references never
+enter the candidate projection.
+
+Before a Card can be built, a deterministic local gate checks explicit health,
+family/care, finance, personnel and named-company language plus the existing
+secret, identifying-data, unique-path and raw-source rules. A match is not
+"redacted" substring by substring: every prose-bearing field is replaced by a
+generic structured Card. The screen shows fixed **retained** and **removed**
+classes and the exact resulting Card, without echoing the matched words. A
+personal-looking candidate advances only when the person submits the exact
+sentence shown on that screen. Edits repeat the same gate. Decline stores only
+a domain-separated candidate SHA-256 in app storage outside inspected roots;
+a fresh process reads it and does not offer that candidate again. The ledger
+has a registered verified deletion path.
+
+This classifier is deliberately conservative and local, not a claim that free
+text can be reliably anonymized. Raw prose/files and extra Card fields remain
+structurally unrepresentable, and the disclosure boundary rechecks the final
+Card. Identity is first requested after the exact disclosure bytes and six
+permissions are approved; the intake network port is first called by the later
+submit action.
+
+After the person edits and approves one canonical DisclosureManifest,
 the client writes a minimal `submitting` receipt outside every inspected root,
 then posts the manifest's exact UTF-8 bytes as the sole body to the pinned
 `https://api.heydex.ai/api/capability-contributions/submit` route. A closed,

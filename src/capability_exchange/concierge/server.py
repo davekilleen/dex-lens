@@ -86,6 +86,10 @@ from capability_exchange.contribution.hosted_intake import (
     HostedSessionCredentials,
 )
 from capability_exchange.contribution.lifecycle import StorePort
+from capability_exchange.contribution.privacy import (
+    DECLINE_FILE,
+    ContributionDeclineStore,
+)
 from capability_exchange.evidence import EvidenceLevel, EvidenceState
 from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
 
@@ -229,6 +233,12 @@ class ConciergeSession:
             job_store=Path(self.tempdir.name) / "inspection-jobs",
             now=self.now,
             adapter_contract=contract,
+        )
+        self.journey.configure_contribution_privacy(
+            ContributionDeclineStore(
+                self.app_storage / DECLINE_FILE,
+                inspected_roots=self.approved_roots,
+            )
         )
         assert self.catalogue_subscription_store is not None
         self.journey.catalogue_subscription_record = (
@@ -719,16 +729,30 @@ class ConciergeSession:
             stores=self.contribution_stores,
         )
 
-    def choose_contribution(self) -> None:
+    def choose_contribution(self, form: dict[str, list[str]] | None = None) -> None:
         with self._state_lock:
             if not self.journey.contribution_available:
                 self.configure_contribution()
-            self.journey.choose_contribution()
+            candidate_digest = _optional(form or {}, "candidate_digest")
+            self.journey.choose_contribution(candidate_digest=candidate_digest)
 
-    def build_contribution(self, form: dict[str, list[str]]) -> None:
+    def preview_contribution(self, form: dict[str, list[str]]) -> None:
         with self._state_lock:
             card = CapabilityCard.model_validate_json(_required(form, "card_json"))
-            self.journey.build_contribution(card)
+            self.journey.preview_contribution(card)
+
+    def confirm_contribution_privacy(self, form: dict[str, list[str]]) -> None:
+        with self._state_lock:
+            self.journey.confirm_contribution_privacy(_required(form, "confirmation"))
+
+    def decline_contribution_candidate(self) -> None:
+        with self._state_lock:
+            self.journey.decline_contribution_candidate()
+
+    def build_contribution(self, form: dict[str, list[str]]) -> None:
+        """Compatibility route: direct build now enters the local privacy preview."""
+
+        self.preview_contribution(form)
 
     def edit_contribution(self, form: dict[str, list[str]]) -> None:
         with self._state_lock:
@@ -998,12 +1022,25 @@ class _ConciergeHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/contribution/choose":
-            self._journey_action(
-                lambda ignored: self.server.session.choose_contribution(), form
-            )
+            self._journey_action(self.server.session.choose_contribution, form)
             return
         if parsed.path == "/contribution/build":
             self._journey_action(self.server.session.build_contribution, form)
+            return
+        if parsed.path == "/contribution/privacy-preview":
+            self._journey_action(self.server.session.preview_contribution, form)
+            return
+        if parsed.path == "/contribution/privacy-confirm":
+            self._journey_action(
+                self.server.session.confirm_contribution_privacy,
+                form,
+            )
+            return
+        if parsed.path == "/contribution/decline":
+            self._journey_action(
+                lambda ignored: self.server.session.decline_contribution_candidate(),
+                form,
+            )
             return
         if parsed.path == "/contribution/edit":
             self._journey_action(self.server.session.edit_contribution, form)

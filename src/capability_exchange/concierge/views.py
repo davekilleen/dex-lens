@@ -756,14 +756,27 @@ def _contribution_choice(journey: ConciergeJourney, csrf_token: str) -> str:
 
     if not journey.contribution_available:
         return ""
+    candidates = journey.available_contribution_candidates
+    if not candidates:
+        return ""
+    choices = ""
+    for candidate in candidates:
+        choices += f"""
+          <form method="post" action="/contribution/choose">
+            {_csrf(csrf_token)}
+            <input type="hidden" name="candidate_digest"
+              value="{_escape(candidate.candidate_digest)}">
+            <p><strong>{_escape(candidate.pattern_id)}</strong></p>
+            {_list(candidate.retained_primitives)}
+            <button type="submit">Choose this reusable pattern</button>
+          </form>
+        """
     return f"""
       <div class="panel">
         <h2>Contribute an optional Capability Card</h2>
         <p>Diagnosis and adaptation are complete without an account. Choose this
         only if you want to build and inspect a separate contribution.</p>
-        <form method="post" action="/contribution/choose">{_csrf(csrf_token)}
-          <button type="submit">Choose to contribute</button>
-        </form>
+        {choices}
       </div>
     """
 
@@ -775,18 +788,62 @@ def render_contribution(journey: ConciergeJourney, csrf_token: str) -> str:
     card = journey.contribution_card
     manifest = journey.contribution_manifest
     contribution = journey.contribution
-    if stage is ConciergeStage.CONTRIBUTION_BUILD:
+    if stage is ConciergeStage.CONTRIBUTION_PRIVACY:
+        candidate = journey.contribution_candidate
+        primitives = getattr(candidate, "retained_primitives", ())
         body = f"""
-          <h1>Build a Capability Card</h1>
+          <h1>Build a private abstraction preview</h1>
           <div class="panel">
-            <p>Build one closed, inert Card. Raw prompts, histories, personal
-            examples, attachments, secrets, and extra fields are rejected.</p>
-            <form method="post" action="/contribution/build">{_csrf(csrf_token)}
+            <p>You asked to contribute. Lens will inspect one structured Card
+            locally and show what is retained versus removed. Do not paste raw
+            prompts, histories, files, or attachments.</p>
+            <h2>Reusable candidate primitives</h2>
+            {_list(primitives, empty="User-selected reusable workflow shape")}
+            <form method="post" action="/contribution/privacy-preview">{_csrf(csrf_token)}
               <label>Capability Card JSON<textarea name="card_json" required></textarea></label>
-              <button type="submit">Build and validate Card</button>
+              <button type="submit">Preview the abstraction locally</button>
+            </form>
+            <form method="post" action="/contribution/decline">{_csrf(csrf_token)}
+              <button class="secondary" type="submit">Decline and never offer this again</button>
             </form>
           </div>
         """
+    elif stage is ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM:
+        preview = journey.contribution_privacy_preview
+        if preview is None:
+            body = "<h1>Privacy preview unavailable</h1><p>No Card has been built.</p>"
+        else:
+            exact_card = canonical_card_bytes(preview.abstract_card).decode("utf-8")
+            warning = (
+                "<p><strong>This looks personal.</strong> The abstraction below "
+                "contains none of the matched words.</p>"
+                if preview.looks_personal
+                else "<p>No sensitive category was detected. The closed Card rules still apply.</p>"
+            )
+            body = f"""
+              <h1>Review retained versus removed</h1>
+              <div class="panel">
+                {warning}
+                <h2>Retained</h2>{_list(preview.retained)}
+                <h2>Removed</h2>{_list(preview.removed)}
+                <h2>Structured abstraction</h2>
+                <pre>{_escape(exact_card)}</pre>
+                <form method="post" action="/contribution/privacy-confirm">
+                  {_csrf(csrf_token)}
+                  <label><input type="checkbox" name="confirmation"
+                    value="{_escape(preview.confirmation_statement)}" required>
+                    {_escape(preview.confirmation_statement)}</label>
+                  <button type="submit">Build only this abstraction</button>
+                </form>
+                <form method="post" action="/contribution/decline">{_csrf(csrf_token)}
+                  <button class="secondary" type="submit">
+                    Decline and never offer this again
+                  </button>
+                </form>
+              </div>
+            """
+    elif stage is ConciergeStage.CONTRIBUTION_BUILD:
+        body = "<h1>Privacy review required</h1><p>Return to the local abstraction preview.</p>"
     elif stage is ConciergeStage.CONTRIBUTION_REVIEW and card is not None:
         exact_card = canonical_card_bytes(card).decode("utf-8")
         comparison = journey.contribution_comparison
@@ -961,6 +1018,8 @@ def render_journey(journey: ConciergeJourney, csrf_token: str) -> str:
         return render_adaptation(journey, csrf_token=csrf_token)
     if journey.stage in {
         ConciergeStage.CONTRIBUTION_BUILD,
+        ConciergeStage.CONTRIBUTION_PRIVACY,
+        ConciergeStage.CONTRIBUTION_PRIVACY_CONFIRM,
         ConciergeStage.CONTRIBUTION_REVIEW,
         ConciergeStage.CONTRIBUTION_DISCLOSE,
         ConciergeStage.CONTRIBUTION_APPROVE,

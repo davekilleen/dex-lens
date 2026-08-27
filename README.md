@@ -208,7 +208,7 @@ That bridge is now live. Here is what it does:
 | **Do I need an account?** | No for diagnosis, comparison, or preview. A linked Heydex session is requested only if you separately approve a contribution, so the hosted service can return status and honour withdrawal. |
 | **Can it inspect anything it wants?** | No. You choose the folder, and Lens does not silently widen that boundary. |
 | **Will it automatically “fix” my system?** | Not in the first participant pilot. Lens can explain and preview an improvement, but it does not apply it. |
-| **Can anything be shared?** | Only if you choose to contribute, review the exact limited summary and approve that specific information. The approved summary is the sole request body; closed consent and receipt hashes travel separately, and no raw revocation token leaves the machine. Nothing is selected by default. |
+| **Can anything be shared?** | Only if you choose to contribute. Before a Card is built, Lens checks sensitive categories locally and shows a retained-versus-removed abstraction without repeating matched words; personal-looking material requires the exact confirmation shown. You then review the exact limited summary and approve that specific information. The approved summary is the sole request body; closed consent and receipt hashes travel separately, and no raw prose, files, evidence, or revocation token leaves the machine. Nothing is selected by default. This privacy and hosted-intake path is still an unreleased candidate, not a supported public service. |
 | **What happens if the safety boundary cannot be proven?** | The deeper check stays unavailable. Lens uses a more limited guided route rather than hoping for the best. |
 
 ## Evidence without theatre
