@@ -138,10 +138,7 @@ def _serve_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--choose-folder",
         action="store_true",
-        help=(
-            "Open a local folder chooser before starting the private, read-only session. "
-            "Choosing a folder does not scan it."
-        ),
+        help="Choosing a folder does not scan it.",
     )
     parser.add_argument(
         "--no-open",
@@ -181,10 +178,13 @@ def _serve_main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    session = session_for_roots(
-        roots,
-        correction_receipt_id=args.corrects_contribution,
-    )
+    if args.corrects_contribution is None:
+        session = session_for_roots(roots)
+    else:
+        session = session_for_roots(
+            roots,
+            correction_receipt_id=args.corrects_contribution,
+        )
     server = None
     exit_code = 0
     try:
