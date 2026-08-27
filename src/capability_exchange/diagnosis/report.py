@@ -13,15 +13,19 @@ from pydantic import ConfigDict, Field, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
+from capability_exchange.diagnosis.finding import Finding
+from capability_exchange.diagnosis.run import RunIdentity
 
 __all__ = [
     "LedgerSummary",
+    "ReportModel",
     "canonical_fact_block",
     "canonical_ledger_digest",
     "ledger_derived_fact_errors",
 ]
 
 _FROM_LEDGER = ContextVar("_ledger_summary_from_ledger", default=False)
+_FROM_RESULT = ContextVar("_report_model_from_result", default=False)
 _COVERAGE_CLAIM = re.compile(
     r"\b(\d+)\s+"
     r"(?:"
@@ -160,6 +164,79 @@ class LedgerSummary(InventoriedModel):
     ) -> Self:
         if not _FROM_LEDGER.get():
             raise TypeError("LedgerSummary can only be created with from_ledger()")
+        return cls.model_validate(values)
+
+
+class ReportModel(InventoriedModel):
+    """Typed report bound to one run identity and one exact ledger."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_identity: RunIdentity
+    ledger_summary: LedgerSummary
+    ledger_sha256: str = Field(pattern=r"^(?:sha256:)?[0-9a-f]{64}$")
+    strongest_findings: tuple[Finding, ...] = ()
+    reciprocal_findings: tuple[Finding, ...] = ()
+    reliability_findings: tuple[Finding, ...] = ()
+    limits: tuple[str, ...] = ()
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        if not _FROM_RESULT.get():
+            raise TypeError("ReportModel can only be created with from_result()")
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def from_result(
+        cls,
+        *,
+        run_identity: RunIdentity,
+        ledger: ComparisonLedger,
+        ledger_sha256: str,
+        findings: tuple[Finding, ...] = (),
+        limits: tuple[str, ...] = (),
+    ) -> Self:
+        expected = canonical_ledger_digest(ledger)
+        supplied = (
+            ledger_sha256 if ledger_sha256.startswith("sha256:") else f"sha256:{ledger_sha256}"
+        )
+        if supplied != expected:
+            raise ValueError("report must bind the exact comparison ledger")
+        token = _FROM_RESULT.set(True)
+        try:
+            return cls(
+                run_identity=run_identity,
+                ledger_summary=LedgerSummary.from_ledger(ledger),
+                ledger_sha256=expected,
+                strongest_findings=findings,
+                reciprocal_findings=(),
+                reliability_findings=(),
+                limits=limits,
+            )
+        finally:
+            _FROM_RESULT.reset(token)
+
+    def render_markdown(self, ledger: ComparisonLedger) -> str:
+        block = canonical_fact_block(ledger)
+        limits = "\n".join(f"- {item}" for item in self.limits)
+        extra = f"{limits}\n" if limits else ""
+        return (
+            "# Diagnosis\n\n"
+            "## Coverage and limits\n"
+            f"{block}"
+            f"{extra}"
+        )
+
+    def copy(self, **kwargs: object) -> Self:
+        raise TypeError("copy() is disabled for ReportModel; use from_result()")
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        if not _FROM_RESULT.get():
+            raise TypeError("ReportModel can only be created with from_result()")
         return cls.model_validate(values)
 
 

@@ -1215,6 +1215,76 @@ fields:
     deletion: not-stored
     audit: "ephemeral derived count; cannot be supplied separately from the ledger"
 
+  ReportModel.run_identity:
+    description: "immutable run identity bound into the typed diagnosis report"
+    collection: "copied from the diagnosis run after Task 5 identity exists"
+    derivation: "nested RunIdentity; refused unless created through from_result"
+    display: "identifies which run the report belongs to"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral typed report; durable save is a later engine stage"
+
+  ReportModel.ledger_summary:
+    description: "ledger-derived coverage counts bound into the typed report"
+    collection: "calculated from the exact comparison ledger in from_result"
+    derivation: "nested LedgerSummary created only through from_ledger"
+    display: "rendered as the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived counts; not an independent source of truth"
+
+  ReportModel.ledger_sha256:
+    description: "SHA-256 of the exact comparison ledger bound into the report"
+    collection: "copied from canonical_ledger_digest after an exact match check"
+    derivation: "must equal the digest of the supplied ledger"
+    display: "embedded in the canonical fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest binding; mismatched digests are refused"
+
+  ReportModel.strongest_findings:
+    description: "grounded strongest-capability findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under What is working especially well"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings; no free-form praise field"
+
+  ReportModel.reciprocal_findings:
+    description: "grounded reciprocal-value findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under What Dex should learn from you"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings"
+
+  ReportModel.reliability_findings:
+    description: "grounded reliability findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under Fragility and contradictions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings"
+
+  ReportModel.limits:
+    description: "bounded limit sentences the report must keep visible"
+    collection: "copied from fingerprint and comparison limits"
+    derivation: "tuple of bounded single-line sentences"
+    display: "rendered under Coverage and limits after the fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral limit text; no invented coverage numbers"
+
   ApprovedScopeReceipt.run_id:
     description: "opaque identity of the diagnosis run whose scope was approved"
     collection: "assigned locally when prepare records candidate locators"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 
 import pytest
+from tests.diagnosis.test_run import NOW, RUN_ID
 from tests.evals.real_session_fixture import (
     EXPECTED_COUNTS,
     real_session_fingerprint,
@@ -16,12 +17,23 @@ from tests.evals.test_real_session_replay import expected_contract
 from capability_exchange.diagnosis.comparison import Disposition
 from capability_exchange.diagnosis.report import (
     LedgerSummary,
+    ReportModel,
     canonical_fact_block,
     canonical_ledger_digest,
 )
+from capability_exchange.diagnosis.run import ENGINE_VERSION, INPUT_SCHEMA_VERSION, RunIdentity
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 
 FALSE_COVERAGE_CLAIM = "93 capabilities are already covered"
+
+
+def run_identity() -> RunIdentity:
+    return RunIdentity(
+        run_id=RUN_ID,
+        engine_version=ENGINE_VERSION,
+        input_schema_version=INPUT_SCHEMA_VERSION,
+        created_at=NOW,
+    )
 
 
 def test_summary_is_derived_from_entries() -> None:
@@ -156,3 +168,34 @@ def test_conflicting_coverage_sentence_fails_even_with_exact_fact_block() -> Non
 
     assert not result.passed
     assert any("ledger-derived facts" in item for item in result.report_errors)
+
+
+def test_report_model_rejects_unrelated_ledger_digest() -> None:
+    with pytest.raises(ValueError, match="exact comparison ledger"):
+        ReportModel.from_result(
+            run_identity=run_identity(),
+            ledger=real_session_ledger(),
+            ledger_sha256="0" * 64,
+            findings=(),
+        )
+
+
+def test_report_model_renders_the_canonical_fact_block() -> None:
+    ledger = real_session_ledger()
+    report = ReportModel.from_result(
+        run_identity=run_identity(),
+        ledger=ledger,
+        ledger_sha256=canonical_ledger_digest(ledger),
+        findings=(),
+        limits=("Every identity in this replay is invented.",),
+    )
+
+    rendered = report.render_markdown(ledger)
+    assert canonical_fact_block(ledger) in rendered
+    assert report.ledger_summary.unknown == 80
+    with pytest.raises(TypeError, match="from_result"):
+        ReportModel.model_construct(
+            run_identity=run_identity(),
+            ledger_summary=LedgerSummary.from_ledger(ledger),
+            ledger_sha256=canonical_ledger_digest(ledger),
+        )
