@@ -121,12 +121,11 @@ def canonical_result_bytes(payload: object) -> bytes:
 
 
 def build_engine() -> DiagnosisEngine:
-    """Injectable factory. Task 8 owns real construction; this slice does not."""
+    """Return the process engine. Tests monkeypatch this function."""
 
-    raise DiagnosisStateError(
-        "diagnosis MCP adapter requires an injected engine; "
-        "the Task 8 orchestrator is not available in this slice"
-    )
+    from capability_exchange.diagnosis.defaults import build_default_engine
+
+    return build_default_engine()
 
 
 def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:

@@ -175,6 +175,12 @@ class DeterministicDiagnosisEngine:
 
         return self._consent
 
+    @property
+    def run_store(self) -> DiagnosisRunStore:
+        """The durable checkpoint store later CLI commands resume from."""
+
+        return self._runs
+
     def prepare(self, request: object) -> DiagnosisRunView:
         """Record candidate folders. Read nothing and do not collect."""
 
@@ -278,9 +284,12 @@ class DeterministicDiagnosisEngine:
         if receipt is not None:
             return receipt
         stored = self._find_kind(checkpoint, "scope-receipt")
-        if stored is None:
-            raise DiagnosisStateError("approve the exact scope in the local consent surface")
-        return ApprovedScopeReceipt.model_validate(stored)
+        if stored is not None:
+            return ApprovedScopeReceipt.model_validate(stored)
+        approval = self._runs.load_scope_approval(checkpoint.run_id)
+        if approval is not None:
+            return approval.receipt
+        raise DiagnosisStateError("approve the exact scope in the local consent surface")
 
     def _advance(
         self,

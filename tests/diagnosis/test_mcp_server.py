@@ -213,9 +213,9 @@ async def test_closed_result_bytes_match_direct_engine_not_a_cli() -> None:
     assert b"/Users/" not in mcp_bytes
 
 
-def test_build_engine_is_injectable_and_does_not_construct_task_8() -> None:
-    with pytest.raises(DiagnosisStateError, match="injected engine"):
-        build_engine()
+def test_build_engine_is_injectable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    assert build_engine() is not None
     engine = fake_engine()
     assert build_mcp_server(engine) is not None
 

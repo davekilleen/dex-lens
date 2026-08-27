@@ -89,9 +89,9 @@ or modify the inspected system.
 def build_engine() -> DeterministicDiagnosisEngine:
     """Return the process engine. Tests monkeypatch this function."""
 
-    raise DiagnosisStateError(
-        "the deterministic diagnosis engine is not available in this build"
-    )
+    from capability_exchange.diagnosis.defaults import build_default_engine
+
+    return build_default_engine()
 
 
 def bind_consent_surface(session: object, server: object) -> None:
@@ -160,6 +160,9 @@ def start_or_reuse_consent_surface(
     if authority is not None:
         session.diagnosis_consent = authority
         session.diagnosis_run_id = run_id
+    store = getattr(engine, "run_store", None)
+    if store is not None:
+        session.diagnosis_run_store = store
     port = getattr(_BOUND_SURFACE.server, "server_port", None)
     if port is None:
         return None
@@ -252,6 +255,11 @@ def _prepare(argv: list[str]) -> int:
         default=[],
         help="Another candidate folder. May be repeated. Nothing is read yet.",
     )
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Keep the local consent surface running until this run is approved.",
+    )
     args = parser.parse_args(argv)
     roots = _existing_roots((args.root, *args.additional_root))
     if roots is None:
@@ -266,7 +274,31 @@ def _prepare(argv: list[str]) -> int:
     if approval_url and view.approval_url is None:
         view = view.model_copy(update={"approval_url": approval_url})
     _write_canonical_json(view.dump_for_storage())
+    if args.wait:
+        return _wait_for_approval(engine, view.run_id)
     return 0
+
+
+def _wait_for_approval(engine: DeterministicDiagnosisEngine, run_id: str) -> int:
+    """Stay alive so the local /approve action can persist a receipt."""
+
+    import time
+
+    print(
+        "Waiting for local approval. This process must stay running until you approve.",
+        file=sys.stderr,
+    )
+    try:
+        while True:
+            receipt = engine.consent_authority.receipt_for(run_id)
+            if receipt is not None:
+                return 0
+            approval = getattr(engine.run_store, "load_scope_approval", None)
+            if callable(approval) and approval(run_id) is not None:
+                return 0
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        return 130
 
 
 def _status(argv: list[str]) -> int:

@@ -33,6 +33,7 @@ __all__ = [
     "ApprovedSourceDescriptor",
     "ScopeSnapshot",
     "containment_fallback",
+    "default_source_descriptors",
 ]
 
 
@@ -75,6 +76,24 @@ class _ScopeIdentity:
     st_ino: int
     st_mode: int
     descriptor: ApprovedSourceDescriptor
+
+
+def default_source_descriptors(roots: Iterable[Path]) -> tuple[ApprovedSourceDescriptor, ...]:
+    """Stable vault-authored descriptors when the caller did not name sources."""
+
+    items: list[ApprovedSourceDescriptor] = []
+    for index, root in enumerate(tuple(roots)):
+        resolved = Path(root).expanduser().resolve(strict=True)
+        digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
+        items.append(
+            ApprovedSourceDescriptor(
+                canonical_root=resolved,
+                source_id="scope:primary" if index == 0 else f"scope:root-{index}",
+                source_class=SourceClass.VAULT_AUTHORED,
+                scope_reference=f"scope:sha256:{digest}",
+            )
+        )
+    return tuple(items)
 
 
 @dataclass(frozen=True, slots=True)

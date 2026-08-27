@@ -141,7 +141,7 @@ You explain. The engine keeps the books.
 Start or resume a run, then do only the next action the engine names:
 
 ```
-dex-lens diagnosis prepare --root <folder>
+dex-lens diagnosis prepare --root <folder> --wait
 dex-lens diagnosis status --run <id> --json
 dex-lens diagnosis advance --run <id> --json
 dex-lens diagnosis submit --run <id> --proposal <json-file>
@@ -149,8 +149,8 @@ dex-lens diagnosis result --run <id> --format markdown
 ```
 
 `prepare` reads nothing. It starts the local consent surface and gives you a
-run id. Collection does not begin until the person has approved that exact
-scope. `--additional-root` is for a folder they named in their own words —
+run id. `--wait` keeps that surface running until the person approves the
+exact scope. Collection does not begin until that receipt exists. `--additional-root` is for a folder they named in their own words —
 never one you added because it looked useful.
 
 After every engine step, run `dex-lens diagnosis status`. Do what it says
@@ -216,7 +216,7 @@ Start the run before you wander. `prepare` still reads nothing; it only
 opens the local consent surface for the folder they asked you to look at:
 
 ```
-dex-lens diagnosis prepare --root <folder>
+dex-lens diagnosis prepare --root <folder> --wait
 ```
 
 With no folder given, that folder is the one you are open in — the system
@@ -963,7 +963,7 @@ the person who built the thing.
 | Command | What it gives you |
 | --- | --- |
 | `dex-lens reports --last` | The previous diagnosis, so this one can say what changed. Exits non-zero when there is none. |
-| `dex-lens diagnosis prepare --root <folder>` | Starts a run and the local consent surface. Reads nothing. |
+| `dex-lens diagnosis prepare --root <folder> --wait` | Starts a run and keeps the local consent surface running until approval. Reads nothing. |
 | `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |
 | `dex-lens diagnosis advance --run <id>` | The next lawful step. Do not invent the next step yourself. |
 | `dex-lens diagnosis submit --run <id> --proposal <file>` | Optional specialist help. Evidence-referenced proposals only. They do not author counts. |

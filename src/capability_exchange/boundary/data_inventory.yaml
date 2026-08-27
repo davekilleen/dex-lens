@@ -1785,6 +1785,42 @@ fields:
     deletion: not-stored
     audit: "ephemeral local explanation"
 
+  PersistedScopeApproval.run_id:
+    description: "run identity for a locally persisted scope approval"
+    collection: "copied from the approved-scope receipt at /approve"
+    derivation: "validated as a run-prefixed token"
+    display: "used to resume collection after the prepare process exits"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle only"
+
+  PersistedScopeApproval.approved_roots:
+    description: "absolute approved-root paths retained only for later local collection"
+    collection: "copied from the consent snapshot after authenticated /approve"
+    derivation: "tuple of absolute directory paths; never transmitted"
+    display: "not shown on CLI JSON or the MCP wire"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local collection resume only; not a public path"
+
+  PersistedScopeApproval.receipt:
+    description: "nested approved-scope receipt persisted beside the run checkpoint"
+    collection: "issued by the local consent authority at /approve"
+    derivation: "nested ApprovedScopeReceipt"
+    display: "proves later advance may collect"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "same receipt as the in-memory consent store"
+
   ApprovedScopeReceipt.run_id:
     description: "opaque identity of the diagnosis run whose scope was approved"
     collection: "assigned locally when prepare records candidate locators"
