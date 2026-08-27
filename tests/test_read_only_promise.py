@@ -25,14 +25,24 @@ REPORT = """# Dex Lens: a small system - 2026-08-24
 ## What I read
 - Inventory: the whole folder, 2 distinct items
 
-## The mirror
-### One skill is switched off by name
+## What is working especially well
+### Disabled work stays visibly disabled
 > name: _disabled_weekly-note
 > - `.claude/skills/_disabled_weekly-note/SKILL.md`
-What it costs: someone wanted that and it never landed.
+The naming makes the intended state inspectable.
 
-## Contradictions and fragility
+## What Dex should learn from you
+No transferable method cleared the evidence bar.
+
+## Worth borrowing from Dex
+No Dex addition cleared the evidence bar this time.
+
+## Fragility and contradictions
 I checked the rules in `CLAUDE.md` against your skills and found no conflicts.
+
+## Coverage and limits
+- Every signed catalogue entry has a disposition in the accompanying ledger.
+- Live operating-system state was not assessed.
 
 ## What happens next
 - Nothing has changed on your machine.
@@ -82,6 +92,7 @@ def test_the_whole_flow_leaves_the_inspected_folder_byte_for_byte_identical(
     before = _fingerprint(inspected)
     reports = tmp_path / "state" / "reports"
     monkeypatch.setattr(reports_cli, "default_report_directory", lambda _roots: reports)
+    monkeypatch.setattr(reports_cli, "_ledger_gate", lambda _path: (None, []))
     written_report = tmp_path / "report.md"
     written_report.write_text(REPORT, encoding="utf-8")
 
@@ -110,6 +121,7 @@ def test_the_report_is_refused_rather_than_written_into_the_inspected_folder(
     would succeed, and the only sign would be a file in someone's vault.
     """
     monkeypatch.setenv("XDG_STATE_HOME", str(inspected / "state"))
+    monkeypatch.setattr(reports_cli, "_ledger_gate", lambda _path: (None, []))
     written_report = tmp_path / "report.md"
     written_report.write_text(REPORT, encoding="utf-8")
     before = _fingerprint(inspected)

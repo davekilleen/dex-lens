@@ -42,7 +42,11 @@ def test_the_template_carries_the_sections_the_gate_requires() -> None:
 
     for section in (
         "what i read",
-        "contradictions and fragility",
+        "what is working especially well",
+        "what dex should learn from you",
+        "worth borrowing from dex",
+        "fragility and contradictions",
+        "coverage and limits",
         "what happens next",
         "considered and rejected",
     ):

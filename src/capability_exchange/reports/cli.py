@@ -18,6 +18,14 @@ import argparse
 import sys
 from pathlib import Path
 
+from capability_exchange.catalogue.subscription import default_lens_app_storage
+from capability_exchange.catalogue.v2 import (
+    CatalogueVerificationError,
+    VerifiedCatalogueStore,
+    default_keyring,
+)
+from capability_exchange.diagnosis.comparison import ComparisonLedger
+from capability_exchange.reports.ledger import load_and_validate_ledger
 from capability_exchange.reports.store import (
     DEFAULT_LABEL,
     LensReportStore,
@@ -120,12 +128,22 @@ def reports_main(argv: list[str] | None = None) -> int:
             "report is being written outside it before writing anything."
         ),
     )
+    save.add_argument(
+        "--ledger",
+        type=Path,
+        help="JSON ledger accounting for every entry in the verified Dex catalogue.",
+    )
 
     check = actions.add_parser(
         "check",
         help="Say whether a report is complete enough to save, and save nothing.",
     )
     check.add_argument("source", help="Markdown file holding the report, or `-` for stdin.")
+    check.add_argument(
+        "--ledger",
+        type=Path,
+        help="JSON ledger accounting for every entry in the verified Dex catalogue.",
+    )
 
     listing = actions.add_parser("list", help="List saved reports, newest first.")
 
@@ -154,7 +172,11 @@ def reports_main(argv: list[str] | None = None) -> int:
     return _show(action, args)
 
 
-def _gate(markdown: str, previous: SavedReport | None) -> list[str]:
+def _gate(
+    markdown: str,
+    previous: SavedReport | None,
+    ledger_problems: list[str] | None = None,
+) -> list[str]:
     """Everything wrong with this report, in one place.
 
     Called by `save` and by `check` with the same inputs, because a `check`
@@ -166,7 +188,27 @@ def _gate(markdown: str, previous: SavedReport | None) -> list[str]:
     unaccounted = missing_comparison_with(previous, markdown)
     if unaccounted is not None:
         problems.append(unaccounted)
+    problems.extend(ledger_problems or [])
     return problems
+
+
+def _ledger_gate(path: Path | None) -> tuple[ComparisonLedger | None, list[str]]:
+    """Validate a supplied ledger against the last locally verified catalogue."""
+    if path is None:
+        return None, [
+            "add --ledger with the complete JSON comparison ledger produced from "
+            "the verified catalogue"
+        ]
+    store = VerifiedCatalogueStore(default_lens_app_storage())
+    try:
+        state = store.load_last_verified_state(keyring=default_keyring())
+    except CatalogueVerificationError as exc:
+        return None, [f"the stored Dex catalogue could not be verified: {exc}"]
+    if state.catalogue is None:
+        return None, [
+            "fetch and verify the Dex catalogue before checking a comparison ledger"
+        ]
+    return load_and_validate_ledger(path, state.catalogue)
 
 
 def _report_problems(problems: list[str]) -> None:
@@ -205,7 +247,8 @@ def _check(args: argparse.Namespace) -> int:
         return 2
 
     label = args.label or DEFAULT_LABEL
-    problems = _gate(markdown, store.last(label=label))
+    _ledger, ledger_problems = _ledger_gate(args.ledger)
+    problems = _gate(markdown, store.last(label=label), ledger_problems)
     if problems:
         _report_problems(problems)
         return 2
@@ -252,7 +295,8 @@ def _save(args: argparse.Namespace) -> int:
     # The evidence rule is checked here, where skipping it is not an option
     # that exists. A rule that lives only in the skill's prose holds until the
     # run is long and the assistant is tired.
-    problems = _gate(markdown, previous)
+    ledger, ledger_problems = _ledger_gate(args.ledger)
+    problems = _gate(markdown, previous, ledger_problems)
     if problems:
         _report_problems(problems)
         print(
@@ -262,7 +306,8 @@ def _save(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        saved = store.save(markdown, label=label)
+        ledger_json = args.ledger.read_text(encoding="utf-8") if ledger is not None else None
+        saved = store.save(markdown, label=label, ledger_json=ledger_json)
     except ValueError as exc:
         print(f"dex-lens: {exc}", file=sys.stderr)
         return 2

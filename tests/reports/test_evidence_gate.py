@@ -34,14 +34,24 @@ COMPLETE = f"""# Dex Lens: my vault — 2026-08-24
 - Inventory: /vault, 240 distinct items across 6,829 files
 - Read in full: `CLAUDE.md`
 
-## What is strong
+## What is working especially well
 ### Meeting handling — Verified
 > then re-open the person page and confirm the commitment appears
 > - `skills/meetings/SKILL.md`
 Closes the loop: it writes back and checks the write.
 
-## Contradictions and fragility
+## What Dex should learn from you
+No transferable method cleared the evidence bar.
+
+## Worth borrowing from Dex
+No Dex addition cleared the evidence bar this time.
+
+## Fragility and contradictions
 {CLEAN_SWEEP}
+
+## Coverage and limits
+- Every signed catalogue entry has a disposition in the accompanying ledger.
+- Live operating-system state was not assessed.
 
 ## What happens next
 - Nothing has changed on your machine.
@@ -76,6 +86,30 @@ class TestWhatAReportMustShow:
 
         assert any("What happens next" in problem for problem in problems)
 
+    @pytest.mark.parametrize(
+        "missing",
+        ("## What is working especially well", "## What Dex should learn from you"),
+    )
+    def test_two_way_sections_are_required(self, missing: str) -> None:
+        problems = missing_report_requirements(COMPLETE.replace(missing, ""))
+        assert any(missing.removeprefix("## ") in problem for problem in problems)
+
+    def test_more_than_three_recommendation_findings_are_refused(self) -> None:
+        suggestions = "\n".join(
+            f"### Suggestion {index} — Verified\n"
+            f"> evidence for suggestion {index}\n"
+            f"> - `system-{index}.md`"
+            for index in range(4)
+        )
+        report = COMPLETE.replace(
+            "## Worth borrowing from Dex\nNo Dex addition cleared the evidence bar this time.",
+            f"## Worth borrowing from Dex\n{suggestions}",
+        )
+
+        assert any(
+            "at most three" in problem for problem in missing_report_requirements(report)
+        )
+
     def test_a_scored_finding_with_no_evidence_is_named(self) -> None:
         report = COMPLETE + (
             "\n## Worth borrowing from Dex\n"
@@ -103,10 +137,10 @@ class TestWhatAReportMustShow:
         """The most valuable finding in a diagnosis is also the easiest to
         quietly not go looking for."""
         problems = missing_report_requirements(
-            _without("## Contradictions and fragility")
+            _without("## Fragility and contradictions")
         )
 
-        assert any("Contradictions" in problem for problem in problems)
+        assert any("Fragility and contradictions" in problem for problem in problems)
 
     def test_an_empty_contradictions_heading_is_refused(self) -> None:
         """The heading surviving while the search never happened is the exact
@@ -132,13 +166,13 @@ class TestWhatAReportMustShow:
         checks agreeing on what a section IS is the whole fix.
         """
         report = COMPLETE.replace(
-            "## Contradictions and fragility\n",
+            "## Fragility and contradictions\n",
             "## The mirror, continued\nNo contradictions found, by the way.\n",
         )
 
         problems = missing_report_requirements(report)
 
-        assert any("Contradictions and fragility" in problem for problem in problems)
+        assert any("Fragility and contradictions" in problem for problem in problems)
 
     def test_incidental_found_none_is_not_a_clean_sweep(self) -> None:
         """The clean statement must show the check, not just the outcome words.
@@ -223,6 +257,7 @@ class TestTheGateInTheCommand:
     def reports_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         directory = tmp_path / "state" / "reports"
         monkeypatch.setattr(cli, "default_report_directory", lambda _roots: directory)
+        monkeypatch.setattr(cli, "_ledger_gate", lambda _path: (None, []))
         return directory
 
     def test_saving_a_thin_report_writes_nothing_and_says_what_is_missing(

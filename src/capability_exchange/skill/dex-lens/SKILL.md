@@ -398,14 +398,17 @@ The signed live catalogue is the preferred source for all four.
 
 ```
 dex-lens catalogue
+dex-lens catalogue --ledger-template > /tmp/dex-lens-ledger.json
 ```
 
-This fetches Dex's published catalogue and checks its signature on this
-machine before printing a word of it. If it fails, say so and stop; do not
-work from an unverified list. Everything in it is verified. The current
-catalogue covers skills, MCP servers (the plugs that let an assistant use
-outside tools), scheduled automations (jobs that run on their own timetable),
-and system engines (the behind-the-scenes services those abilities depend on).
+The first command fetches Dex's published catalogue and checks its signature
+on this machine before printing a word of it. The second creates the complete
+comparison ledger for that exact signed catalogue. If either fails, say so and
+stop; do not work from an unverified or incomplete list. Everything in it is
+verified. The current catalogue covers skills, MCP servers (the plugs that let
+an assistant use outside tools), scheduled automations (jobs that run on their
+own timetable), and system engines (the behind-the-scenes services those
+abilities depend on).
 
 The output is grouped by **job to be done**, which is the axis the comparison
 runs on.
@@ -614,7 +617,7 @@ one abandoned.
 Write the report to a temporary file using the template below, then:
 
 ```
-dex-lens reports save /tmp/dex-lens-report.md --label <short-system-name> --for <folder>
+dex-lens reports save /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json --label <short-system-name> --for <folder>
 ```
 
 It prints where the report went. Tell the person that path in your last
@@ -627,7 +630,8 @@ check that before it writes anything, which is the read-only promise being
 proved rather than asserted.
 
 **Saving refuses a report that has not shown its work.** It checks that the
-report says what you read, says what happens next, quotes at least one line
+report says what you read, gives earned praise and a reciprocal answer, says
+what happens next, quotes at least one line
 from a real file, leaves no scored finding standing with neither a quotation
 nor an honest Unknown, pairs any shortlist with the rejections, and shows the
 contradiction hunt — either a conflict with both sides quoted, or the sentence
@@ -640,7 +644,7 @@ something is missing it names it and writes nothing; fix it and save again.
 To check before you write anything final:
 
 ```
-dex-lens reports check /tmp/dex-lens-report.md
+dex-lens reports check /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json
 ```
 
 This is deliberate. If the rule lived only in this file, it would hold until
@@ -672,21 +676,38 @@ Nothing on this machine was changed. This is a read-only second opinion.
 with yet." Once a previous report exists this section is required, and
 "nothing has changed since then" is a complete answer.)
 
-## What is strong
+## What is working especially well
 ### <name of the capability>  — Verified | Supported | Reported
 > <exact quoted line>
 > — `<path>`
 Why it clears the bar: <which of the six checks, named, one sentence each>
 
-## The mirror
-### <finding, e.g. leftover working copies>  — Verified | Supported
-Evidence:
-> <quoted line or inventory count>
+## What Dex should learn from you
+### <the method this person does especially well> — Verified | Supported
+> <exact quoted line showing the method, not merely a matching name>
 > — `<path>`
-What it costs: <plain words>
-How to check it: <what they would do; you do not do it>
+What Dex should borrow from this method: <one concrete lesson>
+(If no method clears the evidence bar, replace the entire contents of this
+section with exactly: "No transferable method cleared the evidence bar.")
 
-## Contradictions and fragility
+## Worth borrowing from Dex
+### <capability title> (`<capability-id>`) — Verified | Supported | Unknown
+Kind: <skill | tool set | automation | engine>  ·  impact: <core | high | medium | niche>
+What it does: <one sentence in their language>
+Why I thought of it for you:
+> <quoted evidence from their system>
+> — `<path>`
+Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
+What it would cost: <time, overlap, what it duplicates>
+(Recommend no more than three. If none clears the evidence bar, write:
+"No Dex addition cleared the evidence bar this time.")
+
+## Considered and rejected
+- `<capability-id>` — <one line reason>
+- `<capability-id>` — <one line reason>
+(Include this section when at least one Dex addition is recommended.)
+
+## Fragility and contradictions
 (Required. If the hunt came back clean, this whole section is one sentence
 that names the file you checked: "I checked the rules in
 `~/.claude/CLAUDE.md` against your skills and found no conflicts."
@@ -700,19 +721,11 @@ What contradicts it:
 > — `<path>`
 Why it matters: <which behaviour is now unpredictable>
 
-## Worth borrowing from Dex
-### <capability title> (`<capability-id>`) — Verified | Supported | Unknown
-Kind: <skill | tool set | automation | engine>  ·  impact: <core | high | medium | niche>
-What it does: <one sentence in their language>
-Why I thought of it for you:
-> <quoted evidence from their system>
-> — `<path>`
-Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
-What it would cost: <time, overlap, what it duplicates>
-
-## Considered and rejected
-- `<capability-id>` — <one line reason>
-- `<capability-id>` — <one line reason>
+## Coverage and limits
+- Catalogue accounting: <every signed entry has one disposition in the ledger>
+- Approved folders: <the exact folders read>
+- Live state: <assessed with permission, or not assessed>
+- Unknown: <anything the evidence could not prove>
 
 ## What you decided
 - `<capability-id>` — taken | declined | deferred<, " because <their words>" when they gave a reason>
@@ -879,8 +892,8 @@ the person who built the thing.
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
 | `dex-lens catalogue --since-last` | The recurring check: only what is new or changed since this machine last looked. Silent when nothing has changed. |
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
-| `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
-| `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
+| `dex-lens reports save <file> --ledger <ledger.json> --label <name> --for <folder>` | Saves the dated report and its complete catalogue ledger outside the inspected folder. Refuses a report with missing evidence or catalogue entries. |
+| `dex-lens reports check <file> --ledger <ledger.json>` | Says whether the report and its catalogue accounting are ready to save. Writes nothing either way. |
 | `dex-lens share <card.md>` | Shows exactly what an idea card would send, and sends nothing. `--yes` sends after the person approved those exact bytes; `--to github` prints a pre-filled issue link they submit themselves. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 
