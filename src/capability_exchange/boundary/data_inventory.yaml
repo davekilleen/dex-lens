@@ -10,14 +10,12 @@
 # or bare strings, comments). Schema-validated by pydantic at import and by
 # scripts/check_inventory.py in CI (the g2-inventory-check step).
 #
-# Diagnosis remains ephemeral and telemetry-free. M5 opens exactly one reviewed
-# sharing field: the user-previewed canonical DisclosureManifest bytes may
-# cross the contribution-intake port. It remains the sole request-body/product
-# field: no wrapper, Card identifier, header, or consent record joins those
-# bytes. A separate opaque control capability (manifest-byte digest plus private
-# revocation token) authenticates intake correlation and withdrawal receipts;
-# it is never part of the payload, rendered, inventoried as product data, or
-# persisted by the local journey.
+# Diagnosis remains ephemeral and telemetry-free. M5 opens one reviewed body
+# field: the user-previewed canonical DisclosureManifest bytes. A separately
+# inventoried, closed set of opaque control headers carries only hashes,
+# permissions, idempotency and receipt authority. Minimal local receipt state
+# supports later withdrawal; no disclosure bytes, account identity or private
+# revocation token are stored there.
 
 inventory_version: 2
 
@@ -2110,6 +2108,346 @@ fields:
     sharing: contribution-intake-exact-manifest
     deletion: not-stored
     audit: "ephemeral manifest value"
+
+  HostedSubmissionControl.manifest_byte_hash:
+    description: "digest binding the hosted submission to the exact approved manifest bytes"
+    collection: "copied from the approved DisclosureManifest byte hash"
+    derivation: "SHA-256 of the sole request body"
+    display: "shown in the exact disclosure preview"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Manifest-Hash header; never request-body content"
+
+  HostedSubmissionControl.consent_hash:
+    description: "digest binding hosted processing to the exact version consent record"
+    collection: "derived only after the contributor approves the disclosure and six permissions"
+    derivation: "SHA-256 of canonical local consent-record JSON"
+    display: "represented by the reviewed permission summary"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Consent-Hash header; the consent record itself stays local"
+
+  HostedSubmissionControl.receipt_binding:
+    description: "one-way opaque authority binding submission and later withdrawal receipts"
+    collection: "derived locally after contribution approval"
+    derivation: "SHA-256 of the private revocation token; token never leaves the process"
+    display: "not rendered; represented by the withdrawal control offered to the person"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Receipt-Binding header; no raw revocation token"
+
+  HostedSubmissionControl.idempotency_key:
+    description: "retry key for exactly one manifest-and-consent pair"
+    collection: "derived after the same contribution approval"
+    derivation: "SHA-256 over the manifest and consent digests with a versioned domain separator"
+    display: "not rendered; operational retry control only"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Idempotency-Key header"
+
+  HostedSubmissionControl.permission_review:
+    description: "whether review is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedSubmissionControl.permission_storage:
+    description: "whether hosted storage is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedSubmissionControl.permission_moderation:
+    description: "whether moderation is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedSubmissionControl.permission_attribution:
+    description: "whether optional attribution is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedSubmissionControl.permission_reuse:
+    description: "whether reviewed reuse is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedSubmissionControl.permission_distribution:
+    description: "whether reviewed distribution is approved for this immutable contribution"
+    collection: "copied from the contributor-approved PermissionSet"
+    derivation: "strict boolean; unresolved refuses transmission"
+    display: "shown before contribution approval"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed boolean permission header"
+
+  HostedWithdrawalControl.receipt_id:
+    description: "opaque hosted receipt selected for explicit self-service withdrawal"
+    collection: "returned by hosted intake after exact-byte acceptance"
+    derivation: "server-generated bounded opaque identifier"
+    display: "shown as the contribution receipt identity"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Receipt-Id withdrawal header"
+
+  HostedWithdrawalControl.manifest_byte_hash:
+    description: "exact manifest digest reasserted during withdrawal"
+    collection: "copied from the approved contribution handle"
+    derivation: "SHA-256 of the original sole request body"
+    display: "shown in the contribution receipt"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Manifest-Hash withdrawal header"
+
+  HostedWithdrawalControl.receipt_binding:
+    description: "one-way receipt authority reasserted during withdrawal"
+    collection: "derived locally from private revocation authority"
+    derivation: "SHA-256; raw token never leaves the process"
+    display: "not rendered; represented by the withdrawal control"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Receipt-Binding withdrawal header"
+
+  HostedAuthorizationControl.bearer_token:
+    description: "short-lived linked-session bearer used only at the pinned Heydex intake"
+    collection: "read lazily from the user-controlled terminal link at an approved hosted action"
+    derivation: "validated bounded non-whitespace session token"
+    display: "never displayed"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "redacted Authorization header; token value must never be logged"
+
+  HostedCorrectionControl.replacement_receipt_id:
+    description: "saved contribution receipt explicitly selected for replacement"
+    collection: "supplied by the contributor when starting a fresh correction journey"
+    derivation: "validated bounded opaque receipt identifier"
+    display: "shown as the contribution being corrected"
+    storage: none
+    sharing: contribution-intake-control-header
+    deletion: not-stored
+    audit: "closed X-Dex-Replaces-Receipt control header"
+
+  HostedContributionStatus.receipt_id:
+    description: "opaque contribution receipt returned for a requested status check"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated against the locally selected receipt"
+    display: "shown in contributor status output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.manifest_byte_hash:
+    description: "digest binding hosted status to the exact approved contribution bytes"
+    collection: "received from the pinned hosted intake"
+    derivation: "must equal the locally saved manifest hash"
+    display: "available in detailed contributor status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.status:
+    description: "current closed-vocabulary moderation state"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated closed status value"
+    display: "shown in contributor status output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.created_at:
+    description: "hosted creation timestamp for the contribution receipt"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated non-negative epoch timestamp"
+    display: "available in detailed contributor status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.updated_at:
+    description: "latest hosted status timestamp for the contribution receipt"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated non-negative epoch timestamp"
+    display: "available in detailed contributor status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.withdrawn_at:
+    description: "optional hosted withdrawal timestamp"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated non-negative epoch timestamp or null"
+    display: "available in detailed contributor status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.deleted_at:
+    description: "optional hosted deletion timestamp"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated non-negative epoch timestamp or null"
+    display: "available in detailed contributor status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.replaces_receipt_id:
+    description: "optional prior contribution receipt replaced by this correction"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated bounded opaque receipt identifier or null"
+    display: "shown when the contribution is a correction"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated response field"
+
+  HostedContributionStatus.moderation_decision:
+    description: "bounded closed moderation decision label"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated bounded text or null"
+    display: "shown in contributor status output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral moderation response field"
+
+  HostedContributionStatus.moderation_reason:
+    description: "bounded human-readable moderation guidance"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated bounded text or null"
+    display: "shown in contributor status output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral moderation response field"
+
+  HostedDeletionReceipt.ok:
+    description: "strict affirmative confirmation of the hosted deletion request"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated strict boolean"
+    display: "represented by successful command output"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deletion response field"
+
+  HostedDeletionReceipt.deleted_count:
+    description: "number of hosted contribution records deleted"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated non-negative integer"
+    display: "shown after confirmed deletion"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deletion response field"
+
+  HostedDeletionReceipt.retention_disclosure:
+    description: "bounded explanation of any abuse-prevention tombstone retained"
+    collection: "received from the pinned hosted intake"
+    derivation: "validated bounded text"
+    display: "shown after confirmed deletion"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deletion response field"
+
+  HostedReceiptRecord.manifest_byte_hash:
+    description: "digest identifying the exact disclosure accepted by hosted intake"
+    collection: "copied from the validated affirmative hosted receipt"
+    derivation: "must equal the approved manifest byte hash"
+    display: "shown in local contribution status"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until verified withdrawal or user-requested deletion"
+    sharing: never
+    deletion: delete-hosted-contribution-receipts
+    audit: "minimal local control receipt; no disclosure bytes"
+
+  HostedReceiptRecord.receipt_id:
+    description: "opaque hosted receipt needed for later self-service withdrawal, when known"
+    collection: "empty while submission is in flight, then copied from the validated hosted receipt"
+    derivation: "server-generated bounded identifier or null pending recovery"
+    display: "shown in local contribution status"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until verified withdrawal or user-requested deletion"
+    sharing: never
+    deletion: delete-hosted-contribution-receipts
+    audit: "minimal local withdrawal authority"
+
+  HostedReceiptRecord.status:
+    description: "last exact hosted state confirmed for the local receipt"
+    collection: "set to submitting before egress, then updated only from an exact affirmative response"
+    derivation: "closed submitting, submitted-for-review or withdrawn vocabulary"
+    display: "shown in local contribution status"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until verified withdrawal or user-requested deletion"
+    sharing: never
+    deletion: delete-hosted-contribution-receipts
+    audit: "minimal local lifecycle status"
+
+  HostedReceiptLedger.receipts:
+    description: "map of one-way receipt bindings to minimal hosted receipt records"
+    collection: "updated only after exact hosted receipt validation"
+    derivation: "closed typed HostedReceiptRecord values; disclosure and identity excluded"
+    display: "used for local contribution status and withdrawal"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "until verified withdrawal or user-requested deletion"
+    sharing: never
+    deletion: delete-hosted-contribution-receipts
+    audit: "mode-0600 atomic JSON ledger"
+
+  HostedReceiptLedger.schema_version:
+    description: "local hosted receipt ledger format version"
+    collection: "static product constant"
+    derivation: "literal integer 1"
+    display: "not shown; format-version control only"
+    storage:
+      location: "Dex Lens app storage outside every inspected root"
+      duration: "same lifetime as the local hosted receipt ledger"
+    sharing: never
+    deletion: delete-hosted-contribution-receipts
+    audit: "mode-0600 atomic JSON ledger"
 
   PermissionSet.review:
     description: "consent for review of one immutable Card version"

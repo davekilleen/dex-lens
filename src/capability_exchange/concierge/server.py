@@ -81,6 +81,10 @@ from capability_exchange.concierge.security import (
 )
 from capability_exchange.concierge.views import render_journey
 from capability_exchange.contribution import PermissionSet
+from capability_exchange.contribution.hosted_intake import (
+    HostedContributionIntake,
+    HostedSessionCredentials,
+)
 from capability_exchange.contribution.lifecycle import StorePort
 from capability_exchange.evidence import EvidenceLevel, EvidenceState
 from capability_exchange.jobs import CandidateJobProposal, JobStoreError, SuccessContract
@@ -1290,7 +1294,11 @@ def _form_lines(form: dict[str, list[str]], name: str) -> tuple[str, ...]:
     return tuple(line.strip() for line in value.splitlines() if line.strip())
 
 
-def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:
+def session_for_roots(
+    roots: tuple[Path, ...],
+    *,
+    correction_receipt_id: str | None = None,
+) -> ConciergeSession:
     """Build the real CLI session for approved roots."""
 
     def collect(cancel_event: threading.Event | None = None) -> AdapterResultEnvelope:
@@ -1299,7 +1307,20 @@ def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:
         )
         return result.envelope
 
-    return new_session(approved_roots=roots, collector=collect)
+    app_storage = default_lens_app_storage(roots)
+    hosted_credentials = HostedSessionCredentials()
+    hosted_intake = HostedContributionIntake(
+        session_token=hosted_credentials.session_token,
+        receipt_store=app_storage / "hosted-contribution-receipts.json",
+        replacement_receipt_id=correction_receipt_id,
+    )
+    return new_session(
+        approved_roots=roots,
+        collector=collect,
+        contribution_identity=hosted_credentials,
+        contribution_intake=hosted_intake,
+        app_storage=app_storage,
+    )
 
 
 def start_server(session: ConciergeSession) -> ConciergeServer:

@@ -80,7 +80,7 @@ on your machine before any of it is shown.
 | `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` prints only the capabilities that are new or changed since this machine last looked, and nothing at all when none are. |
 | `dex-lens brief <id>` | Everything needed to rebuild one capability elsewhere: method, verification, rollback, and Dex's own evidence with its limits. |
 | `dex-lens reports` | The dated reports every diagnosis leaves behind, kept in app storage outside the inspected folder. `save` writes one and refuses a report that quotes no evidence, `check` says whether one is ready, and `--last` prints the previous one so the next run can say what changed. |
-| `dex-lens share <card.md>` | The only way anything goes the other direction, and only when the person asks. It prints exactly what an idea card would send and sends nothing; `--yes` sends after they have approved those exact bytes, and `--to github` prints a pre-filled issue link they submit themselves. |
+| `dex-lens share <card.md>` | A non-posting fallback for a simple idea card. It previews the exact card; `--yes` prints a pre-filled GitHub issue link that the person may submit themselves. The retired anonymous Markdown POST is refused. Structured community contributions use the local Capability Exchange journey, with separate consent, moderation, receipts and withdrawal. |
 
 Each exits non-zero rather than printing anything unverified.
 

@@ -162,7 +162,7 @@ class TestEphemeralByDefault:
             with pytest.raises(NoTransmissibleFieldsError):
                 m.dump_for_transmission()
 
-    def test_packaged_inventory_has_one_closed_exact_contribution_field(self) -> None:
+    def test_packaged_inventory_has_one_body_and_closed_control_headers(self) -> None:
         from capability_exchange.boundary.inventory import load_packaged_inventory
 
         shared = {
@@ -170,6 +170,23 @@ class TestEphemeralByDefault:
             for key, field_entry in load_packaged_inventory().fields.items()
             if field_entry.shares
         }
+        assert shared.pop("DisclosureManifest.display_text") == (
+            "contribution-intake-exact-manifest"
+        )
         assert shared == {
-            "DisclosureManifest.display_text": "contribution-intake-exact-manifest"
+            "HostedSubmissionControl.manifest_byte_hash": "contribution-intake-control-header",
+            "HostedSubmissionControl.consent_hash": "contribution-intake-control-header",
+            "HostedSubmissionControl.receipt_binding": "contribution-intake-control-header",
+            "HostedSubmissionControl.idempotency_key": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_review": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_storage": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_moderation": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_attribution": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_reuse": "contribution-intake-control-header",
+            "HostedSubmissionControl.permission_distribution": "contribution-intake-control-header",
+            "HostedWithdrawalControl.receipt_id": "contribution-intake-control-header",
+            "HostedWithdrawalControl.manifest_byte_hash": "contribution-intake-control-header",
+            "HostedWithdrawalControl.receipt_binding": "contribution-intake-control-header",
+            "HostedAuthorizationControl.bearer_token": "contribution-intake-control-header",
+            "HostedCorrectionControl.replacement_receipt_id": "contribution-intake-control-header",
         }

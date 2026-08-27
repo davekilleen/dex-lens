@@ -45,6 +45,30 @@ Load-bearing boundaries between modules:
 - The **adaptation side never reads beyond its approved target**.
 - The **contribution side sees only what serialization rules permit** (G2 typed boundary).
 
+### M5 hosted contribution boundary (unreleased candidate)
+
+The optional stage-nine connection is deliberately not a general network
+client. After the person edits and approves one canonical DisclosureManifest,
+the client writes a minimal `submitting` receipt outside every inspected root,
+then posts the manifest's exact UTF-8 bytes as the sole body to the pinned
+`https://api.heydex.ai/api/capability-contributions/submit` route. A closed,
+inventoried `X-Dex-*` header set carries only the manifest and consent hashes,
+one-way receipt binding, idempotency key and six strict permission booleans.
+The linked Heydex session token supplies identity at this boundary only. The
+private revocation token, inspected files, raw evidence and full Card never
+travel.
+
+The service recalculates the body hash, validates canonical JSON and allowed
+fields, resolves the authenticated contributor server-side, scans before human
+moderation, and returns an exact bound receipt. Correction creates a new
+version; withdrawal clears active disclosure bytes and permissions; deletion
+removes contributor identity and receipt authority while retaining only the
+documented abuse/audit tombstone. The local receipt is mode `0600`, has a
+registered verified deletion path, and is removed after an exact affirmative
+withdrawal. A receiptless Markdown POST is not an alternative contribution
+path: the old `dex-lens share --to heydex` channel now refuses, while its GitHub
+mode only prints a link that the person may submit themselves.
+
 ## M1 slice walkthrough: adapter → evidence store
 
 M1 builds only the read-only top of the diagram: the Host Adapter contract, the contained

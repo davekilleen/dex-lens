@@ -334,6 +334,26 @@ def test_submit_revalidates_exact_card_version_and_manifest_consent(tmp_path: Pa
     assert intake.submissions == []
 
 
+def test_identity_transport_failure_is_reported_as_a_fail_closed_journey_error(
+    tmp_path: Path,
+) -> None:
+    class UnavailableIdentity:
+        def contributor_secret(self) -> bytes:
+            raise RuntimeError("linked session unavailable")
+
+    journey = _contribution_journey(  # type: ignore[arg-type]
+        tmp_path,
+        identity=UnavailableIdentity(),
+        intake=StructuredIntake(),
+        store=InMemoryStore("exchange-cards"),
+    )
+    _reach_approval(journey)
+
+    with pytest.raises(ContributionEgressError, match="contributor authority unavailable"):
+        journey.approve_contribution(_permissions())
+    assert journey.stage is ConciergeStage.CONTRIBUTION_APPROVE
+
+
 def test_intake_failure_quarantines_and_leaves_immediate_withdrawal_available(
     tmp_path: Path,
 ) -> None:
@@ -462,6 +482,51 @@ def test_close_revokes_accepted_submission_and_expired_close_can_be_retried(
     intake.fail_withdrawal = False
     receipt = journey.retry_pending_withdrawal()
     assert receipt.withdrawn is True
+    assert not journey.has_pending_withdrawal
+
+
+def test_close_preserves_an_accepted_durable_review_submission(tmp_path: Path) -> None:
+    class DurableIntake(StructuredIntake):
+        def has_durable_withdrawal_authority(self, _handle: object, /) -> bool:
+            return True
+
+    identity = RecordingIdentity()
+    intake = DurableIntake()
+    journey = _contribution_journey(  # type: ignore[arg-type]
+        tmp_path,
+        identity=identity,
+        intake=intake,
+        store=InMemoryStore("exchange-cards"),
+    )
+    _reach_approval(journey)
+    journey.approve_contribution(_permissions())
+    journey.submit_contribution()
+
+    journey.close()
+
+    assert journey.stage is ConciergeStage.CLOSED
+    assert intake.withdrawals == []
+    assert not journey.has_pending_withdrawal
+
+
+def test_close_does_not_trust_a_boolean_durable_receipt_claim(tmp_path: Path) -> None:
+    class FlagOnlyIntake(StructuredIntake):
+        retain_accepted_submission_after_session = True
+
+    intake = FlagOnlyIntake()
+    journey = _contribution_journey(  # type: ignore[arg-type]
+        tmp_path,
+        identity=RecordingIdentity(),
+        intake=intake,
+        store=InMemoryStore("exchange-cards"),
+    )
+    _reach_approval(journey)
+    journey.approve_contribution(_permissions())
+    journey.submit_contribution()
+
+    journey.close()
+
+    assert len(intake.withdrawals) == 1
     assert not journey.has_pending_withdrawal
 
 

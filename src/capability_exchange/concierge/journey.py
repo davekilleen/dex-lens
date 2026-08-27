@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from dataclasses import field as dataclass_field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias, runtime_checkable
 
 from capability_exchange.adapter import (
     AdapterContract,
@@ -86,6 +87,7 @@ __all__ = [
     "AdaptationSelection",
     "ContributionEgressError",
     "ContributionHandle",
+    "DurableContributionIntakePort",
     "ContributionVersionComparison",
     "ContributionIdentityPort",
     "ContributionIntakePort",
@@ -137,12 +139,21 @@ class ContributionHandle:
 
     manifest_byte_hash: str
     revocation_token: str = dataclass_field(repr=False)
+    consent_hash: str
+    idempotency_key: str
+    permissions: PermissionSet
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.manifest_byte_hash):
             raise ValueError("contribution handle requires an exact manifest byte hash")
         if not isinstance(self.revocation_token, str) or len(self.revocation_token) < 32:
             raise ValueError("contribution handle requires private revocation authority")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.consent_hash):
+            raise ValueError("contribution handle requires an exact consent hash")
+        if not isinstance(self.idempotency_key, str) or not self.idempotency_key:
+            raise ValueError("contribution handle requires an idempotency key")
+        if self.permissions.is_unresolvable:
+            raise ValueError("contribution handle permissions must be fully resolved")
 
     @property
     def receipt_binding(self) -> str:
@@ -189,6 +200,16 @@ class ContributionIntakePort(Protocol):
 
     def withdraw(self, handle: ContributionHandle, /) -> WithdrawalReceipt:
         """Revoke the exact accepted payload and prove it was previously active."""
+
+
+@runtime_checkable
+class DurableContributionIntakePort(ContributionIntakePort, Protocol):
+    """Intake that can prove later withdrawal authority survives this process."""
+
+    def has_durable_withdrawal_authority(
+        self, handle: ContributionHandle, /
+    ) -> bool:
+        """Return true only when an exact affirmative receipt is durably recoverable."""
 
 
 class ConciergeStage(StrEnum):
@@ -1810,13 +1831,18 @@ class ConciergeJourney:
                 "unresolvable permission state is fully withdrawn and cannot be approved"
             )
 
-        secret = identity.contributor_secret()
+        try:
+            secret = identity.contributor_secret()
+        except Exception as exc:
+            raise ContributionEgressError(
+                "contributor authority unavailable; link this terminal before approval"
+            ) from exc
         if type(secret) is not bytes or not secret or len(secret) > 4096:
             raise ContributionEgressError(
                 "identity port did not provide bounded local contributor authority"
             )
         ledger = ConsentLedger()
-        ledger.grant(card, manifest, permissions)
+        consent_record = ledger.grant(card, manifest, permissions)
         lifecycle = ContributionLifecycle(
             stores=list(self._contribution_stores),
             consent=ledger,
@@ -1834,9 +1860,25 @@ class ConciergeJourney:
             b"contribution-withdrawal\0" + manifest.byte_hash.encode("ascii"),
             hashlib.sha256,
         ).hexdigest()
+        consent_bytes = json.dumps(
+            consent_record.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        consent_hash = "sha256:" + hashlib.sha256(consent_bytes).hexdigest()
+        idempotency_material = (
+            b"capability-submission-v1\0"
+            + manifest.byte_hash.encode("ascii")
+            + b"\0"
+            + consent_hash.encode("ascii")
+        )
         self._contribution_handle = ContributionHandle(
             manifest_byte_hash=manifest.byte_hash,
             revocation_token="revocation-v1:" + token_digest,
+            consent_hash=consent_hash,
+            idempotency_key="sha256:" + hashlib.sha256(idempotency_material).hexdigest(),
+            permissions=consent_record.permissions,
         )
         self._intake_submission_attempted = False
         self._pending_withdrawal = False
@@ -2009,35 +2051,57 @@ class ConciergeJourney:
             return
         # Revoke local consent at every exit.  If intake was attempted, also
         # request authenticated withdrawal before clearing contribution state.
+        # A hosted review queue is the deliberate exception: once its exact
+        # affirmative receipt has been checked, closing this short-lived local
+        # browser session must not silently undo the person's contribution.
+        # Its durable local receipt remains the later withdrawal authority.
         contribution = self._contribution
         lifecycle = self._contribution_lifecycle
         if contribution is not None and lifecycle is not None:
-            self._pending_withdrawal_version_hash = contribution.version_hash
-            if contribution.state is not ContributionState.WITHDRAWN:
+            intake = self._contribution_intake
+            handle = self._contribution_handle
+            durable_acceptance = False
+            if (
+                contribution.state is ContributionState.SUBMITTED
+                and self._intake_submission_attempted
+                and handle is not None
+                and isinstance(intake, DurableContributionIntakePort)
+            ):
                 try:
-                    lifecycle.withdraw(contribution, reason="session closed or expired")
-                except Exception:  # noqa: BLE001 - close still preserves intake recovery
-                    self._pending_withdrawal = self._intake_submission_attempted
-            if self._intake_submission_attempted:
-                intake = self._contribution_intake
-                handle = self._contribution_handle
-                if intake is None or handle is None:
-                    self._pending_withdrawal = True
-                else:
+                    durable_acceptance = (
+                        intake.has_durable_withdrawal_authority(handle) is True
+                    )
+                except Exception:  # noqa: BLE001 - close fails safe to withdrawal
+                    durable_acceptance = False
+            if durable_acceptance:
+                self._pending_withdrawal = False
+                self._pending_withdrawal_version_hash = None
+            else:
+                self._pending_withdrawal_version_hash = contribution.version_hash
+                if contribution.state is not ContributionState.WITHDRAWN:
                     try:
-                        receipt = intake.withdraw(handle)
-                    except Exception:  # noqa: BLE001 - opaque authority remains retryable
+                        lifecycle.withdraw(contribution, reason="session closed or expired")
+                    except Exception:  # noqa: BLE001 - close still preserves intake recovery
+                        self._pending_withdrawal = self._intake_submission_attempted
+                if self._intake_submission_attempted:
+                    if intake is None or handle is None:
                         self._pending_withdrawal = True
                     else:
-                        confirmed = self._receipt_matches(
-                            receipt, handle, confirmation_field="withdrawn"
-                        )
-                        self._pending_withdrawal = not confirmed
-                        if confirmed:
-                            self._intake_submission_attempted = False
-            self._pending_withdrawal = self._pending_withdrawal or lifecycle.has_pending_withdrawal(
-                contribution.version_hash
-            )
+                        try:
+                            receipt = intake.withdraw(handle)
+                        except Exception:  # noqa: BLE001 - opaque authority remains retryable
+                            self._pending_withdrawal = True
+                        else:
+                            confirmed = self._receipt_matches(
+                                receipt, handle, confirmation_field="withdrawn"
+                            )
+                            self._pending_withdrawal = not confirmed
+                            if confirmed:
+                                self._intake_submission_attempted = False
+                self._pending_withdrawal = (
+                    self._pending_withdrawal
+                    or lifecycle.has_pending_withdrawal(contribution.version_hash)
+                )
 
         # The registered deletion path applies the same verified unlink
         # discipline as the underlying store.  Confirmed drafts are already

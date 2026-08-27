@@ -8,13 +8,12 @@ previewed, and the GitHub channel never posts as the person.
 
 from __future__ import annotations
 
-import io
-import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -78,11 +77,23 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list:
         calls.append((args, kwargs))
         raise AssertionError("the network was touched")
 
-    monkeypatch.setattr(cli.urllib.request, "urlopen", refuse)
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
     return calls
 
 
 class TestPreviewIsTheDefault:
+    def test_help_truthfully_describes_a_non_posting_public_link(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            cli.share_main(["--help"])
+
+        assert exit_info.value.code == 0
+        help_text = capsys.readouterr().out
+        assert "prints a link" in help_text
+        assert "Actually send" not in help_text
+        assert "included" not in help_text
+
     def test_without_yes_nothing_is_sent_and_the_exact_bytes_are_shown(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -93,67 +104,39 @@ class TestPreviewIsTheDefault:
         assert "Nothing has been sent" in out
         assert no_network == []
 
-    def test_the_preview_shows_every_field_the_send_includes(
+    def test_the_preview_says_the_github_link_carries_only_the_card(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The send posts card, contact, and lens_version; the preview must
-        account for all three, including the one this command adds itself.
-        A preview that omits anything the send includes lies by silence."""
+        """The surviving idea-card fallback creates a link and never posts."""
         cli.share_main([str(card_file)])
 
         out = capsys.readouterr().out
-        assert "No name, no contact." in out
-        assert "version of Lens doing the sending" in out
-        assert cli._lens_version() in out
+        assert "only the card above goes into the link" in out
+        assert "Nothing is posted by this command" in out
 
-    def test_a_given_contact_is_previewed_too(
+    def test_a_contact_is_refused_on_the_public_link_fallback(
         self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A line that will travel must appear in the preview like any other."""
-        cli.share_main([str(card_file), "--contact", "bird@example.com"])
+        assert cli.share_main([str(card_file), "--contact", "bird@example.com"]) == 2
 
-        assert "bird@example.com" in capsys.readouterr().out
+        assert "public issue is no place" in capsys.readouterr().err
 
 
 class TestSending:
-    def test_yes_posts_exactly_the_previewed_card(
-        self, card_file: Path, monkeypatch: pytest.MonkeyPatch,
+    def test_legacy_heydex_markdown_channel_is_closed_without_network(
+        self, card_file: Path, no_network: list,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        sent: dict = {}
+        assert cli.share_main([str(card_file), "--to", "heydex", "--yes"]) == 2
+        assert no_network == []
+        assert "Capability Exchange" in capsys.readouterr().err
 
-        class _Response(io.BytesIO):
-            def __enter__(self) -> _Response:
-                return self
-
-            def __exit__(self, *exc: object) -> None:
-                return None
-
-        def capture(request, timeout):  # noqa: ANN001 - urllib's shape
-            sent["url"] = request.full_url
-            sent["body"] = json.loads(request.data.decode("utf-8"))
-            return _Response(b"Shared. Thank you.")
-
-        monkeypatch.setattr(cli.urllib.request, "urlopen", capture)
-
-        assert cli.share_main([str(card_file), "--yes"]) == 0
-
-        assert sent["url"] == cli.INTAKE_URL
-        assert sent["body"]["card"] == CARD
-        assert sent["body"]["contact"] is None
-        assert "Shared. Thank you." in capsys.readouterr().out
-
-    def test_a_failed_send_is_honest_and_nonzero(
-        self, card_file: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
+    def test_legacy_heydex_channel_is_closed_even_without_yes(
+        self, card_file: Path, no_network: list, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        def down(request, timeout):  # noqa: ANN001
-            raise OSError("connection refused")
-
-        monkeypatch.setattr(cli.urllib.request, "urlopen", down)
-
-        assert cli.share_main([str(card_file), "--yes"]) == 1
-        assert "Nothing was recorded on the other side" in capsys.readouterr().err
+        assert cli.share_main([str(card_file), "--to", "heydex"]) == 2
+        assert no_network == []
+        assert "Nothing was sent" in capsys.readouterr().err
 
 
 class TestGitHubChannel:
@@ -338,7 +321,7 @@ class TestControlCharacters:
         card = tmp_path / "hostile.md"
         card.write_text(self.HOSTILE, encoding="utf-8")
 
-        assert cli.share_main([str(card), "--yes"]) == 2
+        assert cli.share_main([str(card), "--to", "heydex", "--yes"]) == 2
         assert no_network == [], "the card is refused before anything is sent"
 
     def test_tabs_and_newlines_are_ordinary_text_and_stay_allowed(

@@ -270,10 +270,17 @@ role packs and optional career and quarterly-planning capabilities
    approval, recovery, receipt, and undo are exercised on isolated synthetic
    files. Real-user automation refuses because Lens cannot yet observe the job
    outcome after real use; diagnosis and guidance remain available.
-5. **M5 — optional contribution: merged in PR #5, not connected to a live
-   intake.** Capability Cards, exact disclosure, fresh per-version consent,
-   moderation, catalogue trust, withdrawal, and stage-nine user control are in
-   place. Nothing is selected for sharing by default.
+5. **M5 — optional contribution: merged locally; hosted connection is an
+   unreleased candidate.** Capability Cards, exact disclosure, fresh
+   per-version consent, moderation, catalogue trust, withdrawal, and
+   stage-nine user control are in place. The current candidate wires that
+   explicit stage-nine approval to the authenticated `https://api.heydex.ai`
+   intake contract. The approved manifest remains the sole request body;
+   closed inventoried headers carry consent and receipt controls, and minimal
+   mode-0600 local receipt authority supports withdrawal. This is not a live
+   availability claim: the client and hosted changes still require their
+   exact-head CI and deployment/release decisions. Nothing is selected for
+   sharing by default.
 6. **M6 — pilot machinery: merged in PR #5; real pilot not run.** Enrolment, locked
    measurement, runbooks, red-team executors, exact-build release gates, and a
    fail-closed R7 completeness verifier exist. The verifier deliberately

@@ -33,6 +33,7 @@ from capability_exchange.adapters.claude_code.inventory_cli import inventory_mai
 from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
+from capability_exchange.contribution.cli import contributions_main
 from capability_exchange.reports.cli import reports_main
 from capability_exchange.share.cli import share_main
 
@@ -40,6 +41,7 @@ from capability_exchange.share.cli import share_main
 _SUBCOMMANDS = {
     "brief": brief_main,
     "catalogue": catalogue_main,
+    "contributions": contributions_main,
     "inventory": inventory_main,
     "reports": reports_main,
     "share": share_main,
@@ -67,7 +69,8 @@ Your assistant does the reading and calls these when it needs them:
     dex-lens catalogue             what Dex publishes, signature checked here
     dex-lens brief <id>            how to rebuild one capability yourself
     dex-lens reports               the dated reports past looks left behind
-    dex-lens share <card>          send one idea card back to Dex, preview first
+    dex-lens contributions         manage Cards you explicitly sent for review
+    dex-lens share <card>          prepare a private GitHub handoff; never posts
 
 Add --help to any of them.
 """
@@ -145,6 +148,14 @@ def _serve_main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the private loopback URL without opening a browser.",
     )
+    parser.add_argument(
+        "--corrects-contribution",
+        metavar="RECEIPT_ID",
+        help=(
+            "Run a fresh preview-and-consent journey that replaces this saved "
+            "contribution receipt."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.choose_folder and args.roots:
         parser.error("--choose-folder cannot be combined with an explicit folder")
@@ -170,7 +181,10 @@ def _serve_main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    session = session_for_roots(roots)
+    session = session_for_roots(
+        roots,
+        correction_receipt_id=args.corrects_contribution,
+    )
     server = None
     exit_code = 0
     try:

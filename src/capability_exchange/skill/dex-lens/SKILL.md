@@ -792,18 +792,19 @@ contents, no names, no paths that reveal anything private. Then:
 dex-lens share /tmp/card.md
 ```
 
-That prints **exactly** what would leave the machine and sends nothing. Show
-them the preview, and only after they say yes to those exact bytes:
+That prints **exactly** what the fallback link would contain and sends
+nothing. Show them the preview, and only after they say yes to those exact
+bytes, `dex-lens share /tmp/card.md --yes` prints a pre-filled GitHub issue
+link. Open it for them; *they* press submit, under their own name. Nothing is
+ever posted on their behalf, and no contact line is accepted for a public
+issue.
 
-- `dex-lens share /tmp/card.md --yes` — one anonymous request to Dex's
-  intake. No account, no name. This is the default.
-- `dex-lens share /tmp/card.md --to github --yes` — prints a pre-filled
-  GitHub issue link. Open it for them; *they* press submit, under their own
-  name. Nothing is ever posted on their behalf.
-
-They choose the channel; anonymous is the default and needs no
-justification. If they gave a contact line, it travels only because they
-typed it, and the preview shows it.
+Do not use the retired `--to heydex` Markdown channel: it is refused because
+it had no structured moderation, status, correction or withdrawal contract.
+When the person wants to contribute a reusable Capability Card for community
+review, use the local Lens journey's separate **Contribute** step instead. It
+shows the exact canonical disclosure, records version-specific permissions,
+then uses the authenticated Capability Exchange receipt and withdrawal path.
 
 ## Phase 10: sign off like a concierge
 
@@ -857,7 +858,7 @@ the person who built the thing.
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
 | `dex-lens reports save <file> --label <name> --for <folder>` | Saves the dated report outside the inspected folder and prints where. Refuses a report with no evidence in it. |
 | `dex-lens reports check <file>` | Says whether a report is ready to save. Writes nothing either way. |
-| `dex-lens share <card.md>` | Shows exactly what an idea card would send, and sends nothing. `--yes` sends after the person approved those exact bytes; `--to github` prints a pre-filled issue link they submit themselves. |
+| `dex-lens share <card.md>` | Shows exactly what a GitHub idea-card link would contain and sends nothing. `--yes` prints the link; the person submits it themselves. Structured contributions use the separate Capability Exchange journey. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 
 Every one of them reads only. None of them changes the system being looked at.

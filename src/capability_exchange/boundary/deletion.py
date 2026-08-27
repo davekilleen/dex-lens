@@ -107,6 +107,7 @@ TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 #: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
 LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
 LENS_CATALOGUE_SUBSCRIPTION_FILE = "lens-catalogue-v2-subscription.json"
+HOSTED_CONTRIBUTION_RECEIPTS_FILE = "hosted-contribution-receipts.json"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -205,4 +206,16 @@ def delete_lens_catalogue_subscription(directory: Path) -> list[Path]:
 register_deletion_path(
     "delete-lens-catalogue-subscription",
     delete_lens_catalogue_subscription,
+)
+
+
+def delete_hosted_contribution_receipts(directory: Path) -> list[Path]:
+    """Remove the local hosted receipt authority after withdrawal/deletion."""
+
+    return _delete_matching(directory, HOSTED_CONTRIBUTION_RECEIPTS_FILE)
+
+
+register_deletion_path(
+    "delete-hosted-contribution-receipts",
+    delete_hosted_contribution_receipts,
 )

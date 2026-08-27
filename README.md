@@ -205,10 +205,10 @@ That bridge is now live. Here is what it does:
 | **Does diagnosis change my system?** | No. Diagnosis is read-only. |
 | **Does it write anything at all?** | Only inside its own storage, `~/.local/state/dex-lens/`: your dated report, plus the checked copy of Dex's public catalogue and the record of what this machine has already been shown, which is how a later look can tell you only what changed. Both of those are about Dex's catalogue, which is the same file for everyone. Never inside the folder it looked at, and it checks that before writing. |
 | **Does it upload my setup?** | No. The diagnosis runs locally on your Mac. |
-| **Do I need an account?** | No. There is no account or analytics in the diagnosis. |
+| **Do I need an account?** | No for diagnosis, comparison, or preview. A linked Heydex session is requested only if you separately approve a contribution, so the hosted service can return status and honour withdrawal. |
 | **Can it inspect anything it wants?** | No. You choose the folder, and Lens does not silently widen that boundary. |
 | **Will it automatically “fix” my system?** | Not in the first participant pilot. Lens can explain and preview an improvement, but it does not apply it. |
-| **Can anything be shared?** | Only if you choose to contribute, review the exact limited summary and approve that specific information. Nothing is selected by default. |
+| **Can anything be shared?** | Only if you choose to contribute, review the exact limited summary and approve that specific information. The approved summary is the sole request body; closed consent and receipt hashes travel separately, and no raw revocation token leaves the machine. Nothing is selected by default. |
 | **What happens if the safety boundary cannot be proven?** | The deeper check stays unavailable. Lens uses a more limited guided route rather than hoping for the best. |
 
 ## Evidence without theatre

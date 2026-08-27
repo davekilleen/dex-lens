@@ -14,10 +14,10 @@ YAML dependency for this file, and the narrow grammar fails closed: anything
 outside the subset raises :class:`InventoryError` rather than being guessed
 at. Schema validation itself is pydantic.
 
-Diagnosis remains telemetry-free and ephemeral by default. M5 adds one closed
-sharing declaration: the exact, user-previewed ``DisclosureManifest`` bytes
-may cross only the contribution-intake port. No envelope or other field is
-transmissible.
+Diagnosis remains telemetry-free and ephemeral by default. M5 adds a closed
+contribution boundary: the exact, user-previewed ``DisclosureManifest`` bytes
+are the sole request body, while a separately inventoried set of opaque
+control headers carries consent, receipt and withdrawal authority.
 """
 
 from __future__ import annotations
@@ -67,7 +67,11 @@ class FieldEntry(BaseModel):
     derivation: str = Field(min_length=1)
     display: str = Field(min_length=1)
     storage: StorageDeclaration | None
-    sharing: Literal["never", "contribution-intake-exact-manifest"]
+    sharing: Literal[
+        "never",
+        "contribution-intake-exact-manifest",
+        "contribution-intake-control-header",
+    ]
     deletion: str = Field(min_length=1)
     audit: str = Field(min_length=1)
 
@@ -120,13 +124,30 @@ class Inventory(BaseModel):
                 raise ValueError(
                     f"inventory key {key!r} must be '<ModelName>.<field_name>'"
                 )
-        permitted_shared = {"DisclosureManifest.display_text"}
+        permitted_shared = {
+            "DisclosureManifest.display_text",
+            "HostedSubmissionControl.manifest_byte_hash",
+            "HostedSubmissionControl.consent_hash",
+            "HostedSubmissionControl.receipt_binding",
+            "HostedSubmissionControl.idempotency_key",
+            "HostedSubmissionControl.permission_review",
+            "HostedSubmissionControl.permission_storage",
+            "HostedSubmissionControl.permission_moderation",
+            "HostedSubmissionControl.permission_attribution",
+            "HostedSubmissionControl.permission_reuse",
+            "HostedSubmissionControl.permission_distribution",
+            "HostedWithdrawalControl.receipt_id",
+            "HostedWithdrawalControl.manifest_byte_hash",
+            "HostedWithdrawalControl.receipt_binding",
+            "HostedAuthorizationControl.bearer_token",
+            "HostedCorrectionControl.replacement_receipt_id",
+        }
         shared = {key for key, entry in self.fields.items() if entry.shares}
         if not shared <= permitted_shared:
             unexpected = ", ".join(sorted(shared - permitted_shared))
             raise ValueError(
-                "only DisclosureManifest.display_text may cross the exact "
-                f"contribution-intake boundary; found {unexpected}"
+                "only the exact DisclosureManifest body and reviewed hosted "
+                f"control headers may cross the contribution boundary; found {unexpected}"
             )
         return self
 

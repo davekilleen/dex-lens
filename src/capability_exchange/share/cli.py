@@ -1,12 +1,12 @@
-"""``dex-lens share``: send one idea card back to Dex, on the person's terms.
+"""``dex-lens share``: prepare one idea-card link, on the person's terms.
 
-Two channels, chosen by the person, never for them:
-
-- ``--to heydex`` — one anonymous request to Dex's intake. No account, no
-  name, nothing about their system beyond the card they read and approved.
-- ``--to github`` — a pre-filled GitHub issue **link**. This command never
+The surviving fallback is a pre-filled GitHub issue **link**. This command never
   posts anything: it prints the address, the person's own browser opens it,
   and they press submit under their own name, or close the tab.
+
+The old anonymous Markdown POST is deliberately closed. Structured community
+contributions now use the Capability Exchange stage-nine preview, consent,
+receipt, moderation and withdrawal contract instead.
 
 The contract that matters more than either channel: **preview is the
 default**. Run without ``--yes``, this command prints the exact bytes that
@@ -19,17 +19,11 @@ preview is theatre.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import urllib.parse
-import urllib.request
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 __all__ = ["share_main"]
-
-#: Where the anonymous channel goes: Dex's intake, and nowhere else.
-INTAKE_URL = "https://heydex.ai/lens/share"
 
 #: Where the named channel goes: a new-issue page the person submits themselves.
 ISSUES_URL = "https://github.com/davekilleen/dex-lens/issues/new"
@@ -42,16 +36,6 @@ MAX_CARD_BYTES = 16 * 1024
 #: GitHub truncates very long prefilled URLs; past this the link is printed
 #: alongside the body to paste rather than pretending the whole card fits.
 _MAX_PREFILL_URL = 6 * 1024
-
-_TIMEOUT_SECONDS = 15.0
-
-
-def _lens_version() -> str:
-    try:
-        return version("capability_exchange")
-    except PackageNotFoundError:  # a source checkout without install metadata
-        return "unknown"
-
 
 #: The only two control characters a terminal shows rather than obeys, and
 #: the only two a card needs. Everything else in the C0 and C1 ranges is an
@@ -146,60 +130,18 @@ def _preview(card: bytes, *, channel: str, contact: str) -> None:
     if not card.endswith(b"\n"):
         print()
     print("--->8---------------------------------------------------------")
-    if channel == "github":
-        print("Nothing else travels: only the card above goes into the link.")
-        print(
-            "Channel: a pre-filled GitHub issue link, printed by the same "
-            "command run again with --yes. Nothing is posted by this command; "
-            "the person opens the link and submits it themselves, under their "
-            "own name."
-        )
-    else:
-        if contact:
-            print(f"Plus this contact line, because one was given: {contact}")
-        else:
-            print("No name, no contact.")
-        # Every byte that leaves is in the preview — including the one this
-        # command adds itself. A preview that omits anything the send
-        # includes is a preview that lies by silence.
-        print(f"Plus the version of Lens doing the sending: {_lens_version()}")
-        print("Channel: one anonymous request to Dex's intake at " + INTAKE_URL + ".")
-    print()
-    if channel == "github":
-        print("Nothing has been sent and no link has been printed yet. To print")
-        print("the link after the person has read this and said yes, run the")
-        print("same command again with --yes.")
-    else:
-        print("Nothing has been sent. To send after the person has read this and")
-        print("said yes, run the same command again with --yes.")
-
-
-def _send_heydex(card: bytes, contact: str) -> int:
-    payload = json.dumps(
-        {
-            "card": card.decode("utf-8"),
-            "contact": contact or None,
-            "lens_version": _lens_version(),
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        INTAKE_URL,
-        data=payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    assert channel == "github" and not contact
+    print("Nothing else travels: only the card above goes into the link.")
+    print(
+        "Channel: a pre-filled GitHub issue link, printed by the same "
+        "command run again with --yes. Nothing is posted by this command; "
+        "the person opens the link and submits it themselves, under their "
+        "own name."
     )
-    try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            body = response.read(4096).decode("utf-8", "replace").strip()
-    except OSError as exc:
-        print(
-            f"dex-lens: the share did not go through ({exc}). Nothing was "
-            "recorded on the other side; try again later, or use --to github.",
-            file=sys.stderr,
-        )
-        return 1
-    print(body or "Shared. Thank you — Dave reads every one of these.")
-    return 0
+    print()
+    print("Nothing has been sent and no link has been printed yet. To print")
+    print("the link after the person has read this and said yes, run the")
+    print("same command again with --yes.")
 
 
 def _github_link(card: bytes) -> int:
@@ -226,42 +168,53 @@ def _github_link(card: bytes) -> int:
 
 
 def share_main(argv: list[str] | None = None) -> int:
-    """Preview by default; send only on ``--yes``; never post as the person."""
+    """Preview by default; print a link on ``--yes``; never post as the person."""
 
     parser = argparse.ArgumentParser(
         prog="dex-lens share",
         description=(
-            "Share one idea card back to Dex. Without --yes this prints exactly "
-            "what would be sent and sends nothing."
+            "This command prints a link for one idea Card and never posts it. "
+            "Without --yes it previews exactly what that link would contain."
         ),
     )
     parser.add_argument("card", help="The card file, or `-` to read it from standard input.")
     parser.add_argument(
         "--to",
         choices=("heydex", "github"),
-        default="heydex",
+        default="github",
         help=(
-            "heydex: one anonymous request to Dex's intake. github: print a "
-            "pre-filled issue link the person submits themselves."
+            "github: print a pre-filled issue link the person submits themselves. "
+            "heydex: retired unsafe Markdown channel; use the structured "
+            "Capability Exchange contribution step instead."
         ),
     )
     parser.add_argument(
         "--contact",
         default="",
         help=(
-            "Optional way to reach the person, included only because they chose "
-            "to give one. Anonymous is the default and is fine."
+            "Legacy anonymous-channel option retained only for an explicit refusal. "
+            "It never travels in the public GitHub link."
         ),
     )
     parser.add_argument(
         "--yes",
         action="store_true",
         help=(
-            "Actually send. Use only after the person has read the exact "
-            "preview and said yes in their own words."
+            "After the exact preview, print a pre-filled GitHub link. This command "
+            "still posts nothing; the person decides whether to submit in GitHub."
         ),
     )
     args = parser.parse_args(argv)
+
+    if args.to == "heydex":
+        print(
+            "dex-lens: the old anonymous Markdown intake is closed. Use the "
+            "structured Capability Exchange contribution step in the local Lens "
+            "journey for an exact preview, consent receipt, moderation and "
+            "withdrawal. Nothing was sent.",
+            file=sys.stderr,
+        )
+        return 2
 
     if len(args.contact) > 200:
         print("dex-lens: the contact line is longer than 200 characters.", file=sys.stderr)
@@ -298,6 +251,4 @@ def share_main(argv: list[str] | None = None) -> int:
         _preview(card, channel=args.to, contact=args.contact)
         return 0
 
-    if args.to == "github":
-        return _github_link(card)
-    return _send_heydex(card, args.contact)
+    return _github_link(card)

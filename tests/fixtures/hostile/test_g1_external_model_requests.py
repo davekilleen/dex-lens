@@ -32,7 +32,7 @@ from capability_exchange.adapters.claude_code.containment import _child_environm
 
 #: Modules that would constitute a model client or a general egress path. None
 #: may be imported anywhere in the capability_exchange package except for the
-#: explicit M3 public-catalogue fetch allowance below.
+#: explicit, consent-bounded allowances below.
 FORBIDDEN_IMPORTS: frozenset[str] = frozenset(
     {
         "aiohttp",
@@ -65,14 +65,16 @@ SOCKET_ALLOWED_IN = "capability_exchange/adapters/claude_code/contained.py"
 #: named decision:
 #: - catalogue/fetch.py — the M3 consented GET of the public signed
 #:   catalogue, identical for everyone, verified on-machine before shown.
-#: - share/cli.py — the consented share-back POST: preview is the default
-#:   and sends nothing, ``--yes`` sends only the exact previewed bytes, and
-#:   the GitHub channel prints a link without touching the network at all
-#:   (tests/share/test_share_cli.py holds all three properties).
+#: The old receiptless Markdown POST in share/cli.py is closed; that module
+#: now prints only a GitHub link and therefore has no network client import.
+#: - contribution/hosted_intake.py — the optional stage-nine POST after the
+#:   person reviews and approves one exact DisclosureManifest; identity is
+#:   loaded lazily at that boundary and the adapter sends the approved bytes
+#:   as its sole body (tests/egress/test_hosted_contribution_intake.py).
 EGRESS_IMPORT_ALLOWED_IN: dict[str, tuple[str, ...]] = {
     "urllib.request": (
         "capability_exchange/catalogue/fetch.py",
-        "capability_exchange/share/cli.py",
+        "capability_exchange/contribution/hosted_intake.py",
     ),
 }
 
