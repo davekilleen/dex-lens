@@ -15,7 +15,6 @@ have to write into the developer's live system to do it.
 from __future__ import annotations
 
 import re
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -43,15 +42,14 @@ SHELL_SOURCE = re.compile(
 )
 
 INSTALL_COMMAND = (
-    "curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash"
+    "bash <(curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh)"
 )
 
 #: The headline line: the signed release installer, rendered and published by
 #: the release workflow. This script is not that installer, but both READMEs
 #: lead with it, and a README leading anywhere else is an install nobody gets.
 RELEASE_INSTALL_COMMAND = (
-    "curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh"
-    " | bash"
+    "bash <(curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh)"
 )
 
 
@@ -87,41 +85,6 @@ def run_installer(
         text=True,
         env=environment | (extra_env or {}),
     )
-
-
-def hand_off_line(script: str) -> str:
-    """The whole printf that prints the start command, continuations joined."""
-    lines = script.splitlines()
-    start = next(
-        index
-        for index, line in enumerate(lines)
-        if line.strip().startswith("printf") and '%s "%s"' in line
-    )
-    collected = []
-    while True:
-        current = lines[start].strip()
-        collected.append(current.removesuffix("\\").strip())
-        if not current.endswith("\\"):
-            break
-        start += 1
-    return " ".join(collected)
-
-
-def printed_start_line(script: str, bin_dir: Path) -> str:
-    """Run that line the way the installer runs it, and return what it printed."""
-    printed = subprocess.run(  # noqa: S602 - fixed line taken from this script
-        f"BIN_DIR={shlex.quote(str(bin_dir))}; ASSISTANT=claude; "
-        f'DEX_LENS_ASK="Do a thing for me, please."; {hand_off_line(script)}',
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert printed.returncode == 0, printed.stderr
-    assert printed.stdout.count("\n") == 1, (
-        f"the start command must print as one line, got: {printed.stdout!r}"
-    )
-    return printed.stdout.strip()
 
 
 def piped_installer(home: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -235,7 +198,7 @@ class TestDryRun:
             assert expected in dry_run.stdout, expected
 
     def test_a_dry_run_never_starts_an_assistant(
-        self, dry_run: subprocess.CompletedProcess[str], script: str, tmp_path: Path
+        self, dry_run: subprocess.CompletedProcess[str], script: str
     ) -> None:
         """The hand-over to Claude Code is real, gated, and skippable.
 
@@ -250,10 +213,9 @@ class TestDryRun:
             "assistant from a piped script leaves it running but deaf"
         )
         assert "/dev/tty" not in script, "the deaf-assistant hand-off shape must not return"
-        assert "One more paste and the conversation starts" in script
-
-        start_line = printed_start_line(script, tmp_path / "bin")
-        assert start_line.endswith('claude "Do a thing for me, please."'), start_line
+        assert 'bash <(curl -fsSL https://heydex.ai/lens)' in script
+        assert "I found both Claude Code and Codex" in script
+        assert "DEX_LENS_PREFERRED_ASSISTANT" in script
         assert 'command -v codex' in script, 'Codex is a first-class assistant too'
         assert "https://heydex.ai/lens/installed" in script
         assert "DEX_LENS_NO_PING" in script
@@ -332,7 +294,7 @@ class TestDryRun:
         and the dry run used to be the one place that never mentioned it.
         """
         assert dry_run.returncode == 0, dry_run.stderr
-        assert "your assistant" in dry_run.stdout, dry_run.stdout
+        assert "assistant" in dry_run.stdout.lower(), dry_run.stdout
         assert "Starting your assistant" not in dry_run.stdout
 
     def test_it_changes_nothing(self, tmp_path: Path) -> None:
@@ -414,45 +376,14 @@ class TestThePipedInstall:
         assert f"install Dex Lens from this copy: {REPO_ROOT}" in result.stdout
 
 
-def test_the_printed_start_line_runs_where_the_command_is_not_yet_on_path(
-    tmp_path: Path, script: str
-) -> None:
-    """The documented install used to end in `dex-lens: command not found`.
+def test_a_piped_installer_recommends_the_keyboard_preserving_handoff(script: str) -> None:
+    """The public one-liner reruns from a file descriptor, not a pipe.
 
-    The installer prints one line to paste, and the person pastes it into the
-    shell they already have — the shell whose PATH the installer has just
-    warned them about. So the line has to carry the command's folder itself.
-    Proved by running it in a shell that has never heard of that folder.
+    That gives an interactive assistant the terminal's real keyboard, while
+    retaining the one-command experience on the public page.
     """
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "dex-lens").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    (bin_dir / "dex-lens").chmod(0o755)
-    assistant_dir = tmp_path / "assistant"
-    assistant_dir.mkdir()
-    (assistant_dir / "claude").write_text(
-        '#!/usr/bin/env bash\nprintf "asked: %s\\n" "$1"\n'
-        'printf "found: %s\\n" "$(command -v dex-lens || echo nowhere)"\n',
-        encoding="utf-8",
-    )
-    (assistant_dir / "claude").chmod(0o755)
-
-    start_line = printed_start_line(script, bin_dir)
-
-    pasted = subprocess.run(  # noqa: S602 - the line the installer told the person to paste
-        start_line,
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-        env={"HOME": str(tmp_path), "PATH": f"{assistant_dir}:/usr/bin:/bin"},
-    )
-
-    assert pasted.returncode == 0, pasted.stderr
-    assert "asked: Do a thing for me, please." in pasted.stdout, pasted.stdout
-    assert f"found: {bin_dir / 'dex-lens'}" in pasted.stdout, (
-        "the pasted line has to find dex-lens in a shell that never had it on PATH"
-    )
+    assert 'bash <(curl -fsSL https://heydex.ai/lens)' in script
+    assert 'PATH="%s:$PATH" %s "%s"' not in script
 
 
 def test_the_summary_lists_the_places_that_used_to_go_unmentioned(script: str) -> None:

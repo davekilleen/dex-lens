@@ -234,51 +234,6 @@ esac
     return completed, signed_target, skill_home
 
 
-def _hand_off_line(text: str) -> str:
-    """The whole printf that prints the start command, continuations joined.
-
-    The line is written across two source lines to stay readable; what the
-    shell sees is one command, and one command is what has to be run here.
-    """
-    lines = text.splitlines()
-    start = next(
-        index
-        for index, line in enumerate(lines)
-        if line.strip().startswith("printf") and '%s "%s"' in line
-    )
-    collected = []
-    while True:
-        current = lines[start].strip()
-        collected.append(current.removesuffix("\\").strip())
-        if not current.endswith("\\"):
-            break
-        start += 1
-    return " ".join(collected)
-
-
-def _start_line(installer: str, bin_home: Path) -> str:
-    """Run the printed hand-off line the way the installer runs it.
-
-    Executed rather than pattern-matched. The bug a real tester hit was
-    invisible to a substring check: the rendered line left $DEX_LENS_ASK
-    unquoted, the shell split it into fourteen words, and printf faithfully
-    printed one word per line.
-    """
-    printed = subprocess.run(  # noqa: S602 - fixed line from the rendered installer
-        f"DEX_LENS_BIN_HOME={shlex.quote(str(bin_home))}; DEX_LENS_ASSISTANT=claude; "
-        f'DEX_LENS_ASK="Do a thing for me, please."; {_hand_off_line(installer)}',
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert printed.returncode == 0, printed.stderr
-    assert printed.stdout.count("\n") == 1, (
-        f"the start command must print as one line, got: {printed.stdout!r}"
-    )
-    return printed.stdout.strip()
-
-
 def test_p256_signature_covers_the_exact_manifest_bytes(tmp_path: Path) -> None:
     manifest_path = tmp_path / "release-manifest.json"
     signature_path = tmp_path / "release-manifest.sig"
@@ -332,10 +287,9 @@ def test_renderer_contains_only_the_public_key_and_offline_install_controls(tmp_
         "assistant from a piped script leaves it running but deaf"
     )
     assert "/dev/tty" not in installer, "the deaf-assistant hand-off shape must not return"
-    assert "One more paste and the conversation starts" in installer
-
-    start_line = _start_line(installer, tmp_path / "bin")
-    assert start_line.endswith('claude "Do a thing for me, please."'), start_line
+    assert 'bash <(curl -fsSL https://heydex.ai/lens)' in installer
+    assert "I found both Claude Code and Codex" in installer
+    assert "DEX_LENS_PREFERRED_ASSISTANT" in installer
     assert 'command -v codex' in installer, 'Codex is a first-class assistant too'
     # The first-install note: declared, triple-gated, and harmless on failure.
     assert "https://heydex.ai/lens/installed" in installer
@@ -459,7 +413,7 @@ class TestTheOptionsThePageDocuments:
             "/.claude/skills/dex-lens",  # the skill, which is the product
             "/.local/state/dex-lens",  # the folder the first-install note leaves
             "anonymous",  # the note itself
-            "your assistant",  # how a real run ends
+            "the conversation",  # how a real run ends
         ):
             assert named in completed.stdout, named
 
@@ -606,50 +560,17 @@ def test_a_real_install_repoints_only_the_official_legacy_launcher(
     assert "Your earlier private copy is still" in completed.stdout
 
 
-def test_the_printed_start_line_runs_where_the_command_is_not_yet_on_path(
+def test_rendered_piped_installer_recommends_the_keyboard_preserving_handoff(
     tmp_path: Path,
 ) -> None:
-    """The documented install used to end in `dex-lens: command not found`.
-
-    This installer has no PATH check and printed a bare `claude "…"` line, so
-    the very command it had just linked into ~/.local/bin was unfindable by
-    the assistant the person was told to paste. The line has to carry the
-    folder itself; proved by running it in a shell that has never heard of it.
-    """
+    """The public fallback keeps the terminal attached for an assistant."""
     _, public_key = _test_keypair(tmp_path)
     installer = render_installer(
         manifest=_manifest(), release_url=RELEASE_URL, public_key_pem=public_key.read_bytes()
     )
-    bin_home = tmp_path / "bin"
-    bin_home.mkdir()
-    (bin_home / "dex-lens").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    (bin_home / "dex-lens").chmod(0o755)
-    assistant_dir = tmp_path / "assistant"
-    assistant_dir.mkdir()
-    (assistant_dir / "claude").write_text(
-        '#!/usr/bin/env bash\nprintf "asked: %s\\n" "$1"\n'
-        'printf "found: %s\\n" "$(command -v dex-lens || echo nowhere)"\n',
-        encoding="utf-8",
-    )
-    (assistant_dir / "claude").chmod(0o755)
 
-    start_line = _start_line(installer, bin_home)
-
-    pasted = subprocess.run(  # noqa: S602 - the line the installer told the person to paste
-        start_line,
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-        env={"HOME": str(tmp_path), "PATH": f"{assistant_dir}{os.pathsep}/usr/bin:/bin"},
-    )
-
-    assert pasted.returncode == 0, pasted.stderr
-    assert "asked: Use Dex Lens" not in pasted.stdout  # the ask is substituted, not hard-coded
-    assert "asked: Do a thing for me, please." in pasted.stdout, pasted.stdout
-    assert f"found: {bin_home / 'dex-lens'}" in pasted.stdout, (
-        "the pasted line has to find dex-lens in a shell that never had it on PATH"
-    )
+    assert 'bash <(curl -fsSL https://heydex.ai/lens)' in installer
+    assert 'PATH="%s:$PATH" %s "%s"' not in installer
 
 
 def test_rendered_installer_refuses_windows_before_calling_curl(tmp_path: Path) -> None:

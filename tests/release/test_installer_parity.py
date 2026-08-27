@@ -34,6 +34,7 @@ fetching anything" is proved rather than assumed.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -139,6 +140,40 @@ def test_both_installers_hand_over_the_same_sentence(tmp_path: Path) -> None:
         text = installer.read_text(encoding="utf-8")
         assert THE_ASK in text, f"{name} does not use the agreed ask"
         assert "that I do not." not in text, f"{name} still uses the old wording"
+
+
+def test_both_installers_ask_before_choosing_when_claude_and_codex_exist(
+    tmp_path: Path,
+) -> None:
+    """One installed command must not silently win over another.
+
+    A terminal cannot know which assistant a person intends to use just
+    because both commands are installed. The direct, keyboard-preserving
+    installer route must therefore promise one small choice instead of
+    quietly preferring Claude Code.
+    """
+    launchers = tmp_path / "launchers"
+    launchers.mkdir()
+    for name in ("claude", "codex"):
+        launcher = launchers / name
+        launcher.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        launcher.chmod(0o755)
+
+    for name, installer in _both_installers(tmp_path).items():
+        home = tmp_path / f"both-{name.replace(' ', '-')}-home"
+        sealed_root = tmp_path / f"sealed-{name.replace(' ', '-').replace('.', '-')}"
+        sealed_root.mkdir()
+        environment, _ = _sealed_network(sealed_root, home)
+        environment["PATH"] = f"{launchers}{os.pathsep}{environment['PATH']}"
+        completed = subprocess.run(  # noqa: S603 - reviewed installer under test
+            ["bash", str(installer), "--dry-run"],
+            capture_output=True,
+            text=True,
+            env=environment,
+            check=False,
+        )
+        assert completed.returncode == 0, f"{name}: {completed.stderr}"
+        assert "choose Claude Code or Codex" in completed.stdout, name
 
 
 def test_both_installers_name_the_command_they_installed(tmp_path: Path) -> None:

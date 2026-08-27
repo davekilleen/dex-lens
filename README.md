@@ -3,10 +3,15 @@
 ## Install on Mac or Linux
 
 ```sh
-curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh | bash
+bash <(curl -fsSL https://github.com/davekilleen/dex-lens/releases/latest/download/install.sh)
 ```
 
-Then open the AI assistant you already use, Claude Code or Codex, and ask in your own words:
+Paste that one line into your normal Terminal. If it finds only one of Claude
+Code or Codex, it opens it with the first question already there. If you use
+both, it asks which one to open. Nothing is read until you tell it which folder
+Lens may inspect.
+
+You can also open either assistant yourself and ask, in your own words:
 
 > Have a look at my setup and tell me what Dex has that I don't.
 
@@ -28,7 +33,7 @@ what you install is exactly what was built and proven, byte for byte. It is
 published only after the same installer has passed a real install on a clean
 Apple Silicon Mac and a clean Linux machine.
 
-The current Lens software is **Lens v0.1.11**. Its current Dex reference is
+The current Lens software is **Lens v0.1.12**. Its current Dex reference is
 published by **Core v1.97.2**. Lens checks that signed reference when you use
 it, so Dex can keep the list accurate without asking you to reinstall Lens
 each time the list changes.
@@ -39,7 +44,7 @@ or send anything about the AI system you will later ask Lens to look at.
 For development, or to run unreleased changes, install from source instead:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/davekilleen/dex-lens/main/install.sh)
 ```
 
 ## A private second opinion on your personal AI operating system
@@ -75,10 +80,9 @@ and leaves every decision with you.
 > **Dex Lens works with the assistant you already use.** Claude Code has the
 > deepest support and Codex works too: the installer places the skill for
 > Claude Code always and for Codex when this machine has it, and Lens reads
-> both assistants' instruction files (`CLAUDE.md` and `AGENTS.md`). Pasted
-> from `curl`, the installer ends by printing one line that starts your
-> assistant with the first question already in it; run from a saved file,
-> where it has your keyboard, it hands straight over instead. The assistant
+> both assistants' instruction files (`CLAUDE.md` and `AGENTS.md`). The
+> one-line install keeps your keyboard attached, so it opens the assistant
+> it finds — or asks when it finds both — with the first question ready. The assistant
 > is simply where your system lives; Dex Lens assesses the whole personal AI
 > operating system built around your work.
 
@@ -259,7 +263,7 @@ outcome that has genuinely improved someone’s work.
 
 ## Current status
 
-Dex Lens v0.1.11 is a signed public release for Apple Silicon Macs and Linux
+Dex Lens v0.1.12 is a signed public release for Apple Silicon Macs and Linux
 x86_64 machines. It is ready for invited beta testers on those two platforms.
 
 - No real participant pilot has run yet, so we do not claim real-world outcome
