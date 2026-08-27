@@ -400,8 +400,20 @@ class TestTheOptionsThePageDocuments:
         self, tmp_path: Path
     ) -> None:
         """The published shape, with the option the published page promises."""
-        completed, home, curl_called = self._run(
-            tmp_path, tmp_path / "home", "--dry-run", piped=True
+        home = tmp_path / "home"
+        environment, curl_called = _sealed_network(tmp_path, home)
+        # This case documents what an untouched machine sees. The runner may
+        # itself have Claude or Codex installed, so keep the test independent
+        # of its PATH rather than accidentally testing the chooser branch.
+        sealed_bin = Path(environment["PATH"].split(os.pathsep, 1)[0])
+        environment["PATH"] = f"{sealed_bin}{os.pathsep}/usr/bin:/bin"
+        completed = subprocess.run(
+            ["bash", "-s", "--", "--dry-run"],
+            input=_rendered_installer(tmp_path).read_text(encoding="utf-8"),
+            text=True,
+            capture_output=True,
+            env=environment,
+            check=False,
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -413,7 +425,7 @@ class TestTheOptionsThePageDocuments:
             "/.claude/skills/dex-lens",  # the skill, which is the product
             "/.local/state/dex-lens",  # the folder the first-install note leaves
             "anonymous",  # the note itself
-            "the conversation",  # how a real run ends
+            "print the question to ask your assistant",  # no harness is installed
         ):
             assert named in completed.stdout, named
 
