@@ -28,8 +28,8 @@ what you install is exactly what was built and proven, byte for byte. It is
 published only after the same installer has passed a real install on a clean
 Apple Silicon Mac and a clean Linux machine.
 
-The current Lens software is **Lens v0.1.10**. Its current Dex reference is
-published by **Core v1.97.1**. Lens checks that signed reference when you use
+The current Lens software is **Lens v0.1.11**. Its current Dex reference is
+published by **Core v1.97.2**. Lens checks that signed reference when you use
 it, so Dex can keep the list accurate without asking you to reinstall Lens
 each time the list changes.
 
@@ -183,9 +183,9 @@ That bridge is now live. Here is what it does:
   every person in the world.
 
 > **Where this stands today:** the connection is available and verified end
-> to end against Dex's complete signed reference: 114 entries — 95 skills,
-> 10 connections to outside tools, 5 recurring jobs that run on a
-> schedule, and 4 behind-the-scenes services. Lens looks for those same kinds
+> to end against Dex's complete signed reference: 115 entries — 94 skills,
+> 11 connection systems containing 146 individual tools, 5 recurring jobs
+> that run on a schedule, and 5 behind-the-scenes services. Lens looks for those same kinds
 > of things in the system you ask it to inspect, so it compares like with like
 > instead of looking only at skills. Dex adds a digital seal to the reference
 > and Lens checks that seal on your machine before showing anything. Still
@@ -246,7 +246,7 @@ outcome that has genuinely improved someone’s work.
 - a way to understand capability, evidence, access and gaps in human terms;
 - private and read-only during diagnosis;
 - a bridge for deliberately bringing selected Dex capabilities into your own
-  system, on your terms (live for the complete 114-entry signed reference); and
+  system, on your terms (live for the complete 115-entry signed reference); and
 - designed to help you make a better decision about what to trust or improve.
 
 **Dex Lens is not:**
@@ -259,7 +259,7 @@ outcome that has genuinely improved someone’s work.
 
 ## Current status
 
-Dex Lens v0.1.10 is a signed public release for Apple Silicon Macs and Linux
+Dex Lens v0.1.11 is a signed public release for Apple Silicon Macs and Linux
 x86_64 machines. It is ready for invited beta testers on those two platforms.
 
 - No real participant pilot has run yet, so we do not claim real-world outcome
@@ -272,7 +272,7 @@ x86_64 machines. It is ready for invited beta testers on those two platforms.
 - Real-user automation remains unavailable until Lens can observe whether an
   agreed work outcome genuinely improved.
 - The live bridge to Dex's capability catalogue is available and verified end
-  to end against the 114-entry reference published by Core v1.97.1.
+  to end against the 115-entry reference published by Core v1.97.2.
 
 This is the honest boundary: the software and safety gates are ready, but the
 evidence that matters next must come from real people using it for real work.
