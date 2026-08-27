@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -9,6 +10,10 @@ from capability_exchange.adapters.claude_code.secrets import (
     REDACTION_MARK,
     contains_secret_shape,
     redact_secret_content,
+)
+from capability_exchange.boundary.secret_markers import (
+    SECRET_SHAPE_EXAMPLES,
+    SecretShapeExample,
 )
 
 AWS_KEY = b"AKIAIOSFODNN7EXAMPLE"
@@ -24,6 +29,13 @@ PEM = (
 
 
 class TestTokenShapes:
+    @pytest.mark.parametrize("example", SECRET_SHAPE_EXAMPLES, ids=lambda item: item.name)
+    def test_shared_secret_catalogue_examples_are_redacted(
+        self, example: SecretShapeExample
+    ) -> None:
+        outcome = redact_secret_content(example.content_example)
+        assert example.secret_fragment not in outcome.content
+
     def test_aws_access_key_redacted(self) -> None:
         outcome = redact_secret_content(b"key = " + AWS_KEY + b" end")
         assert AWS_KEY not in outcome.content

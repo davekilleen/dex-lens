@@ -7,11 +7,16 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from capability_exchange.boundary.secret_markers import (
+    SECRET_SHAPE_EXAMPLES,
+    SecretShapeExample,
+)
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     Observation,
     ObservationKind,
     OperationalState,
+    SafeAttribute,
 )
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
@@ -148,6 +153,30 @@ def test_legitimate_relative_source_references_are_accepted(
     )
 
     assert observation.provenance.relative_reference == relative_reference
+
+
+@pytest.mark.parametrize("shape", SECRET_SHAPE_EXAMPLES, ids=lambda shape: shape.name)
+def test_shared_secret_shape_catalogue_is_rejected_from_relative_paths(
+    shape: SecretShapeExample,
+) -> None:
+    relative_reference = f"skills/{shape.path_fragment}/SKILL.md"
+
+    with pytest.raises(ValidationError, match="relative_reference"):
+        Observation(
+            kind=ObservationKind.SKILL,
+            identity="planner",
+            label="Planner",
+            operational_state=OperationalState.IMPLEMENTED,
+            evidence=EvidenceItem(
+                state=EvidenceState.OBSERVED,
+                captured_at=NOW,
+                reference="file:planner",
+            ),
+            provenance={
+                **_provenance("vault", "vault-authored"),
+                "relative_reference": relative_reference,
+            },
+        )
 
 
 def test_source_models_are_closed_and_exact() -> None:
@@ -290,3 +319,35 @@ def test_fingerprint_copy_and_construct_reject_duplicate_source_triples() -> Non
             collected_at=NOW,
             observations=(item, item),
         )
+
+
+def test_deprecated_copy_is_blocked_for_every_task_two_invariant_model() -> None:
+    vault = _skill("vault", "vault-authored")
+    global_home = _skill("global", "user-global")
+    working_copy = _skill("working-copy", "working-copy")
+    fingerprint = EvidenceFingerprint(
+        adapter_id="claude-code-local",
+        collected_at=NOW,
+        observations=(vault,),
+    )
+    attribute = SafeAttribute(key="source-kind", value="plist")
+
+    with pytest.raises(TypeError, match="model_copy"):
+        vault.provenance.copy(update={"relative_reference": "/private/SKILL.md"})
+    with pytest.raises(TypeError, match="model_copy"):
+        vault.copy(update={"provenance": global_home.provenance})
+    with pytest.raises(TypeError, match="model_copy"):
+        working_copy.copy(update={"operational_state": OperationalState.LOADED})
+    with pytest.raises(TypeError, match="model_copy"):
+        fingerprint.copy(update={"observations": (vault, vault)})
+    with pytest.raises(TypeError, match="model_copy"):
+        attribute.copy(update={"value": "secret-token"})
+
+
+def test_safe_attribute_validators_hold_on_copy_and_construct_routes() -> None:
+    attribute = SafeAttribute(key="source-kind", value="plist")
+
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        attribute.model_copy(update={"value": "secret-token"})
+    with pytest.raises(ValidationError, match="secret-shaped"):
+        SafeAttribute.model_construct(key="source-kind", value="secret-token")

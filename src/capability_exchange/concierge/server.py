@@ -56,6 +56,7 @@ from capability_exchange.catalogue.subscription import (
 )
 from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 from capability_exchange.concierge.collection import (
+    ApprovedSourceDescriptor,
     CollectionCancelled,
     CollectionController,
     CollectionResult,
@@ -142,6 +143,7 @@ class ConciergeSession:
 
     approved_roots: tuple[Path, ...]
     collector: Callable[..., AdapterResultEnvelope]
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None
     now: Callable[[], datetime] = _utc_now
     bootstrap_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
@@ -185,7 +187,11 @@ class ConciergeSession:
         )
         if any(contribution_ports) and not all(contribution_ports):
             raise ValueError("contribution identity and intake ports must be configured together")
-        self._consent_scope = ScopeSnapshot.capture(self.approved_roots)
+        self._consent_scope = ScopeSnapshot.capture(
+            self.approved_roots,
+            source_descriptors=self.source_descriptors,
+        )
+        self.source_descriptors = self._consent_scope.source_descriptors
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
@@ -779,6 +785,7 @@ def new_session(
     *,
     approved_roots: tuple[Path, ...],
     collector: Callable[..., AdapterResultEnvelope],
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None,
     now: Callable[[], datetime] = _utc_now,
     contribution_identity: ContributionIdentityPort | None = None,
     contribution_intake: ContributionIntakePort | None = None,
@@ -795,6 +802,7 @@ def new_session(
     return ConciergeSession(
         approved_roots=approved_roots,
         collector=collector,
+        source_descriptors=source_descriptors,
         now=now,
         expires_at=now() + SESSION_TTL,
         contribution_identity=contribution_identity,
@@ -1290,16 +1298,28 @@ def _form_lines(form: dict[str, list[str]], name: str) -> tuple[str, ...]:
     return tuple(line.strip() for line in value.splitlines() if line.strip())
 
 
-def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:
+def session_for_roots(
+    roots: tuple[Path, ...],
+    *,
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None,
+) -> ConciergeSession:
     """Build the real CLI session for approved roots."""
+
+    consent = ScopeSnapshot.capture(roots, source_descriptors=source_descriptors)
 
     def collect(cancel_event: threading.Event | None = None) -> AdapterResultEnvelope:
         result = contained_inspection(
-            [str(root) for root in roots], cancel_event=cancel_event
+            [str(root) for root in roots],
+            cancel_event=cancel_event,
+            source_descriptors=consent.source_descriptors,
         )
         return result.envelope
 
-    return new_session(approved_roots=roots, collector=collect)
+    return new_session(
+        approved_roots=roots,
+        collector=collect,
+        source_descriptors=consent.source_descriptors,
+    )
 
 
 def start_server(session: ConciergeSession) -> ConciergeServer:

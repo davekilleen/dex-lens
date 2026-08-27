@@ -459,16 +459,46 @@ def _automation_observations(
                 )
             )
 
-    live_by_key = {(state.kind, _identity(state.identity)): state for state in live_states}
+    observations_by_key: dict[tuple[str, str], list[Observation]] = {}
+    for observation in observations:
+        observations_by_key.setdefault((observation.kind.value, observation.identity), []).append(
+            observation
+        )
+    live_by_key: dict[tuple[str, str], list[_LiveStateLike]] = {}
+    for state in live_states:
+        live_by_key.setdefault((state.kind, _identity(state.identity)), []).append(state)
     upgraded = []
     for observation in observations:
+        key = (observation.kind.value, observation.identity)
+        live_matches = live_by_key.get(key, [])
+        source_ids = {item.provenance.source_id for item in observations_by_key.get(key, [])}
+        unsourced_live = [
+            state for state in live_matches if getattr(state, "source_id", None) is None
+        ]
+        if unsourced_live and len(source_ids) > 1:
+            ambiguity = _attribute("live-state-match", "ambiguous-across-approved-sources")
+            upgraded.append(
+                observation.model_copy(
+                    update={
+                        "operational_state": OperationalState.NOT_ASSESSED,
+                        "attributes": _attributes(*observation.attributes, ambiguity),
+                    }
+                )
+            )
+            continue
         if observation.provenance.source_class is SourceClass.WORKING_COPY:
             upgraded.append(observation)
             continue
-        live = live_by_key.get((observation.kind.value, observation.identity))
-        if live is None:
+        exact_matches = [
+            state
+            for state in live_matches
+            if getattr(state, "source_id", None) == observation.provenance.source_id
+        ]
+        eligible = exact_matches or (unsourced_live if len(source_ids) == 1 else [])
+        if not eligible:
             upgraded.append(observation)
             continue
+        live = eligible[0]
         upgraded.append(
             observation.model_copy(update={"operational_state": live.operational_state})
         )

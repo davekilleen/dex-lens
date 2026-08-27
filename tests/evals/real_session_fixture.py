@@ -90,6 +90,12 @@ def real_session_fingerprint() -> EvidenceFingerprint:
                 captured_at=NOW,
                 reference="probe-token:invented-release",
             ),
+            provenance={
+                "source_id": "scope:invented-release",
+                "source_class": "harness-bundled",
+                "scope_reference": "scope:sha256:" + "a" * 64,
+                "relative_reference": "synthetic/release/VERSION",
+            },
             attributes=(SafeAttribute(key="release-id", value="invented-release-v1"),),
         )
     ]
@@ -104,6 +110,14 @@ def real_session_fingerprint() -> EvidenceFingerprint:
                 captured_at=NOW,
                 reference=source.evidence_reference,
             ),
+            provenance={
+                "source_id": f"scope:{source.identity}",
+                "source_class": source.source_class,
+                "scope_reference": (
+                    "scope:sha256:" + ("b" if source.source_class == "vault-authored" else "c") * 64
+                ),
+                "relative_reference": f"synthetic/{source.identity}/SKILL.md",
+            },
             attributes=(SafeAttribute(key="source-kind", value=source.source_class),),
         )
         for source in session_input.sources

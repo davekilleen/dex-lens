@@ -11,6 +11,7 @@ import pytest
 from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+from capability_exchange.adapters.claude_code.live_state import LiveState
 from capability_exchange.adapters.claude_code.snapshot import InspectionSnapshot, take_snapshot
 from capability_exchange.concierge.collection import ScopeSnapshot
 from capability_exchange.diagnosis.observations import ObservationKind, OperationalState
@@ -199,6 +200,71 @@ def test_same_named_skills_from_distinct_approved_sources_emit_separately(
         "scope:global",
         "scope:vault",
     ]
+
+
+def test_unsourced_live_state_cannot_upgrade_same_automation_across_sources(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    global_home = tmp_path / "global"
+    plist = (
+        "<plist><dict><key>Label</key><string>nightly-check</string>"
+        "<key>StartCalendarInterval</key><dict/></dict></plist>"
+    )
+    for root in (vault, global_home):
+        root.mkdir()
+        _write(root, "Library/LaunchAgents/nightly-check.plist", plist)
+    consent = ScopeSnapshot.capture(
+        (vault, global_home),
+        source_descriptors=(
+            {
+                "canonical_root": vault.resolve(),
+                "source_id": "scope:vault",
+                "source_class": "vault-authored",
+                "scope_reference": "scope:sha256:" + "a" * 64,
+            },
+            {
+                "canonical_root": global_home.resolve(),
+                "source_id": "scope:global",
+                "source_class": "user-global",
+                "scope_reference": "scope:sha256:" + "b" * 64,
+            },
+        ),
+    )
+    snapshot = take_snapshot(
+        CanonicalAllowlist((vault, global_home)),
+        source_descriptors=consent.source_descriptors,
+        taken_at=NOW,
+    )
+
+    fingerprint = discover_fingerprint(
+        snapshot,
+        collected_at=NOW,
+        live_states=(
+            LiveState(
+                kind="automation",
+                identity="nightly-check",
+                operational_state=OperationalState.LOADED,
+                captured_at=NOW,
+            ),
+        ),
+    )
+    matching = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.AUTOMATION and item.identity == "nightly-check"
+    ]
+
+    assert len(matching) == 2
+    assert {item.operational_state for item in matching} == {OperationalState.NOT_ASSESSED}
+    assert all(
+        any(
+            attribute.key == "live-state-match"
+            and attribute.value == "ambiguous-across-approved-sources"
+            for attribute in item.attributes
+        )
+        for item in matching
+    )
 
 
 def test_explicit_working_copy_source_cannot_prove_active_capability(tmp_path: Path) -> None:

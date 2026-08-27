@@ -19,7 +19,7 @@ from capability_exchange.adapters.claude_code.snapshot import (
     SnapshotMissError,
     take_snapshot,
 )
-from capability_exchange.concierge.collection import ScopeSnapshot
+from capability_exchange.concierge.collection import ApprovedSourceDescriptor, ScopeSnapshot
 from capability_exchange.evidence import EvidenceState
 
 not_root = pytest.mark.skipif(
@@ -29,6 +29,32 @@ not_root = pytest.mark.skipif(
 
 def snapshot_of(root: Path, **kwargs):  # type: ignore[no-untyped-def]
     return take_snapshot(CanonicalAllowlist([root]), **kwargs)
+
+
+@pytest.mark.parametrize("descendant_first", (False, True))
+def test_snapshot_refuses_overlapping_approved_roots_before_collection(
+    tmp_path: Path,
+    descendant_first: bool,
+) -> None:
+    ancestor = tmp_path / "scope"
+    descendant = ancestor / "nested"
+    descendant.mkdir(parents=True)
+    roots = (descendant, ancestor) if descendant_first else (ancestor, descendant)
+    descriptors = tuple(
+        ApprovedSourceDescriptor(
+            canonical_root=root.resolve(),
+            source_id=f"scope:root-{index}",
+            source_class="vault-authored" if index == 0 else "user-global",
+            scope_reference="scope:sha256:" + str(index + 1) * 64,
+        )
+        for index, root in enumerate(roots)
+    )
+
+    with pytest.raises(ValueError, match="overlap|ancestor|descendant"):
+        take_snapshot(
+            CanonicalAllowlist(roots),
+            source_descriptors=descriptors,
+        )
 
 
 class TestSnapshotReads:

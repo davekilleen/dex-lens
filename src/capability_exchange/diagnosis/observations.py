@@ -40,6 +40,7 @@ _SAFE_ATTRIBUTE_KEYS = frozenset(
         "source-kind",
         "provider-count",
         "receipt-age",
+        "live-state-match",
     }
 )
 _SECRET_SHAPED_MARKERS = ("token", "secret", "password", "credential")
@@ -102,6 +103,34 @@ class SafeAttribute(InventoriedModel):
             raise ValueError("attribute values are one bounded line")
         return value
 
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for SafeAttribute; use validated model_copy()")
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Keep attribute validators active on the supported copy route."""
+
+        values = {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        if update:
+            values.update(update)
+        return type(self).model_validate(values)
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        """Keep attribute validators active on the construct route."""
+
+        return cls.model_validate(values)
+
 
 class Observation(InventoriedModel):
     """One bounded system fact and the evidence supporting it."""
@@ -150,6 +179,11 @@ class Observation(InventoriedModel):
             values.update(update)
         return type(self).model_validate(values)
 
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for Observation; use validated model_copy()")
+
     @classmethod
     def model_construct(
         cls,
@@ -190,6 +224,11 @@ class EvidenceFingerprint(InventoriedModel):
         if update:
             values.update(update)
         return type(self).model_validate(values)
+
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for EvidenceFingerprint; use validated model_copy()")
 
     @classmethod
     def model_construct(

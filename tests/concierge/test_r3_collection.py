@@ -18,14 +18,18 @@ from capability_exchange.adapters.claude_code.containment import (
     CollectionFailedError,
     CollectionRequest,
     LinuxStrategy,
+    TestStrategy,
 )
 from capability_exchange.adapters.claude_code.snapshot import CollectionBounds
+from capability_exchange.concierge import server as server_module
 from capability_exchange.concierge.collection import (
+    ApprovedSourceDescriptor,
     CollectionCancelled,
     CollectionController,
     ScopeSnapshot,
     containment_fallback,
 )
+from capability_exchange.concierge.server import session_for_roots
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 
@@ -86,6 +90,26 @@ def test_multi_root_scope_requires_explicit_descriptors(tmp_path: Path) -> None:
         ScopeSnapshot.capture((first, second))
 
 
+@pytest.mark.parametrize("descendant_first", (False, True))
+def test_scope_snapshot_rejects_overlapping_roots_in_either_order(
+    tmp_path: Path,
+    descendant_first: bool,
+) -> None:
+    ancestor = tmp_path / "scope"
+    descendant = ancestor / "nested"
+    descendant.mkdir(parents=True)
+    roots = (descendant, ancestor) if descendant_first else (ancestor, descendant)
+
+    with pytest.raises(ValueError, match="overlap|ancestor|descendant"):
+        ScopeSnapshot.capture(
+            roots,
+            source_descriptors=(
+                _descriptor(roots[0], "first", "vault-authored"),
+                _descriptor(roots[1], "second", "user-global"),
+            ),
+        )
+
+
 @pytest.mark.parametrize("problem", ("missing", "extra", "duplicate-id", "duplicate-root"))
 def test_scope_descriptor_coverage_is_exact(tmp_path: Path, problem: str) -> None:
     first = tmp_path / "first"
@@ -128,6 +152,48 @@ def test_scope_revalidation_preserves_descriptor_mapping(tmp_path: Path) -> None
 
     assert snapshot.source_descriptors == before
     assert snapshot.descriptor_for(first / "nested").source_id == "scope:first"
+
+
+def test_two_root_browser_session_carries_consent_descriptors_into_containment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = tmp_path / "vault"
+    second = tmp_path / "global"
+    first.mkdir()
+    second.mkdir()
+    descriptors = tuple(
+        ApprovedSourceDescriptor(**item)
+        for item in (
+            _descriptor(first, "first", "vault-authored"),
+            _descriptor(second, "second", "user-global"),
+        )
+    )
+    captured: list[ApprovedSourceDescriptor] = []
+
+    def collect_contained(
+        roots: list[str],
+        *,
+        source_descriptors: tuple[ApprovedSourceDescriptor, ...],
+        cancel_event: threading.Event | None = None,
+    ):
+        captured.extend(source_descriptors)
+        return TestStrategy().collect_contained(
+            CollectionRequest(
+                approved_roots=tuple(roots),
+                source_descriptors=source_descriptors,
+            ),
+            cancel_event=cancel_event,
+        )
+
+    monkeypatch.setattr(server_module, "contained_inspection", collect_contained)
+    session = session_for_roots((first, second), source_descriptors=descriptors)
+    try:
+        session.approve_scope_and_collect()
+    finally:
+        session.terminate_and_wait()
+
+    assert [item.source_id for item in captured] == ["scope:first", "scope:second"]
 
 
 def test_scope_snapshot_rejects_changes_before_publication(tmp_path: Path) -> None:

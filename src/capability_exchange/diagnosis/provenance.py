@@ -9,7 +9,7 @@ from typing import Self
 
 from pydantic import ConfigDict, Field, field_validator
 
-from capability_exchange.boundary.secret_markers import has_credential_name_marker
+from capability_exchange.boundary.secret_markers import has_secret_shape_marker
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.evidence.item import reference_rejection_reason
 
@@ -20,10 +20,6 @@ __all__ = [
 ]
 
 _HOME_SEGMENTS = frozenset({"$home", "${home}", "$userprofile", "${userprofile}", "%userprofile%"})
-_HIGH_CONFIDENCE_SECRET = re.compile(
-    r"(?:AKIA[0-9A-Z]{16}|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}|"
-    r"gh[pousr]_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})"
-)
 
 
 def relative_reference_rejection_reason(value: str) -> str | None:
@@ -43,10 +39,7 @@ def relative_reference_rejection_reason(value: str) -> str | None:
     reason = reference_rejection_reason(value)
     if reason is not None:
         return f"relative_reference is not a safe locator: {reason}"
-    for segment in segments:
-        if has_credential_name_marker(segment):
-            return "relative_reference must not contain secret-shaped markers"
-    if _HIGH_CONFIDENCE_SECRET.search(value):
+    if has_secret_shape_marker(value):
         return "relative_reference must not contain secret-shaped markers"
     return None
 
@@ -97,6 +90,11 @@ class SourceProvenance(InventoriedModel):
         if update:
             values.update(update)
         return type(self).model_validate(values)
+
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for SourceProvenance; use validated model_copy()")
 
     @classmethod
     def model_construct(

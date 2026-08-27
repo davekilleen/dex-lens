@@ -46,6 +46,7 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.contract import CLAUDE_CODE_DIAGNOSTIC_BASENAMES
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
+from capability_exchange.boundary.approved_roots import reject_overlapping_roots
 from capability_exchange.diagnosis.provenance import (
     SourceClass,
     SourceProvenance,
@@ -437,6 +438,7 @@ def take_snapshot(
     effective_bounds = bounds or CollectionBounds()
     moment = taken_at or datetime.now(UTC)
     approved_roots = allowlist.approved_roots
+    reject_overlapping_roots(tuple(approved_roots))
     if source_descriptors is None:
         if len(approved_roots) != 1:
             raise ValueError("source descriptors are mandatory when more than one root is approved")

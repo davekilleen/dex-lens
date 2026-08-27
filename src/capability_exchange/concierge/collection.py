@@ -22,6 +22,7 @@ from capability_exchange.adapters.claude_code.containment import (
     GUIDED_FALLBACK_MESSAGE,
     ContainmentUnavailableError,
 )
+from capability_exchange.boundary.approved_roots import reject_overlapping_roots
 from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
@@ -159,6 +160,7 @@ class ScopeSnapshot:
             )
         if not identities:
             raise ValueError("approved scope is empty")
+        reject_overlapping_roots(tuple(resolved_roots))
         if set(descriptor_roots) != set(resolved_roots):
             raise ValueError(
                 "source descriptor coverage contains an unknown or missing approved root"
