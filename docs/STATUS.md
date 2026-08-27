@@ -6,8 +6,10 @@ Last updated: 2026-08-27. Plain-language companion to
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
 The approved engine is **on `main` as Lens v0.1.13**. Dave approved
-publication on 2026-08-27. The signed public download updates when the
-release workflow finishes; this commit does not hand-edit `install.sh`.
+publication on 2026-08-27. The first signed candidate failed install
+proof because the offline wheelhouse omitted `mcp`; the lock now
+vendors it. The public one-line install still serves v0.1.12 until the
+release workflow is re-run. This commit does not hand-edit `install.sh`.
 
 What v0.1.13 owns:
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tarfile
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -209,3 +211,21 @@ def test_release_source_export_uses_committed_bytes_not_the_working_tree(
         "VALUE = 'committed'\n"
     )
     assert not (exported / "src" / "example" / "untracked.py").exists()
+
+
+def test_runtime_lock_pins_every_declared_application_dependency() -> None:
+    root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = {
+        line.split("==", 1)[0].casefold().replace("_", "-")
+        for line in (root / "release" / "runtime-requirements.txt").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    declared = []
+    for requirement in project["project"]["dependencies"]:
+        name = re.split(r"[<>=!;[]", requirement, maxsplit=1)[0].strip().casefold()
+        declared.append(name.replace("_", "-"))
+    missing = [name for name in declared if name not in lock]
+    assert missing == []
