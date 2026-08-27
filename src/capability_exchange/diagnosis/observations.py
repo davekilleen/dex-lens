@@ -15,6 +15,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
+from capability_exchange.diagnosis.provenance import SourceProvenance
 from capability_exchange.evidence import EvidenceItem
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "ObservationKind",
     "OperationalState",
     "SafeAttribute",
+    "SourceProvenance",
 ]
 
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
@@ -111,6 +113,7 @@ class Observation(InventoriedModel):
     label: str = Field(min_length=1, max_length=160)
     operational_state: OperationalState
     evidence: EvidenceItem
+    provenance: SourceProvenance
     attributes: tuple[SafeAttribute, ...] = ()
 
     @field_validator("identity")
@@ -119,6 +122,29 @@ class Observation(InventoriedModel):
         if not _ID.fullmatch(value):
             raise ValueError("observation identity must be a bounded stable id")
         return value
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Keep nested provenance validation active on the copy route."""
+
+        values = {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        if update:
+            values.update(update)
+        return type(self).model_validate(values)
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        """Keep nested provenance validation active on the construct route."""
+
+        return cls.model_validate(values)
 
 
 class EvidenceFingerprint(InventoriedModel):
@@ -133,7 +159,7 @@ class EvidenceFingerprint(InventoriedModel):
 
     @model_validator(mode="after")
     def _unique_observations(self) -> Self:
-        keys = [(item.kind, item.identity) for item in self.observations]
+        keys = [(item.kind, item.identity, item.provenance.source_id) for item in self.observations]
         if len(keys) != len(set(keys)):
             raise ValueError("fingerprint contains a duplicate observation")
         return self

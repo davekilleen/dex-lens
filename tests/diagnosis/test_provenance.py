@@ -1,0 +1,176 @@
+"""Source-aware, privacy-safe diagnosis provenance."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from pydantic import ValidationError
+
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    Observation,
+    ObservationKind,
+    OperationalState,
+)
+from capability_exchange.evidence import EvidenceItem, EvidenceState
+
+NOW = datetime(2026, 8, 27, tzinfo=UTC)
+SCOPE_DIGEST = "scope:sha256:" + "a" * 64
+
+
+def _provenance(source_id: str, source_class: str) -> dict[str, object]:
+    return {
+        "source_id": f"scope:{source_id}",
+        "source_class": source_class,
+        "scope_reference": SCOPE_DIGEST,
+        "relative_reference": ".claude/skills/planner/SKILL.md",
+    }
+
+
+def _skill(source_id: str, source_class: str) -> Observation:
+    return Observation(
+        kind=ObservationKind.SKILL,
+        identity="planner",
+        label="Planner",
+        operational_state=OperationalState.IMPLEMENTED,
+        evidence=EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=NOW,
+            reference=f"file:{source_id}-planner",
+        ),
+        provenance=_provenance(source_id, source_class),
+    )
+
+
+def test_same_identity_from_two_sources_is_not_collapsed() -> None:
+    vault = _skill("vault", "vault-authored")
+    global_home = _skill("global", "user-global")
+
+    fingerprint = EvidenceFingerprint(
+        adapter_id="claude-code-local",
+        collected_at=NOW,
+        observations=(vault, global_home),
+    )
+
+    assert [item.provenance.source_id for item in fingerprint.observations] == [
+        "scope:vault",
+        "scope:global",
+    ]
+
+
+def test_duplicate_kind_identity_and_source_id_is_rejected() -> None:
+    item = _skill("vault", "vault-authored")
+
+    with pytest.raises(ValidationError, match="duplicate observation"):
+        EvidenceFingerprint(
+            adapter_id="claude-code-local",
+            collected_at=NOW,
+            observations=(item, item),
+        )
+
+
+@pytest.mark.parametrize(
+    "relative_reference",
+    (
+        "/Users/person/private/SKILL.md",
+        "~/private/SKILL.md",
+        "$HOME/private/SKILL.md",
+        "skills/../private/SKILL.md",
+        "skills/secret-token/SKILL.md",
+        "skills/planner\n/SKILL.md",
+        "skills/planner\x7f/SKILL.md",
+        "-----BEGIN PRIVATE KEY-----",
+    ),
+)
+def test_relative_source_reference_refuses_raw_or_secret_shaped_values(
+    relative_reference: str,
+) -> None:
+    provenance = {
+        **_provenance("vault", "vault-authored"),
+        "relative_reference": relative_reference,
+    }
+
+    with pytest.raises(ValidationError, match="relative_reference"):
+        Observation(
+            kind=ObservationKind.SKILL,
+            identity="planner",
+            label="Planner",
+            operational_state=OperationalState.IMPLEMENTED,
+            evidence=EvidenceItem(
+                state=EvidenceState.OBSERVED,
+                captured_at=NOW,
+                reference="file:planner",
+            ),
+            provenance=provenance,
+        )
+
+
+def test_source_models_are_closed_and_exact() -> None:
+    invalid = _provenance("vault", "private-machine-folder")
+
+    with pytest.raises(ValidationError, match="source_class"):
+        Observation(
+            kind=ObservationKind.SKILL,
+            identity="planner",
+            label="Planner",
+            operational_state=OperationalState.IMPLEMENTED,
+            evidence=EvidenceItem(
+                state=EvidenceState.OBSERVED,
+                captured_at=NOW,
+                reference="file:planner",
+            ),
+            provenance=invalid,
+        )
+
+    with pytest.raises(ValidationError, match="extra"):
+        Observation(
+            kind=ObservationKind.SKILL,
+            identity="planner",
+            label="Planner",
+            operational_state=OperationalState.IMPLEMENTED,
+            evidence=EvidenceItem(
+                state=EvidenceState.OBSERVED,
+                captured_at=NOW,
+                reference="file:planner",
+            ),
+            provenance={**_provenance("vault", "vault-authored"), "raw_root": "/tmp"},
+        )
+
+
+def test_copy_routes_cannot_bypass_provenance_validation() -> None:
+    observation = _skill("vault", "vault-authored")
+
+    with pytest.raises(ValidationError, match="relative_reference"):
+        observation.provenance.model_copy(
+            update={"relative_reference": "/Users/person/private/SKILL.md"}
+        )
+    with pytest.raises(ValidationError, match="relative_reference"):
+        observation.model_copy(
+            update={
+                "provenance": {
+                    **_provenance("vault", "vault-authored"),
+                    "relative_reference": "skills/../private/SKILL.md",
+                }
+            }
+        )
+
+
+def test_construct_routes_cannot_bypass_provenance_validation() -> None:
+    observation = _skill("vault", "vault-authored")
+    provenance_values = {
+        field_name: getattr(observation.provenance, field_name)
+        for field_name in type(observation.provenance).model_fields
+    }
+    provenance_values["relative_reference"] = "$HOME/private/SKILL.md"
+
+    with pytest.raises(ValidationError, match="relative_reference"):
+        type(observation.provenance).model_construct(**provenance_values)
+
+    observation_values = {
+        field_name: getattr(observation, field_name)
+        for field_name in type(observation).model_fields
+    }
+    observation_values["provenance"] = provenance_values
+    with pytest.raises(ValidationError, match="relative_reference"):
+        type(observation).model_construct(**observation_values)

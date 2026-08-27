@@ -6,10 +6,13 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
 from capability_exchange.adapters.claude_code.snapshot import InspectionSnapshot, take_snapshot
+from capability_exchange.concierge.collection import ScopeSnapshot
 from capability_exchange.diagnosis.observations import ObservationKind, OperationalState
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
@@ -55,9 +58,7 @@ def _synthetic_legacy_system(root: Path) -> InspectionSnapshot:
         json.dumps(
             {
                 "hooks": {
-                    "PostToolUse": [
-                        {"matcher": "Write", "hooks": [{"command": "private-runner"}]}
-                    ]
+                    "PostToolUse": [{"matcher": "Write", "hooks": [{"command": "private-runner"}]}]
                 }
             }
         ),
@@ -128,13 +129,7 @@ def test_mcp_and_hook_discovery_never_retains_secret_values(tmp_path: Path) -> N
         root,
         ".claude/settings.json",
         json.dumps(
-            {
-                "hooks": {
-                    "PostToolUse": [
-                        {"hooks": [{"command": f"runner --token {canary}"}]}
-                    ]
-                }
-            }
+            {"hooks": {"PostToolUse": [{"hooks": [{"command": f"runner --token {canary}"}]}]}}
         ),
     )
 
@@ -160,3 +155,93 @@ def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:
         if item.kind is ObservationKind.MCP_SERVER and item.identity == "career-data"
     ]
     assert len(matching) == 1
+
+
+def test_same_named_skills_from_distinct_approved_sources_emit_separately(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    global_home = tmp_path / "global"
+    for root in (vault, global_home):
+        (root / "planner").mkdir(parents=True)
+        (root / "planner" / "SKILL.md").write_text("# Planner\n")
+    consent = ScopeSnapshot.capture(
+        (vault, global_home),
+        source_descriptors=(
+            {
+                "canonical_root": vault.resolve(),
+                "source_id": "scope:vault",
+                "source_class": "vault-authored",
+                "scope_reference": "scope:sha256:" + "a" * 64,
+            },
+            {
+                "canonical_root": global_home.resolve(),
+                "source_id": "scope:global",
+                "source_class": "user-global",
+                "scope_reference": "scope:sha256:" + "b" * 64,
+            },
+        ),
+    )
+    snapshot = take_snapshot(
+        CanonicalAllowlist((vault, global_home)),
+        source_descriptors=consent.source_descriptors,
+        taken_at=NOW,
+    )
+
+    fingerprint = discover_fingerprint(snapshot, collected_at=NOW)
+    matching = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.SKILL and item.identity == "planner"
+    ]
+
+    assert [item.provenance.source_id for item in matching] == [
+        "scope:global",
+        "scope:vault",
+    ]
+
+
+def test_explicit_working_copy_source_cannot_prove_active_capability(tmp_path: Path) -> None:
+    root = tmp_path / "ordinary-name"
+    (root / "planner").mkdir(parents=True)
+    (root / "planner" / "SKILL.md").write_text("# Planner\n")
+    consent = ScopeSnapshot.capture(
+        (root,),
+        source_descriptors=(
+            {
+                "canonical_root": root.resolve(),
+                "source_id": "scope:working-copy",
+                "source_class": "working-copy",
+                "scope_reference": "scope:sha256:" + "c" * 64,
+            },
+        ),
+    )
+    snapshot = take_snapshot(
+        CanonicalAllowlist((root,)),
+        source_descriptors=consent.source_descriptors,
+        taken_at=NOW,
+    )
+
+    matching = [
+        item
+        for item in discover_fingerprint(snapshot, collected_at=NOW).observations
+        if item.kind is ObservationKind.SKILL and item.identity == "planner"
+    ]
+
+    assert len(matching) == 1
+    assert matching[0].provenance.source_class.value == "working-copy"
+    assert matching[0].operational_state is OperationalState.NOT_ASSESSED
+
+
+def test_discovery_does_not_accept_a_post_capture_provenance_override(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "vault"
+    root.mkdir()
+
+    with pytest.raises(TypeError):
+        discover_fingerprint(
+            _snapshot(root),
+            collected_at=NOW,
+            source_descriptors=(),  # type: ignore[call-arg]
+        )

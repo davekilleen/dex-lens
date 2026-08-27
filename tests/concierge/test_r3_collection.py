@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import threading
@@ -22,6 +23,7 @@ from capability_exchange.adapters.claude_code.snapshot import CollectionBounds
 from capability_exchange.concierge.collection import (
     CollectionCancelled,
     CollectionController,
+    ScopeSnapshot,
     containment_fallback,
 )
 from capability_exchange.evidence import EvidenceItem, EvidenceState
@@ -46,6 +48,86 @@ def _envelope() -> AdapterResultEnvelope:
             ),
         ),
     )
+
+
+def _descriptor(root: Path, source_id: str, source_class: str) -> dict[str, object]:
+    return {
+        "canonical_root": root.resolve(),
+        "source_id": f"scope:{source_id}",
+        "source_class": source_class,
+        "scope_reference": (
+            "scope:sha256:" + hashlib.sha256(source_id.encode("utf-8")).hexdigest()
+        ),
+    }
+
+
+def test_single_root_scope_uses_conservative_opaque_compatibility_descriptor(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "scope"
+    root.mkdir()
+
+    snapshot = ScopeSnapshot.capture((root,))
+    descriptor = snapshot.descriptor_for(root.resolve())
+
+    assert descriptor.source_id == "scope:primary"
+    assert descriptor.source_class.value == "vault-authored"
+    assert descriptor.scope_reference.startswith("scope:sha256:")
+    assert len(descriptor.scope_reference) == len("scope:sha256:") + 64
+
+
+def test_multi_root_scope_requires_explicit_descriptors(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    with pytest.raises(ValueError, match="descriptors.*mandatory|requires.*descriptor"):
+        ScopeSnapshot.capture((first, second))
+
+
+@pytest.mark.parametrize("problem", ("missing", "extra", "duplicate-id", "duplicate-root"))
+def test_scope_descriptor_coverage_is_exact(tmp_path: Path, problem: str) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    extra = tmp_path / "extra"
+    for root in (first, second, extra):
+        root.mkdir()
+    descriptors = [
+        _descriptor(first, "first", "vault-authored"),
+        _descriptor(second, "second", "user-global"),
+    ]
+    if problem == "missing":
+        descriptors.pop()
+    elif problem == "extra":
+        descriptors.append(_descriptor(extra, "extra", "plugin-or-vendor"))
+    elif problem == "duplicate-id":
+        descriptors[1]["source_id"] = "scope:first"
+    else:
+        descriptors[1]["canonical_root"] = first.resolve()
+
+    with pytest.raises(ValueError, match="descriptor|source_id|root"):
+        ScopeSnapshot.capture((first, second), source_descriptors=descriptors)
+
+
+def test_scope_revalidation_preserves_descriptor_mapping(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    snapshot = ScopeSnapshot.capture(
+        (first, second),
+        source_descriptors=(
+            _descriptor(first, "first", "vault-authored"),
+            _descriptor(second, "second", "user-global"),
+        ),
+    )
+
+    before = snapshot.source_descriptors
+    snapshot.revalidate((first, second))
+
+    assert snapshot.source_descriptors == before
+    assert snapshot.descriptor_for(first / "nested").source_id == "scope:first"
 
 
 def test_scope_snapshot_rejects_changes_before_publication(tmp_path: Path) -> None:
@@ -89,9 +171,7 @@ def test_scope_shrink_stops_the_next_read_batch(tmp_path: Path) -> None:
     root = tmp_path / "scope"
     root.mkdir()
     live_roots = [root]
-    controller = CollectionController(
-        (root,), scope_provider=lambda: tuple(live_roots)
-    )
+    controller = CollectionController((root,), scope_provider=lambda: tuple(live_roots))
     started = threading.Event()
     stopped = threading.Event()
     reads: list[int] = []

@@ -163,16 +163,112 @@ class TestInventory:
 
         inventory_main([str(system)])
         without = capsys.readouterr().out
-        inventory_main([str(system), "--also", str(global_config)])
+        inventory_main(
+            [
+                str(system),
+                "--also",
+                str(global_config),
+                "--also-class",
+                "user-global",
+            ]
+        )
         with_scope = capsys.readouterr().out
 
         assert "global-career-data" not in without
         assert "global-career-data" in with_scope
 
+    def test_single_root_defaults_to_vault_authored_source(
+        self,
+        system: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        captured: list[object] = []
+        real_take_snapshot = inventory_module.take_snapshot
+
+        def recording_take_snapshot(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            captured.extend(kwargs["source_descriptors"])  # type: ignore[arg-type]
+            return real_take_snapshot(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(inventory_module, "take_snapshot", recording_take_snapshot)
+
+        assert inventory_main([str(system)]) == 0
+        capsys.readouterr()
+        assert len(captured) == 1
+        assert captured[0].source_id == "scope:primary"  # type: ignore[attr-defined]
+        assert captured[0].source_class.value == "vault-authored"  # type: ignore[attr-defined]
+
+    def test_extra_scope_without_class_is_refused_before_any_read(
+        self,
+        system: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        additional = tmp_path / "additional"
+        additional.mkdir()
+        monkeypatch.setattr(
+            inventory_module,
+            "take_snapshot",
+            lambda *args, **kwargs: pytest.fail("scope validation must happen before reads"),
+        )
+
+        assert inventory_main([str(system), "--also", str(additional)]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "--also" in captured.err
+        assert "--also-class" in captured.err
+
+    @pytest.mark.parametrize(
+        "arguments",
+        (
+            ("--also-class", "user-global"),
+            ("--also", "{extra}", "--also-class", "user-global", "--also-class", "generated"),
+        ),
+    )
+    def test_extra_scope_and_class_cardinality_must_match(
+        self,
+        system: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        arguments: tuple[str, ...],
+    ) -> None:
+        extra = tmp_path / "extra"
+        extra.mkdir()
+        expanded = [item.format(extra=extra) for item in arguments]
+
+        assert inventory_main([str(system), *expanded]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "--also" in captured.err
+        assert "--also-class" in captured.err
+
+    def test_invalid_source_class_is_rejected_by_argparse(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as error:
+            inventory_main([str(system), "--source-class", "guessed-from-path"])
+
+        assert error.value.code == 2
+        captured = capsys.readouterr()
+        assert "invalid SourceClass value" in captured.err
+        assert "vault-authored" in captured.err
+
     def test_duplicate_extra_scope_is_refused_before_reading(
         self, system: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        assert inventory_main([str(system), "--also", str(system)]) == 2
+        assert (
+            inventory_main(
+                [
+                    str(system),
+                    "--also",
+                    str(system),
+                    "--also-class",
+                    "vault-authored",
+                ]
+            )
+            == 2
+        )
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "duplicate or overlapping" in captured.err
@@ -189,7 +285,18 @@ class TestInventory:
         private_keys.mkdir(parents=True)
         monkeypatch.setenv("HOME", str(home))
 
-        assert inventory_main([str(system), "--also", str(private_keys)]) == 2
+        assert (
+            inventory_main(
+                [
+                    str(system),
+                    "--also",
+                    str(private_keys),
+                    "--also-class",
+                    "user-global",
+                ]
+            )
+            == 2
+        )
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "credential folder that Lens never reads" in captured.err
@@ -369,9 +476,7 @@ class TestNarrowingByName:
     ) -> None:
         root = tmp_path / "vault"
         root.mkdir()
-        _skill(
-            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
-        )
+        _skill(root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan.")
         _skill(
             root,
             ".claude/skills/week-review/SKILL.md",
@@ -391,9 +496,7 @@ class TestNarrowingByName:
         """Otherwise a narrowed look quietly reports a smaller system."""
         root = tmp_path / "vault"
         root.mkdir()
-        _skill(
-            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
-        )
+        _skill(root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan.")
         _skill(
             root,
             ".claude/skills/week-review/SKILL.md",
@@ -414,9 +517,7 @@ class TestNarrowingByName:
         """An empty listing would read as "you have nothing called that"."""
         root = tmp_path / "vault"
         root.mkdir()
-        _skill(
-            root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan."
-        )
+        _skill(root, ".claude/skills/daily-plan/SKILL.md", name="daily-plan", description="Plan.")
 
         assert inventory_main([str(root), "--names", "sailing"]) == 1
 
@@ -450,7 +551,7 @@ class TestOtherAssistantsInstructions:
 
 
 class TestFilesThatWereNotRead:
-    """"None captured" must never be printed for a file nobody could read.
+    """ "None captured" must never be printed for a file nobody could read.
 
     This is the one output that is read as a finding — the module says so
     about ``--names`` and it is just as true here. A folder whose only
@@ -717,7 +818,7 @@ class TestQuotedTextIsMarkedAsData:
 def test_a_single_drifted_item_is_reported_in_the_singular(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """"1 items exist" is the kind of seam that makes a report look generated."""
+    """ "1 items exist" is the kind of seam that makes a report look generated."""
     root = tmp_path / "vault"
     root.mkdir()
     _skill(root, ".claude/skills/one/SKILL.md", name="one", description="One thing.")
@@ -752,7 +853,10 @@ class TestTheFolderDefaultsToWhereYouAre:
         assert "week-review" in captured.out
 
     def test_an_explicit_folder_still_wins_over_the_current_one(
-        self, system: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        system: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         elsewhere = tmp_path / "elsewhere"
@@ -899,9 +1003,7 @@ class TestMcpSecretsAreRedactedBeforeAnythingIsHeld:
         assert "**github**" in out
         assert "**openai**" in out
 
-    def test_the_key_is_redacted_before_it_enters_the_snapshot(
-        self, system: Path
-    ) -> None:
+    def test_the_key_is_redacted_before_it_enters_the_snapshot(self, system: Path) -> None:
         """Proof the redaction path runs, not merely that rendering omits env."""
         self._hostile_mcp(system)
         contract = claude_code_contract((str(system.resolve()),))

@@ -34,6 +34,7 @@ from capability_exchange.diagnosis.observations import (
     OperationalState,
     SafeAttribute,
 )
+from capability_exchange.diagnosis.provenance import SourceClass
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 __all__ = [
@@ -50,9 +51,7 @@ _FRONTMATTER_DISABLED = re.compile(
     rb"(?im)^\s*(?:enabled\s*:\s*false|disabled\s*:\s*true|active\s*:\s*false)\s*$"
 )
 _PLIST_CALENDAR = re.compile(rb"<key>\s*StartCalendarInterval\s*</key>", re.IGNORECASE)
-_PLIST_INTERVAL = re.compile(
-    rb"<key>\s*StartInterval\s*</key>\s*<integer>\s*(\d+)", re.IGNORECASE
-)
+_PLIST_INTERVAL = re.compile(rb"<key>\s*StartInterval\s*</key>\s*<integer>\s*(\d+)", re.IGNORECASE)
 _CRON_LINE = re.compile(r"^\s*([-\d*/,]+(?:\s+[-\d*/,]+){4})\s+(\S.*)$")
 _INTEGRATION_PATH_PARTS = frozenset(
     {"integration", "integrations", "connection", "connections", "provider", "providers"}
@@ -81,9 +80,7 @@ def _evidence(entry: SnapshotEntry, collected_at: datetime) -> EvidenceItem:
     return EvidenceItem(
         state=EvidenceState.OBSERVED,
         captured_at=collected_at,
-        reference=(
-            f"file:{reference_token(entry.relative_path)}#snap:{entry.keyed_digest}"
-        ),
+        reference=(f"file:{reference_token(entry.relative_path)}#snap:{entry.keyed_digest}"),
     )
 
 
@@ -109,12 +106,18 @@ def _entry_observation(
     operational_state: OperationalState,
     attributes: tuple[SafeAttribute, ...] = (),
 ) -> Observation:
+    effective_state = (
+        OperationalState.NOT_ASSESSED
+        if entry.source.source_class is SourceClass.WORKING_COPY
+        else operational_state
+    )
     return Observation(
         kind=kind,
         identity=_identity(identity),
         label=_label(label),
-        operational_state=operational_state,
+        operational_state=effective_state,
         evidence=_evidence(entry, collected_at),
+        provenance=entry.source,
         attributes=attributes,
     )
 
@@ -146,17 +149,18 @@ def _release_observations(
             if Path(entry.relative_path).name in RELEASE_BASENAMES
         ),
         key=lambda entry: (
-            {".dex-version": 0, "VERSION": 1, "CHANGELOG.md": 2}[
-                Path(entry.relative_path).name
-            ],
+            {".dex-version": 0, "VERSION": 1, "CHANGELOG.md": 2}[Path(entry.relative_path).name],
             entry.relative_path.count("/"),
             entry.relative_path,
         ),
     )
-    for entry in entries:
-        version = _release_version(entry)
-        if version is not None:
-            return (
+    observations: list[Observation] = []
+    for source_id in sorted({entry.source.source_id for entry in entries}):
+        for entry in (item for item in entries if item.source.source_id == source_id):
+            version = _release_version(entry)
+            if version is None:
+                continue
+            observations.append(
                 _entry_observation(
                     entry,
                     collected_at,
@@ -165,9 +169,10 @@ def _release_observations(
                     label="Dex Core release",
                     operational_state=OperationalState.INSTALLED,
                     attributes=_attributes(_attribute("release-id", version)),
-                ),
+                )
             )
-    return ()
+            break
+    return tuple(observations)
 
 
 def _skill_observations(
@@ -250,9 +255,7 @@ def _mcp_observations(
                             identity=name,
                             label=name,
                             operational_state=OperationalState.DECLARED,
-                            attributes=_attributes(
-                                _attribute("transport", _mcp_transport(config))
-                            ),
+                            attributes=_attributes(_attribute("transport", _mcp_transport(config))),
                         )
                     )
     return tuple(observations)
@@ -333,24 +336,34 @@ def _integration_observations(
         and _INTEGRATION_PATH_PARTS
         & {part.lower() for part in Path(entry.relative_path).parts[:-1]}
     ]
-    if not entries:
-        return ()
-    provider_count = sum(_integration_provider_count(entry) for entry in entries)
-    source_kinds = sorted({Path(entry.relative_path).suffix.lstrip(".") for entry in entries})
-    return (
-        _entry_observation(
-            min(entries, key=lambda item: (item.relative_path.count("/"), item.relative_path)),
-            collected_at,
-            kind=ObservationKind.INTEGRATION_REGISTRY,
-            identity="local-integrations",
-            label="Local integrations",
-            operational_state=OperationalState.IMPLEMENTED,
-            attributes=_attributes(
-                _attribute("provider-count", provider_count),
-                _attribute("source-kind", "+".join(source_kinds) or "unknown"),
-            ),
-        ),
-    )
+    observations: list[Observation] = []
+    for source_id in sorted({entry.source.source_id for entry in entries}):
+        source_entries = [entry for entry in entries if entry.source.source_id == source_id]
+        provider_count = sum(_integration_provider_count(entry) for entry in source_entries)
+        source_kinds = sorted(
+            {Path(entry.relative_path).suffix.lstrip(".") for entry in source_entries}
+        )
+        observations.append(
+            _entry_observation(
+                min(
+                    source_entries,
+                    key=lambda item: (
+                        item.relative_path.count("/"),
+                        item.relative_path,
+                    ),
+                ),
+                collected_at,
+                kind=ObservationKind.INTEGRATION_REGISTRY,
+                identity="local-integrations",
+                label="Local integrations",
+                operational_state=OperationalState.IMPLEMENTED,
+                attributes=_attributes(
+                    _attribute("provider-count", provider_count),
+                    _attribute("source-kind", "+".join(source_kinds) or "unknown"),
+                ),
+            )
+        )
+    return tuple(observations)
 
 
 def _plist_fact(entry: SnapshotEntry) -> tuple[str, str, str]:
@@ -449,6 +462,9 @@ def _automation_observations(
     live_by_key = {(state.kind, _identity(state.identity)): state for state in live_states}
     upgraded = []
     for observation in observations:
+        if observation.provenance.source_class is SourceClass.WORKING_COPY:
+            upgraded.append(observation)
+            continue
         live = live_by_key.get((observation.kind.value, observation.identity))
         if live is None:
             upgraded.append(observation)
@@ -502,13 +518,27 @@ def _health_and_recovery_observations(
 
 
 def _fold_exact_duplicates(observations: Iterable[Observation]) -> tuple[Observation, ...]:
-    by_key: dict[tuple[ObservationKind, str], Observation] = {}
+    by_key: dict[tuple[ObservationKind, str, str], Observation] = {}
     for observation in sorted(
         observations,
-        key=lambda item: (item.kind.value, item.identity, item.evidence.reference),
+        key=lambda item: (
+            item.kind.value,
+            item.identity,
+            item.provenance.source_id,
+            item.evidence.reference,
+        ),
     ):
-        by_key.setdefault((observation.kind, observation.identity), observation)
-    return tuple(by_key[key] for key in sorted(by_key, key=lambda item: (item[0].value, item[1])))
+        by_key.setdefault(
+            (
+                observation.kind,
+                observation.identity,
+                observation.provenance.source_id,
+            ),
+            observation,
+        )
+    return tuple(
+        by_key[key] for key in sorted(by_key, key=lambda item: (item[0].value, item[1], item[2]))
+    )
 
 
 def _render_limits(

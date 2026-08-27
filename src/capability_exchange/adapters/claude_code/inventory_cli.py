@@ -29,6 +29,7 @@ skill the person's assistant loads on the next run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from collections import Counter
@@ -54,12 +55,17 @@ from capability_exchange.adapters.claude_code.snapshot import (
     take_snapshot,
 )
 from capability_exchange.catalogue.subscription import require_app_storage_outside_roots
+from capability_exchange.concierge.collection import (
+    ApprovedSourceDescriptor,
+    ScopeSnapshot,
+)
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     Observation,
     ObservationKind,
     OperationalState,
 )
+from capability_exchange.diagnosis.provenance import SourceClass
 
 __all__ = ["inventory_main"]
 
@@ -216,13 +222,9 @@ def _unread_reason(reason: str, bounds: CollectionBounds) -> str:
             f"larger than the {_byte_size(bounds.max_file_bytes)} per-file bound, "
             "so it could not be read"
         ),
-        "read-error": (
-            "could not be read at all — permission denied, or it went away "
-            "mid-capture"
-        ),
+        "read-error": ("could not be read at all — permission denied, or it went away mid-capture"),
         "file-count-bound-reached": (
-            f"past the {bounds.max_file_count}-file capture bound "
-            "(raise it with --max-files)"
+            f"past the {bounds.max_file_count}-file capture bound (raise it with --max-files)"
         ),
         "total-bytes-bound-reached": (
             f"past the {_byte_size(bounds.max_total_bytes)} total capture bound"
@@ -360,16 +362,13 @@ def _render_shape(snapshot: InspectionSnapshot) -> list[str]:
     looks_flat = top <= _SKILLS_ONLY_NAMES
     if numbered or brainy:
         summary = (
-            "This looks like a structured second brain, not a bare skills "
-            "directory: it carries "
+            "This looks like a structured second brain, not a bare skills directory: it carries "
         )
         markers = []
         if numbered:
             markers.append("dated or numbered PARA-style folders")
         if brainy:
-            markers.append(
-                "named areas (" + ", ".join(f"`{name}`" for name in brainy) + ")"
-            )
+            markers.append("named areas (" + ", ".join(f"`{name}`" for name in brainy) + ")")
         summary += " and ".join(markers) + " alongside its assistant configuration."
     elif looks_flat:
         summary = (
@@ -418,9 +417,7 @@ def _render_fingerprint(fingerprint: EvidenceFingerprint) -> list[str]:
 
     servers = _observations(fingerprint, ObservationKind.MCP_SERVER)
     tools = _observations(fingerprint, ObservationKind.MCP_TOOL)
-    tool_count_by_server: Counter[str] = Counter(
-        item.identity.partition(":")[0] for item in tools
-    )
+    tool_count_by_server: Counter[str] = Counter(item.identity.partition(":")[0] for item in tools)
     lines.extend([f"## MCP servers ({len(servers)} configured)", ""])
     if servers:
         lines.append(
@@ -432,13 +429,9 @@ def _render_fingerprint(fingerprint: EvidenceFingerprint) -> list[str]:
             transport = _safe_attribute(item, "transport") or "transport not readable"
             count = tool_count_by_server[item.identity]
             tool_fact = (
-                f"{count} {_plural(count, 'tool')} enumerated"
-                if count
-                else "tools not enumerated"
+                f"{count} {_plural(count, 'tool')} enumerated" if count else "tools not enumerated"
             )
-            lines.append(
-                f"- **{item.label}** — configured doorway; {tool_fact}; {transport}"
-            )
+            lines.append(f"- **{item.label}** — configured doorway; {tool_fact}; {transport}")
     else:
         lines.append(
             "No MCP server declaration was captured in the approved folders. Global assistant "
@@ -835,6 +828,13 @@ def inventory_main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--source-class",
+        type=SourceClass,
+        choices=tuple(SourceClass),
+        default=SourceClass.VAULT_AUTHORED,
+        help=("Consent-approved source role for ROOT. Defaults conservatively to vault-authored."),
+    )
+    parser.add_argument(
         "--max-files",
         type=int,
         default=CollectionBounds().max_file_count,
@@ -846,8 +846,18 @@ def inventory_main(argv: list[str] | None = None) -> int:
         default=[],
         type=Path,
         metavar="FOLDER",
+        help=("An additional folder the person explicitly approved for this read-only inventory."),
+    )
+    parser.add_argument(
+        "--also-class",
+        action="append",
+        default=[],
+        type=SourceClass,
+        choices=tuple(SourceClass),
+        metavar="SOURCE_CLASS",
         help=(
-            "An additional folder the person explicitly approved for this read-only inventory."
+            "Consent-approved source role for the matching --also folder; "
+            "repeat once per --also in the same order."
         ),
     )
     parser.add_argument(
@@ -876,6 +886,13 @@ def inventory_main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if len(args.also) != len(args.also_class):
+        print(
+            "dex-lens: every --also FOLDER requires one matching "
+            "--also-class SOURCE_CLASS, in the same order.",
+            file=sys.stderr,
+        )
+        return 2
     names = tuple(
         fragment.strip().lower() for fragment in (args.names or "").split(",") if fragment.strip()
     )
@@ -946,6 +963,25 @@ def inventory_main(argv: list[str] | None = None) -> int:
                 )
                 return 2
 
+    source_classes = (args.source_class, *args.also_class)
+    descriptors = tuple(
+        ApprovedSourceDescriptor(
+            canonical_root=approved_root,
+            source_id=("scope:primary" if index == 0 else f"scope:additional-{index:03d}"),
+            source_class=source_class,
+            scope_reference=(
+                "scope:sha256:" + hashlib.sha256(str(approved_root).encode("utf-8")).hexdigest()
+            ),
+        )
+        for index, (approved_root, source_class) in enumerate(
+            zip(approved_roots, source_classes, strict=True)
+        )
+    )
+    consent_snapshot = ScopeSnapshot.capture(
+        approved_roots,
+        source_descriptors=descriptors,
+    )
+
     if args.out is not None:
         try:
             # The same guard `reports save --for` uses, and for the same
@@ -975,6 +1011,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
     snapshot = take_snapshot(
         allowlist,
         bounds=CollectionBounds(max_file_count=args.max_files),
+        source_descriptors=consent_snapshot.source_descriptors,
     )
     live_states = collect_live_states() if args.include_live_state else ()
     fingerprint = discover_fingerprint(
@@ -988,8 +1025,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
     # the honest thing is to say so — not to hand back an all-empty inventory
     # that reads like a finding about the person's system.
     captured_a_system = any(
-        Path(path).name in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
-        for path in snapshot.canonical_paths()
+        Path(path).name in CLAUDE_CODE_DIAGNOSTIC_BASENAMES for path in snapshot.canonical_paths()
     )
     if args.root is None and not captured_a_system:
         print(

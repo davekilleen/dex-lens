@@ -1245,6 +1245,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral evidence; nested fields remain independently inventoried"
 
+  Observation.provenance:
+    description: "immutable non-raw source provenance fixed at consent capture"
+    collection: "carried from the approved source descriptor attached before snapshot reads"
+    derivation: "nested closed SourceProvenance; discovery cannot replace or infer it from private paths"
+    display: "distinguishes same-named observations from separately approved sources"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral provenance only; the canonical absolute root is excluded"
+
   Observation.attributes:
     description: "zero or more allowlisted safe attributes for one observation"
     collection: "produced locally only by bounded parsers for explicitly safe facts"
@@ -1254,6 +1264,56 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral metadata; raw configuration, commands, and secret values are unrepresentable"
+
+  SourceProvenance.source_id:
+    description: "opaque public identity for one consent-approved source"
+    collection: "assigned at local scope consent without retaining the raw root"
+    derivation: "validated as a bounded scope-prefixed identifier"
+    display: "separates observations that share a capability name across sources"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local source identity; contains no absolute path"
+
+  SourceProvenance.source_class:
+    description: "closed ownership class for one approved source"
+    collection: "explicitly fixed by consent; single-root compatibility uses vault-authored conservatively"
+    derivation: "validated through the closed SourceClass vocabulary; never inferred from path names"
+    display: "explains whether evidence is authored, global, bundled, vendored, generated, live, or a working copy"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral privacy classification used by deterministic eligibility rules"
+
+  SourceProvenance.scope_reference:
+    description: "non-reversible SHA-256 reference to the locally approved source root"
+    collection: "derived locally with the consent session scope reference"
+    derivation: "validated as scope:sha256 followed by exactly 64 lowercase hexadecimal characters"
+    display: "supports local provenance checks without exposing the raw root"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral one-way scope locator; raw absolute paths are excluded"
+
+  SourceProvenance.relative_reference:
+    description: "bounded reference relative to the approved source"
+    collection: "derived from an admitted snapshot entry before discovery"
+    derivation: "unsafe names become reference tokens; absolute, home, traversal, control, and secret-shaped values are refused"
+    display: "locates local evidence within its opaque approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral non-raw locator; never an absolute path or secret-bearing payload"
+
+  SourceProvenance.content_digest:
+    description: "optional SHA-256 digest for a source artifact when a lawful digest is available"
+    collection: "omitted by snapshot discovery unless an approved non-content-derived digest exists"
+    derivation: "validated as sha256 followed by exactly 64 lowercase hexadecimal characters"
+    display: "may distinguish versions without retaining source content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral optional digest; snapshot keyed references remain separate"
 
   EvidenceFingerprint.adapter_id:
     description: "stable identity of the read-only adapter that produced the fingerprint"
@@ -1278,7 +1338,7 @@ fields:
   EvidenceFingerprint.observations:
     description: "unique closed observations collected from the approved read-only scopes"
     collection: "assembled locally by the adapter discovery pipeline"
-    derivation: "exact duplicate identities are folded or rejected before diagnosis"
+    derivation: "duplicates are folded or rejected by exact kind, identity, and opaque source id"
     display: "forms the evidence-led whole-system inventory"
     storage: none
     sharing: never
