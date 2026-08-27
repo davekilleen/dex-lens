@@ -12,11 +12,13 @@ license = { text = "Proprietary" }
 dependencies = [
     "cryptography>=43",
     "jsonschema>=4.23,<5",
+    "mcp>=2.1.1,<3",
     "pydantic>=2",
 ]
 
 [project.scripts]
 dex-lens = "capability_exchange.concierge.cli:main"
+dex-lens-mcp = "capability_exchange.diagnosis.mcp_server:main"
 
 [project.optional-dependencies]
 dev = [
