@@ -183,6 +183,25 @@ which folder first; read the current one. Only pass an explicit
 somewhere else, or when the command reports that the current folder has no
 instruction files, settings or skills and so is not a personal AI system.
 
+The first inventory may tell you that important assistant configuration sits
+outside the folder it was allowed to read. Do not quietly widen the search.
+Name the exact additional folder and ask one plain question, for example:
+"Your shared assistant settings may be in `~/.claude`. Would you like me to
+include that folder in this read-only inventory?" Wait for the answer. Only
+after a clear yes may you rerun:
+
+```
+dex-lens inventory <folder> --also <the-exact-approved-folder> --out /tmp/dex-lens-inventory.md
+```
+
+If the inventory finds scheduled work, you may separately ask: "Would you
+like me to ask your operating system whether those scheduled jobs are loaded?"
+Explain that **loaded** only means the computer recognises the job; it does
+not prove the job ran successfully or produced the right result. Wait for a
+clear yes before adding `--include-live-state`. After a no, use neither flag
+and do not ask again in the same run. Never substitute a broader folder for
+the one the person approved.
+
 This lists every instruction file, settings file and skill with the
 description it declares for itself, and folds duplicates together. A real
 system is large — one reference vault has 6,829 files that turn out to be 240
@@ -190,13 +209,18 @@ distinct capabilities — and the folded count is the honest size.
 
 The inventory also reports the parts of their system that are not skills: the
 **tools their assistant can call directly** (their MCP servers — MCP is just
-the plug that lets an assistant use an outside tool), the **jobs that run on
-their own timetable** (their scheduled automations), and the **shape of their
+the plug that lets an assistant use an outside tool), the **connections it
+knows how to manage**, the **hooks that react at named moments**, the **jobs
+that run on their own timetable**, and any **health or recovery checks** it
+can recognise. It also shows release identity and the **shape of their
 vault** — how it is laid out and how it holds its own records. Read those
-sections too. Dex is four kinds of capability, not one, and the comparison in
-Phase 5 is like-for-like: their tools against Dex's tools, their automations
-against Dex's automations, not only their skills against Dex's skills. If you
-only ever look at skills you will miss the findings that matter most.
+sections too. A configured doorway is not proof that the tools behind it
+work, and a written scheduled job is not proof that the computer loaded or
+ran it; the inventory says that distinction in ordinary words. Dex is four
+kinds of capability, not one, and the comparison in Phase 5 is like-for-like:
+their tools against Dex's tools, their automations against Dex's automations,
+not only their skills against Dex's skills. If you only ever look at skills
+you will miss the findings that matter most.
 
 On a second look, when the previous report named the items you care about,
 you can list just those instead of all of them:

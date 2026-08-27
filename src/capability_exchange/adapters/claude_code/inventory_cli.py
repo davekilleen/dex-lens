@@ -42,9 +42,11 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.contract import (
     CLAUDE_CODE_DIAGNOSTIC_BASENAMES,
+    GLOBALLY_DENIED_PATHS,
     claude_code_contract,
 )
 from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+from capability_exchange.adapters.claude_code.live_state import collect_live_states
 from capability_exchange.adapters.claude_code.snapshot import (
     CollectionBounds,
     InspectionSnapshot,
@@ -523,6 +525,7 @@ def _render(
     fingerprint: EvidenceFingerprint,
     root: Path,
     names: Sequence[str] = (),
+    additional_roots: Sequence[Path] = (),
 ) -> str:
     lines = [
         f"# System inventory: {root}",
@@ -530,6 +533,14 @@ def _render(
         _QUOTED_NOT_ADDRESSED,
         "",
     ]
+    if additional_roots:
+        lines.extend(
+            [
+                "> **Additional approved folders.** This run also read: "
+                + ", ".join(f"`{path}`" for path in additional_roots),
+                "",
+            ]
+        )
     if names:
         lines.extend(
             [
@@ -830,6 +841,24 @@ def inventory_main(argv: list[str] | None = None) -> int:
         help="Bound on files captured. Reaching it is reported, never hidden.",
     )
     parser.add_argument(
+        "--also",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="FOLDER",
+        help=(
+            "An additional folder the person explicitly approved for this read-only inventory."
+        ),
+    )
+    parser.add_argument(
+        "--include-live-state",
+        action="store_true",
+        help=(
+            "Run fixed read-only operating-system status commands; never runs a command found "
+            "in the inspected system."
+        ),
+    )
+    parser.add_argument(
         "--names",
         metavar="TEXT[,TEXT...]",
         help=(
@@ -878,6 +907,45 @@ def inventory_main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    additional_roots: list[Path] = []
+    globally_denied = tuple(
+        Path(path).expanduser().resolve(strict=False) for path in GLOBALLY_DENIED_PATHS
+    )
+    for given in args.also:
+        candidate = given.expanduser().resolve()
+        if not candidate.is_dir():
+            print(f"dex-lens: additional scope is not a folder: {candidate}", file=sys.stderr)
+            return 2
+        if candidate == Path.home().resolve() or candidate == Path(candidate.anchor):
+            print(
+                f"dex-lens: {candidate} is too broad to approve as an additional folder.",
+                file=sys.stderr,
+            )
+            return 2
+        if any(
+            candidate == denied
+            or candidate.is_relative_to(denied)
+            or denied.is_relative_to(candidate)
+            for denied in globally_denied
+        ):
+            print(
+                f"dex-lens: {candidate} overlaps a credential folder that Lens never reads.",
+                file=sys.stderr,
+            )
+            return 2
+        additional_roots.append(candidate)
+
+    approved_roots = (root, *additional_roots)
+    for index, first in enumerate(approved_roots):
+        for second in approved_roots[index + 1 :]:
+            if first == second or first.is_relative_to(second) or second.is_relative_to(first):
+                print(
+                    "dex-lens: duplicate or overlapping approved folders are refused; "
+                    "name each read-only scope once.",
+                    file=sys.stderr,
+                )
+                return 2
+
     if args.out is not None:
         try:
             # The same guard `reports save --for` uses, and for the same
@@ -887,7 +955,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
             # read-only command would have edited the thing it was measuring.
             # Checked before anything is read, so a refused destination costs
             # the person nothing.
-            require_app_storage_outside_roots(args.out, (root,))
+            require_app_storage_outside_roots(args.out, approved_roots)
         except ValueError:
             print(
                 f"dex-lens: refusing to write inside the folder it read: {args.out}. "
@@ -899,7 +967,7 @@ def inventory_main(argv: list[str] | None = None) -> int:
             return 2
 
     try:
-        contract = claude_code_contract((str(root),))
+        contract = claude_code_contract(tuple(str(path) for path in approved_roots))
         allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
     except (AllowlistError, ValueError) as exc:
         print(f"dex-lens: cannot read {root}: {exc}", file=sys.stderr)
@@ -908,7 +976,12 @@ def inventory_main(argv: list[str] | None = None) -> int:
         allowlist,
         bounds=CollectionBounds(max_file_count=args.max_files),
     )
-    fingerprint = discover_fingerprint(snapshot, collected_at=snapshot.taken_at)
+    live_states = collect_live_states() if args.include_live_state else ()
+    fingerprint = discover_fingerprint(
+        snapshot,
+        collected_at=snapshot.taken_at,
+        live_states=live_states,
+    )
 
     # Defaulting to the current folder is only kind when it is the right
     # folder. Opened somewhere with no instruction files, settings or skills,
@@ -928,7 +1001,13 @@ def inventory_main(argv: list[str] | None = None) -> int:
         )
 
     try:
-        rendered = _render(snapshot, fingerprint, root, names)
+        rendered = _render(
+            snapshot,
+            fingerprint,
+            root,
+            names,
+            additional_roots=additional_roots,
+        )
     except _NothingMatched as nothing:
         print(
             f"dex-lens: nothing in this folder is named like {', '.join(nothing.names)}. "

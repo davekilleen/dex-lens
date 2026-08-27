@@ -9,14 +9,18 @@ looked at, and an inventory too large to read produces no analysis at all.
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from capability_exchange.adapters.claude_code import inventory_cli as inventory_module
 from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.adapters.claude_code.inventory_cli import inventory_main
+from capability_exchange.adapters.claude_code.live_state import LiveState
 from capability_exchange.adapters.claude_code.snapshot import take_snapshot
+from capability_exchange.diagnosis.observations import OperationalState
 
 not_root = pytest.mark.skipif(
     os.geteuid() == 0, reason="permission fixtures are meaningless as root"
@@ -146,6 +150,86 @@ class TestInventory:
         inventory_main([str(system), "--out", str(out_path)])
 
         assert out_path.read_text(encoding="utf-8") == capsys.readouterr().out
+
+    def test_extra_scope_is_read_only_only_when_named_explicitly(
+        self, system: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        global_config = tmp_path / "assistant-config"
+        global_config.mkdir()
+        (global_config / ".claude.json").write_text(
+            '{"mcpServers":{"global-career-data":{"command":"career-server"}}}',
+            encoding="utf-8",
+        )
+
+        inventory_main([str(system)])
+        without = capsys.readouterr().out
+        inventory_main([str(system), "--also", str(global_config)])
+        with_scope = capsys.readouterr().out
+
+        assert "global-career-data" not in without
+        assert "global-career-data" in with_scope
+
+    def test_duplicate_extra_scope_is_refused_before_reading(
+        self, system: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert inventory_main([str(system), "--also", str(system)]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "duplicate or overlapping" in captured.err
+
+    def test_credential_folder_cannot_be_approved_as_an_extra_scope(
+        self,
+        system: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        home = tmp_path / "home"
+        private_keys = home / ".ssh"
+        private_keys.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert inventory_main([str(system), "--also", str(private_keys)]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "credential folder that Lens never reads" in captured.err
+
+    def test_live_state_is_only_collected_after_the_explicit_flag(
+        self,
+        system: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        plist = system / "Library" / "LaunchAgents" / "nightly-check.plist"
+        plist.parent.mkdir(parents=True)
+        plist.write_text(
+            "<plist><dict><key>Label</key><string>nightly-check</string></dict></plist>",
+            encoding="utf-8",
+        )
+        calls = 0
+
+        def loaded() -> tuple[LiveState, ...]:
+            nonlocal calls
+            calls += 1
+            return (
+                LiveState(
+                    kind="automation",
+                    identity="nightly-check",
+                    operational_state=OperationalState.LOADED,
+                    captured_at=datetime.now(UTC),
+                ),
+            )
+
+        monkeypatch.setattr(inventory_module, "collect_live_states", loaded)
+
+        inventory_main([str(system)])
+        without = capsys.readouterr().out
+        inventory_main([str(system), "--include-live-state"])
+        with_state = capsys.readouterr().out
+
+        assert calls == 1
+        assert "written, not proved installed or running" in without
+        assert "**nightly-check** — loaded" in with_state
 
 
 class TestHousekeeping:
