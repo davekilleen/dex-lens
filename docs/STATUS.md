@@ -3,6 +3,49 @@
 Last updated: 2026-08-27. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
+## Deterministic diagnosis engine candidate, 2026-08-27
+
+The approved engine is **implemented on draft PR #46** and locally verified.
+It is **not merged, not released, not registered, and not live**. The public
+product remains signed Lens **v0.1.12**. Installer registration, signing,
+beta promotion and publication each remain a later explicit Dave decision.
+
+What the candidate owns, on `codex/lens-deterministic-diagnosis-engine-build`:
+
+- ledger-derived report facts and a typed `ReportModel` bound to run identity
+- closed decision and share receipts (preview is not sent)
+- immutable run identity, closed stage machine, atomic checkpoints
+- bounded specialist proposals and two-fold sceptical reconciliation
+- `DeterministicDiagnosisEngine` as the only orchestrator
+- JSON CLI (`dex-lens diagnosis`) and read-only MCP (`dex-lens-mcp`)
+- skill text that follows engine `status` / `advance` / `result`
+- golden replay: direct, CLI and MCP canonical result bytes are identical
+
+Local verification on this Cloud Agent VM, commit after Task 12 merge:
+
+- Engine-owned subset (diagnosis, reports, golden replay, skill, packaging,
+  diagnosis consent, diagnosis import surface): **541 passed**, 0 failed,
+  0 skipped.
+- Full `tests/` collection: **2151** tests. **2034 passed**. **11**
+  environment-gated skips printed their reasons (macOS Seatbelt, live
+  catalogue opt-in, packet-egress tools, terminal emulator).
+- **106** failures are the known Cloud-VM fixture-tree / mount-point
+  crossings in adapter snapshot, inventory CLI, hostile G1 fixtures, the
+  contained full journey, and the legacy-system filesystem eval. Those
+  guards were not weakened. GitHub CI remains the authority for that
+  containment matrix.
+- Ruff: clean on `src` and `tests`.
+- Inventory: **771** fields; **145** stored with registered deletion paths;
+  **1** transmitted through closed reviewed paths.
+- Privacy grep: no real `/Users/<name>`, `/home/<name>`, or session URL in
+  product or replay artifacts. The invented canary
+  `INVENTED_SESSION_CANARY_NEVER_RETAIN` is a test input only and is absent
+  from fingerprints, checkpoints, reports and MCP messages.
+
+Draft implementation PR: https://github.com/davekilleen/dex-lens/pull/46
+Design PR: https://github.com/davekilleen/dex-lens/pull/45
+Mission Control: davekilleen/dex-cards#99
+
 ## Signed release and complete live reference, 2026-08-27
 
 Lens v0.1.12 is published as a signed, supported download for Apple Silicon Mac

@@ -1,8 +1,12 @@
 # Dex Lens deterministic diagnosis engine and MCP design
 
 **Date:** 2026-08-27
-**Status:** Approved by Dave on 2026-08-27; specification only; implementation,
-merge, release, installer changes and tester publication remain separate decisions
+**Status:** Candidate implemented on draft PR
+https://github.com/davekilleen/dex-lens/pull/46 (2026-08-27). Locally
+verified against the golden replay and the engine-owned suite. Not merged,
+not released, not registered, not live. Public release remains v0.1.12.
+Publication, installer changes and tester direction remain separate Dave
+decisions.
 **Supersedes:** The orchestration and report-truth portions of
 `2026-08-26-dex-lens-complete-diagnosis-eval-design.md`
 **Keeps:** Its read-only containment, bounded discovery, operational-state,
@@ -629,6 +633,16 @@ The approved design is implemented only when all of the following are proved:
   pass before any publication decision; and
 - a fresh public-install rehearsal passes before beta testers are directed to
   a release containing the new engine.
+
+### Candidate proof, 2026-08-27
+
+The implementation candidate on draft PR #46 proves the engine interface,
+ledger-derived facts, receipt-backed decisions, atomic resume, specialist
+validation without authority, and byte-identical direct/CLI/MCP replay.
+Capability-family version delta remains disabled until a signed family
+contract exists. Full GitHub CI, signed-release checks and a public-install
+rehearsal are still required before any publication decision. This document
+does not authorise merge or release.
 
 ## Explicitly out of scope
 
