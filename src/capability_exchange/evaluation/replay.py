@@ -184,11 +184,10 @@ class ReplayHarness:
         self.reports = _IntegrityReportStore(self.directory / "reports", bundle, self)
         self.run_store = DiagnosisRunStore(self.directory / "state" / "diagnosis-runs")
         self.engine = self._build_engine()
-        self.engine.consent_authority = self.consent  # CLI may attach this
         self._proposals_submitted = False
 
     def _build_engine(self) -> DeterministicDiagnosisEngine:
-        engine = DeterministicDiagnosisEngine(
+        return DeterministicDiagnosisEngine(
             run_store=self.run_store,
             consent_authority=self.consent,
             collector=self.collector,
@@ -197,8 +196,6 @@ class ReplayHarness:
             report_store=self.reports,
             clock=lambda: self.bundle.clock,
         )
-        engine.consent_authority = self.consent
-        return engine
 
     def rebuild_engine(self) -> DeterministicDiagnosisEngine:
         """Rebuild over the same run store and consent store."""
