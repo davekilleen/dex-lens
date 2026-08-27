@@ -1285,6 +1285,326 @@ fields:
     deletion: not-stored
     audit: "ephemeral limit text; no invented coverage numbers"
 
+  SpecialistShard.role:
+    description: "closed specialist role allowed to see this bounded identity shard"
+    collection: "assigned by the diagnosis engine when it issues a shard"
+    derivation: "validated through the closed SpecialistRole vocabulary"
+    display: "identifies which specialist received this slice"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral role name; no additional role strings are representable"
+
+  SpecialistShard.run_id:
+    description: "run identity bound into one specialist shard"
+    collection: "copied from the current diagnosis run"
+    derivation: "validated as a run-prefixed token"
+    display: "prevents a shard from being reused on another run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  SpecialistShard.fingerprint_digest:
+    description: "SHA-256 of the current evidence fingerprint this shard may cite"
+    collection: "copied from the captured fingerprint after consent"
+    derivation: "sha256 binding"
+    display: "binds specialist evidence tokens to this fingerprint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest; observation payloads stay outside the shard"
+
+  SpecialistShard.catalogue_digest:
+    description: "SHA-256 of the verified catalogue this shard may name"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "sha256 binding"
+    display: "binds specialist catalogue identities to the verified bytes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  SpecialistShard.evidence_ids:
+    description: "engine-owned evidence tokens this specialist may cite"
+    collection: "minted by the engine from the current fingerprint"
+    derivation: "unique opaque tokens; existing observation refs are not reused"
+    display: "the only evidence identities a proposal may mention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens; raw paths are unrepresentable"
+
+  SpecialistShard.catalogue_ids:
+    description: "signed catalogue identities present in this shard"
+    collection: "copied from the verified catalogue slice for this specialist"
+    derivation: "unique bounded identities"
+    display: "limits which Dex entries a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  SpecialistShard.capability_ids:
+    description: "human capability identities present in this shard"
+    collection: "copied from the local comparison grouping for this run"
+    derivation: "unique bounded identities"
+    display: "limits which human capabilities a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identities"
+
+  SpecialistProposal.role:
+    description: "closed specialist role that authored this untrusted proposal"
+    collection: "declared by the submitting adapter or host assistant"
+    derivation: "validated through the closed SpecialistRole vocabulary"
+    display: "shown only as provenance of an untrusted claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral role name; invented roles are unrepresentable"
+
+  SpecialistProposal.kind:
+    description: "closed kind of opaque claim this proposal offers"
+    collection: "declared by the specialist against the closed proposal schema"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "groups proposals for deterministic reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral claim kind"
+
+  SpecialistProposal.run_id:
+    description: "run identity the specialist claims to be addressing"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext run identity"
+    display: "used to refuse proposals from another diagnosis run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  SpecialistProposal.fingerprint_digest:
+    description: "fingerprint digest the specialist claims to be citing"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext fingerprint digest"
+    display: "used to refuse proposals bound to another fingerprint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest"
+
+  SpecialistProposal.catalogue_digest:
+    description: "catalogue digest the specialist claims to be naming"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext catalogue digest"
+    display: "used to refuse proposals bound to another catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  SpecialistProposal.catalogue_id:
+    description: "one signed catalogue identity this proposal is about"
+    collection: "selected from the issued shard"
+    derivation: "must be a shard identity and, for recommendations, available"
+    display: "names the Dex entry the untrusted claim concerns"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  SpecialistProposal.capability_id:
+    description: "one human capability identity this proposal is about"
+    collection: "selected from the issued shard"
+    derivation: "must be a shard identity"
+    display: "groups the claim with the local human capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  SpecialistProposal.disposition:
+    description: "proposed closed comparison answer; untrusted until reconciled"
+    collection: "asserted by the specialist"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "never written as a conclusion until the engine reconciles it"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted judgement; no confidence score exists"
+
+  SpecialistProposal.evidence_ids:
+    description: "engine-owned evidence tokens cited by this proposal"
+    collection: "selected from the current ProposalContext token set"
+    derivation: "at most eight unique tokens; foreign tokens are refused"
+    display: "shows which engine-owned facts the claim rests on"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens; raw evidence is unrepresentable"
+
+  SpecialistProposal.reason:
+    description: "one bounded line explaining the untrusted proposal"
+    collection: "authored by the specialist"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "shown as an untrusted rationale until the engine accepts it"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  ProposalContext.run_id:
+    description: "current diagnosis run a proposal must bind to"
+    collection: "copied from the active run identity"
+    derivation: "validated as a run-prefixed token"
+    display: "used to refuse proposals from another run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  ProposalContext.fingerprint_digest:
+    description: "current fingerprint digest proposals may cite"
+    collection: "copied from the captured evidence fingerprint"
+    derivation: "sha256 binding"
+    display: "used to refuse foreign evidence tokens"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest"
+
+  ProposalContext.catalogue_digest:
+    description: "current verified catalogue digest proposals may name"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "sha256 binding"
+    display: "used to refuse proposals bound to another catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  ProposalContext.evidence_ids:
+    description: "engine-owned evidence tokens valid for this fingerprint"
+    collection: "minted by the engine from the current fingerprint"
+    derivation: "unique opaque tokens present only in this context"
+    display: "the only evidence identities validate_proposal will accept"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens"
+
+  ProposalContext.catalogue_ids:
+    description: "catalogue identities present in the issued shard"
+    collection: "copied from the verified catalogue slice"
+    derivation: "unique bounded identities"
+    display: "limits which Dex entries a proposal may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  ProposalContext.capability_ids:
+    description: "human capability identities present in the issued shard"
+    collection: "copied from the local comparison grouping"
+    derivation: "unique bounded identities"
+    display: "limits which human capabilities a proposal may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identities"
+
+  ProposalContext.held_ids:
+    description: "catalogue identities that are not available to recommend"
+    collection: "supplied by the engine from signed availability and local holds"
+    derivation: "unique bounded identities; not a catalogue availability member"
+    display: "blocks recommendations of dormant, parked, or otherwise unavailable entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral unavailability set; signed availability remains active, dormant, or parked"
+
+  ProposalContext.collapsed_provenance_ids:
+    description: "evidence tokens whose source provenance has been collapsed"
+    collection: "derived when the engine cannot keep sources distinct"
+    derivation: "unique tokens; citing them refuses the proposal"
+    display: "prevents a specialist from treating ambiguous sources as one fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral refusal set"
+
+  ProposalContext.family_contract_present:
+    description: "whether a signed capability-family contract is available"
+    collection: "assigned by the engine from the verified catalogue contract"
+    derivation: "boolean; false until Core signs the additive family contract"
+    display: "disables usable release-distance claims while false"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral contract presence flag"
+
+  ValidatedProposal.kind:
+    description: "closed claim kind after validation or coalescing"
+    collection: "copied from the accepted proposal or the reconciled group"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "groups the accepted claim for later engine use"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral accepted kind"
+
+  ValidatedProposal.catalogue_id:
+    description: "signed catalogue identity of one accepted or coalesced claim"
+    collection: "copied from the validated proposal group"
+    derivation: "must have cleared shard and availability checks"
+    display: "names the Dex entry the engine may later consider"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  ValidatedProposal.capability_id:
+    description: "human capability identity of one accepted or coalesced claim"
+    collection: "copied from the validated proposal group"
+    derivation: "must have cleared shard membership"
+    display: "groups the accepted claim with the local human capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  ValidatedProposal.disposition:
+    description: "accepted disposition, or not-assessed when specialists disagreed"
+    collection: "copied from matching proposals or forced to not-assessed on conflict"
+    derivation: "no confidence score is consulted; disagreement stays Unknown"
+    display: "never a report conclusion until the later engine writes the ledger"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconciled judgement"
+
+  ValidatedProposal.evidence_ids:
+    description: "sorted engine-owned evidence tokens supporting the accepted claim"
+    collection: "union of matching proposal tokens, then sorted"
+    derivation: "at most eight unique tokens from the current fingerprint"
+    display: "shows the evidence the later engine may inspect"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens"
+
+  ValidatedProposal.reason:
+    description: "bounded reason kept after validation or disagreement handling"
+    collection: "copied from matching proposals or replaced by the disagreement sentence"
+    derivation: "at most 600 characters; disagreement uses the closed product sentence"
+    display: "explains the accepted claim or records that specialists disagreed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
   ApprovedScopeReceipt.run_id:
     description: "opaque identity of the diagnosis run whose scope was approved"
     collection: "assigned locally when prepare records candidate locators"
