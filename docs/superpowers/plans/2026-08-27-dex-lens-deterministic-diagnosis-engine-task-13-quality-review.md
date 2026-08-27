@@ -9,10 +9,12 @@ Pass as a **candidate proof**, not as a publication proof.
 
 ## What was verified here
 
-- Engine-owned subset: 541 passed (diagnosis, reports, golden replay, skill,
-  packaging, diagnosis consent, diagnosis import surface).
-- Ruff clean on `src` and `tests`.
-- Inventory: 771 fields, 145 stored, 1 transmitted.
+- Engine-owned subset after the process-default engine: 535 passed
+  (diagnosis, reports, evals except the known legacy-system mount-point
+  crossings, skill, packaging, diagnosis consent, diagnosis import
+  surface). 3 deselected. 0 failed.
+- Ruff clean on `src` and `tests` (`ruff check .`).
+- Inventory: 774 fields, 148 stored, 1 transmitted.
 - Privacy grep: no real personal paths or session URLs in product/replay
   artifacts. The invented canary stays a test input.
 

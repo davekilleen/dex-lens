@@ -17,33 +17,33 @@ What the candidate owns, on `codex/lens-deterministic-diagnosis-engine-build`:
 - immutable run identity, closed stage machine, atomic checkpoints
 - bounded specialist proposals and two-fold sceptical reconciliation
 - `DeterministicDiagnosisEngine` as the only orchestrator
+- process-default ports so real `dex-lens diagnosis` / `dex-lens-mcp` can run
+- persisted local scope approval so later commands can collect after prepare
 - JSON CLI (`dex-lens diagnosis`) and read-only MCP (`dex-lens-mcp`)
 - skill text that follows engine `status` / `advance` / `result`
 - golden replay: direct, CLI and MCP canonical result bytes are identical
 
-Local verification on this Cloud Agent VM, commit after Task 12 merge:
+Local verification on this Cloud Agent VM, after the process-default engine:
 
-- Engine-owned subset (diagnosis, reports, golden replay, skill, packaging,
-  diagnosis consent, diagnosis import surface): **541 passed**, 0 failed,
-  0 skipped.
-- Full `tests/` collection: **2151** tests. **2034 passed**. **11**
-  environment-gated skips printed their reasons (macOS Seatbelt, live
-  catalogue opt-in, packet-egress tools, terminal emulator).
-- **106** failures are the known Cloud-VM fixture-tree / mount-point
-  crossings in adapter snapshot, inventory CLI, hostile G1 fixtures, the
-  contained full journey, and the legacy-system filesystem eval. Those
-  guards were not weakened. GitHub CI remains the authority for that
-  containment matrix.
-- GitHub Ubuntu legs on this branch are green, including G1 bind-mount,
-  M3 egress, M5 contribution egress, and the live-bridge proof skip/run
-  path. The earlier macOS red was only
+- Engine-owned subset used for this pass (diagnosis, reports, evals except
+  the known legacy-system mount-point crossings, skill, packaging, diagnosis
+  consent, diagnosis import surface): **535 passed**, 3 deselected, 0
+  failed. Golden replay no longer assigns the read-only
+  `consent_authority` property.
+- Full `tests/` collection still has the known Cloud-VM fixture-tree /
+  mount-point crossings in adapter snapshot, inventory CLI, hostile G1
+  fixtures, the contained full journey, and the legacy-system filesystem
+  eval. Those guards were not weakened. GitHub CI remains the authority
+  for that containment matrix.
+- GitHub Ubuntu and macOS legs on this branch are the publication gate.
+  The earlier macOS red was only
   `test_a_piped_dry_run_says_what_it_would_do_and_does_none_of_it`: the
   test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
   macos-14. The live installer was not changed; the test now keeps a
   3.11–3.14 interpreter on that sealed PATH so it still hides assistant
   choosers.
 - Ruff: clean on `src` and `tests`.
-- Inventory: **771** fields; **145** stored with registered deletion paths;
+- Inventory: **774** fields; **148** stored with registered deletion paths;
   **1** transmitted through closed reviewed paths.
 - Privacy grep: no real `/Users/<name>`, `/home/<name>`, or session URL in
   product or replay artifacts. The invented canary

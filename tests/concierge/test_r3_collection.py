@@ -28,6 +28,7 @@ from capability_exchange.concierge.collection import (
     CollectionController,
     ScopeSnapshot,
     containment_fallback,
+    default_source_descriptors,
 )
 from capability_exchange.concierge.server import session_for_roots
 from capability_exchange.evidence import EvidenceItem, EvidenceState
@@ -194,6 +195,22 @@ def test_two_root_browser_session_carries_consent_descriptors_into_containment(
         session.terminate_and_wait()
 
     assert [item.source_id for item in captured] == ["scope:first", "scope:second"]
+
+
+def test_two_root_session_generates_default_descriptors_when_unnamed(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "vault"
+    second = tmp_path / "global"
+    first.mkdir()
+    second.mkdir()
+    session = session_for_roots((first, second))
+    try:
+        generated = default_source_descriptors((first, second))
+        assert session.source_descriptors == generated
+        assert [item.source_id for item in generated] == ["scope:primary", "scope:root-1"]
+    finally:
+        session.terminate()
 
 
 def test_scope_snapshot_rejects_changes_before_publication(tmp_path: Path) -> None:
