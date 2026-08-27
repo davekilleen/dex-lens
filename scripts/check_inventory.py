@@ -6,9 +6,9 @@ if the G2 contract is broken anywhere:
 
 1. the packaged ``data_inventory.yaml`` must parse and schema-validate
    (already enforced at import — an invalid inventory fails here too);
-2. every field of every :class:`InventoriedModel` subclass (the only models
-   that can be persisted or transmitted) must have an inventory entry;
-3. every inventory entry must correspond to an existing model field — the
+2. every field of every :class:`InventoriedModel` subclass, plus explicitly
+   retained local snapshot provenance, must have an inventory entry;
+3. every inventory entry must correspond to an existing governed field — the
    inventory may not drift ahead of or behind the code;
 4. every pydantic model in the package must be an ``InventoriedModel`` or an
    explicitly allowlisted internal schema (currently only the inventory's
@@ -89,6 +89,44 @@ def collect_problems() -> list[str]:
     inventory = active_inventory()
     problems: list[str] = []
 
+    # These records are deliberately not serializable models: they retain
+    # local-only snapshot provenance in process memory. Their fields still
+    # cross the collection boundary, so the checker inventories them
+    # explicitly instead of letting "not persisted" mean "not governed".
+    from capability_exchange.adapters.claude_code.snapshot import (
+        ApprovedSnapshotSource,
+        InspectionSnapshot,
+        SnapshotEntry,
+    )
+
+    local_snapshot_fields = {
+        ApprovedSnapshotSource: frozenset({"source_id", "source_class", "scope_reference"}),
+        InspectionSnapshot: frozenset({"approved_sources"}),
+        SnapshotEntry: frozenset({"source"}),
+    }
+    required_local_keys: set[str] = set()
+    for cls, field_names in local_snapshot_fields.items():
+        annotations = getattr(cls, "__annotations__", {})
+        for field_name in field_names:
+            key = f"{cls.__name__}.{field_name}"
+            required_local_keys.add(key)
+            if field_name not in annotations and not isinstance(
+                getattr(cls, field_name, None), property
+            ):
+                problems.append(
+                    f"required local inventory declaration {key}: field no longer exists"
+                )
+                continue
+            entry = inventory.fields.get(key)
+            if entry is None:
+                problems.append(
+                    f"{key}: retained local snapshot provenance has no data-inventory entry"
+                )
+            elif entry.storage is not None or entry.sharing != "never":
+                problems.append(
+                    f"{key}: local snapshot provenance must remain ephemeral and unshared"
+                )
+
     inventoried_models: dict[str, type] = {}
     for cls in _package_model_classes():
         qualified = f"{cls.__module__}.{cls.__name__}"
@@ -138,6 +176,8 @@ def collect_problems() -> list[str]:
     for key in sorted(inventory.fields):
         model_name, _, field_name = key.partition(".")
         cls = inventoried_models.get(model_name)
+        if key in required_local_keys:
+            continue
         if cls is None:
             problems.append(
                 f"inventory entry {key}: no InventoriedModel named {model_name!r} "
@@ -145,8 +185,7 @@ def collect_problems() -> list[str]:
             )
         elif field_name not in cls.model_fields:
             problems.append(
-                f"inventory entry {key}: model {model_name} has no field "
-                f"{field_name!r}"
+                f"inventory entry {key}: model {model_name} has no field {field_name!r}"
             )
 
     # Every stored field's deletion path must be registered.

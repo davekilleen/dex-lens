@@ -22,6 +22,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from capability_exchange.boundary.secret_markers import (
+    CREDENTIAL_NAME_PATTERN_BYTES,
+    HIGH_CONFIDENCE_TOKEN_PATTERNS_BYTES,
+)
+
 __all__ = [
     "REDACTION_MARK",
     "RedactionOutcome",
@@ -39,13 +44,7 @@ REDACTION_MARK = b"[REDACTED-SECRET]"
 #: keeps a lookbehind because it occurs inside ordinary hyphenated prose
 #: (task-, risk-, desk-); the assignment pattern below still catches
 #: credential-style uses of such values.
-_TOKEN_PATTERNS: tuple[re.Pattern[bytes], ...] = (
-    re.compile(rb"AKIA[0-9A-Z]{16}"),  # AWS access key id
-    re.compile(rb"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}"),  # sk- style API key
-    re.compile(rb"gh[pousr]_[A-Za-z0-9_]{20,}"),  # GitHub token
-    re.compile(rb"xox[abprs]-[A-Za-z0-9-]{10,}"),  # Slack token
-    re.compile(rb"(?i)\bBearer[ \t]+[A-Za-z0-9._~+/=-]{20,}"),  # Bearer token
-)
+_TOKEN_PATTERNS = HIGH_CONFIDENCE_TOKEN_PATTERNS_BYTES
 
 #: PEM private-key block. An unterminated block redacts to end-of-content —
 #: fail closed rather than leave a partial key in the snapshot.
@@ -59,8 +58,7 @@ _PEM_BLOCK = re.compile(
 #: Credential-style assignment: the *value* group is what gets redacted.
 _ASSIGNMENT = re.compile(
     rb"(?im)^[ \t]*(?:export[ \t]+)?"
-    rb"[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth(?:orization)?|"
-    rb"secret|passwd|password)[A-Za-z0-9_-]*[ \t]*[:=][ \t]*"
+    rb"[A-Za-z0-9_-]*" + CREDENTIAL_NAME_PATTERN_BYTES + rb"[A-Za-z0-9_-]*[ \t]*[:=][ \t]*"
     rb"(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s#]+))"
 )
 

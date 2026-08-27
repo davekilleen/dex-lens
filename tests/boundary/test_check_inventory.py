@@ -140,3 +140,35 @@ class TestProblemDetection:
         with use_inventory(drifted):
             problems = check_inventory.collect_problems()
         assert any("VanishedModel.old_field" in p for p in problems)
+
+    @pytest.mark.parametrize(
+        "key",
+        (
+            "ApprovedSnapshotSource.source_id",
+            "ApprovedSnapshotSource.source_class",
+            "ApprovedSnapshotSource.scope_reference",
+            "InspectionSnapshot.approved_sources",
+            "SnapshotEntry.source",
+        ),
+    )
+    def test_missing_required_snapshot_provenance_field_is_a_problem(
+        self,
+        check_inventory,
+        key: str,
+    ) -> None:
+        from capability_exchange.boundary.inventory import (
+            Inventory,
+            active_inventory,
+            use_inventory,
+        )
+
+        current = active_inventory()
+        drifted = Inventory(
+            inventory_version=current.inventory_version,
+            fields={name: entry for name, entry in current.fields.items() if name != key},
+        )
+
+        with use_inventory(drifted):
+            problems = check_inventory.collect_problems()
+
+        assert any(key in problem for problem in problems), problems

@@ -42,6 +42,7 @@ import platform
 import socket
 import struct
 import sys
+from dataclasses import dataclass
 
 __all__ = [
     "EXIT_COLLECTION_FAILED",
@@ -59,12 +60,20 @@ EXIT_OK = 0
 EXIT_COLLECTION_FAILED = 70
 EXIT_CONTAINMENT_UNAVAILABLE = 86
 
-REQUEST_SCHEMA = "contained-collection-request/1"
+REQUEST_SCHEMA = "contained-collection-request/2"
 RESULT_SCHEMA = "contained-collection-result/1"
 
 
 class ConfinementError(Exception):
     """OS-level confinement could not be established or proven."""
+
+
+@dataclass(frozen=True, slots=True)
+class _ChildApprovedSource:
+    canonical_root: str
+    source_id: str
+    source_class: object
+    scope_reference: str
 
 
 # ---------------------------------------------------------------------------
@@ -340,12 +349,45 @@ def _parse_request(raw: str) -> dict[str, object]:
     request = json.loads(raw)
     if not isinstance(request, dict) or request.get("schema") != REQUEST_SCHEMA:
         raise ValueError(f"request schema must be {REQUEST_SCHEMA!r}")
-    unknown = set(request) - {"schema", "approved_roots", "bounds"}
+    unknown = set(request) - {"schema", "approved_roots", "approved_sources", "bounds"}
     if unknown:
         raise ValueError(f"unknown request keys {sorted(unknown)}; refusing (fail closed)")
     roots = request.get("approved_roots")
     if not isinstance(roots, list) or not all(isinstance(r, str) for r in roots) or not roots:
         raise ValueError("approved_roots must be a non-empty list of strings")
+    from capability_exchange.boundary.approved_roots import (
+        reject_overlapping_roots,
+        root_reference,
+    )
+    from capability_exchange.diagnosis.provenance import SourceProvenance
+
+    reject_overlapping_roots(tuple(roots))
+    sources = request.get("approved_sources")
+    if not isinstance(sources, list) or len(sources) != len(roots):
+        raise ValueError("approved_sources must map every approved root exactly once")
+    source_ids: list[str] = []
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict) or set(source) != {
+            "root_index",
+            "root_reference",
+            "source_id",
+            "source_class",
+            "scope_reference",
+        }:
+            raise ValueError("each approved source must use the exact closed descriptor schema")
+        if source.get("root_index") != index:
+            raise ValueError("approved source mapping must match approved-root order exactly")
+        if source.get("root_reference") != root_reference(roots[index]):
+            raise ValueError("approved source mapping does not cover the corresponding root")
+        validated = SourceProvenance(
+            source_id=source.get("source_id"),
+            source_class=source.get("source_class"),
+            scope_reference=source.get("scope_reference"),
+            relative_reference=".",
+        )
+        source_ids.append(validated.source_id)
+    if len(source_ids) != len(set(source_ids)):
+        raise ValueError("approved source mapping contains a duplicate source_id")
     return request
 
 
@@ -397,7 +439,20 @@ def main(argv: list[str] | None = None) -> int:
         allowlist = CanonicalAllowlist(
             contract.read_scope, denied_paths=contract.denied_paths
         )
-        snapshot = take_snapshot(allowlist, bounds=bounds)
+        descriptors = tuple(
+            _ChildApprovedSource(
+                canonical_root=allowlist.approved_roots[index],
+                source_id=source["source_id"],
+                source_class=source["source_class"],
+                scope_reference=source["scope_reference"],
+            )
+            for index, source in enumerate(request["approved_sources"])
+        )
+        snapshot = take_snapshot(
+            allowlist,
+            bounds=bounds,
+            source_descriptors=descriptors,
+        )
         envelope = EvidenceCollector(contract, snapshot).collect()
     except Exception as exc:  # noqa: BLE001 - honest abort, partials discarded
         print(

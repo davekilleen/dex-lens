@@ -26,6 +26,7 @@ reconstructs them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -37,6 +38,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from capability_exchange.adapter import AdapterResultEnvelope
 from capability_exchange.adapters.claude_code import contained
@@ -45,6 +47,11 @@ from capability_exchange.adapters.claude_code.contract import (
     claude_code_contract,
 )
 from capability_exchange.adapters.claude_code.snapshot import CollectionBounds
+from capability_exchange.boundary.approved_roots import (
+    reject_overlapping_roots,
+    root_reference,
+)
+from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance
 
 __all__ = [
     "GUIDED_FALLBACK_MESSAGE",
@@ -209,21 +216,98 @@ class ContainedCollection:
     envelope: AdapterResultEnvelope
 
 
+class _ApprovedSourceDescriptorLike(Protocol):
+    canonical_root: os.PathLike[str]
+    source_id: str
+    source_class: SourceClass
+    scope_reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RequestSourceDescriptor:
+    canonical_root: Path
+    source_id: str
+    source_class: SourceClass
+    scope_reference: str
+
+
 @dataclass(frozen=True, slots=True)
 class CollectionRequest:
     """One inspection request: the approved roots and explicit bounds."""
 
     approved_roots: tuple[str, ...]
+    source_descriptors: tuple[_ApprovedSourceDescriptorLike, ...] | None = None
     bounds: CollectionBounds = field(default_factory=CollectionBounds)
     timeout_seconds: float = 120.0
     # Test/diagnostic seam: set after the real child has exited (including a
     # cancellation kill). It is not serialized into the child request.
     child_terminated: threading.Event | None = field(default=None, repr=False, compare=False)
 
+    def __post_init__(self) -> None:
+        if not self.approved_roots:
+            raise ValueError("approved root-to-descriptor mapping is empty")
+        canonical_roots = tuple(Path(root).resolve(strict=False) for root in self.approved_roots)
+        reject_overlapping_roots(canonical_roots)
+        descriptors = self.source_descriptors
+        if descriptors is None:
+            if len(canonical_roots) != 1:
+                raise ValueError(
+                    "source descriptors are mandatory when more than one root is approved"
+                )
+            root = canonical_roots[0]
+            descriptors = (
+                _RequestSourceDescriptor(
+                    canonical_root=root,
+                    source_id="scope:primary",
+                    source_class=SourceClass.VAULT_AUTHORED,
+                    scope_reference=(
+                        "scope:sha256:" + hashlib.sha256(str(root).encode("utf-8")).hexdigest()
+                    ),
+                ),
+            )
+        else:
+            descriptors = tuple(descriptors)
+        if len(descriptors) != len(canonical_roots):
+            raise ValueError("source descriptor cardinality must match approved roots exactly")
+        source_ids: list[str] = []
+        normalized_descriptors: list[_RequestSourceDescriptor] = []
+        for root, descriptor in zip(canonical_roots, descriptors, strict=True):
+            if Path(descriptor.canonical_root).resolve(strict=False) != root:
+                raise ValueError("ordered source descriptor mapping does not match approved roots")
+            validated = SourceProvenance(
+                source_id=descriptor.source_id,
+                source_class=descriptor.source_class,
+                scope_reference=descriptor.scope_reference,
+                relative_reference=".",
+            )
+            source_ids.append(validated.source_id)
+            normalized_descriptors.append(
+                _RequestSourceDescriptor(
+                    canonical_root=root,
+                    source_id=validated.source_id,
+                    source_class=validated.source_class,
+                    scope_reference=validated.scope_reference,
+                )
+            )
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("source descriptors contain a duplicate source_id")
+        object.__setattr__(self, "source_descriptors", tuple(normalized_descriptors))
+
     def as_payload(self) -> dict[str, object]:
+        assert self.source_descriptors is not None
         return {
             "schema": contained.REQUEST_SCHEMA,
             "approved_roots": list(self.approved_roots),
+            "approved_sources": [
+                {
+                    "root_index": index,
+                    "root_reference": root_reference(descriptor.canonical_root),
+                    "source_id": descriptor.source_id,
+                    "source_class": descriptor.source_class.value,
+                    "scope_reference": descriptor.scope_reference,
+                }
+                for index, descriptor in enumerate(self.source_descriptors)
+            ],
             "bounds": self.bounds.as_payload(),
         }
 
@@ -528,7 +612,11 @@ class TestStrategy(ContainmentStrategy):
 
         contract = claude_code_contract(list(request.approved_roots))
         allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
-        snapshot = take_snapshot(allowlist, bounds=request.bounds)
+        snapshot = take_snapshot(
+            allowlist,
+            bounds=request.bounds,
+            source_descriptors=request.source_descriptors,
+        )
         envelope = EvidenceCollector(contract, snapshot).collect()
         return ContainedCollection(
             outcome=ContainmentOutcome(
@@ -569,6 +657,7 @@ def contained_inspection(
     strategy: ContainmentStrategy | None = None,
     bounds: CollectionBounds | None = None,
     cancel_event: threading.Event | None = None,
+    source_descriptors: tuple[_ApprovedSourceDescriptorLike, ...] | None = None,
 ) -> ContainedCollection:
     """One full contained inspection of the approved roots.
 
@@ -580,6 +669,7 @@ def contained_inspection(
     chosen = strategy or default_strategy()
     request = CollectionRequest(
         approved_roots=tuple(approved_roots),
+        source_descriptors=source_descriptors,
         bounds=bounds or CollectionBounds(),
     )
     return chosen.collect_contained(request, cancel_event=cancel_event)

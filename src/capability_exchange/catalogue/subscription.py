@@ -49,6 +49,16 @@ def require_app_storage_outside_roots(app_storage: Path, approved_roots: Iterabl
             raise ValueError("Dex Lens app storage must be outside the approved read scope")
 
 
+def diagnosis_run_storage(
+    approved_roots: Iterable[Path] = (),
+    *,
+    environ: dict[str, str] | None = None,
+) -> Path:
+    """Return the diagnosis checkpoint directory outside inspected roots."""
+
+    return default_lens_app_storage(approved_roots, environ=environ) / "diagnosis-runs"
+
+
 class CatalogueSubscriptionRecord(InventoriedModel):
     """Non-secret local opt-in state for public catalogue update checks."""
 

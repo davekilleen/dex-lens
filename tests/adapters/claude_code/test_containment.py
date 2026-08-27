@@ -3,6 +3,7 @@ runtime proof, honest disable with guided fallback, zero writes."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -30,6 +31,21 @@ from capability_exchange.adapters.claude_code.containment import (
     contained_inspection,
     default_strategy,
 )
+from capability_exchange.concierge.collection import ApprovedSourceDescriptor
+
+
+def descriptors_for(*roots: Path) -> tuple[ApprovedSourceDescriptor, ...]:
+    classes = ("vault-authored", "user-global")
+    return tuple(
+        ApprovedSourceDescriptor(
+            canonical_root=root.resolve(),
+            source_id=f"scope:root-{index}",
+            source_class=classes[index],
+            scope_reference="scope:sha256:" + hashlib.sha256(str(index).encode()).hexdigest(),
+        )
+        for index, root in enumerate(roots)
+    )
+
 
 linux_only = pytest.mark.skipif(sys.platform != "linux", reason="LinuxStrategy requires Linux")
 macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="MacOSStrategy requires macOS")
@@ -151,6 +167,57 @@ class TestTestStrategyDiscipline:
         with pytest.raises(ContainmentUnavailableError, match="refuses to"):
             TestStrategy().collect_contained(request_for(claude_root))
 
+    def test_two_root_request_carries_exact_ordered_descriptors_without_raw_roots(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        first = tmp_path / "vault"
+        second = tmp_path / "global"
+        first.mkdir()
+        second.mkdir()
+        request = CollectionRequest(
+            approved_roots=(str(first), str(second)),
+            source_descriptors=descriptors_for(first, second),
+        )
+
+        payload = request.as_payload()
+
+        assert [item["source_id"] for item in payload["approved_sources"]] == [
+            "scope:root-0",
+            "scope:root-1",
+        ]
+        assert [item["root_index"] for item in payload["approved_sources"]] == [0, 1]
+        assert all("canonical_root" not in item for item in payload["approved_sources"])
+        assert all(
+            str(root) not in json.dumps(item)
+            for root, item in zip((first, second), payload["approved_sources"], strict=True)
+        )
+
+    @pytest.mark.parametrize("problem", ("missing", "extra", "mismatched"))
+    def test_parent_refuses_inexact_root_descriptor_mapping(
+        self,
+        tmp_path: Path,
+        problem: str,
+    ) -> None:
+        first = tmp_path / "vault"
+        second = tmp_path / "global"
+        extra = tmp_path / "extra"
+        for root in (first, second, extra):
+            root.mkdir()
+        descriptors = list(descriptors_for(first, second))
+        if problem == "missing":
+            descriptors.pop()
+        elif problem == "extra":
+            descriptors.append(descriptors_for(extra)[0])
+        else:
+            descriptors.reverse()
+
+        with pytest.raises(ValueError, match="descriptor|coverage|mapping"):
+            CollectionRequest(
+                approved_roots=(str(first), str(second)),
+                source_descriptors=tuple(descriptors),
+            )
+
 
 @linux_only
 class TestLinuxContainedCollection:
@@ -171,6 +238,30 @@ class TestLinuxContainedCollection:
         payload = json.dumps(result.envelope.model_dump(mode="json"))
         for canary in (PLANTED_AWS_KEY_ID, PLANTED_SECRET_VALUE, PLANTED_API_TOKEN):
             assert canary not in payload
+
+    def test_two_root_child_accepts_exact_ordered_source_mapping(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        first = tmp_path / "vault"
+        second = tmp_path / "global"
+        first.mkdir()
+        second.mkdir()
+        (first / "CLAUDE.md").write_text("# Vault\n")
+        (second / "CLAUDE.md").write_text("# Global\n")
+
+        result = LinuxStrategy().collect_contained(
+            CollectionRequest(
+                approved_roots=(str(first), str(second)),
+                source_descriptors=descriptors_for(first, second),
+            )
+        )
+
+        assert result.outcome.established
+        instructions = next(
+            probe for probe in result.envelope.probes if probe.probe_id == "instructions-present"
+        )
+        assert len(instructions.evidence) == 2
 
     def test_nonexistent_root_aborts_with_partials_discarded(self, tmp_path: Path) -> None:
         with pytest.raises(CollectionFailedError, match="discarded"):
@@ -379,16 +470,62 @@ class TestChildProtocolFailClosed:
         )
         assert completed.returncode == contained.EXIT_COLLECTION_FAILED
 
+    @pytest.mark.parametrize("problem", ("missing", "extra", "mismatched"))
+    def test_child_refuses_inexact_ordered_source_mapping(self, problem: str) -> None:
+        from capability_exchange.adapters.claude_code import contained
+
+        sources = [
+            {
+                "root_index": 0,
+                "root_reference": "root:sha256:" + "1" * 64,
+                "source_id": "scope:first",
+                "source_class": "vault-authored",
+                "scope_reference": "scope:sha256:" + "a" * 64,
+            },
+            {
+                "root_index": 1,
+                "root_reference": "root:sha256:" + "2" * 64,
+                "source_id": "scope:second",
+                "source_class": "user-global",
+                "scope_reference": "scope:sha256:" + "b" * 64,
+            },
+        ]
+        if problem == "missing":
+            sources.pop()
+        elif problem == "extra":
+            sources.append({**sources[-1], "root_index": 2, "source_id": "scope:extra"})
+        else:
+            sources[0]["root_index"] = 1
+        request = {
+            "schema": contained.REQUEST_SCHEMA,
+            "approved_roots": ["/tmp/first", "/tmp/second"],
+            "approved_sources": sources,
+        }
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "capability_exchange.adapters.claude_code.contained_entry",
+                "--containment",
+                "external",
+            ],
+            input=json.dumps(request).encode(),
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+
+        assert completed.returncode == contained.EXIT_COLLECTION_FAILED
+        assert b"invalid collection request" in completed.stderr
+
     @linux_only
     def test_uncontained_external_mode_refuses_to_collect(self, claude_root: Path) -> None:
         """A child told containment is external, but actually uncontained,
         must prove the gap and refuse before reading anything (fail closed)."""
         from capability_exchange.adapters.claude_code import contained
 
-        request = {
-            "schema": contained.REQUEST_SCHEMA,
-            "approved_roots": [str(claude_root)],
-        }
+        request = CollectionRequest(approved_roots=(str(claude_root),)).as_payload()
         completed = subprocess.run(
             [
                 sys.executable,

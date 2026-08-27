@@ -109,6 +109,57 @@ def _sealed_network(tmp_path: Path, home: Path) -> tuple[dict[str, str], Path]:
     return environment, curl_called
 
 
+def _put_supported_python_on_sealed_path(sealed_bin: Path) -> None:
+    """Keep a 3.11–3.14 interpreter on a PATH that hides assistant choosers.
+
+    The piped dry-run seals PATH to ``sealed-bin`` plus ``/usr/bin:/bin`` so a
+    runner-installed Claude or Codex cannot steal the chooser branch. macOS CI
+    keeps setup-python off ``/usr/bin``, so that seal must still carry the
+    interpreter this test process is already using. That is a machine with
+    Python installed, not a change to the live installer.
+    """
+    executable = Path(sys.executable).resolve()
+    major, minor = sys.version_info[:2]
+    for name in (f"python{major}.{minor}", "python3"):
+        link = sealed_bin / name
+        if link.exists() or link.is_symlink():
+            continue
+        link.symlink_to(executable)
+
+
+def test_sealed_path_finds_python_when_usr_bin_has_none(tmp_path: Path) -> None:
+    """macos-14 CI hides setup-python; the seal must still carry 3.11–3.14."""
+
+    sealed_bin = tmp_path / "sealed-bin"
+    sealed_bin.mkdir()
+    _put_supported_python_on_sealed_path(sealed_bin)
+    empty = tmp_path / "empty-system"
+    empty.mkdir()
+    script = """
+    found=""
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+      command -v "$candidate" >/dev/null 2>&1 || continue
+      if "$candidate" - <<'PY'
+import sys
+raise SystemExit(not ((3, 11) <= sys.version_info[:2] <= (3, 14)))
+PY
+      then
+        found="$(command -v "$candidate")"
+        break
+      fi
+    done
+    [ -n "$found" ]
+    """
+    completed = subprocess.run(
+        ["/bin/bash", "-c", script],
+        env={"PATH": f"{sealed_bin}{os.pathsep}{empty}", "HOME": str(tmp_path / "home")},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def _legacy_source_launcher(home: Path) -> tuple[Path, Path]:
     """The exact command link written by the earlier official source installer."""
     legacy = home / ".local" / "share" / "dex-lens" / "venv" / "bin" / "dex-lens"
@@ -406,6 +457,7 @@ class TestTheOptionsThePageDocuments:
         # itself have Claude or Codex installed, so keep the test independent
         # of its PATH rather than accidentally testing the chooser branch.
         sealed_bin = Path(environment["PATH"].split(os.pathsep, 1)[0])
+        _put_supported_python_on_sealed_path(sealed_bin)
         environment["PATH"] = f"{sealed_bin}{os.pathsep}/usr/bin:/bin"
         completed = subprocess.run(
             ["bash", "-s", "--", "--dry-run"],

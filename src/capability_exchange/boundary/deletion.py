@@ -107,6 +107,7 @@ TABLETOP_EVIDENCE_GLOB = "*-tabletop-evidence.json"
 #: Cache file written by capability_exchange.catalogue.v2.VerifiedCatalogueStore.
 LENS_CATALOGUE_CACHE_FILE = "lens-catalogue-v2-cache.json"
 LENS_CATALOGUE_SUBSCRIPTION_FILE = "lens-catalogue-v2-subscription.json"
+DIAGNOSIS_RUN_DIR = "diagnosis-runs"
 
 
 def delete_crash_logs(directory: Path) -> list[Path]:
@@ -206,3 +207,20 @@ register_deletion_path(
     "delete-lens-catalogue-subscription",
     delete_lens_catalogue_subscription,
 )
+
+
+def delete_diagnosis_run_state(directory: Path) -> list[Path]:
+    """Remove durable diagnosis checkpoints stored outside inspected roots."""
+
+    target = directory / DIAGNOSIS_RUN_DIR
+    if not target.exists():
+        return []
+    removed: list[Path] = []
+    for path in sorted(target.rglob("*")):
+        if path.is_file():
+            _remove_file_verified(path)
+            removed.append(path)
+    return removed
+
+
+register_deletion_path("delete-diagnosis-run-state", delete_diagnosis_run_state)

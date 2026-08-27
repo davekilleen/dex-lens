@@ -1175,6 +1175,1036 @@ fields:
     deletion: not-stored
     audit: "ephemeral local answer; never transmitted without a later separate consent path"
 
+  LedgerSummary.total:
+    description: "exact catalogue entry count derived from one comparison ledger"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "length of the ledger entry tuple; refused unless created through from_ledger"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; never an independently supplied number"
+
+  LedgerSummary.by_disposition:
+    description: "closed disposition counts derived from one comparison ledger"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "one integer for every Disposition; the sum must equal total"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived counts; independent construction is refused"
+
+  LedgerSummary.assessed:
+    description: "count of ledger entries that are not not-assessed"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "total minus the not-assessed count"
+    display: "shown in the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; cannot be supplied separately from the ledger"
+
+  LedgerSummary.unknown:
+    description: "count of ledger entries still not assessed"
+    collection: "calculated locally from ComparisonLedger.entries"
+    derivation: "count of Disposition.NOT_ASSESSED entries"
+    display: "shown in the canonical coverage fact block as remaining Unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived count; cannot be supplied separately from the ledger"
+
+  ReportModel.run_identity:
+    description: "immutable run identity bound into the typed diagnosis report"
+    collection: "copied from the diagnosis run after Task 5 identity exists"
+    derivation: "nested RunIdentity; refused unless created through from_result"
+    display: "identifies which run the report belongs to"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral typed report; durable save is a later engine stage"
+
+  ReportModel.ledger_summary:
+    description: "ledger-derived coverage counts bound into the typed report"
+    collection: "calculated from the exact comparison ledger in from_result"
+    derivation: "nested LedgerSummary created only through from_ledger"
+    display: "rendered as the canonical coverage fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived counts; not an independent source of truth"
+
+  ReportModel.ledger_sha256:
+    description: "SHA-256 of the exact comparison ledger bound into the report"
+    collection: "copied from canonical_ledger_digest after an exact match check"
+    derivation: "must equal the digest of the supplied ledger"
+    display: "embedded in the canonical fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest binding; mismatched digests are refused"
+
+  ReportModel.strongest_findings:
+    description: "grounded strongest-capability findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under What is working especially well"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings; no free-form praise field"
+
+  ReportModel.reciprocal_findings:
+    description: "grounded reciprocal-value findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under What Dex should learn from you"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings"
+
+  ReportModel.reliability_findings:
+    description: "grounded reliability findings in the typed report"
+    collection: "copied from engine-owned findings after comparison"
+    derivation: "tuple of inventoried Finding records"
+    display: "rendered under Fragility and contradictions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded findings"
+
+  ReportModel.limits:
+    description: "bounded limit sentences the report must keep visible"
+    collection: "copied from fingerprint and comparison limits"
+    derivation: "tuple of bounded single-line sentences"
+    display: "rendered under Coverage and limits after the fact block"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral limit text; no invented coverage numbers"
+
+  ReportModel.decisions:
+    description: "typed recommendation fates bound into the diagnosis report"
+    collection: "copied from local decision-surface outcomes for this run"
+    derivation: "tuple of RecommendationDecision records; chosen and completed require a DecisionReceipt"
+    display: "rendered under What you decided; taken appears only for receipt-backed chosen or completed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral typed decisions; no free-form taken or shared prose field"
+
+  ReportModel.share_state:
+    description: "closed share fate bound into the diagnosis report"
+    collection: "copied from the local share surface or left as not-offered"
+    derivation: "must match share_receipt.state when a receipt exists; sent requires a sent receipt"
+    display: "rendered in the close as a separate sharing choice"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral share state; preview cannot be narrated as shared"
+
+  ReportModel.share_receipt:
+    description: "optional local proof of a share preview or confirmed send"
+    collection: "issued by the local consent surface when a disclosure is previewed or sent"
+    derivation: "nested ShareReceipt; sent requires destination class, disclosure digest and response digest"
+    display: "used to render honest share wording in the close"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral receipt; diagnosis does not send or persist a disclosure"
+
+  DecisionReceipt.run_id:
+    description: "opaque identity of the diagnosis run this decision belongs to"
+    collection: "copied from the local decision surface for this run"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "not shown; binds the receipt to one run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle; no personal path"
+
+  DecisionReceipt.catalogue_id:
+    description: "signed catalogue identity the person was offered or chose"
+    collection: "copied from the recommendation shown on the local decision surface"
+    derivation: "validated kebab-style catalogue id; not a free-form title"
+    display: "shown under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral catalogue identity only"
+
+  DecisionReceipt.created_at:
+    description: "timezone-aware UTC time the local decision surface issued this receipt"
+    collection: "stamped by the local decision surface"
+    derivation: "naive or non-UTC timestamps are refused"
+    display: "not shown in the report body"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral UTC timestamp"
+
+  DecisionReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the local decision surface at choice time"
+    derivation: "session-prefixed token; not a raw bearer cookie"
+    display: "not shown; proves the fate came from local consent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local session proof"
+
+  DecisionReceipt.state:
+    description: "closed decision fate this receipt confirms"
+    collection: "recorded by the local decision surface"
+    derivation: "member of offered, chosen, completed"
+    display: "used to choose offered versus taken wording"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; taken requires this receipt"
+
+  RecommendationDecision.catalogue_id:
+    description: "signed catalogue identity whose fate is recorded"
+    collection: "copied from the recommendation shown to the person"
+    derivation: "must match DecisionReceipt.catalogue_id when a receipt exists"
+    display: "shown under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral catalogue identity only"
+
+  RecommendationDecision.state:
+    description: "closed recommendation fate for one catalogue identity"
+    collection: "recorded after the person sees or chooses the recommendation"
+    derivation: "chosen and completed are refused without a local DecisionReceipt"
+    display: "rendered as offered or taken under What you decided"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; no declined or held invention"
+
+  RecommendationDecision.receipt:
+    description: "local decision receipt backing a chosen or completed fate"
+    collection: "issued by the local decision surface; absent only while offered"
+    derivation: "nested DecisionReceipt whose catalogue and state must match"
+    display: "not shown; required before the report may say taken"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local proof; free-form prose cannot substitute"
+
+  ShareReceipt.run_id:
+    description: "opaque identity of the diagnosis run this share action belongs to"
+    collection: "copied from the local share surface for this run"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "not shown; binds the receipt to one run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle; diagnosis does not send"
+
+  ShareReceipt.disclosure_sha256:
+    description: "SHA-256 of the exact disclosed bytes that were previewed or sent"
+    collection: "calculated locally over the previewed disclosure bytes"
+    derivation: "64 lowercase hex characters; the report cannot invent a digest"
+    display: "shown in the close only for a confirmed sent receipt"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral content binding; preview is not a send"
+
+  ShareReceipt.created_at:
+    description: "timezone-aware UTC time the local share surface issued this receipt"
+    collection: "stamped by the local share surface"
+    derivation: "naive or non-UTC timestamps are refused"
+    display: "not shown in the report body"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral UTC timestamp"
+
+  ShareReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the local share surface at preview or send time"
+    derivation: "session-prefixed token; not a raw bearer cookie"
+    display: "not shown; proves the share fate came from local consent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local session proof"
+
+  ShareReceipt.state:
+    description: "closed share fate this receipt records"
+    collection: "recorded by the local share surface"
+    derivation: "member of offered, previewed, sent; preview never implies sent"
+    display: "used to render honest share wording in the close"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed vocabulary; shared requires sent plus destination and response"
+
+  ShareReceipt.destination_class:
+    description: "bounded destination class of a confirmed send"
+    collection: "selected from the closed DestinationClass vocabulary at send time"
+    derivation: "required for sent; diagnosis does not import share or contribution packages"
+    display: "shown in the close only when the receipt was sent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed class; not a free-form destination"
+
+  ShareReceipt.response_receipt_digest:
+    description: "SHA-256 binding of the confirmed destination response"
+    collection: "copied from the destination response receipt after a confirmed send"
+    derivation: "required for sent; refused on preview receipts"
+    display: "shown in the close only when the receipt was sent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response proof; assistant prose cannot substitute"
+
+  SpecialistShard.role:
+    description: "closed specialist role allowed to see this bounded identity shard"
+    collection: "assigned by the diagnosis engine when it issues a shard"
+    derivation: "validated through the closed SpecialistRole vocabulary"
+    display: "identifies which specialist received this slice"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral role name; no additional role strings are representable"
+
+  SpecialistShard.run_id:
+    description: "run identity bound into one specialist shard"
+    collection: "copied from the current diagnosis run"
+    derivation: "validated as a run-prefixed token"
+    display: "prevents a shard from being reused on another run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  SpecialistShard.fingerprint_digest:
+    description: "SHA-256 of the current evidence fingerprint this shard may cite"
+    collection: "copied from the captured fingerprint after consent"
+    derivation: "sha256 binding"
+    display: "binds specialist evidence tokens to this fingerprint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest; observation payloads stay outside the shard"
+
+  SpecialistShard.catalogue_digest:
+    description: "SHA-256 of the verified catalogue this shard may name"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "sha256 binding"
+    display: "binds specialist catalogue identities to the verified bytes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  SpecialistShard.evidence_ids:
+    description: "engine-owned evidence tokens this specialist may cite"
+    collection: "minted by the engine from the current fingerprint"
+    derivation: "unique opaque tokens; existing observation refs are not reused"
+    display: "the only evidence identities a proposal may mention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens; raw paths are unrepresentable"
+
+  SpecialistShard.catalogue_ids:
+    description: "signed catalogue identities present in this shard"
+    collection: "copied from the verified catalogue slice for this specialist"
+    derivation: "unique bounded identities"
+    display: "limits which Dex entries a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  SpecialistShard.capability_ids:
+    description: "human capability identities present in this shard"
+    collection: "copied from the local comparison grouping for this run"
+    derivation: "unique bounded identities"
+    display: "limits which human capabilities a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identities"
+
+  SpecialistProposal.role:
+    description: "closed specialist role that authored this untrusted proposal"
+    collection: "declared by the submitting adapter or host assistant"
+    derivation: "validated through the closed SpecialistRole vocabulary"
+    display: "shown only as provenance of an untrusted claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral role name; invented roles are unrepresentable"
+
+  SpecialistProposal.kind:
+    description: "closed kind of opaque claim this proposal offers"
+    collection: "declared by the specialist against the closed proposal schema"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "groups proposals for deterministic reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral claim kind"
+
+  SpecialistProposal.run_id:
+    description: "run identity the specialist claims to be addressing"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext run identity"
+    display: "used to refuse proposals from another diagnosis run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  SpecialistProposal.fingerprint_digest:
+    description: "fingerprint digest the specialist claims to be citing"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext fingerprint digest"
+    display: "used to refuse proposals bound to another fingerprint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest"
+
+  SpecialistProposal.catalogue_digest:
+    description: "catalogue digest the specialist claims to be naming"
+    collection: "copied from the shard issued for this run"
+    derivation: "must match the current ProposalContext catalogue digest"
+    display: "used to refuse proposals bound to another catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  SpecialistProposal.catalogue_id:
+    description: "one signed catalogue identity this proposal is about"
+    collection: "selected from the issued shard"
+    derivation: "must be a shard identity and, for recommendations, available"
+    display: "names the Dex entry the untrusted claim concerns"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  SpecialistProposal.capability_id:
+    description: "one human capability identity this proposal is about"
+    collection: "selected from the issued shard"
+    derivation: "must be a shard identity"
+    display: "groups the claim with the local human capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  SpecialistProposal.disposition:
+    description: "proposed closed comparison answer; untrusted until reconciled"
+    collection: "asserted by the specialist"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "never written as a conclusion until the engine reconciles it"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted judgement; no confidence score exists"
+
+  SpecialistProposal.evidence_ids:
+    description: "engine-owned evidence tokens cited by this proposal"
+    collection: "selected from the current ProposalContext token set"
+    derivation: "at most eight unique tokens; foreign tokens are refused"
+    display: "shows which engine-owned facts the claim rests on"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens; raw evidence is unrepresentable"
+
+  SpecialistProposal.reason:
+    description: "one bounded line explaining the untrusted proposal"
+    collection: "authored by the specialist"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "shown as an untrusted rationale until the engine accepts it"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  ProposalContext.run_id:
+    description: "current diagnosis run a proposal must bind to"
+    collection: "copied from the active run identity"
+    derivation: "validated as a run-prefixed token"
+    display: "used to refuse proposals from another run"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run handle"
+
+  ProposalContext.fingerprint_digest:
+    description: "current fingerprint digest proposals may cite"
+    collection: "copied from the captured evidence fingerprint"
+    derivation: "sha256 binding"
+    display: "used to refuse foreign evidence tokens"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral digest"
+
+  ProposalContext.catalogue_digest:
+    description: "current verified catalogue digest proposals may name"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "sha256 binding"
+    display: "used to refuse proposals bound to another catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue digest"
+
+  ProposalContext.evidence_ids:
+    description: "engine-owned evidence tokens valid for this fingerprint"
+    collection: "minted by the engine from the current fingerprint"
+    derivation: "unique opaque tokens present only in this context"
+    display: "the only evidence identities validate_proposal will accept"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens"
+
+  ProposalContext.catalogue_ids:
+    description: "catalogue identities present in the issued shard"
+    collection: "copied from the verified catalogue slice"
+    derivation: "unique bounded identities"
+    display: "limits which Dex entries a proposal may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  ProposalContext.capability_ids:
+    description: "human capability identities present in the issued shard"
+    collection: "copied from the local comparison grouping"
+    derivation: "unique bounded identities"
+    display: "limits which human capabilities a proposal may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identities"
+
+  ProposalContext.held_ids:
+    description: "catalogue identities that are not available to recommend"
+    collection: "supplied by the engine from signed availability and local holds"
+    derivation: "unique bounded identities; not a catalogue availability member"
+    display: "blocks recommendations of dormant, parked, or otherwise unavailable entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral unavailability set; signed availability remains active, dormant, or parked"
+
+  ProposalContext.collapsed_provenance_ids:
+    description: "evidence tokens whose source provenance has been collapsed"
+    collection: "derived when the engine cannot keep sources distinct"
+    derivation: "unique tokens; citing them refuses the proposal"
+    display: "prevents a specialist from treating ambiguous sources as one fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral refusal set"
+
+  ProposalContext.family_contract_present:
+    description: "whether a signed capability-family contract is available"
+    collection: "assigned by the engine from the verified catalogue contract"
+    derivation: "boolean; false until Core signs the additive family contract"
+    display: "disables usable release-distance claims while false"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral contract presence flag"
+
+  ValidatedProposal.kind:
+    description: "closed claim kind after validation or coalescing"
+    collection: "copied from the accepted proposal or the reconciled group"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "groups the accepted claim for later engine use"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral accepted kind"
+
+  ValidatedProposal.catalogue_id:
+    description: "signed catalogue identity of one accepted or coalesced claim"
+    collection: "copied from the validated proposal group"
+    derivation: "must have cleared shard and availability checks"
+    display: "names the Dex entry the engine may later consider"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  ValidatedProposal.capability_id:
+    description: "human capability identity of one accepted or coalesced claim"
+    collection: "copied from the validated proposal group"
+    derivation: "must have cleared shard membership"
+    display: "groups the accepted claim with the local human capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  ValidatedProposal.disposition:
+    description: "accepted disposition, or not-assessed when specialists disagreed"
+    collection: "copied from matching proposals or forced to not-assessed on conflict"
+    derivation: "no confidence score is consulted; disagreement stays Unknown"
+    display: "never a report conclusion until the later engine writes the ledger"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconciled judgement"
+
+  ValidatedProposal.evidence_ids:
+    description: "sorted engine-owned evidence tokens supporting the accepted claim"
+    collection: "union of matching proposal tokens, then sorted"
+    derivation: "at most eight unique tokens from the current fingerprint"
+    display: "shows the evidence the later engine may inspect"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral tokens"
+
+  ValidatedProposal.reason:
+    description: "bounded reason kept after validation or disagreement handling"
+    collection: "copied from matching proposals or replaced by the disagreement sentence"
+    derivation: "at most 600 characters; disagreement uses the closed product sentence"
+    display: "explains the accepted claim or records that specialists disagreed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  PersistedScopeApproval.run_id:
+    description: "run identity for a locally persisted scope approval"
+    collection: "copied from the approved-scope receipt at /approve"
+    derivation: "validated as a run-prefixed token"
+    display: "used to resume collection after the prepare process exits"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle only"
+
+  PersistedScopeApproval.approved_roots:
+    description: "absolute approved-root paths retained only for later local collection"
+    collection: "copied from the consent snapshot after authenticated /approve"
+    derivation: "tuple of absolute directory paths; never transmitted"
+    display: "not shown on CLI JSON or the MCP wire"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local collection resume only; not a public path"
+
+  PersistedScopeApproval.receipt:
+    description: "nested approved-scope receipt persisted beside the run checkpoint"
+    collection: "issued by the local consent authority at /approve"
+    derivation: "nested ApprovedScopeReceipt"
+    display: "proves later advance may collect"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "same receipt as the in-memory consent store"
+
+  ApprovedScopeReceipt.run_id:
+    description: "opaque identity of the diagnosis run whose scope was approved"
+    collection: "assigned locally when prepare records candidate locators"
+    derivation: "validated as a run-prefixed token; no filesystem path"
+    display: "returned to CLI and MCP as the run handle"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run identity only; contains no approved-root path"
+
+  ApprovedScopeReceipt.scope_references:
+    description: "non-raw scope digests for the roots approved in this receipt"
+    collection: "copied from the local consent snapshot after /approve"
+    derivation: "validated as unique scope:sha256 references; raw paths are refused"
+    display: "used to bind later checkpoints to the approved scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "opaque scope locators only; canonical roots stay in the consent session"
+
+  ApprovedScopeReceipt.scope_digest:
+    description: "SHA-256 binding over the exact approved scope references"
+    collection: "calculated locally from the receipt references"
+    derivation: "sha256 of sorted compact JSON of the reference tuple"
+    display: "used to detect scope drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "content-bound digest; no raw path"
+
+  ApprovedScopeReceipt.session_receipt_id:
+    description: "bounded identifier of the authenticated local consent session"
+    collection: "derived from the loopback session token at /approve"
+    derivation: "session-prefixed truncated token; not the raw bearer cookie"
+    display: "not shown; retained to prove the receipt came from local consent"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local session binding; raw cookie value is not stored"
+
+  ApprovedScopeReceipt.approved_at:
+    description: "timezone-aware moment the local consent surface approved the scope"
+    collection: "recorded by the consent authority clock at approval"
+    derivation: "naive timestamps are rejected"
+    display: "available for local run diagnostics"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local approval time only"
+
+  RunIdentity.run_id:
+    description: "opaque public identity for one diagnosis run"
+    collection: "assigned at prepare before any read"
+    derivation: "validated as a run-prefixed token"
+    display: "returned by status, advance, and result"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle; no personal path"
+
+  RunIdentity.engine_version:
+    description: "engine version bound into the run identity"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded product version string"
+    display: "shown in local diagnostics when a run is stale"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  RunIdentity.input_schema_version:
+    description: "schema version of the content-bound diagnosis input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded integer-like version string"
+    display: "used to refuse mixed-schema resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product schema marker only"
+
+  RunIdentity.created_at:
+    description: "timezone-aware moment the run identity was created"
+    collection: "recorded when prepare allocates the run"
+    derivation: "naive timestamps are rejected"
+    display: "available for local resume listing"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local creation time only"
+
+  DiagnosisInput.run_id:
+    description: "run identity carried by the content-bound execution input"
+    collection: "copied from the prepared run"
+    derivation: "validated as a run-prefixed token"
+    display: "binds checkpoints to one run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisInput.engine_version:
+    description: "engine version bound into the execution input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "a changed engine version creates a new input identity"
+    display: "used to refuse stale resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  DiagnosisInput.input_schema_version:
+    description: "schema version bound into the execution input"
+    collection: "copied from the running Lens engine constant"
+    derivation: "a changed schema version creates a new input identity"
+    display: "used to refuse mixed-schema resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product schema marker only"
+
+  DiagnosisInput.adapter_version:
+    description: "collector adapter version used for this run"
+    collection: "copied from the selected local adapter"
+    derivation: "bounded version string"
+    display: "used to explain why a fingerprint cannot be reused"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "adapter version only; no observation payload"
+
+  DiagnosisInput.approved_scope_receipt:
+    description: "nested approved-scope receipt bound into the execution input"
+    collection: "copied from the local consent authority after /approve"
+    derivation: "nested ApprovedScopeReceipt; independent numbers are refused"
+    display: "proves later stages still use the consented scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "nested inventoried receipt; raw roots remain outside this model"
+
+  DiagnosisInput.fingerprint_sha256:
+    description: "SHA-256 of the consented evidence fingerprint"
+    collection: "calculated after capture of the approved scope"
+    derivation: "exactly 64 lowercase hexadecimal characters"
+    display: "used to detect fingerprint drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digest only; observation payloads stay in the fingerprint"
+
+  DiagnosisInput.catalogue_version:
+    description: "verified catalogue version bound into the execution input"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "positive integer"
+    display: "identifies the Dex release surface compared by this run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue version only"
+
+  DiagnosisInput.catalogue_sha256:
+    description: "SHA-256 of the exact verified catalogue bytes"
+    collection: "copied from the signature-verified catalogue envelope"
+    derivation: "exactly 64 lowercase hexadecimal characters"
+    display: "used to detect catalogue drift on resume"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue digest only"
+
+  DiagnosisInput.confirmed_jobs:
+    description: "confirmed success contracts this diagnosis may use"
+    collection: "copied from the local job-confirmation stage"
+    derivation: "tuple of inventoried SuccessContract records"
+    display: "limits comparison to jobs the person confirmed"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "nested inventoried contracts; no unconfirmed drafts"
+
+  DiagnosisInput.assessed_at:
+    description: "timezone-aware assessment instant fixed for this run"
+    collection: "recorded when the execution input is materialised"
+    derivation: "naive timestamps are rejected; the value does not change mid-run"
+    display: "used for staleness rules"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local assessment time only"
+
+  DiagnosisCheckpoint.run_id:
+    description: "run identity stored on one diagnosis checkpoint"
+    collection: "copied from the prepared run"
+    derivation: "validated as a run-prefixed token"
+    display: "used to load and resume one run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisCheckpoint.stage:
+    description: "closed diagnosis stage recorded in this checkpoint"
+    collection: "advanced by the engine after a lawful transition"
+    derivation: "validated through the closed DiagnosisStage vocabulary"
+    display: "shown as proved progress and next required action"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "stage name only"
+
+  DiagnosisCheckpoint.previous_digest:
+    description: "SHA-256 of the previous checkpoint payload, if any"
+    collection: "calculated locally when the run advances"
+    derivation: "sha256 binding or omitted at created"
+    display: "used to verify checkpoint chains"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "content-bound previous state; no user content"
+
+  DiagnosisCheckpoint.input_identity:
+    description: "SHA-256 of the content-bound execution input"
+    collection: "copied from DiagnosisInput.identity_digest when available"
+    derivation: "sha256 binding"
+    display: "used to refuse stale resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "input digest only"
+
+  DiagnosisCheckpoint.artifact_digests:
+    description: "SHA-256 bindings for artefacts completed at this stage"
+    collection: "recorded by the engine after a lawful transition"
+    derivation: "unique sha256 bindings; unknown references are refused"
+    display: "used to resume without repeating completed work"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digests only; artefact bytes live in their own stores"
+
+  DiagnosisCheckpoint.next_action:
+    description: "plain-language next required action for this checkpoint"
+    collection: "selected from the closed stage-to-action map"
+    derivation: "bounded product sentence; not free-form model prose"
+    display: "shown by CLI and MCP status"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product guidance only"
+
+  DiagnosisCheckpoint.engine_version:
+    description: "engine version recorded on this checkpoint"
+    collection: "copied from the running Lens engine constant"
+    derivation: "bounded product version string"
+    display: "used to refuse mixed-engine resumes"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product version only"
+
+  DiagnosisCheckpoint.created_at:
+    description: "timezone-aware moment this checkpoint was written"
+    collection: "recorded by the engine clock"
+    derivation: "naive timestamps are rejected"
+    display: "used to order resumable runs"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local checkpoint time only"
+
+  DiagnosisRunView.run_id:
+    description: "opaque run identity in the public diagnosis view"
+    collection: "copied from the current checkpoint or prepare result"
+    derivation: "validated as a run-prefixed token"
+    display: "returned to CLI and MCP"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle"
+
+  DiagnosisRunView.stage:
+    description: "proved diagnosis stage in the public view"
+    collection: "copied from the current checkpoint"
+    derivation: "closed DiagnosisStage value"
+    display: "shown as current progress"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "stage name only"
+
+  DiagnosisRunView.next_action:
+    description: "plain-language next required action in the public view"
+    collection: "copied from the current checkpoint"
+    derivation: "bounded product sentence"
+    display: "shown by CLI and MCP status"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "product guidance only"
+
+  DiagnosisRunView.input_identity:
+    description: "optional SHA-256 of the execution input once it exists"
+    collection: "copied after scope approval binds an input identity"
+    derivation: "sha256 binding or omitted before the input exists"
+    display: "used to detect stale views"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digest only"
+
+  DiagnosisRunView.approval_url:
+    description: "optional local loopback URL for the consent surface"
+    collection: "assigned when prepare starts the existing local doorway"
+    derivation: "loopback URL only; omitted until a server is listening"
+    display: "shown so the person can approve the exact scope"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local URL only; no token query string"
+
   SafeAttribute.key:
     description: "closed allowlisted name for one privacy-safe observation attribute"
     collection: "selected locally by a bounded discovery parser"
@@ -1245,6 +2275,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral evidence; nested fields remain independently inventoried"
 
+  Observation.provenance:
+    description: "immutable non-raw source provenance fixed at consent capture"
+    collection: "carried from the approved source descriptor attached before snapshot reads"
+    derivation: "nested closed SourceProvenance; discovery cannot replace or infer it from private paths"
+    display: "distinguishes same-named observations from separately approved sources"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral provenance only; the canonical absolute root is excluded"
+
   Observation.attributes:
     description: "zero or more allowlisted safe attributes for one observation"
     collection: "produced locally only by bounded parsers for explicitly safe facts"
@@ -1254,6 +2294,106 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral metadata; raw configuration, commands, and secret values are unrepresentable"
+
+  SourceProvenance.source_id:
+    description: "opaque public identity for one consent-approved source"
+    collection: "assigned at local scope consent without retaining the raw root"
+    derivation: "validated as a bounded scope-prefixed identifier"
+    display: "separates observations that share a capability name across sources"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local source identity; contains no absolute path"
+
+  SourceProvenance.source_class:
+    description: "closed ownership class for one approved source"
+    collection: "explicitly fixed by consent; single-root compatibility uses vault-authored conservatively"
+    derivation: "validated through the closed SourceClass vocabulary; never inferred from path names"
+    display: "explains whether evidence is authored, global, bundled, vendored, generated, live, or a working copy"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral privacy classification used by deterministic eligibility rules"
+
+  SourceProvenance.scope_reference:
+    description: "non-reversible SHA-256 reference to the locally approved source root"
+    collection: "derived locally with the consent session scope reference"
+    derivation: "validated as scope:sha256 followed by exactly 64 lowercase hexadecimal characters"
+    display: "supports local provenance checks without exposing the raw root"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral one-way scope locator; raw absolute paths are excluded"
+
+  SourceProvenance.relative_reference:
+    description: "bounded reference relative to the approved source"
+    collection: "derived from an admitted snapshot entry before discovery"
+    derivation: "unsafe names become reference tokens; absolute, home, traversal, control, and secret-shaped values are refused"
+    display: "locates local evidence within its opaque approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral non-raw locator; never an absolute path or secret-bearing payload"
+
+  SourceProvenance.content_digest:
+    description: "optional SHA-256 digest for a source artifact when a lawful digest is available"
+    collection: "omitted by snapshot discovery unless an approved non-content-derived digest exists"
+    derivation: "validated as sha256 followed by exactly 64 lowercase hexadecimal characters"
+    display: "may distinguish versions without retaining source content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral optional digest; snapshot keyed references remain separate"
+
+  ApprovedSnapshotSource.source_id:
+    description: "opaque identity of one source approved for the inspection snapshot"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated through SourceProvenance before capture; the canonical root is omitted"
+    display: "supports local attribution even when the approved source contains no captured files"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory provenance only; no raw path or user content is retained"
+
+  ApprovedSnapshotSource.source_class:
+    description: "closed ownership class of one source approved for the inspection snapshot"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated against the closed SourceClass vocabulary before snapshot collection"
+    display: "explains the local ownership class of an approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory classification; never persisted or transmitted"
+
+  ApprovedSnapshotSource.scope_reference:
+    description: "one-way scope reference for an approved snapshot source"
+    collection: "copied locally from the consent-approved source descriptor at capture time"
+    derivation: "validated as a scope-prefixed SHA-256 reference; the canonical root is excluded"
+    display: "supports local scope matching without revealing an absolute source path"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral process-memory locator; raw approved roots are not retained in this record"
+
+  InspectionSnapshot.approved_sources:
+    description: "immutable tuple of every approved source descriptor, including empty sources"
+    collection: "assembled locally from the exact consent-approved descriptor set during capture"
+    derivation: "contains only ApprovedSnapshotSource records and excludes canonical roots"
+    display: "preserves complete local source coverage for deterministic diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "exists only for the in-memory inspection lifetime and cannot be reassigned or deleted"
+
+  SnapshotEntry.source:
+    description: "closed provenance attached to one captured snapshot entry"
+    collection: "assigned locally by matching the admitted file to its consent-approved source"
+    derivation: "nested immutable SourceProvenance with unsafe relative names replaced by opaque tokens"
+    display: "attributes local evidence to the correct approved source without exposing its root"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral per-entry provenance; raw absolute roots and secret-shaped names are excluded"
 
   EvidenceFingerprint.adapter_id:
     description: "stable identity of the read-only adapter that produced the fingerprint"
@@ -1278,7 +2418,7 @@ fields:
   EvidenceFingerprint.observations:
     description: "unique closed observations collected from the approved read-only scopes"
     collection: "assembled locally by the adapter discovery pipeline"
-    derivation: "exact duplicate identities are folded or rejected before diagnosis"
+    derivation: "duplicates are folded or rejected by exact kind, identity, and opaque source id"
     display: "forms the evidence-led whole-system inventory"
     storage: none
     sharing: never

@@ -20,6 +20,7 @@ goes. Two properties matter more than anything else here:
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -122,6 +123,11 @@ class SavedReport:
         return self.path.with_suffix(".ledger.json")
 
     @property
+    def result_path(self) -> Path:
+        """The typed diagnosis result saved with this report."""
+        return self.path.with_suffix(".result.json")
+
+    @property
     def is_valid_utf8(self) -> bool:
         """Whether the file decodes cleanly, so a reader can be told when not."""
         try:
@@ -146,6 +152,55 @@ class SavedReport:
         when = self.saved_at.strftime("%Y-%m-%d %H:%M UTC")
         title = self.title or "(no title)"
         return f"{when}  {self.label}  {title}"
+
+
+def _ledger_json_from_result(result: object) -> str:
+    ledger_json = getattr(result, "ledger_json", None)
+    if callable(ledger_json):
+        rendered = ledger_json()
+        if not isinstance(rendered, str) or not rendered.strip():
+            raise ValueError("save_result requires ledger JSON from the typed result")
+        return rendered
+    ledger = getattr(result, "ledger", None)
+    dump = getattr(ledger, "model_dump", None)
+    if ledger is None or not callable(dump):
+        raise ValueError("save_result requires a typed result bound to its ledger")
+    return json.dumps(
+        dump(mode="json"),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _verify_result_digests(
+    result: object,
+    markdown: str,
+    ledger_json: str,
+    result_json: str,
+) -> None:
+    """Refuse a save whose markdown, ledger, and result do not share one digest."""
+
+    from capability_exchange.diagnosis.report import (
+        canonical_fact_block,
+        canonical_ledger_digest,
+    )
+
+    ledger = getattr(result, "ledger", None)
+    report = getattr(result, "report", None)
+    if ledger is None or report is None:
+        raise ValueError("save_result requires a typed report bound to its ledger")
+    ledger_digest = canonical_ledger_digest(ledger)
+    if getattr(report, "ledger_sha256", None) != ledger_digest:
+        raise ValueError("result ledger digest does not match the comparison ledger")
+    if canonical_fact_block(ledger) not in markdown:
+        raise ValueError("canonical markdown does not match the comparison ledger")
+    stored = json.loads(result_json)
+    if stored.get("ledger_sha256") != ledger_digest:
+        raise ValueError("result JSON digest does not match the comparison ledger")
+    payload = json.loads(ledger_json)
+    if payload.get("catalogue_sha256") != getattr(ledger, "catalogue_sha256", None):
+        raise ValueError("ledger JSON does not match the comparison ledger")
 
 
 class LensReportStore:
@@ -190,6 +245,44 @@ class LensReportStore:
                 # coverage without the ledger that proves it.
                 path.unlink(missing_ok=True)
                 raise
+        return saved
+
+    def save_result(
+        self,
+        result: object,
+        label: str = DEFAULT_LABEL,
+        now: datetime | None = None,
+    ) -> SavedReport:
+        """Persist canonical markdown, ledger JSON, and result JSON together.
+
+        Markdown is rendered from the typed result. The engine never supplies
+        arbitrary prose. The three digests are verified before this returns.
+        """
+
+        render = getattr(result, "render_markdown", None)
+        if not callable(render):
+            raise ValueError("save_result requires a typed result with render_markdown()")
+        markdown = render()
+        if not isinstance(markdown, str) or not markdown.strip():
+            raise ValueError("a report with no content is not a report")
+        dump = getattr(result, "dump_for_storage", None)
+        if not callable(dump):
+            raise ValueError("save_result requires a typed result with dump_for_storage()")
+        ledger_json = _ledger_json_from_result(result)
+        result_json = json.dumps(
+            dump(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        _verify_result_digests(result, markdown, ledger_json, result_json)
+        saved = self.save(markdown, label=label, now=now, ledger_json=ledger_json)
+        try:
+            saved.result_path.write_text(result_json, encoding="utf-8")
+        except OSError:
+            saved.path.unlink(missing_ok=True)
+            saved.ledger_path.unlink(missing_ok=True)
+            raise
         return saved
 
     def _free_path(self, stamp: datetime, slug: str) -> Path:

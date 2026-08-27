@@ -8,10 +8,11 @@ cannot publish a partial result into the browser session.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,19 +22,50 @@ from capability_exchange.adapters.claude_code.containment import (
     GUIDED_FALLBACK_MESSAGE,
     ContainmentUnavailableError,
 )
+from capability_exchange.boundary.approved_roots import reject_overlapping_roots
+from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 __all__ = [
     "CollectionCancelled",
     "CollectionController",
     "CollectionResult",
+    "ApprovedSourceDescriptor",
     "ScopeSnapshot",
     "containment_fallback",
+    "default_source_descriptors",
 ]
 
 
 class CollectionCancelled(RuntimeError):
     """Collection was cancelled; all partials are discarded."""
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedSourceDescriptor:
+    """Consent-bound identity for one canonical approved root.
+
+    The canonical root remains private collection state. Only its opaque
+    source id, closed class, and non-reversible scope reference can cross
+    into the diagnosis fingerprint.
+    """
+
+    canonical_root: Path
+    source_id: str
+    source_class: SourceClass
+    scope_reference: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "canonical_root", Path(self.canonical_root))
+        validated = SourceProvenance(
+            source_id=self.source_id,
+            source_class=self.source_class,
+            scope_reference=self.scope_reference,
+            relative_reference=".",
+        )
+        object.__setattr__(self, "source_id", validated.source_id)
+        object.__setattr__(self, "source_class", validated.source_class)
+        object.__setattr__(self, "scope_reference", validated.scope_reference)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +75,25 @@ class _ScopeIdentity:
     st_dev: int
     st_ino: int
     st_mode: int
+    descriptor: ApprovedSourceDescriptor
+
+
+def default_source_descriptors(roots: Iterable[Path]) -> tuple[ApprovedSourceDescriptor, ...]:
+    """Stable vault-authored descriptors when the caller did not name sources."""
+
+    items: list[ApprovedSourceDescriptor] = []
+    for index, root in enumerate(tuple(roots)):
+        resolved = Path(root).expanduser().resolve(strict=True)
+        digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
+        items.append(
+            ApprovedSourceDescriptor(
+                canonical_root=resolved,
+                source_id="scope:primary" if index == 0 else f"scope:root-{index}",
+                source_class=SourceClass.VAULT_AUTHORED,
+                scope_reference=f"scope:sha256:{digest}",
+            )
+        )
+    return tuple(items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,10 +103,53 @@ class ScopeSnapshot:
     roots: tuple[_ScopeIdentity, ...]
 
     @classmethod
-    def capture(cls, approved_roots: Iterable[Path]) -> ScopeSnapshot:
+    def capture(
+        cls,
+        approved_roots: Iterable[Path],
+        *,
+        source_descriptors: Iterable[ApprovedSourceDescriptor | Mapping[str, object]] | None = None,
+    ) -> ScopeSnapshot:
+        raw_roots = tuple(approved_roots)
+        if not raw_roots:
+            raise ValueError("approved scope is empty")
+        if source_descriptors is None:
+            if len(raw_roots) != 1:
+                raise ValueError(
+                    "source descriptors are mandatory when more than one root is approved"
+                )
+            requested = Path(raw_roots[0])
+            try:
+                resolved = requested.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise ValueError(f"approved scope cannot be snapshotted: {requested}") from exc
+            descriptors = (
+                ApprovedSourceDescriptor(
+                    canonical_root=resolved,
+                    source_id="scope:primary",
+                    source_class=SourceClass.VAULT_AUTHORED,
+                    scope_reference=(
+                        "scope:sha256:" + hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
+                    ),
+                ),
+            )
+        else:
+            descriptors = tuple(
+                item
+                if isinstance(item, ApprovedSourceDescriptor)
+                else ApprovedSourceDescriptor(**item)
+                for item in source_descriptors
+            )
+        descriptor_roots = [item.canonical_root for item in descriptors]
+        descriptor_ids = [item.source_id for item in descriptors]
+        if len(descriptor_roots) != len(set(descriptor_roots)):
+            raise ValueError("source descriptors contain a duplicate canonical root")
+        if len(descriptor_ids) != len(set(descriptor_ids)):
+            raise ValueError("source descriptors contain a duplicate source_id")
+
         identities: list[_ScopeIdentity] = []
         seen: set[Path] = set()
-        for raw in approved_roots:
+        resolved_roots: list[Path] = []
+        for raw in raw_roots:
             requested = Path(raw)
             try:
                 resolved = requested.resolve(strict=True)
@@ -67,6 +161,12 @@ class ScopeSnapshot:
             if resolved in seen:
                 raise ValueError(f"approved scope contains duplicate root: {requested}")
             seen.add(resolved)
+            resolved_roots.append(resolved)
+            matches = [item for item in descriptors if item.canonical_root == resolved]
+            if len(matches) != 1:
+                raise ValueError(
+                    "source descriptor coverage must match every approved root exactly"
+                )
             identities.append(
                 _ScopeIdentity(
                     requested=requested,
@@ -74,10 +174,16 @@ class ScopeSnapshot:
                     st_dev=stat.st_dev,
                     st_ino=stat.st_ino,
                     st_mode=stat.st_mode,
+                    descriptor=matches[0],
                 )
             )
         if not identities:
             raise ValueError("approved scope is empty")
+        reject_overlapping_roots(tuple(resolved_roots))
+        if set(descriptor_roots) != set(resolved_roots):
+            raise ValueError(
+                "source descriptor coverage contains an unknown or missing approved root"
+            )
         return cls(tuple(identities))
 
     @property
@@ -88,14 +194,29 @@ class ScopeSnapshot:
     def requested_roots(self) -> tuple[Path, ...]:
         return tuple(identity.requested for identity in self.roots)
 
+    @property
+    def source_descriptors(self) -> tuple[ApprovedSourceDescriptor, ...]:
+        """The immutable descriptor mapping fixed at consent capture."""
+
+        return tuple(identity.descriptor for identity in self.roots)
+
+    def descriptor_for(self, canonical_path: Path) -> ApprovedSourceDescriptor:
+        """Return the one approved descriptor containing ``canonical_path``."""
+
+        path = Path(canonical_path).resolve(strict=False)
+        matches = [
+            identity.descriptor
+            for identity in self.roots
+            if path == identity.resolved or identity.resolved in path.parents
+        ]
+        if len(matches) != 1:
+            raise ValueError("canonical path belongs to no single approved source")
+        return matches[0]
+
     def revalidate(self, approved_roots: Iterable[Path] | None = None) -> None:
         """Refuse if a root disappeared, was replaced, or the approved set changed."""
 
-        current_raw = (
-            tuple(approved_roots)
-            if approved_roots is not None
-            else self.requested_roots
-        )
+        current_raw = tuple(approved_roots) if approved_roots is not None else self.requested_roots
         if len(current_raw) != len(self.roots):
             raise ValueError("approved scope changed before result publication")
         current: list[_ScopeIdentity] = []
@@ -113,6 +234,7 @@ class ScopeSnapshot:
                     st_dev=stat.st_dev,
                     st_ino=stat.st_ino,
                     st_mode=stat.st_mode,
+                    descriptor=self.descriptor_for(resolved),
                 )
             )
         if tuple(current) != self.roots:
@@ -215,9 +337,7 @@ class CollectionController:
             if isinstance(exc, ValueError):
                 raise
             if self.cancel_event.is_set() or self.cancelled:
-                raise CollectionCancelled(
-                    "collection cancelled; partial result discarded"
-                ) from exc
+                raise CollectionCancelled("collection cancelled; partial result discarded") from exc
             raise
         finally:
             with self._lock:
@@ -233,8 +353,7 @@ class CollectionController:
             positional = tuple(
                 parameter
                 for parameter in signature.parameters.values()
-                if parameter.kind
-                in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+                if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
             )
             accepts_event = bool(positional) or any(
                 parameter.kind is parameter.VAR_POSITIONAL
@@ -301,9 +420,7 @@ class CollectionController:
                 "collection stop could not be proven; session must terminate as an incident"
             )
 
-    def _current_roots(
-        self, approved_roots: Iterable[Path] | None
-    ) -> tuple[Path, ...]:
+    def _current_roots(self, approved_roots: Iterable[Path] | None) -> tuple[Path, ...]:
         if approved_roots is not None:
             source = approved_roots
         elif self.scope_provider is not None:
@@ -344,9 +461,7 @@ class CollectionController:
         raise ValueError("collection has not published a result")
 
 
-def containment_fallback(
-    reason: str, *, now: datetime | None = None
-) -> CollectionResult:
+def containment_fallback(reason: str, *, now: datetime | None = None) -> CollectionResult:
     """Build an honest guided/export-assisted result with no claim evidence."""
 
     captured_at = now or datetime.now(UTC)

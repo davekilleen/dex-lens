@@ -33,13 +33,22 @@ from capability_exchange.adapters.claude_code.inventory_cli import inventory_mai
 from capability_exchange.catalogue.cli import brief_main, catalogue_main
 from capability_exchange.concierge.folder_picker import FolderPickerError, choose_folder
 from capability_exchange.concierge.server import session_for_roots, start_server
+from capability_exchange.diagnosis.cli import diagnosis_main
 from capability_exchange.reports.cli import reports_main
 from capability_exchange.share.cli import share_main
+
+
+def _run_diagnosis(args: list[str]) -> int:
+    """Look up ``diagnosis_main`` at call time so tests can inject a fake."""
+
+    return diagnosis_main(args)
+
 
 #: Exact first-argument matches that route away from the browser journey.
 _SUBCOMMANDS = {
     "brief": brief_main,
     "catalogue": catalogue_main,
+    "diagnosis": _run_diagnosis,
     "inventory": inventory_main,
     "reports": reports_main,
     "share": share_main,
@@ -66,6 +75,7 @@ Your assistant does the reading and calls these when it needs them:
     dex-lens inventory <folder>    what your system is made of
     dex-lens catalogue             what Dex publishes, signature checked here
     dex-lens brief <id>            how to rebuild one capability yourself
+    dex-lens diagnosis             a read-only look that waits for local approval
     dex-lens reports               the dated reports past looks left behind
     dex-lens share <card>          send one idea card back to Dex, preview first
 

@@ -208,3 +208,64 @@ assert outcome in (0, None), outcome
     # packaging gate pass on a wheel whose real commands had all gone missing.
     for name in ("inventory", "catalogue", "brief", "reports", "share"):
         assert f"dex-lens {name}" in invoked.stdout, name
+
+
+def test_wheel_declares_the_dex_lens_mcp_console_script(
+    built_wheel: Path, tmp_path: Path
+) -> None:
+    """The wheel owns the MCP doorway without loading its optional runtime here.
+
+    The packaging gate installs with ``--no-deps``, so the MCP SDK is absent in
+    this isolated target. Presence of the console-script entry is the proof;
+    loading it would only restate that the SDK was not copied into the target.
+    """
+    target = tmp_path / "installed-mcp-entry"
+    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--no-deps",
+            "--target",
+            str(target),
+            str(built_wheel),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, f"wheel install failed:\n{completed.stderr}"
+
+    script = """
+from importlib.metadata import distributions
+from pathlib import Path
+
+target = Path(__import__('sys').argv[1]).resolve()
+distribution = next(distributions(path=[target]))
+scripts = {
+    item.name
+    for item in distribution.entry_points
+    if item.group == 'console_scripts'
+}
+assert 'dex-lens' in scripts
+assert 'dex-lens-mcp' in scripts
+entry = next(
+    item for item in distribution.entry_points
+    if item.group == 'console_scripts' and item.name == 'dex-lens-mcp'
+)
+assert entry.value == 'capability_exchange.diagnosis.mcp_server:main'
+"""
+    environment = environ.copy()
+    environment["PYTHONPATH"] = str(target)
+    environment["PYTHONNOUSERSITE"] = "1"
+    invoked = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [sys.executable, "-c", script, str(target)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invoked.returncode == 0, invoked.stderr

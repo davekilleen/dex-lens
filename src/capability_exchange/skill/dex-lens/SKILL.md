@@ -1,6 +1,6 @@
 ---
 name: dex-lens
-description: Look at the personal AI system this person has already built, say honestly what it does well, then compare it with Dex's published capabilities and suggest the few worth borrowing. Use when someone asks what their setup is missing, whether it has drifted from Dex, what Dex has that they do not, whether their AI setup is any good, or asks for a second opinion on their own instructions, skills and configuration. Read-only: it never changes their system, and it always ends by saving a dated report.
+description: Look at the personal AI system this person has already built, say honestly what it does well, then compare it with Dex's published capabilities and suggest the few worth borrowing. Use when someone asks what their setup is missing, whether it has drifted from Dex, what Dex has that they do not, whether their AI setup is any good, or asks for a second opinion on their own instructions, skills and configuration. Read-only: it never changes their system. Follow the diagnosis engine to a closed result; do not keep your own checklist.
 ---
 
 # Dex Lens
@@ -31,12 +31,12 @@ ask **one** question, at the moment it changes your answer, in a sentence.
 ## What you must never do
 
 - **Never write to their system.** Not a file, not a config, not a skill.
-  The one thing you write is the report, and it goes to Lens's own storage
-  outside their folder, put there by `dex-lens reports save`. If they ask you
-  to install something, that is a new request they have made in their own
-  words, and it is not this skill.
-- **Never invent a score.** No "7/10", no "82% healthy". A number hides the
-  difference between something you checked and something you assumed.
+  The engine saves the report to Lens's own storage, outside their folder.
+  If they ask you to install, repair, or send something, start a separate,
+  explicitly approved flow. That request is not this diagnosis.
+- **Never invent a score.** A number hides the difference between something
+  you checked and something you assumed. Catalogue totals come from the
+  engine. Do not invent your own.
 - **Never claim absence you have not established.** "I did not find X" is
   true. "You do not have X" usually is not, especially on a large system
   where the inventory says it was bounded.
@@ -134,6 +134,46 @@ writing a line of code. Write for them.
 
 ---
 
+## How the diagnosis actually runs
+
+You explain. The engine keeps the books.
+
+Start or resume a run, then do only the next action the engine names:
+
+```
+dex-lens diagnosis prepare --root <folder> --wait
+dex-lens diagnosis status --run <id> --json
+dex-lens diagnosis advance --run <id> --json
+dex-lens diagnosis submit --run <id> --proposal <json-file>
+dex-lens diagnosis result --run <id> --format markdown
+```
+
+`prepare` reads nothing. It starts the local consent surface and gives you a
+run id. `--wait` keeps that surface running until the person approves the
+exact scope. Collection does not begin until that receipt exists. `--additional-root` is for a folder they named in their own words —
+never one you added because it looked useful.
+
+After every engine step, run `dex-lens diagnosis status`. Do what it says
+next. Do not keep a private checklist, and do not skip ahead to a shortlist
+because you think you already know.
+
+`submit` is optional. Use it only to offer specialist proposals that point at
+evidence the engine already holds. They can sharpen judgement. They cannot
+author counts, close the run, or write the report.
+
+Do not calculate or rewrite catalogue totals. The engine owns the ledger.
+Every signed catalogue entry has one disposition there. Unavailable entries
+cannot be recommended.
+
+A diagnosis ends only when the engine returns `closed`. Then speak
+`dex-lens diagnosis result`. The close is already in that result. Do not
+invent a different ending.
+
+If they then want a repair, an install, a send, or a share, start a
+separate, explicitly approved flow. That work is not this diagnosis.
+
+---
+
 ## Phase 0: pick up where the last run left off
 
 ```
@@ -172,23 +212,32 @@ first run. Say so once, and skip the "since last time" section of the report.
 
 ## Phase 1: read the system
 
+Start the run before you wander. `prepare` still reads nothing; it only
+opens the local consent surface for the folder they asked you to look at:
+
+```
+dex-lens diagnosis prepare --root <folder> --wait
+```
+
+With no folder given, that folder is the one you are open in — the system
+they want looked at. Do not ask which folder first. Only pass an explicit
+root when the person tells you their system is somewhere else, or when the
+engine says the current folder has no instruction files, settings or skills
+and so is not a personal AI system.
+
+Then, so you can explain what you see, read the inventory the same way:
+
 ```
 dex-lens inventory --out /tmp/dex-lens-inventory.md
 ```
-
-With no folder given, this reads the folder you are open in — which is the
-folder the person ran you in, the system they want looked at. Do not ask
-which folder first; read the current one. Only pass an explicit
-`dex-lens inventory <folder>` when the person tells you their system is
-somewhere else, or when the command reports that the current folder has no
-instruction files, settings or skills and so is not a personal AI system.
 
 The first inventory may tell you that important assistant configuration sits
 outside the folder it was allowed to read. Do not quietly widen the search.
 Name the exact additional folder and ask one plain question, for example:
 "Your shared assistant settings may be in `~/.claude`. Would you like me to
-include that folder in this read-only inventory?" Wait for the answer. Only
-after a clear yes may you rerun:
+include that folder in this read-only look?" Wait for the answer. Only
+after a clear yes may you name it on `prepare` as `--additional-root` and
+rerun the inventory:
 
 ```
 dex-lens inventory <folder> --also <the-exact-approved-folder> --out /tmp/dex-lens-inventory.md
@@ -398,16 +447,16 @@ The signed live catalogue is the preferred source for all four.
 
 ```
 dex-lens catalogue
-dex-lens catalogue --ledger-template > /tmp/dex-lens-ledger.json
 ```
 
-The first command fetches Dex's published catalogue and checks its signature
-on this machine before printing a word of it. The second creates the complete
-comparison ledger for that exact signed catalogue. If either fails, say so and
-stop; do not work from an unverified or incomplete list. Everything in it is
-verified. The current catalogue covers skills, MCP servers (the plugs that let
-an assistant use outside tools), scheduled automations (jobs that run on their
-own timetable), and system engines (the behind-the-scenes services those
+This fetches Dex's published catalogue and checks its signature on this
+machine before printing a word of it. Read it so you can explain. The
+engine verifies the same signed bytes as a stage of the run; you do not
+build a ledger of your own. If the fetch fails, say so and stop; do not
+work from an unverified list. Everything in it is verified. The current
+catalogue covers skills, MCP servers (the plugs that let an assistant use
+outside tools), scheduled automations (jobs that run on their own
+timetable), and system engines (the behind-the-scenes services those
 abilities depend on).
 
 The output is grouped by **job to be done**, which is the axis the comparison
@@ -471,27 +520,17 @@ irrelevant. That is the fail-closed answer, and the honest one.
 
 ## Phase 5: compare on jobs, across all four kinds of capability
 
-Follow this sequence. Do not jump from the inventory to a shortlist:
+Do not keep your own comparison checklist. Ask `dex-lens diagnosis status`
+after every engine step and do the next action it names. Advance when it
+says advance. Offer a specialist proposal with `dex-lens diagnosis submit`
+only when you have evidence the engine already holds. Then wait for
+`status` again.
 
-1. Read the previous report and the person's earlier decisions.
-2. Ask separately for each additional global folder or live-state check.
-3. Build the evidence fingerprint and establish the system's release distance,
-   or record that the distance is Unknown.
-4. Verify the signed catalogue and create its complete ledger template.
-5. Build the person's human Capabilities first: what work gets done, by what
-   method, with which supporting machinery and evidence.
-6. Group the relevant catalogue entries beneath those human Capabilities.
-7. Fetch a full brief for every possible recommendation and every verdict that
-   the person and Dex share a Capability.
-8. Fill every ledger disposition. Unavailable entries cannot be recommended.
-9. Choose two to five earned strengths, at least one reciprocal answer (or the
-   honest empty result), and at most three Dex recommendations.
-10. Keep fragility and housekeeping separate from strengths and suggestions.
-11. Check and save the report and its ledger together.
-12. In chat, repeat the best strength, the reciprocal answer and the most
-    useful next move.
+The engine owns the ledger. Do not calculate or rewrite catalogue totals.
+Unavailable entries cannot be recommended.
 
-The comparison runs on the **job to be done**, not on names — and now across
+You still have to understand the work well enough to explain it. The
+comparison runs on the **job to be done**, not on names — and now across
 all four kinds of capability, not skills alone. The most valuable "what Dex
 has that you don't" is frequently *not* a skill: it is the deterministic tool
 engine that never guesses, the automation that runs without being asked, or
@@ -608,7 +647,9 @@ are often the part that proves you read their work.
 
 ## Phase 6: show the shortlist
 
-For each thing you are suggesting, give them one short paragraph:
+The shortlist is whatever the engine result earned, not a private list you
+kept on the side. Recommend at most three. For each thing you are
+suggesting, give them one short paragraph:
 
 - what it does, in their language
 - what in *their* system made you think of it, quoting the actual evidence
@@ -632,49 +673,41 @@ keep it; write it to a temporary folder or alongside the report, never into
 the system you inspected.
 
 **Give them the brief. Do not build it.** The brief is written for their AI
-to act on when they ask it to, which is a separate decision they make with the
-brief in front of them. Say clearly that nothing has changed on their machine
-and what the next step would be if they want it.
+to act on when they ask it to. Installing or repairing from it is not this
+diagnosis: start a separate, explicitly approved flow. Say clearly that
+nothing has changed on their machine and what the next step would be if
+they want it.
 
 The brief exists so they can rebuild the *pattern* in their own idiom. It is
 not a file to copy in. A capability that arrives looking foreign is the first
 one abandoned.
 
-## Phase 8: save the report
+## Phase 8: speak the engine report
 
-**Every diagnosis ends here. This step is not optional.**
+**A diagnosis ends only when the engine returns `closed`.** Do not write a
+second report beside it, and do not invent totals the engine did not
+publish. Ask `dex-lens diagnosis result` and speak that.
 
-Write the report to a temporary file using the template below, then:
+The engine saves the report to Lens's own storage —
+`~/.local/state/dex-lens/reports/` — never inside the folder you inspected.
+Tell the person where the report was saved, in one line: they will want it
+next week, and the next run reads it to say what changed.
 
-```
-dex-lens reports save /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json --label <short-system-name> --for <folder>
-```
-
-It prints where the report went. Tell the person that path in your last
-message, in one line: they will want it next week, and the next run reads it
-to say what changed.
-
-The report goes to Lens's own storage — `~/.local/state/dex-lens/reports/` —
-never inside the folder you inspected. `--for <folder>` makes the command
-check that before it writes anything, which is the read-only promise being
-proved rather than asserted.
-
-**Saving refuses a report that has not shown its work.** It checks that the
-report says what you read, gives earned praise and a reciprocal answer, says
-what happens next, quotes at least one line
-from a real file, leaves no scored finding standing with neither a quotation
-nor an honest Unknown, pairs any shortlist with the rejections, and shows the
-contradiction hunt — either a conflict with both sides quoted, or the sentence
-saying you checked and found none. Hunting for contradictions is not optional;
-finding none is a real answer, and saying nothing is not. When a
-previous report exists for that label, it also requires a section accounting
-for it — a second look that silently repeats the first is how a person learns
-to stop reading them. If
-something is missing it names it and writes nothing; fix it and save again.
-To check before you write anything final:
+The shape below is what a finished report looks like. It is not a form for
+you to fill with numbers you calculated. **Saving refuses a report that has not shown its work.** `dex-lens reports check` is how that refusal is
+proved: the report must say what you read, give earned praise and a
+reciprocal answer, say what happens next, quote at least one line from a
+real file, leave no scored finding standing with neither a quotation nor an
+honest Unknown, pair any shortlist with the rejections, and show the
+contradiction hunt — either a conflict with both sides quoted, or the
+sentence saying you checked and found none. Hunting for contradictions is
+not optional; finding none is a real answer, and saying nothing is not.
+When a previous report exists for that label, it also requires a section
+accounting for it — a second look that silently repeats the first is how a
+person learns to stop reading them.
 
 ```
-dex-lens reports check /tmp/dex-lens-report.md --ledger /tmp/dex-lens-ledger.json
+dex-lens reports check /tmp/dex-lens-report.md
 ```
 
 This is deliberate. If the rule lived only in this file, it would hold until
@@ -752,7 +785,7 @@ What contradicts it:
 Why it matters: <which behaviour is now unpredictable>
 
 ## Coverage and limits
-- Catalogue accounting: <every signed entry has one disposition in the ledger>
+- Catalogue accounting: <the engine's ledger totals — do not invent your own>
 - Approved folders: <the exact folders read>
 - Live state: <assessed with permission, or not assessed>
 - Unknown: <anything the evidence could not prove>
@@ -763,9 +796,12 @@ Why it matters: <which behaviour is now unpredictable>
 
 ## What happens next
 - Nothing has changed on your machine.
-- This report: <path printed by `dex-lens reports save`>
-- If you want one of these, say which, and I will hand you the brief.
-- <the recurring check offer, if they said yes>
+- the strongest grounded thing they are already doing
+- what Dex should learn, or the exact honest empty answer
+- the single best first move, if one cleared the bar
+- where the report was saved
+- how to return to the run
+- the separate sharing and future-watch choices
 ```
 
 The **What you decided** section is what makes the next run a relationship
@@ -781,7 +817,9 @@ result. A missing section is not.
 
 ## Phase 9: offer to keep watching
 
-Dex publishes new capabilities over time. But before offering anything,
+This is one of the separate sharing and future-watch choices, not a
+continuation of the diagnosis. Dex publishes new capabilities over time.
+But before offering anything,
 **check whether they already keep watch**: the inventory and their
 instruction files will show an existing routine, scheduled job, or skill
 that reviews updates. If one exists, acknowledge it by name and offer, at
@@ -850,17 +888,21 @@ The rules, exactly:
 - **Not a ritual.** A session with nothing distinctive has no offer. Most
   sessions should have no offer.
 
-If they say yes, draft the card yourself: a one-page, first-principles
-description of the pattern — the job it serves, the mechanism, why it works —
-written so a stranger could rebuild it in a different system. No file
-contents, no names, no paths that reveal anything private. Then:
+Sharing is not part of the diagnosis. After the engine has returned
+`closed`, if they want to offer a pattern back, start a separate,
+explicitly approved flow. Draft the card yourself: a one-page,
+first-principles description of the pattern — the job it serves, the
+mechanism, why it works — written so a stranger could rebuild it in a
+different system. No file contents, no names, no paths that reveal
+anything private. Then:
 
 ```
 dex-lens share /tmp/card.md
 ```
 
-That prints **exactly** what would leave the machine and sends nothing. Show
-them the preview, and only after they say yes to those exact bytes:
+That prints **exactly** what would leave the machine and sends nothing.
+**A preview is not a share receipt.** Show them the preview, and only
+after they say yes to those exact bytes:
 
 - `dex-lens share /tmp/card.md --yes` — one anonymous request to Dex's
   intake. No account, no name. This is the default.
@@ -874,28 +916,26 @@ typed it, and the preview shows it.
 
 ## Phase 10: sign off like a concierge
 
-End the session properly. Not a summary — they just read the report — but
-the handful of things a good concierge says at the door, in your own words:
+End the session properly. Not a summary — they just read the report — and
+not a close you invented. Speak the engine result. Repeat the best strength
+in your own words, then give each generated close field, in this order:
 
-- **Repeat the best strength.** Lead with the most useful, evidence-backed
-  thing they are already doing well; earned praise is part of the answer.
-- **Repeat the reciprocal answer.** Say what Dex should learn from their
-  method, or say plainly that no transferable method cleared the evidence bar.
-- **Name the first useful move.** Give the best of the zero-to-three Dex
-  suggestions, without turning it into permission to install or change it.
-- **How to come back.** "Whenever you want another look, just ask me to run
-  Dex Lens again — the same sentence you used today works, or type
-  `/dex-lens`. Takes a couple of minutes."
-- **That you will remember.** "Your report is saved. Next time I'll start
-  from it: what got fixed, what you decided, what's new since."
-- **Where the report lives**, as a path they can open, and that it is theirs
-  to keep or share.
-- **The watching offer**, once, if Phase 9 did not already settle it.
+1. the strongest grounded thing they are already doing
+2. what Dex should learn, or the exact honest empty answer
+3. the single best first move, if one cleared the bar
+4. where the report was saved
+5. how to return to the run
+6. the separate sharing and future-watch choices
 
-Keep it brief. The final chat answer is incomplete unless it repeats the best
-evidenced strength, the reciprocal answer and the first recommended move. Do
-not re-explain the product, re-list every finding, or ask another question —
-the session is over, and ending cleanly is part of feeling looked after.
+The close is generated from the engine result. Do not drop a step because
+you think they do not need it. Do not turn the first move into permission
+to install or change anything. If they want a repair, a share, or a
+watcher set up, start a separate, explicitly approved flow.
+
+Keep it brief. In chat, repeat the best strength, the reciprocal answer
+and the first recommended move. Do not re-explain the product, re-list
+every finding, or ask another question — the session is over, and ending
+cleanly is part of feeling looked after.
 
 ---
 
@@ -923,15 +963,19 @@ the person who built the thing.
 | Command | What it gives you |
 | --- | --- |
 | `dex-lens reports --last` | The previous diagnosis, so this one can say what changed. Exits non-zero when there is none. |
+| `dex-lens diagnosis prepare --root <folder> --wait` | Starts a run and keeps the local consent surface running until approval. Reads nothing. |
+| `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |
+| `dex-lens diagnosis advance --run <id>` | The next lawful step. Do not invent the next step yourself. |
+| `dex-lens diagnosis submit --run <id> --proposal <file>` | Optional specialist help. Evidence-referenced proposals only. They do not author counts. |
+| `dex-lens diagnosis result --run <id>` | The closed result. Speak this close. Do not rewrite it. |
 | `dex-lens inventory <folder> --out <file>` | The declared shape of the system, duplicates folded, housekeeping findings at the end. |
 | `dex-lens inventory <folder> --names <text>` | The same, listing only items whose name contains that text — for a second look at what the last report flagged. Counts still describe the whole folder. |
 | `dex-lens catalogue` | Dex's published capabilities, signature checked on this machine, grouped by job. |
 | `dex-lens catalogue --jobs <ids>` | The same, narrowed once you know their jobs. `--only <ids>` narrows by capability. |
 | `dex-lens catalogue --since-last` | The recurring check: only what is new or changed since this machine last looked. Silent when nothing has changed. |
 | `dex-lens brief <id> [--why "..."] [--out <file>]` | Everything needed to rebuild one capability elsewhere. |
-| `dex-lens reports save <file> --ledger <ledger.json> --label <name> --for <folder>` | Saves the dated report and its complete catalogue ledger outside the inspected folder. Refuses a report with missing evidence or catalogue entries. |
-| `dex-lens reports check <file> --ledger <ledger.json>` | Says whether the report and its catalogue accounting are ready to save. Writes nothing either way. |
-| `dex-lens share <card.md>` | Shows exactly what an idea card would send, and sends nothing. `--yes` sends after the person approved those exact bytes; `--to github` prints a pre-filled issue link they submit themselves. |
+| `dex-lens reports check <file>` | Says whether a report has shown its work. Writes nothing. Refuses a report that has not shown its work. |
+| `dex-lens share <card.md>` | A preview of an idea card. A preview is not a share receipt. `--yes` sends only after a separate, explicitly approved flow. |
 | `dex-lens reports` | Every report saved on this machine, newest first. |
 
 Every one of them reads only. None of them changes the system being looked at.

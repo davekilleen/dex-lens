@@ -19,6 +19,7 @@ from capability_exchange.adapters.claude_code.snapshot import (
     SnapshotMissError,
     take_snapshot,
 )
+from capability_exchange.concierge.collection import ApprovedSourceDescriptor, ScopeSnapshot
 from capability_exchange.evidence import EvidenceState
 
 not_root = pytest.mark.skipif(
@@ -28,6 +29,32 @@ not_root = pytest.mark.skipif(
 
 def snapshot_of(root: Path, **kwargs):  # type: ignore[no-untyped-def]
     return take_snapshot(CanonicalAllowlist([root]), **kwargs)
+
+
+@pytest.mark.parametrize("descendant_first", (False, True))
+def test_snapshot_refuses_overlapping_approved_roots_before_collection(
+    tmp_path: Path,
+    descendant_first: bool,
+) -> None:
+    ancestor = tmp_path / "scope"
+    descendant = ancestor / "nested"
+    descendant.mkdir(parents=True)
+    roots = (descendant, ancestor) if descendant_first else (ancestor, descendant)
+    descriptors = tuple(
+        ApprovedSourceDescriptor(
+            canonical_root=root.resolve(),
+            source_id=f"scope:root-{index}",
+            source_class="vault-authored" if index == 0 else "user-global",
+            scope_reference="scope:sha256:" + str(index + 1) * 64,
+        )
+        for index, root in enumerate(roots)
+    )
+
+    with pytest.raises(ValueError, match="overlap|ancestor|descendant"):
+        take_snapshot(
+            CanonicalAllowlist(roots),
+            source_descriptors=descriptors,
+        )
 
 
 class TestSnapshotReads:
@@ -56,6 +83,125 @@ class TestSnapshotReads:
         paths = snapshot.canonical_paths()
         assert paths == tuple(sorted(paths))
         assert all(os.path.isabs(path) for path in paths)
+
+    def test_snapshot_entry_retains_consent_approved_source(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        global_home = tmp_path / "global"
+        vault.mkdir()
+        global_home.mkdir()
+        (vault / "SKILL.md").write_text("# vault copy\n")
+        (global_home / "SKILL.md").write_text("# global copy\n")
+        consent = ScopeSnapshot.capture(
+            (vault, global_home),
+            source_descriptors=(
+                {
+                    "canonical_root": vault.resolve(),
+                    "source_id": "scope:vault",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "a" * 64,
+                },
+                {
+                    "canonical_root": global_home.resolve(),
+                    "source_id": "scope:global",
+                    "source_class": "user-global",
+                    "scope_reference": "scope:sha256:" + "b" * 64,
+                },
+            ),
+        )
+
+        snapshot = take_snapshot(
+            CanonicalAllowlist((vault, global_home)),
+            source_descriptors=consent.source_descriptors,
+        )
+
+        assert snapshot.entry_for(str((vault / "SKILL.md").resolve())).source.source_id == (
+            "scope:vault"
+        )
+        assert (
+            snapshot.entry_for(str((global_home / "SKILL.md").resolve())).source.source_id
+            == "scope:global"
+        )
+
+    def test_snapshot_rejects_source_descriptors_for_a_different_scope(
+        self, tmp_path: Path
+    ) -> None:
+        approved = tmp_path / "approved"
+        other = tmp_path / "other"
+        approved.mkdir()
+        other.mkdir()
+        consent = ScopeSnapshot.capture((other,))
+
+        with pytest.raises(ValueError, match="descriptor|approved root"):
+            take_snapshot(
+                CanonicalAllowlist((approved,)),
+                source_descriptors=consent.source_descriptors,
+            )
+
+    def test_snapshot_retains_approved_sources_even_when_one_is_empty(self, tmp_path: Path) -> None:
+        populated = tmp_path / "populated"
+        empty = tmp_path / "empty"
+        populated.mkdir()
+        empty.mkdir()
+        (populated / "SKILL.md").write_text("# captured\n")
+        consent = ScopeSnapshot.capture(
+            (populated, empty),
+            source_descriptors=(
+                {
+                    "canonical_root": populated.resolve(),
+                    "source_id": "scope:populated",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "a" * 64,
+                },
+                {
+                    "canonical_root": empty.resolve(),
+                    "source_id": "scope:empty",
+                    "source_class": "user-global",
+                    "scope_reference": "scope:sha256:" + "b" * 64,
+                },
+            ),
+        )
+
+        snapshot = take_snapshot(
+            CanonicalAllowlist((populated, empty)),
+            source_descriptors=consent.source_descriptors,
+        )
+
+        assert [source.source_id for source in snapshot.approved_sources] == [
+            "scope:populated",
+            "scope:empty",
+        ]
+        assert all(not hasattr(source, "canonical_root") for source in snapshot.approved_sources)
+
+    @pytest.mark.parametrize(
+        "attribute,value",
+        (
+            ("_complete", False),
+            ("_entries", {}),
+            ("_approved_sources", ()),
+            ("_bounds", CollectionBounds(max_file_count=1)),
+        ),
+    )
+    def test_snapshot_state_cannot_be_reassigned_after_capture(
+        self,
+        claude_root: Path,
+        attribute: str,
+        value: object,
+    ) -> None:
+        snapshot = snapshot_of(claude_root)
+
+        with pytest.raises(AttributeError, match="immutable|read-only|assign"):
+            setattr(snapshot, attribute, value)
+
+    @pytest.mark.parametrize("attribute", ("_approved_sources", "_entries"))
+    def test_snapshot_state_cannot_be_deleted_after_capture(
+        self,
+        claude_root: Path,
+        attribute: str,
+    ) -> None:
+        snapshot = snapshot_of(claude_root)
+
+        with pytest.raises(AttributeError, match="immutable|read-only|delete"):
+            delattr(snapshot, attribute)
 
 
 class TestSecretHandlingAtCollection:
@@ -247,9 +393,7 @@ class TestFilesThatWereNotRead:
         )
 
     @not_root
-    def test_a_permission_denied_file_marks_the_capture_incomplete(
-        self, claude_root: Path
-    ) -> None:
+    def test_a_permission_denied_file_marks_the_capture_incomplete(self, claude_root: Path) -> None:
         target = claude_root / "CLAUDE.md"
         target.chmod(0o000)
         try:

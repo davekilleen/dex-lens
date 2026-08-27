@@ -15,6 +15,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
+from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance
 from capability_exchange.evidence import EvidenceItem
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "ObservationKind",
     "OperationalState",
     "SafeAttribute",
+    "SourceProvenance",
 ]
 
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
@@ -38,6 +40,7 @@ _SAFE_ATTRIBUTE_KEYS = frozenset(
         "source-kind",
         "provider-count",
         "receipt-age",
+        "live-state-match",
     }
 )
 _SECRET_SHAPED_MARKERS = ("token", "secret", "password", "credential")
@@ -100,6 +103,34 @@ class SafeAttribute(InventoriedModel):
             raise ValueError("attribute values are one bounded line")
         return value
 
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for SafeAttribute; use validated model_copy()")
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Keep attribute validators active on the supported copy route."""
+
+        values = {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        if update:
+            values.update(update)
+        return type(self).model_validate(values)
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        """Keep attribute validators active on the construct route."""
+
+        return cls.model_validate(values)
+
 
 class Observation(InventoriedModel):
     """One bounded system fact and the evidence supporting it."""
@@ -111,6 +142,7 @@ class Observation(InventoriedModel):
     label: str = Field(min_length=1, max_length=160)
     operational_state: OperationalState
     evidence: EvidenceItem
+    provenance: SourceProvenance
     attributes: tuple[SafeAttribute, ...] = ()
 
     @field_validator("identity")
@@ -119,6 +151,48 @@ class Observation(InventoriedModel):
         if not _ID.fullmatch(value):
             raise ValueError("observation identity must be a bounded stable id")
         return value
+
+    @model_validator(mode="after")
+    def _working_copy_is_not_assessed(self) -> Self:
+        if self.provenance.source_class is SourceClass.WORKING_COPY:
+            object.__setattr__(
+                self,
+                "operational_state",
+                OperationalState.NOT_ASSESSED,
+            )
+        return self
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Keep nested provenance validation active on the copy route."""
+
+        if update and "provenance" in update:
+            replacement = SourceProvenance.model_validate(update["provenance"])
+            if replacement != self.provenance:
+                raise ValueError("observation provenance is locked after construction")
+        values = {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        if update:
+            values.update(update)
+        return type(self).model_validate(values)
+
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for Observation; use validated model_copy()")
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        """Keep nested provenance validation active on the construct route."""
+
+        return cls.model_validate(values)
 
 
 class EvidenceFingerprint(InventoriedModel):
@@ -133,7 +207,35 @@ class EvidenceFingerprint(InventoriedModel):
 
     @model_validator(mode="after")
     def _unique_observations(self) -> Self:
-        keys = [(item.kind, item.identity) for item in self.observations]
+        keys = [(item.kind, item.identity, item.provenance.source_id) for item in self.observations]
         if len(keys) != len(set(keys)):
             raise ValueError("fingerprint contains a duplicate observation")
         return self
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Revalidate the complete fingerprint on every copy route."""
+
+        values = {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        if update:
+            values.update(update)
+        return type(self).model_validate(values)
+
+    def copy(self, **kwargs: object) -> Self:
+        """Block Pydantic's deprecated, validation-bypassing copy route."""
+
+        raise TypeError("copy() is disabled for EvidenceFingerprint; use validated model_copy()")
+
+    @classmethod
+    def model_construct(
+        cls,
+        _fields_set: set[str] | None = None,
+        **values: object,
+    ) -> Self:
+        """Revalidate the complete fingerprint on the construct route."""
+
+        return cls.model_validate(values)

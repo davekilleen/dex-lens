@@ -1,0 +1,52 @@
+{
+  "release_id": "invented-release-v1",
+  "observations": {
+    "mcp_servers_declared": 0,
+    "mcp_tools_known": 0,
+    "automation_implemented": 0,
+    "automation_loaded": 0,
+    "health_collectors": 0,
+    "restore_proofs": 0
+  },
+  "catalogue_entry_count": 115,
+  "disposition_counts": {
+    "not-assessed": 80,
+    "not-relevant": 17,
+    "shared": 8,
+    "worth-borrowing": 3,
+    "fragile-or-contradictory": 3,
+    "strong-here": 2,
+    "dex-should-learn": 2
+  },
+  "expected_stage_order": [
+    "created",
+    "scope-approved",
+    "captured",
+    "catalogue-verified",
+    "jobs-confirmed",
+    "compared",
+    "rendered",
+    "checked",
+    "saved",
+    "closed"
+  ],
+  "forbidden_claims": [
+    "93 capabilities are already covered"
+  ],
+  "required_provenance_classes": [
+    "vault-authored",
+    "user-global"
+  ],
+  "required_clean_close_fields": [
+    "strongest_grounded_capability",
+    "reciprocal_value",
+    "single_best_first_move",
+    "report_location",
+    "return_to_run",
+    "sharing_choice",
+    "future_watch_choice"
+  ],
+  "max_recommendations": 3,
+  "requires_strength": true,
+  "requires_reciprocal_answer": true
+}

@@ -12,6 +12,7 @@ from tests.evals.legacy_system_fixture import (
 )
 
 from capability_exchange.diagnosis.observations import ObservationKind
+from capability_exchange.diagnosis.report import canonical_fact_block
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 
 EXPECTED = Path(__file__).parents[1] / "fixtures" / "evals" / "legacy-system-expected.json"
@@ -91,10 +92,15 @@ def test_legacy_system_eval_rejects_the_original_bad_report(tmp_path: Path) -> N
 
 
 def test_legacy_system_eval_accepts_a_grounded_two_way_report(tmp_path: Path) -> None:
+    ledger = complete_ledger()
     result = evaluate_diagnosis(
         fingerprint=write_legacy_system(tmp_path / "legacy"),
-        ledger=complete_ledger(),
-        report_markdown=COMPLETE_TWO_WAY_REPORT,
+        ledger=ledger,
+        report_markdown=COMPLETE_TWO_WAY_REPORT.replace(
+            "## Coverage and limits",
+            "## Coverage and limits\n" + canonical_fact_block(ledger),
+            1,
+        ),
         expected=_expected(),
     )
 

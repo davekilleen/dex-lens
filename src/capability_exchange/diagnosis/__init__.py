@@ -11,6 +11,8 @@ person's confirmed Success Contracts and the approved evidence scope:
   structurally unrepresentable.
 - :mod:`capability_exchange.diagnosis.engine` — the deterministic
   :func:`~capability_exchange.diagnosis.engine.assess` entry point.
+- :mod:`capability_exchange.diagnosis.orchestrator` — the durable
+  :class:`~capability_exchange.diagnosis.orchestrator.DeterministicDiagnosisEngine`.
 
 The jobs-first Capability Map that nests these findings per confirmed job,
 its plain-text renderer, and the person's correction routes live in
@@ -39,6 +41,7 @@ from capability_exchange.diagnosis.foundations import (
 __all__ = [
     "FOUNDATION_DEFINITIONS",
     "CapabilityState",
+    "DeterministicDiagnosisEngine",
     "DiagnosisInputError",
     "Finding",
     "FoundationCapability",
@@ -49,3 +52,13 @@ __all__ = [
     "definition_for",
     "negative_rule_ids",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Export the orchestrator without importing it at package import time."""
+
+    if name == "DeterministicDiagnosisEngine":
+        from capability_exchange.diagnosis.orchestrator import DeterministicDiagnosisEngine
+
+        return DeterministicDiagnosisEngine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

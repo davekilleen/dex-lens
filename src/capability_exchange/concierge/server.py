@@ -56,11 +56,14 @@ from capability_exchange.catalogue.subscription import (
 )
 from capability_exchange.catalogue.v2 import KeyRing, VerifiedCatalogueStore
 from capability_exchange.concierge.collection import (
+    ApprovedSourceDescriptor,
     CollectionCancelled,
     CollectionController,
     CollectionResult,
     ScopeSnapshot,
+    default_source_descriptors,
 )
+from capability_exchange.concierge.consent import LocalScopeConsentAuthority
 from capability_exchange.concierge.journey import (
     CollectionFallback,
     ConciergeJourney,
@@ -142,6 +145,7 @@ class ConciergeSession:
 
     approved_roots: tuple[Path, ...]
     collector: Callable[..., AdapterResultEnvelope]
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None
     now: Callable[[], datetime] = _utc_now
     bootstrap_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
@@ -168,6 +172,9 @@ class ConciergeSession:
     app_storage: Path | None = None
     catalogue_subscription_store: CatalogueSubscriptionStore | None = None
     startup_catalogue_fetch_result: CatalogueFetchResult | None = None
+    diagnosis_consent: LocalScopeConsentAuthority | None = None
+    diagnosis_run_id: str | None = None
+    diagnosis_run_store: object | None = None
     journey: ConciergeJourney = field(init=False, repr=False)
     _security: SessionSecurity = field(init=False, repr=False)
     _consent_scope: ScopeSnapshot = field(init=False, repr=False)
@@ -185,7 +192,11 @@ class ConciergeSession:
         )
         if any(contribution_ports) and not all(contribution_ports):
             raise ValueError("contribution identity and intake ports must be configured together")
-        self._consent_scope = ScopeSnapshot.capture(self.approved_roots)
+        self._consent_scope = ScopeSnapshot.capture(
+            self.approved_roots,
+            source_descriptors=self.source_descriptors,
+        )
+        self.source_descriptors = self._consent_scope.source_descriptors
         if self.tempdir is None:
             self.tempdir = _private_tempdir_outside(self.approved_roots)
         _require_tempdir_outside_scope(Path(self.tempdir.name), self.approved_roots)
@@ -355,6 +366,23 @@ class ConciergeSession:
             thread.start()
         return thread
 
+    def _issue_diagnosis_scope_receipt(self) -> None:
+        """Bind a prepared diagnosis run to this authenticated /approve action."""
+
+        if self.diagnosis_consent is None or not self.diagnosis_run_id:
+            return
+        receipt = self.diagnosis_consent.approve_from_local_session(
+            run_id=self.diagnosis_run_id,
+            scope_snapshot=self._consent_scope,
+            authenticated_session_id=self.session_token,
+        )
+        persist = getattr(self.diagnosis_run_store, "save_scope_approval", None)
+        if callable(persist):
+            persist(
+                receipt,
+                approved_roots=tuple(str(root) for root in self._consent_scope.approved_roots),
+            )
+
     def _begin_collection(self) -> None:
         with self._state_lock:
             if self.closed or self.expired():
@@ -364,6 +392,7 @@ class ConciergeSession:
             except ValueError:
                 self.terminate()
                 raise
+            self._issue_diagnosis_scope_receipt()
             self.journey.begin_collection()
 
     def _finish_collection_in_background(self) -> None:
@@ -779,6 +808,7 @@ def new_session(
     *,
     approved_roots: tuple[Path, ...],
     collector: Callable[..., AdapterResultEnvelope],
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None,
     now: Callable[[], datetime] = _utc_now,
     contribution_identity: ContributionIdentityPort | None = None,
     contribution_intake: ContributionIntakePort | None = None,
@@ -795,6 +825,7 @@ def new_session(
     return ConciergeSession(
         approved_roots=approved_roots,
         collector=collector,
+        source_descriptors=source_descriptors,
         now=now,
         expires_at=now() + SESSION_TTL,
         contribution_identity=contribution_identity,
@@ -1290,16 +1321,31 @@ def _form_lines(form: dict[str, list[str]], name: str) -> tuple[str, ...]:
     return tuple(line.strip() for line in value.splitlines() if line.strip())
 
 
-def session_for_roots(roots: tuple[Path, ...]) -> ConciergeSession:
+def session_for_roots(
+    roots: tuple[Path, ...],
+    *,
+    source_descriptors: tuple[ApprovedSourceDescriptor, ...] | None = None,
+) -> ConciergeSession:
     """Build the real CLI session for approved roots."""
+
+    descriptors = source_descriptors
+    if descriptors is None and len(roots) > 1:
+        descriptors = default_source_descriptors(roots)
+    consent = ScopeSnapshot.capture(roots, source_descriptors=descriptors)
 
     def collect(cancel_event: threading.Event | None = None) -> AdapterResultEnvelope:
         result = contained_inspection(
-            [str(root) for root in roots], cancel_event=cancel_event
+            [str(root) for root in roots],
+            cancel_event=cancel_event,
+            source_descriptors=consent.source_descriptors,
         )
         return result.envelope
 
-    return new_session(approved_roots=roots, collector=collect)
+    return new_session(
+        approved_roots=roots,
+        collector=collect,
+        source_descriptors=consent.source_descriptors,
+    )
 
 
 def start_server(session: ConciergeSession) -> ConciergeServer:

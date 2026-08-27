@@ -136,10 +136,9 @@ class TestCrashOutputLeakFree:
     def test_g2_killed_mid_collection_emits_nothing(self, canary_root: Path) -> None:
         import subprocess
 
-        request = {
-            "schema": contained.REQUEST_SCHEMA,
-            "approved_roots": [str(canary_root)],
-        }
+        request = CollectionRequest(
+            approved_roots=(str(canary_root),),
+        ).as_payload()
         try:
             completed = subprocess.run(
                 [

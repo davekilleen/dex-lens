@@ -37,7 +37,7 @@ import stat as stat_module
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from capability_exchange.adapters.claude_code.allowlist import (
     CanonicalAllowlist,
@@ -46,13 +46,28 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.contract import CLAUDE_CODE_DIAGNOSTIC_BASENAMES
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
+from capability_exchange.boundary.approved_roots import reject_overlapping_roots
+from capability_exchange.diagnosis.provenance import (
+    SourceClass,
+    SourceProvenance,
+    relative_reference_rejection_reason,
+)
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 from capability_exchange.evidence.item import reference_rejection_reason
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Sequence
+
+
+class _ApprovedSourceLike(Protocol):
+    canonical_root: os.PathLike[str]
+    source_id: str
+    source_class: SourceClass
+    scope_reference: str
+
 
 __all__ = [
+    "ApprovedSnapshotSource",
     "CollectionBounds",
     "InspectionAbortedError",
     "InspectionSnapshot",
@@ -79,6 +94,15 @@ class SnapshotMissError(SnapshotError):
     The snapshot never falls through to live disk; an un-snapshotted path
     is unreadable, honestly.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedSnapshotSource:
+    """One approved source retained without its private canonical root."""
+
+    source_id: str
+    source_class: SourceClass
+    scope_reference: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +155,7 @@ class SnapshotEntry:
     content: bytes
     redaction_count: int
     mtime_ns: int
+    source: SourceProvenance
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +202,7 @@ def reference_token(relative_path: str) -> str:
         and relative_path.count(" ") <= 3
         and not any(ord(char) in _TOKEN_UNSAFE for char in relative_path)
         and reference_rejection_reason(relative_path) is None
+        and relative_reference_rejection_reason(relative_path) is None
     ):
         return relative_path
     digest = hashlib.sha256(relative_path.encode("utf-8", "surrogateescape")).hexdigest()
@@ -248,6 +274,17 @@ def _live_identity(canonical_path: str, byte_bound: int) -> tuple[str, int] | No
 class InspectionSnapshot:
     """The immutable in-memory capture all inspection reads come from."""
 
+    __slots__ = (
+        "_approved_sources",
+        "_bounds",
+        "_complete",
+        "_entries",
+        "_exclusions",
+        "_frozen",
+        "_taken_at",
+        "_unread_files",
+    )
+
     def __init__(
         self,
         *,
@@ -257,13 +294,26 @@ class InspectionSnapshot:
         bounds: CollectionBounds,
         complete: bool,
         unread_files: tuple[UnreadFile, ...] = (),
+        approved_sources: tuple[ApprovedSnapshotSource, ...] = (),
     ) -> None:
-        self._taken_at = taken_at
-        self._entries: Mapping[str, SnapshotEntry] = MappingProxyType(dict(entries))
-        self._exclusions = exclusions
-        self._bounds = bounds
-        self._complete = complete
-        self._unread_files = unread_files
+        object.__setattr__(self, "_taken_at", taken_at)
+        object.__setattr__(self, "_entries", MappingProxyType(dict(entries)))
+        object.__setattr__(self, "_exclusions", exclusions)
+        object.__setattr__(self, "_bounds", bounds)
+        object.__setattr__(self, "_complete", complete)
+        object.__setattr__(self, "_unread_files", unread_files)
+        object.__setattr__(self, "_approved_sources", approved_sources)
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError("InspectionSnapshot is immutable after capture")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError("InspectionSnapshot is immutable; state cannot be deleted")
+        object.__delattr__(self, name)
 
     @property
     def taken_at(self) -> datetime:
@@ -297,6 +347,12 @@ class InspectionSnapshot:
     def exclusions(self) -> tuple[EvidenceItem, ...]:
         """Honest R2 exclusion records (``blocked`` / ``absent``)."""
         return self._exclusions
+
+    @property
+    def approved_sources(self) -> tuple[ApprovedSnapshotSource, ...]:
+        """Every consent-approved source, including sources with no files."""
+
+        return self._approved_sources
 
     def canonical_paths(self) -> tuple[str, ...]:
         return tuple(sorted(self._entries))
@@ -370,6 +426,7 @@ def take_snapshot(
     *,
     bounds: CollectionBounds | None = None,
     taken_at: datetime | None = None,
+    source_descriptors: Iterable[_ApprovedSourceLike] | None = None,
 ) -> InspectionSnapshot:
     """Capture the approved scope once, at consent time.
 
@@ -380,6 +437,71 @@ def take_snapshot(
     """
     effective_bounds = bounds or CollectionBounds()
     moment = taken_at or datetime.now(UTC)
+    approved_roots = allowlist.approved_roots
+    reject_overlapping_roots(tuple(approved_roots))
+    if source_descriptors is None:
+        if len(approved_roots) != 1:
+            raise ValueError("source descriptors are mandatory when more than one root is approved")
+        root = approved_roots[0]
+
+        @dataclass(frozen=True, slots=True)
+        class _PrimarySource:
+            canonical_root: str
+            source_id: str
+            source_class: SourceClass
+            scope_reference: str
+
+        descriptors: tuple[_ApprovedSourceLike, ...] = (
+            _PrimarySource(
+                canonical_root=root,
+                source_id="scope:primary",
+                source_class=SourceClass.VAULT_AUTHORED,
+                scope_reference=(
+                    "scope:sha256:" + hashlib.sha256(root.encode("utf-8")).hexdigest()
+                ),
+            ),
+        )
+    else:
+        descriptors = tuple(source_descriptors)
+
+    descriptor_roots = [os.fspath(item.canonical_root) for item in descriptors]
+    descriptor_ids = [item.source_id for item in descriptors]
+    if len(descriptor_roots) != len(set(descriptor_roots)):
+        raise ValueError("source descriptors contain a duplicate canonical root")
+    if len(descriptor_ids) != len(set(descriptor_ids)):
+        raise ValueError("source descriptors contain a duplicate source_id")
+    if set(descriptor_roots) != set(approved_roots):
+        raise ValueError("source descriptor coverage must match every approved root exactly")
+    descriptor_by_root = {os.fspath(item.canonical_root): item for item in descriptors}
+    for descriptor in descriptors:
+        SourceProvenance(
+            source_id=descriptor.source_id,
+            source_class=descriptor.source_class,
+            scope_reference=descriptor.scope_reference,
+            relative_reference=".",
+        )
+
+    def provenance_for(canonical_path: str, relative_path: str) -> SourceProvenance:
+        root = next(
+            (
+                candidate
+                for candidate in approved_roots
+                if canonical_path == candidate or canonical_path.startswith(candidate + os.sep)
+            ),
+            None,
+        )
+        if root is None:
+            raise InspectionAbortedError(
+                "captured path belongs to no approved source; inspection discarded"
+            )
+        descriptor = descriptor_by_root[root]
+        return SourceProvenance(
+            source_id=descriptor.source_id,
+            source_class=descriptor.source_class,
+            scope_reference=descriptor.scope_reference,
+            relative_reference=reference_token(relative_path),
+        )
+
     # Per-inspection reference key: keyed digests in references are
     # unlinkable to file content without this key, which never leaves the
     # inspection process (an unkeyed content hash would be a verifiable
@@ -429,9 +551,7 @@ def take_snapshot(
             not_read("file-count-bound-reached", token, relative_path)
             continue
         try:
-            fd = os.open(
-                canonical_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-            )
+            fd = os.open(canonical_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
         except OSError:
             not_read("read-error", token, relative_path)
             continue
@@ -480,6 +600,7 @@ def take_snapshot(
             content=redaction.content,
             redaction_count=redaction.redaction_count,
             mtime_ns=metadata.st_mtime_ns,
+            source=provenance_for(canonical_path, relative_path),
         )
         total_bytes += len(raw)
         del raw  # raw bytes (possibly secret-bearing) do not outlive this loop
@@ -491,4 +612,12 @@ def take_snapshot(
         bounds=effective_bounds,
         complete=complete,
         unread_files=tuple(unread),
+        approved_sources=tuple(
+            ApprovedSnapshotSource(
+                source_id=descriptor.source_id,
+                source_class=descriptor.source_class,
+                scope_reference=descriptor.scope_reference,
+            )
+            for descriptor in descriptors
+        ),
     )

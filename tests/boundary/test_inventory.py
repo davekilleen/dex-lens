@@ -63,6 +63,24 @@ class TestPackagedInventory:
                     f"{key} is ephemeral but names a deletion path"
                 )
 
+    def test_snapshot_provenance_fields_are_declared_ephemeral_and_local(self) -> None:
+        fields = load_packaged_inventory().fields
+        expected = {
+            "ApprovedSnapshotSource.source_id",
+            "ApprovedSnapshotSource.source_class",
+            "ApprovedSnapshotSource.scope_reference",
+            "InspectionSnapshot.approved_sources",
+            "SnapshotEntry.source",
+        }
+
+        missing = expected - fields.keys()
+        assert not missing, f"snapshot provenance fields missing from inventory: {sorted(missing)}"
+        for key in expected:
+            entry = fields[key]
+            assert entry.storage is None
+            assert entry.sharing == "never"
+            assert entry.deletion == "not-stored"
+
 
 class TestSchemaFailsClosed:
     def test_valid_document_parses(self) -> None:
@@ -71,14 +89,26 @@ class TestSchemaFailsClosed:
 
     @pytest.mark.parametrize(
         "missing",
-        ["description", "collection", "derivation", "display", "storage", "sharing",
-         "deletion", "audit"],
+        [
+            "description",
+            "collection",
+            "derivation",
+            "display",
+            "storage",
+            "sharing",
+            "deletion",
+            "audit",
+        ],
     )
     def test_missing_declaration_rejected(self, missing: str) -> None:
-        body = "\n".join(
-            line for line in VALID_ENTRY_BODY.splitlines()
-            if not line.strip().startswith(f"{missing}:")
-        ) + "\n"
+        body = (
+            "\n".join(
+                line
+                for line in VALID_ENTRY_BODY.splitlines()
+                if not line.strip().startswith(f"{missing}:")
+            )
+            + "\n"
+        )
         with pytest.raises(InventoryError):
             load_inventory_text(make_doc(body))
 
@@ -143,11 +173,20 @@ class TestUseInventoryForTests:
         original = active_inventory()
         substitute = Inventory(
             inventory_version=1,
-            fields={"Other.field": FieldEntry.model_validate({
-                "description": "d", "collection": "c", "derivation": "n",
-                "display": "d", "storage": None, "sharing": "never",
-                "deletion": "not-stored", "audit": "none",
-            })},
+            fields={
+                "Other.field": FieldEntry.model_validate(
+                    {
+                        "description": "d",
+                        "collection": "c",
+                        "derivation": "n",
+                        "display": "d",
+                        "storage": None,
+                        "sharing": "never",
+                        "deletion": "not-stored",
+                        "audit": "none",
+                    }
+                )
+            },
         )
         with inv_mod.use_inventory(substitute):
             assert active_inventory() is substitute

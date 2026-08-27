@@ -15,6 +15,12 @@ from capability_exchange.diagnosis.observations import (
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
+PROVENANCE = {
+    "source_id": "scope:primary",
+    "source_class": "vault-authored",
+    "scope_reference": "scope:sha256:" + "a" * 64,
+    "relative_reference": ".claude/skills/daily-plan/SKILL.md",
+}
 
 
 def test_configuration_is_distinct_from_a_verified_outcome() -> None:
@@ -28,6 +34,7 @@ def test_configuration_is_distinct_from_a_verified_outcome() -> None:
             captured_at=NOW,
             reference="path-token:abc123",
         ),
+        provenance=PROVENANCE,
         attributes=(SafeAttribute(key="transport", value="local-command"),),
     )
 
@@ -47,6 +54,7 @@ def test_fingerprint_rejects_duplicate_observation_identity() -> None:
         label="Daily plan",
         operational_state=OperationalState.IMPLEMENTED,
         evidence=EvidenceItem(state="observed", captured_at=NOW, reference="path-token:a"),
+        provenance=PROVENANCE,
     )
     with pytest.raises(ValidationError, match="duplicate observation"):
         EvidenceFingerprint(

@@ -3,6 +3,62 @@
 Last updated: 2026-08-27. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
+## Deterministic diagnosis engine candidate, 2026-08-27
+
+The approved engine is **implemented on draft pull request #46** and
+**GitHub CI is green** at `572f2d8`. It is **not merged, not released,
+not registered, and not live**. The public product remains signed Lens
+**v0.1.12**. Installer registration, signing, beta promotion and
+publication each remain a later explicit Dave decision.
+
+What the candidate owns, on `codex/lens-deterministic-diagnosis-engine-build`:
+
+- ledger-derived report facts and a typed `ReportModel` bound to run identity
+- closed decision and share receipts (preview is not sent)
+- immutable run identity, closed stage machine, atomic checkpoints
+- bounded specialist proposals and two-fold sceptical reconciliation
+- `DeterministicDiagnosisEngine` as the only orchestrator
+- process-default ports so real `dex-lens diagnosis` / `dex-lens-mcp` can run
+- persisted local scope approval so later commands can collect after prepare
+- JSON CLI (`dex-lens diagnosis`) and read-only MCP (`dex-lens-mcp`)
+- skill text that follows engine `status` / `advance` / `result`
+- golden replay: direct, CLI and MCP canonical result bytes are identical
+
+Local verification on this Cloud Agent VM, after the process-default engine:
+
+- Engine-owned subset used for this pass (diagnosis, reports, evals except
+  the known legacy-system mount-point crossings, skill, packaging, diagnosis
+  consent, diagnosis import surface): **535 passed**, 3 deselected, 0
+  failed. Golden replay no longer assigns the read-only
+  `consent_authority` property.
+- Full `tests/` collection still has the known Cloud-VM fixture-tree /
+  mount-point crossings in adapter snapshot, inventory CLI, hostile G1
+  fixtures, the contained full journey, and the legacy-system filesystem
+  eval. Those guards were not weakened. GitHub CI remains the authority
+  for that containment matrix.
+- GitHub CI on `572f2d8` is green: Ubuntu and macOS 3.11/3.12 pytest,
+  G1 bind-mount, M3 egress, M5 contribution egress, Section-6 live
+  bridge, and the exact pilot-build G1–G6 + R3 gate. The earlier macOS
+  red was only
+  `test_a_piped_dry_run_says_what_it_would_do_and_does_none_of_it`: the
+  test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
+  macos-14. The live installer was not changed; the test now keeps a
+  3.11–3.14 interpreter on that sealed PATH so it still hides assistant
+  choosers. Publication remains a later Dave decision. The prepared
+  checklist is
+  `docs/superpowers/plans/2026-08-27-dex-lens-diagnosis-engine-publication-checklist.md`.
+- Ruff: clean on `src` and `tests`.
+- Inventory: **774** fields; **148** stored with registered deletion paths;
+  **1** transmitted through closed reviewed paths.
+- Privacy grep: no real `/Users/<name>`, `/home/<name>`, or session URL in
+  product or replay artifacts. The invented canary
+  `INVENTED_SESSION_CANARY_NEVER_RETAIN` is a test input only and is absent
+  from fingerprints, checkpoints, reports and MCP messages.
+
+Draft implementation PR: https://github.com/davekilleen/dex-lens/pull/46
+Design PR: https://github.com/davekilleen/dex-lens/pull/45
+Mission Control: davekilleen/dex-cards#99
+
 ## Signed release and complete live reference, 2026-08-27
 
 Lens v0.1.12 is published as a signed, supported download for Apple Silicon Mac

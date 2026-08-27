@@ -19,6 +19,7 @@ exists; here the syscall layer is the wire.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -36,7 +37,8 @@ from tests.fixtures.hostile.catalog import (
     build_benign_system,
 )
 
-from capability_exchange.adapters.claude_code import contained
+from capability_exchange.adapters.claude_code.containment import CollectionRequest
+from capability_exchange.concierge.collection import ApprovedSourceDescriptor
 
 #: A personal-string canary planted as a file's ENTIRE content: any unkeyed
 #: content hash in the envelope would then be sha256(canary) — a verifiable
@@ -97,10 +99,20 @@ def run_contained_child(
     stdout carries the serialized result, stderr carries every log line;
     together they are the complete observable surface of one inspection.
     """
-    request: dict[str, object] = {
-        "schema": contained.REQUEST_SCHEMA,
-        "approved_roots": approved_roots,
-    }
+    request = CollectionRequest(
+        approved_roots=tuple(approved_roots),
+        source_descriptors=tuple(
+            ApprovedSourceDescriptor(
+                canonical_root=Path(root).resolve(strict=False),
+                source_id=f"scope:egress-{index:03d}",
+                source_class="vault-authored",
+                scope_reference=(
+                    "scope:sha256:" + hashlib.sha256(f"egress-{index}".encode()).hexdigest()
+                ),
+            )
+            for index, root in enumerate(approved_roots)
+        ),
+    ).as_payload()
     if bounds_payload is not None:
         request["bounds"] = bounds_payload
     completed = subprocess.run(
