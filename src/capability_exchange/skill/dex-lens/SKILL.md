@@ -471,6 +471,26 @@ irrelevant. That is the fail-closed answer, and the honest one.
 
 ## Phase 5: compare on jobs, across all four kinds of capability
 
+Follow this sequence. Do not jump from the inventory to a shortlist:
+
+1. Read the previous report and the person's earlier decisions.
+2. Ask separately for each additional global folder or live-state check.
+3. Build the evidence fingerprint and establish the system's release distance,
+   or record that the distance is Unknown.
+4. Verify the signed catalogue and create its complete ledger template.
+5. Build the person's human Capabilities first: what work gets done, by what
+   method, with which supporting machinery and evidence.
+6. Group the relevant catalogue entries beneath those human Capabilities.
+7. Fetch a full brief for every possible recommendation and every verdict that
+   the person and Dex share a Capability.
+8. Fill every ledger disposition. Unavailable entries cannot be recommended.
+9. Choose two to five earned strengths, at least one reciprocal answer (or the
+   honest empty result), and at most three Dex recommendations.
+10. Keep fragility and housekeeping separate from strengths and suggestions.
+11. Check and save the report and its ledger together.
+12. In chat, repeat the best strength, the reciprocal answer and the most
+    useful next move.
+
 The comparison runs on the **job to be done**, not on names — and now across
 all four kinds of capability, not skills alone. The most valuable "what Dex
 has that you don't" is frequently *not* a skill: it is the deterministic tool
@@ -482,6 +502,16 @@ For each job the person actually does, gather all four kinds from the signed
 catalogue. If and only if the verified catalogue is an older skills-only
 version, supplement those skills with the **MCP servers, automations and engine
 capabilities** in the bundled reference whose `jobs_served` includes that job.
+
+**A matching name is a candidate, not proof. Compare the method, supporting
+machinery, version and usable state before calling a Capability shared.**
+
+**A configured MCP server is not its tool list. Unless the tools were
+enumerated safely, say the doorway is configured and the tools are Unknown.**
+
+**Written is not running. A script, installer or schedule template proves
+implementation only; installed, loaded, recently run and outcome-verified are
+separate claims.**
 
 The reference carries Dex's jobs to be done in its `jobs` list; line each
 capability up under the jobs it serves. Then, for that job, ask:
@@ -541,10 +571,10 @@ capability up under the jobs it serves. Then, for that job, ask:
    where the core-tier gaps are.
 
 Reject most of what Dex has. Its full surface is far larger than a shortlist —
-dozens of skills, plus its tools, its automations and its engine. If you
-recommend more than five capabilities out of all of that, you have not
-compared, you have listed. Three good suggestions with real reasons beat
-twenty hedged ones.
+dozens of skills, plus its tools, its automations and its engine. Recommend at
+most three capabilities out of all of that. More means you have listed rather
+than compared. Three good suggestions with real reasons beat twenty hedged
+ones.
 
 ### Never claim a version match you have not earned
 
@@ -847,6 +877,12 @@ typed it, and the preview shows it.
 End the session properly. Not a summary — they just read the report — but
 the handful of things a good concierge says at the door, in your own words:
 
+- **Repeat the best strength.** Lead with the most useful, evidence-backed
+  thing they are already doing well; earned praise is part of the answer.
+- **Repeat the reciprocal answer.** Say what Dex should learn from their
+  method, or say plainly that no transferable method cleared the evidence bar.
+- **Name the first useful move.** Give the best of the zero-to-three Dex
+  suggestions, without turning it into permission to install or change it.
 - **How to come back.** "Whenever you want another look, just ask me to run
   Dex Lens again — the same sentence you used today works, or type
   `/dex-lens`. Takes a couple of minutes."
@@ -856,9 +892,10 @@ the handful of things a good concierge says at the door, in your own words:
   to keep or share.
 - **The watching offer**, once, if Phase 9 did not already settle it.
 
-Keep it to a few lines. Do not re-explain the product, do not re-list the
-findings, and do not ask another question — the session is over, and ending
-cleanly is part of feeling looked after.
+Keep it brief. The final chat answer is incomplete unless it repeats the best
+evidenced strength, the reciprocal answer and the first recommended move. Do
+not re-explain the product, re-list every finding, or ask another question —
+the session is over, and ending cleanly is part of feeling looked after.
 
 ---
 

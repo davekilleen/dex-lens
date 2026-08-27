@@ -6,10 +6,12 @@ separate application they have to visit.
 ## Why this shape
 
 The comparison the product exists to make is *given what this person has
-already built, which Dex capabilities would actually help them*. That is a
-judgement about the content of hundreds or thousands of files: what each skill
-does, whether two of them overlap, whether a person who has built eleven
-content skills has any use for a twelfth.
+already built, which Dex capabilities would actually help them — and what
+should Dex learn from the way they work*. That is a judgement about the
+content of hundreds or thousands of files: what each skill does, which tools
+an assistant can call, which jobs run on their own, whether those things are
+merely written down or genuinely active, and whether a person who has built
+eleven content skills has any use for a twelfth.
 
 The original local web application could not make that judgement. It checked
 whether files of a given name existed and counted them. On the reference vault
@@ -76,10 +78,10 @@ on your machine before any of it is shown.
 
 | Command | What it does |
 | --- | --- |
-| `dex-lens inventory <folder>` | Every instruction, settings and skill file with the description it declares, copies folded together, and a housekeeping section naming leftover copies, drift and switched-off skills. `--names` narrows the listing for a second look. Reads only. |
-| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, prints it grouped by job to be done. `--jobs` and `--only` narrow it; `--since-last` prints only the capabilities that are new or changed since this machine last looked, and nothing at all when none are. |
+| `dex-lens inventory <folder>` | Builds an evidence fingerprint of the approved system: instructions, skills, tool connections, hooks, scheduled work, integration registries, health and recovery definitions, release identity and vault shape. Copies are folded together. Extra folders and live job state require separate permission. Reads only. |
+| `dex-lens catalogue` | Fetches Dex's catalogue, verifies the signature locally, and prints all four kinds of capability grouped by job to be done. `--ledger-template` creates a complete accounting sheet tied to those exact signed bytes. |
 | `dex-lens brief <id>` | Everything needed to rebuild one capability elsewhere: method, verification, rollback, and Dex's own evidence with its limits. |
-| `dex-lens reports` | The dated reports every diagnosis leaves behind, kept in app storage outside the inspected folder. `save` writes one and refuses a report that quotes no evidence, `check` says whether one is ready, and `--last` prints the previous one so the next run can say what changed. |
+| `dex-lens reports` | The dated two-way reports every diagnosis leaves behind, kept outside the inspected folder with their catalogue ledger. `save` refuses missing evidence, missing praise, missing reciprocal value, more than three suggestions, or an unaccounted catalogue entry. |
 | `dex-lens share <card.md>` | The only way anything goes the other direction, and only when the person asks. It prints exactly what an idea card would send and sends nothing; `--yes` sends after they have approved those exact bytes, and `--to github` prints a pre-filled issue link they submit themselves. |
 
 Each exits non-zero rather than printing anything unverified.
@@ -91,8 +93,8 @@ Nothing is ever written inside the folder being inspected, and the command
 that writes the report checks that separation before writing rather than
 assuming it.
 
-- `reports/` — the dated report, one per diagnosis. This is the one file
-  written for the person to read.
+- `reports/` — the dated report the person reads plus a same-named JSON ledger
+  proving every entry in the exact signed catalogue was considered.
 - `capability-bridge/` — the verified copy of Dex's catalogue, so a second
   look need not fetch and re-check it, and the record of which capabilities
   this machine has already been shown, which is the whole of how
