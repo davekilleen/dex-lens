@@ -20,6 +20,7 @@ from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
 from capability_exchange.diagnosis.run import DiagnosisStateError
+from capability_exchange.diagnosis.specialists import SpecialistProposal as EngineProposal
 
 __all__ = [
     "EXPECTED_TOOLS",
@@ -74,26 +75,22 @@ class PrepareDiagnosisRequest:
         return cls(roots=tuple(str(item) for item in roots))
 
 
-@dataclass(frozen=True)
 class SpecialistProposal:
-    """Translation-only wire shape. Task 7 owns the real proposal schema."""
+    """Refuse unknown wire fields, then validate the Task 7 proposal schema."""
 
-    claims: tuple[str, ...] = ()
+    _FIELDS = frozenset(EngineProposal.model_fields)
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, object]) -> SpecialistProposal:
-        extra = set(payload) - {"claims"}
+    def from_mapping(cls, payload: dict[str, object]) -> EngineProposal:
+        if not isinstance(payload, dict):
+            raise ValueError("specialist proposal is not a closed typed payload")
+        extra = set(payload) - cls._FIELDS
         if extra:
             raise ValueError("unknown fields are forbidden on specialist proposals")
-        claims = payload.get("claims", ())
-        if not isinstance(claims, list | tuple):
-            raise ValueError("specialist proposal claims must be a sequence")
-        if not all(isinstance(item, str) for item in claims):
-            raise ValueError("specialist proposal claims must be strings")
-        return cls(claims=tuple(str(item) for item in claims))
-
-    def model_dump(self) -> dict[str, object]:
-        return {"claims": list(self.claims)}
+        try:
+            return EngineProposal.model_validate(payload)
+        except Exception as exc:
+            raise ValueError("specialist proposal is not a closed typed payload") from exc
 
 
 @runtime_checkable

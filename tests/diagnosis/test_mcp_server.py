@@ -19,6 +19,7 @@ from capability_exchange.diagnosis.mcp_server import (
     EXPECTED_TOOLS,
     FORBIDDEN_TOOL_SUBSTRINGS,
     PrepareDiagnosisRequest,
+    SpecialistProposal,
     build_engine,
     build_mcp_server,
     canonical_result_bytes,
@@ -29,6 +30,13 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+)
+from capability_exchange.diagnosis.specialists import (
+    ProposalKind,
+    SpecialistRole,
+)
+from capability_exchange.diagnosis.specialists import (
+    SpecialistProposal as EngineProposal,
 )
 
 RUN_ID = "run:" + "a" * 16
@@ -72,6 +80,7 @@ class FakeEngine:
     consented: bool = False
     collection_calls: int = 0
     prepared: list[PrepareDiagnosisRequest] = field(default_factory=list)
+    submitted: list[object] = field(default_factory=list)
 
     def prepare(self, request: PrepareDiagnosisRequest) -> DiagnosisRunView:
         self.prepared.append(request)
@@ -102,6 +111,7 @@ class FakeEngine:
         )
 
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView:
+        self.submitted.append(proposal)
         return self.status(run_id)
 
     def result(self, run_id: str) -> FakeStored:
@@ -223,6 +233,43 @@ def test_build_engine_is_injectable(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 def test_prepare_request_refuses_unknown_fields() -> None:
     with pytest.raises(ValueError, match="unknown fields"):
         PrepareDiagnosisRequest.from_mapping({"roots": ["vault"], "extra": 1})
+
+
+_VALID_PROPOSAL = {
+    "role": SpecialistRole.TOOLS_AND_INTEGRATIONS.value,
+    "kind": ProposalKind.MAPPING.value,
+    "run_id": RUN_ID,
+    "fingerprint_digest": "sha256:" + "b" * 64,
+    "catalogue_digest": "sha256:" + "c" * 64,
+    "catalogue_id": "daily-planning",
+    "capability_id": "planning",
+    "disposition": "shared",
+    "evidence_ids": ["current:evidence"],
+    "reason": "The local method matches the signed catalogue method.",
+}
+
+
+def test_specialist_proposal_validates_the_engine_schema() -> None:
+    parsed = SpecialistProposal.from_mapping(_VALID_PROPOSAL)
+    assert isinstance(parsed, EngineProposal)
+    assert parsed.catalogue_id == "daily-planning"
+    with pytest.raises(ValueError, match="unknown fields"):
+        SpecialistProposal.from_mapping({**_VALID_PROPOSAL, "claims": ["invented"]})
+
+
+@pytest.mark.anyio
+async def test_submit_forwards_a_typed_engine_proposal() -> None:
+    engine = fake_engine()
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "submit_specialist_proposal",
+            {"run_id": RUN_ID, "proposal": _VALID_PROPOSAL},
+        )
+    assert not result.is_error
+    assert len(engine.submitted) == 1
+    assert isinstance(engine.submitted[0], EngineProposal)
+    assert engine.submitted[0].capability_id == "planning"
 
 
 _STDIO_SMOKE = r"""
