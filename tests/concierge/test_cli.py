@@ -217,3 +217,15 @@ class TestDoorway:
         assert "--choose-folder" in help_text
         assert "choosing a folder does not scan it" in help_text
         assert "read-only" in help_text
+
+
+def test_concierge_dispatches_diagnosis_without_opening_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[list[str]] = []
+    monkeypatch.setattr(cli, "diagnosis_main", lambda args: called.append(args) or 0)
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: pytest.fail("must not open a browser"))
+    monkeypatch.setattr(cli, "_serve_main", lambda _argv: pytest.fail("the server must not start"))
+
+    assert cli.main(["diagnosis", "status", "--run", "run:" + "a" * 16]) == 0
+    assert called == [["status", "--run", "run:" + "a" * 16]]
