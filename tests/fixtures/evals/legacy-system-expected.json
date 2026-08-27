@@ -1,0 +1,32 @@
+{
+  "release_id": "v0.8.3",
+  "observations": {
+    "mcp_servers_declared": 7,
+    "mcp_tools_known": 0,
+    "automation_implemented": 2,
+    "automation_loaded": 0,
+    "health_collectors": 1,
+    "restore_proofs": 0
+  },
+  "required_capabilities": [
+    "career-development-loop",
+    "role-specific-planning-loop",
+    "human-reviewed-suggestions",
+    "follow-through-safety-net"
+  ],
+  "required_dispositions": {
+    "current-system-health": "worth-borrowing",
+    "verified-backup-restore": "worth-borrowing",
+    "career-development": "shared"
+  },
+  "forbidden_claims": [
+    "servers cover every tool",
+    "hooks are stronger than proactive health",
+    "same name means same capability",
+    "written means running",
+    "backup activity proves restore"
+  ],
+  "max_recommendations": 3,
+  "requires_strength": true,
+  "requires_reciprocal_answer": true
+}
