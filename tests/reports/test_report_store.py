@@ -221,3 +221,43 @@ class TestAFolderThePersonOwns:
         )
 
         assert hostile.list(label="vault") == []
+
+
+class TestSaveResult:
+    def test_it_renders_typed_markdown_and_verifies_the_three_digests(
+        self, store: LensReportStore
+    ) -> None:
+        from tests.diagnosis.test_report_model import run_identity
+        from tests.evals.real_session_fixture import real_session_ledger
+
+        from capability_exchange.diagnosis.orchestrator import DiagnosisResult
+        from capability_exchange.diagnosis.report import (
+            ReportModel,
+            canonical_fact_block,
+            canonical_ledger_digest,
+        )
+
+        ledger = real_session_ledger()
+        result = DiagnosisResult(
+            report=ReportModel.from_result(
+                run_identity=run_identity(),
+                ledger=ledger,
+                ledger_sha256=canonical_ledger_digest(ledger),
+            ),
+            ledger=ledger,
+        )
+
+        saved = store.save_result(result, label="vault", now=NOW)
+
+        markdown = saved.path.read_text(encoding="utf-8")
+        assert canonical_fact_block(ledger) in markdown
+        assert saved.ledger_path.is_file()
+        assert saved.result_path.is_file()
+        stored = saved.result_path.read_text(encoding="utf-8")
+        assert canonical_ledger_digest(ledger) in stored
+
+    def test_it_refuses_arbitrary_markdown_without_a_typed_result(
+        self, store: LensReportStore
+    ) -> None:
+        with pytest.raises(ValueError, match="typed result"):
+            store.save_result("# Invented prose\n")
