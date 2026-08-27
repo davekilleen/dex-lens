@@ -235,6 +235,12 @@ def engine(tmp_path: Path) -> EngineHarness:
         _ROOT = None
 
 
+def test_engine_exposes_the_consent_authority_adapters_may_attach(
+    engine: EngineHarness,
+) -> None:
+    assert engine.engine.consent_authority is engine.consent_authority
+
+
 def test_advance_is_idempotent_for_same_checkpoint(engine: EngineHarness) -> None:
     prepared = engine.prepare(prepare_request())
     engine.consent_authority.approve_from_local_session(

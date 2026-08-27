@@ -169,6 +169,12 @@ class DeterministicDiagnosisEngine:
         self._reports = report_store
         self._clock = clock
 
+    @property
+    def consent_authority(self) -> LocalScopeConsentAuthority:
+        """The only authority CLI/MCP may attach to the local /approve surface."""
+
+        return self._consent
+
     def prepare(self, request: object) -> DiagnosisRunView:
         """Record candidate folders. Read nothing and do not collect."""
 

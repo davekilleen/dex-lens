@@ -127,6 +127,39 @@ def _put_supported_python_on_sealed_path(sealed_bin: Path) -> None:
         link.symlink_to(executable)
 
 
+def test_sealed_path_finds_python_when_usr_bin_has_none(tmp_path: Path) -> None:
+    """macos-14 CI hides setup-python; the seal must still carry 3.11–3.14."""
+
+    sealed_bin = tmp_path / "sealed-bin"
+    sealed_bin.mkdir()
+    _put_supported_python_on_sealed_path(sealed_bin)
+    empty = tmp_path / "empty-system"
+    empty.mkdir()
+    script = """
+    found=""
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+      command -v "$candidate" >/dev/null 2>&1 || continue
+      if "$candidate" - <<'PY'
+import sys
+raise SystemExit(not ((3, 11) <= sys.version_info[:2] <= (3, 14)))
+PY
+      then
+        found="$(command -v "$candidate")"
+        break
+      fi
+    done
+    [ -n "$found" ]
+    """
+    completed = subprocess.run(
+        ["/bin/bash", "-c", script],
+        env={"PATH": f"{sealed_bin}{os.pathsep}{empty}", "HOME": str(tmp_path / "home")},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def _legacy_source_launcher(home: Path) -> tuple[Path, Path]:
     """The exact command link written by the earlier official source installer."""
     legacy = home / ".local" / "share" / "dex-lens" / "venv" / "bin" / "dex-lens"
