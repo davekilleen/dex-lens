@@ -23,12 +23,15 @@ an agent that *can* write and must not treat guidance as permission.
 
 from __future__ import annotations
 
+import hashlib
 import html
+import json
 from collections.abc import Iterable, Sequence
 
 from capability_exchange.catalogue.v2 import (
     CatalogueCapabilityEntryV2,
     CatalogueV2,
+    SignedCatalogueEnvelopeV2,
     capability_availability_of,
     capability_class_fact_lines,
     capability_class_of,
@@ -38,6 +41,7 @@ __all__ = [
     "capability_by_id",
     "render_capability_brief_markdown",
     "render_catalogue_digest",
+    "render_catalogue_ledger_template",
 ]
 
 #: Repeated at the top of every agent-facing rendering. The reader is an agent
@@ -154,6 +158,39 @@ def render_catalogue_digest(
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_catalogue_ledger_template(envelope: SignedCatalogueEnvelopeV2) -> str:
+    """A complete not-yet-assessed ledger bound to verified signed bytes.
+
+    The verifier stores the exact signed JSON in a private attribute. A model
+    built directly, without passing signature verification, has no such bytes
+    and is refused rather than receiving an invented release identity.
+    """
+    signed_json = envelope._signed_json
+    if signed_json is None:
+        raise ValueError("a ledger template requires an envelope returned by verification")
+    payload = {
+        "catalogue_version": envelope.metadata.catalog_version,
+        "catalogue_sha256": hashlib.sha256(signed_json.encode("utf-8")).hexdigest(),
+        "capabilities": [],
+        "entries": [
+            {
+                "catalogue_id": entry.capability_id,
+                "disposition": "not-assessed",
+                "capability_id": "unassigned",
+                "evidence_references": [],
+                "method_compared": False,
+                "reason": "Not assessed yet.",
+            }
+            for entry in sorted(
+                envelope.catalogue.capabilities,
+                key=lambda item: item.capability_id,
+            )
+        ],
+        "reciprocal_answer": "No transferable method cleared the evidence bar.",
+    }
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def _bullets(values: Sequence[str]) -> list[str]:
