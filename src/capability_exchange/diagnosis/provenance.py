@@ -11,18 +11,44 @@ from pydantic import ConfigDict, Field, field_validator
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.evidence.item import reference_rejection_reason
 
-__all__ = ["SourceClass", "SourceProvenance"]
+__all__ = [
+    "SourceClass",
+    "SourceProvenance",
+    "relative_reference_rejection_reason",
+]
 
-_HOME_PREFIX = re.compile(r"^(?:~(?:/|$)|\$(?:HOME|USERPROFILE)(?:/|$)|%USERPROFILE%(?:/|$))", re.I)
-_WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:[\\/]")
-_SECRET_PATH_MARKER = re.compile(
-    r"(?:^|[._/\\-])(?:token|secret|password|credential|private-key)(?:$|[._/\\-])",
-    re.I,
-)
+_HOME_SEGMENTS = frozenset({"$home", "${home}", "$userprofile", "${userprofile}", "%userprofile%"})
+_SECRET_WORDS = frozenset({"credential", "credentials", "password", "secret", "secrets", "token"})
 _HIGH_CONFIDENCE_SECRET = re.compile(
     r"(?:AKIA[0-9A-Z]{16}|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}|"
     r"gh[pousr]_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})"
 )
+
+
+def relative_reference_rejection_reason(value: str) -> str | None:
+    """Explain why a source-relative locator cannot cross the trust boundary."""
+
+    normalized = value.replace("\\", "/")
+    segments = normalized.split("/")
+    first = segments[0].lower()
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+        return "relative_reference must not be an absolute path"
+    if first.startswith("~") or first in _HOME_SEGMENTS:
+        return "relative_reference must not contain a home prefix"
+    if ".." in segments:
+        return "relative_reference must not traverse its approved source"
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return "relative_reference must not contain control characters"
+    reason = reference_rejection_reason(value)
+    if reason is not None:
+        return f"relative_reference is not a safe locator: {reason}"
+    for segment in segments:
+        words = tuple(part for part in re.split(r"[._-]", segment.lower()) if part)
+        if _SECRET_WORDS.intersection(words) or words[:2] == ("private", "key"):
+            return "relative_reference must not contain secret-shaped markers"
+    if _HIGH_CONFIDENCE_SECRET.search(value):
+        return "relative_reference must not contain secret-shaped markers"
+    return None
 
 
 class SourceClass(StrEnum):
@@ -54,19 +80,9 @@ class SourceProvenance(InventoriedModel):
     @field_validator("relative_reference")
     @classmethod
     def _relative_non_raw_reference(cls, value: str) -> str:
-        if value.startswith(("/", "\\")) or _WINDOWS_ABSOLUTE.match(value):
-            raise ValueError("relative_reference must not be an absolute path")
-        if _HOME_PREFIX.match(value):
-            raise ValueError("relative_reference must not contain a home prefix")
-        if ".." in re.split(r"[/\\]", value):
-            raise ValueError("relative_reference must not traverse its approved source")
-        if any(ord(char) < 32 or ord(char) == 127 for char in value):
-            raise ValueError("relative_reference must not contain control characters")
-        reason = reference_rejection_reason(value)
+        reason = relative_reference_rejection_reason(value)
         if reason is not None:
-            raise ValueError(f"relative_reference is not a safe locator: {reason}")
-        if _SECRET_PATH_MARKER.search(value) or _HIGH_CONFIDENCE_SECRET.search(value):
-            raise ValueError("relative_reference must not contain secret-shaped markers")
+            raise ValueError(reason)
         return value
 
     def model_copy(

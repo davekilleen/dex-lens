@@ -111,6 +111,61 @@ class TestSnapshotReads:
                 source_descriptors=consent.source_descriptors,
             )
 
+    def test_snapshot_retains_approved_sources_even_when_one_is_empty(self, tmp_path: Path) -> None:
+        populated = tmp_path / "populated"
+        empty = tmp_path / "empty"
+        populated.mkdir()
+        empty.mkdir()
+        (populated / "SKILL.md").write_text("# captured\n")
+        consent = ScopeSnapshot.capture(
+            (populated, empty),
+            source_descriptors=(
+                {
+                    "canonical_root": populated.resolve(),
+                    "source_id": "scope:populated",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "a" * 64,
+                },
+                {
+                    "canonical_root": empty.resolve(),
+                    "source_id": "scope:empty",
+                    "source_class": "user-global",
+                    "scope_reference": "scope:sha256:" + "b" * 64,
+                },
+            ),
+        )
+
+        snapshot = take_snapshot(
+            CanonicalAllowlist((populated, empty)),
+            source_descriptors=consent.source_descriptors,
+        )
+
+        assert [source.source_id for source in snapshot.approved_sources] == [
+            "scope:populated",
+            "scope:empty",
+        ]
+        assert all(not hasattr(source, "canonical_root") for source in snapshot.approved_sources)
+
+    @pytest.mark.parametrize(
+        "attribute,value",
+        (
+            ("_complete", False),
+            ("_entries", {}),
+            ("_approved_sources", ()),
+            ("_bounds", CollectionBounds(max_file_count=1)),
+        ),
+    )
+    def test_snapshot_state_cannot_be_reassigned_after_capture(
+        self,
+        claude_root: Path,
+        attribute: str,
+        value: object,
+    ) -> None:
+        snapshot = snapshot_of(claude_root)
+
+        with pytest.raises(AttributeError, match="immutable|read-only|assign"):
+            setattr(snapshot, attribute, value)
+
 
 class TestSecretHandlingAtCollection:
     def test_raw_secret_bytes_never_stored(self, secret_bearing_root: Path) -> None:

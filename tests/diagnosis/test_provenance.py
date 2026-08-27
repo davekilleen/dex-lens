@@ -74,10 +74,19 @@ def test_duplicate_kind_identity_and_source_id_is_rejected() -> None:
     "relative_reference",
     (
         "/Users/person/private/SKILL.md",
+        "\\server\\private\\SKILL.md",
         "~/private/SKILL.md",
+        "~alice/private/SKILL.md",
         "$HOME/private/SKILL.md",
+        "$HOME\\private\\SKILL.md",
+        "${HOME}/private/SKILL.md",
+        "${HOME}\\private\\SKILL.md",
         "skills/../private/SKILL.md",
+        "skills\\..\\private\\SKILL.md",
         "skills/secret-token/SKILL.md",
+        "skills/planner/secrets.env",
+        "skills/planner/credentials.json",
+        "skills/planner/private_key.pem",
         "skills/planner\n/SKILL.md",
         "skills/planner\x7f/SKILL.md",
         "-----BEGIN PRIVATE KEY-----",
@@ -104,6 +113,36 @@ def test_relative_source_reference_refuses_raw_or_secret_shaped_values(
             ),
             provenance=provenance,
         )
+
+
+@pytest.mark.parametrize(
+    "relative_reference",
+    (
+        ".claude/skills/planner/SKILL.md",
+        "skills/planner-v2/README.md",
+        "sha256:" + "b" * 16,
+    ),
+)
+def test_legitimate_relative_source_references_are_accepted(
+    relative_reference: str,
+) -> None:
+    observation = Observation(
+        kind=ObservationKind.SKILL,
+        identity="planner",
+        label="Planner",
+        operational_state=OperationalState.IMPLEMENTED,
+        evidence=EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=NOW,
+            reference="file:planner",
+        ),
+        provenance={
+            **_provenance("vault", "vault-authored"),
+            "relative_reference": relative_reference,
+        },
+    )
+
+    assert observation.provenance.relative_reference == relative_reference
 
 
 def test_source_models_are_closed_and_exact() -> None:
@@ -174,3 +213,75 @@ def test_construct_routes_cannot_bypass_provenance_validation() -> None:
     observation_values["provenance"] = provenance_values
     with pytest.raises(ValidationError, match="relative_reference"):
         type(observation).model_construct(**observation_values)
+
+
+def test_observation_provenance_cannot_be_replaced_after_construction() -> None:
+    vault = _skill("vault", "vault-authored")
+    global_home = _skill("global", "user-global")
+
+    with pytest.raises(ValueError, match="provenance.*locked"):
+        vault.model_copy(update={"provenance": global_home.provenance})
+
+
+@pytest.mark.parametrize(
+    "state",
+    (
+        OperationalState.IMPLEMENTED,
+        OperationalState.LOADED,
+        OperationalState.OUTCOME_VERIFIED,
+    ),
+)
+def test_working_copy_observations_are_centrally_not_assessed(
+    state: OperationalState,
+) -> None:
+    observation = Observation(
+        kind=ObservationKind.SKILL,
+        identity="planner",
+        label="Planner",
+        operational_state=state,
+        evidence=EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=NOW,
+            reference="file:working-planner",
+        ),
+        provenance=_provenance("working-copy", "working-copy"),
+    )
+
+    assert observation.operational_state is OperationalState.NOT_ASSESSED
+    assert (
+        observation.model_copy(
+            update={"operational_state": OperationalState.OUTCOME_VERIFIED}
+        ).operational_state
+        is OperationalState.NOT_ASSESSED
+    )
+
+
+def test_working_copy_construct_route_cannot_introduce_active_state() -> None:
+    observation = _skill("working-copy", "working-copy")
+    values = {
+        field_name: getattr(observation, field_name)
+        for field_name in type(observation).model_fields
+    }
+    values["operational_state"] = OperationalState.LOADED
+
+    constructed = type(observation).model_construct(**values)
+
+    assert constructed.operational_state is OperationalState.NOT_ASSESSED
+
+
+def test_fingerprint_copy_and_construct_reject_duplicate_source_triples() -> None:
+    item = _skill("vault", "vault-authored")
+    fingerprint = EvidenceFingerprint(
+        adapter_id="claude-code-local",
+        collected_at=NOW,
+        observations=(item,),
+    )
+
+    with pytest.raises(ValidationError, match="duplicate observation"):
+        fingerprint.model_copy(update={"observations": (item, item)})
+    with pytest.raises(ValidationError, match="duplicate observation"):
+        EvidenceFingerprint.model_construct(
+            adapter_id="claude-code-local",
+            collected_at=NOW,
+            observations=(item, item),
+        )
