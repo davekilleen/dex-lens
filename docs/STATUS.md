@@ -1,17 +1,20 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-27. Plain-language companion to
+Last updated: 2026-08-28. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The approved engine is **live as signed Lens v0.1.13**. Dave approved
-publication on 2026-08-27. GitHub Release `v0.1.13` is latest (source
-commit `5f6fee6`, run `33122132016`). The public one-line install
-serves the signed installer with `DEX_LENS_VERSION=0.1.13`. The
+The engine and chat-native approval are **on `main` as Lens v0.1.14**.
+Dave approved publication of this build on 2026-08-28. Public latest is
+still signed v0.1.13 until the release workflow finishes. The
 repository `install.sh` was not hand-edited.
 
-What v0.1.13 owns:
+What v0.1.14 adds: scope approval stays in the same chat
+(`dex-lens diagnosis approve`). The local folder-picker page is
+unchanged.
+
+What the engine already owned in v0.1.13:
 
 - ledger-derived report facts and a typed `ReportModel` bound to run identity
 - closed decision and share receipts (preview is not sent)
@@ -44,7 +47,7 @@ Local verification on this Cloud Agent VM, after the process-default engine:
   test sealed PATH to `/usr/bin:/bin`, which hides setup-python on
   macos-14. The live installer was not changed; the test now keeps a
   3.11–3.14 interpreter on that sealed PATH so it still hides assistant
-  choosers. Publication is complete: signed v0.1.13 is latest. The
+  choosers. Chat-native approval is on `main` as v0.1.14. The
   checklist is
   `docs/superpowers/plans/2026-08-27-dex-lens-diagnosis-engine-publication-checklist.md`.
 - Ruff: clean on `src` and `tests`.
@@ -61,15 +64,16 @@ Mission Control: davekilleen/dex-cards#99
 
 ## Signed release and complete live reference, 2026-08-27
 
-Lens v0.1.13 is the signed public download for Apple Silicon Mac and
-Linux x86_64. It includes the deterministic diagnosis engine. Its reader
+Lens v0.1.14 is the current software on `main` and the version being signed
+for Apple Silicon Mac and Linux x86_64. It includes the deterministic
+diagnosis engine and chat-native scope approval. Its reader
 accepts both the earlier skills-only catalogue and the complete four-kind
 contract.
 
 Core v1.97.2 now publishes that complete signed reference at the live catalogue
 route: 115 entries covering 94 skills, 11 connection systems containing 146
 individual tools, 5 recurring jobs that run on a schedule, and 5 behind-the-scenes
-services. The released Lens v0.1.13 verifier accepts the live bytes using its built-in key.
+services. The released Lens v0.1.14 verifier accepts the live bytes using its built-in key.
 The application and its reference data are released separately on purpose:
 Core can keep the reference current without requiring a new Lens download.
 
@@ -300,7 +304,7 @@ M4–M6 and their final security remediation merged to `main` in PR #5 on
 2026-08-10 (`e139242`) after the Linux/macOS matrix, 1,291 local tests, lint,
 packaging and data-inventory verification were green on the exact candidate.
 
-Dex Lens is now released, but the pilot has not happened. Lens v0.1.13 is the
+Dex Lens is now released, but the pilot has not happened. Lens v0.1.14 is the
 signed public download for Apple Silicon Mac and Linux x86_64. Its release
 workflow built fixed offline bundles, signed the exact manifest, installed
 without administrator access, and passed clean consumer proofs on both
@@ -311,7 +315,7 @@ system to Dex's signed release catalogue — is built, merged, released, and
 proven live. The section-6 evidence pack (`docs/pilot/bridge-evidence.md`)
 preserves the earlier skills-only proof as history. The current signed
 catalogue is published by Core v1.97.2 at
-`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.13 accepts
+`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.14 accepts
 all 115 entries across the four kinds described above. The privacy boundary is
 unchanged: a fresh install makes no catalogue request, while a person who asks
 for the Dex comparison receives the same public reference as everyone else.
