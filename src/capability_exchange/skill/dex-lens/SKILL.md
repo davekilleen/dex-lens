@@ -180,9 +180,9 @@ separate, explicitly approved flow. That work is not this diagnosis.
 
 ## Phase 0: start the look they asked for
 
-A first look is the default. "Have a look at my setup", "what Dex has that I
-don't", "tell me what I'm missing" — those are first looks. Start Phase 1 on
-the folder you are already in. Do not ask which folder first.
+A first look is the default. "Have a look at my setup", "what Dex has that I don't",
+and "tell me what I'm missing" are first looks. Start Phase 1 on the folder
+you are already in. Do not ask which folder first.
 
 Do not open with `dex-lens reports --last`. Do not mention yesterday's
 report. Do not frame the job as "what has changed". A leftover report on

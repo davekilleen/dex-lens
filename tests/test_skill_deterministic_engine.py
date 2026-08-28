@@ -70,7 +70,8 @@ def test_skill_treats_a_first_look_as_fresh_not_a_delta() -> None:
     assert "do not read the last report" in phase_zero
     assert "Do not ask which folder first" in phase_zero
 
-    opening, _, remainder = phase_zero.partition("```")
-    assert "dex-lens reports --last" not in opening
+    opening, fence, remainder = phase_zero.partition("```")
+    assert "Do not open with `dex-lens reports --last`" in opening
     assert "Only if they ask what has changed" in opening
-    assert "dex-lens reports --last" in remainder
+    assert fence
+    assert remainder.lstrip().startswith("dex-lens reports --last")
