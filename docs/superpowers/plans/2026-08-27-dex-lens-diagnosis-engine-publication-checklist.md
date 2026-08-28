@@ -22,7 +22,6 @@ release workflow renders the public installer from the signed manifest.
 6. GitHub Release `v0.1.14` exists, is not a prerelease, and
    `releases/latest/download/install.sh` declares
    `DEX_LENS_VERSION=0.1.14`.
-
 7. First-look skill fix landed on `main` as `0.1.15` (PR #50).
 8. GitHub Release `v0.1.15` exists, is not a prerelease, and
    `releases/latest/download/install.sh` declares
