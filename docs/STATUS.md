@@ -5,10 +5,11 @@ Last updated: 2026-08-28. Plain-language companion to
 
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The engine and chat-native approval are **on `main` as Lens v0.1.14**.
-Dave approved publication of this build on 2026-08-28. Public latest is
-still signed v0.1.13 until the release workflow finishes. The
-repository `install.sh` was not hand-edited.
+The engine and chat-native approval are **live as signed Lens v0.1.14**.
+Dave approved publication on 2026-08-28. GitHub Release `v0.1.14` is
+latest (source commit `7aa1587`, run `33166503410`). The public
+one-line install serves `DEX_LENS_VERSION=0.1.14`. The repository
+`install.sh` was not hand-edited.
 
 What v0.1.14 adds: scope approval stays in the same chat
 (`dex-lens diagnosis approve`). The local folder-picker page is
@@ -64,11 +65,10 @@ Mission Control: davekilleen/dex-cards#99
 
 ## Signed release and complete live reference, 2026-08-27
 
-Lens v0.1.14 is the current software on `main` and the version being signed
-for Apple Silicon Mac and Linux x86_64. It includes the deterministic
-diagnosis engine and chat-native scope approval. Its reader
-accepts both the earlier skills-only catalogue and the complete four-kind
-contract.
+Lens v0.1.14 is the signed public download for Apple Silicon Mac and
+Linux x86_64. It includes the deterministic diagnosis engine and
+chat-native scope approval. Its reader accepts both the earlier
+skills-only catalogue and the complete four-kind contract.
 
 Core v1.97.2 now publishes that complete signed reference at the live catalogue
 route: 115 entries covering 94 skills, 11 connection systems containing 146

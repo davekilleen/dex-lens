@@ -1,9 +1,11 @@
 # Dex Lens diagnosis-engine publication checklist
 
-**Status:** Dave approved publication of chat-native approval on 2026-08-28.
-**Public product becoming:** signed Lens v0.1.14
+**Status:** Published. Signed Lens v0.1.14 is latest.
+**Public product:** signed Lens v0.1.14
+**Published commit:** `7aa1587318821a49743f53e3ee1fb766d0d5aadc`
+**Release run:** https://github.com/davekilleen/dex-lens/actions/runs/33166503410
+**GitHub Release:** https://github.com/davekilleen/dex-lens/releases/tag/v0.1.14
 **Chat-approve PR:** https://github.com/davekilleen/dex-lens/pull/49
-**Previous public release:** https://github.com/davekilleen/dex-lens/releases/tag/v0.1.13
 **Mission Control:** davekilleen/dex-cards#99
 
 The live `install.sh` in the repository is not hand-edited. The signed
@@ -15,14 +17,14 @@ release workflow renders the public installer from the signed manifest.
 2. First real vault dogfood died on the local approval page.
 3. Chat-native `diagnosis approve` landed on `main` (PR #49, `2c4a68d`).
 4. Product version bumped to `0.1.14`.
+5. `Release Dex Lens` dispatch (`33166503410`) on `7aa1587` succeeded.
+6. GitHub Release `v0.1.14` exists, is not a prerelease, and
+   `releases/latest/download/install.sh` declares
+   `DEX_LENS_VERSION=0.1.14`.
 
 ## Remaining in this publication
 
-5. Dispatch `.github/workflows/release.yml` with `version=0.1.14` and
-   `prerelease=false`.
-6. Confirm the GitHub Release `v0.1.14` exists and
-   `releases/latest/download/install.sh` declares
-   `DEX_LENS_VERSION=0.1.14`.
+None.
 
 ## Still not done here
 

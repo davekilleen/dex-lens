@@ -1,4 +1,4 @@
-"""Static gates for the exact, manual-only public release workflow."""
+"""Static gates for the exact public release workflow."""
 
 from __future__ import annotations
 
@@ -13,17 +13,20 @@ def _workflow() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_release_workflow_is_manual_only_and_bound_to_one_exact_commit() -> None:
+def test_release_workflow_is_bound_to_one_exact_main_commit() -> None:
     workflow = _workflow()
 
     assert "workflow_dispatch:" in workflow
+    assert 'tags:' in workflow
+    assert '"v[0-9]+.[0-9]+.[0-9]+"' in workflow
     assert "pull_request:" not in workflow
     assert "schedule:" not in workflow
     assert "branches:" not in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "git rev-parse HEAD" in workflow
     assert '"$GITHUB_SHA"' in workflow
-    assert 'test "$GITHUB_REF" = "refs/heads/main"' in workflow
+    assert "git merge-base --is-ancestor" in workflow
+    assert "origin/main" in workflow
 
 
 def test_release_workflow_requires_the_dedicated_signing_secret() -> None:
@@ -96,6 +99,6 @@ def test_release_workflow_pins_actions_and_serializes_each_version() -> None:
     assert action_uses
     assert all(re.search(r"@[0-9a-f]{40}(?:\s+#\s+v\d+\.\d+\.\d+)?$", line) for line in action_uses)
     assert "concurrency:" in workflow
-    assert "group: dex-lens-release-${{ inputs.version }}" in workflow
+    assert "group: dex-lens-release-${{ inputs.version || github.ref_name }}" in workflow
     assert "cancel-in-progress: false" in workflow
     assert "overwrite: true" in workflow

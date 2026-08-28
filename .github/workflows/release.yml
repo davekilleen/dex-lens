@@ -16,12 +16,15 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: read
 
 concurrency:
-  group: dex-lens-release-${{ inputs.version }}
+  group: dex-lens-release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -50,9 +53,27 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/main"
+          if [ -z "${VERSION}" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/v[0-9]*.[0-9]*.[0-9]*) VERSION="${GITHUB_REF#refs/tags/v}" ;;
+              *)
+                printf '%s\n' "release version is missing" >&2
+                exit 1
+                ;;
+            esac
+          fi
           SOURCE_COMMIT="$(git rev-parse HEAD)"
           test "$SOURCE_COMMIT" = "$GITHUB_SHA"
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            :
+          elif [ "$GITHUB_REF" = "refs/tags/v$VERSION" ]; then
+            :
+          else
+            printf '%s\n' "release must be dispatched on main or tagged v$VERSION from main" >&2
+            exit 1
+          fi
           PROJECT_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           test "$VERSION" = "$PROJECT_VERSION"
           git diff --exit-code
