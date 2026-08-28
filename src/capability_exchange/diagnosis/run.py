@@ -70,7 +70,9 @@ NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
 }
 
 NEXT_ACTION: dict[DiagnosisStage, str] = {
-    DiagnosisStage.CREATED: "Approve the exact scope in the local consent surface.",
+    DiagnosisStage.CREATED: (
+        "Approve the exact scope in this chat with dex-lens diagnosis approve."
+    ),
     DiagnosisStage.SCOPE_APPROVED: "Capture the consented fingerprint.",
     DiagnosisStage.CAPTURED: "Verify the exact catalogue bytes.",
     DiagnosisStage.CATALOGUE_VERIFIED: "Confirm the jobs this diagnosis may use.",

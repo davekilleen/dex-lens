@@ -141,17 +141,21 @@ You explain. The engine keeps the books.
 Start or resume a run, then do only the next action the engine names:
 
 ```
-dex-lens diagnosis prepare --root <folder> --wait
+dex-lens diagnosis prepare --root <folder>
+dex-lens diagnosis approve --run <id>
 dex-lens diagnosis status --run <id> --json
 dex-lens diagnosis advance --run <id> --json
 dex-lens diagnosis submit --run <id> --proposal <json-file>
 dex-lens diagnosis result --run <id> --format markdown
 ```
 
-`prepare` reads nothing. It starts the local consent surface and gives you a
-run id. `--wait` keeps that surface running until the person approves the
-exact scope. Collection does not begin until that receipt exists. `--additional-root` is for a folder they named in their own words —
-never one you added because it looked useful.
+`prepare` reads nothing. It gives you a run id and names the exact folders.
+Show those folders in plain words. Wait for a clear yes in this chat. Then
+run `approve`. Do not open a browser, and do not ask them to visit a local
+page. Collection does not begin until that receipt exists. `--additional-root`
+is for a folder they named in their own words — never one you added because
+it looked useful. If they name another folder before they approve, run
+`prepare` again with that folder included.
 
 After every engine step, run `dex-lens diagnosis status`. Do what it says
 next. Do not keep a private checklist, and do not skip ahead to a shortlist
@@ -213,10 +217,10 @@ first run. Say so once, and skip the "since last time" section of the report.
 ## Phase 1: read the system
 
 Start the run before you wander. `prepare` still reads nothing; it only
-opens the local consent surface for the folder they asked you to look at:
+names the folder they asked you to look at:
 
 ```
-dex-lens diagnosis prepare --root <folder> --wait
+dex-lens diagnosis prepare --root <folder>
 ```
 
 With no folder given, that folder is the one you are open in — the system
@@ -224,6 +228,17 @@ they want looked at. Do not ask which folder first. Only pass an explicit
 root when the person tells you their system is somewhere else, or when the
 engine says the current folder has no instruction files, settings or skills
 and so is not a personal AI system.
+
+Tell them the exact folder in one sentence. If shared assistant settings
+often live in `~/.claude`, say that in the same breath, as an optional extra
+they can name now. Wait for a clear yes. Then:
+
+```
+dex-lens diagnosis approve --run <id>
+```
+
+Do not open a browser. Do not start a local page. The yes in this chat is
+the approval.
 
 Then, so you can explain what you see, read the inventory the same way:
 
@@ -963,7 +978,8 @@ the person who built the thing.
 | Command | What it gives you |
 | --- | --- |
 | `dex-lens reports --last` | The previous diagnosis, so this one can say what changed. Exits non-zero when there is none. |
-| `dex-lens diagnosis prepare --root <folder> --wait` | Starts a run and keeps the local consent surface running until approval. Reads nothing. |
+| `dex-lens diagnosis prepare --root <folder>` | Starts a run and names the exact folders. Reads nothing. |
+| `dex-lens diagnosis approve --run <id>` | Records their yes in this chat. Do not run it before they say yes. |
 | `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |
 | `dex-lens diagnosis advance --run <id>` | The next lawful step. Do not invent the next step yourself. |
 | `dex-lens diagnosis submit --run <id> --proposal <file>` | Optional specialist help. Evidence-referenced proposals only. They do not author counts. |

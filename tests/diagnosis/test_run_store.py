@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from tests.diagnosis.test_run import created_checkpoint, diagnosis_input
+from tests.diagnosis.test_run import approved_receipt, created_checkpoint, diagnosis_input
 
 from capability_exchange.catalogue.subscription import diagnosis_run_storage
 from capability_exchange.diagnosis.run import DiagnosisStage, DiagnosisStateError, advance_to
@@ -84,6 +84,22 @@ def test_list_resumable_skips_closed_and_orders_by_time(store: DiagnosisRunStore
 
     resumable = store.list_resumable()
     assert [item.run_id for item in resumable] == [earlier.run_id, later.run_id]
+
+
+def test_list_resumable_skips_candidate_and_scope_sidecars(store: DiagnosisRunStore) -> None:
+    saved = store.save(checkpoint(DiagnosisStage.CREATED))
+    store.save_candidate_scope(
+        saved.run_id,
+        candidate_roots=("/invented/vault",),
+        locators=("candidate:sha256:" + ("ab" * 32),),
+    )
+    store.save_scope_approval(
+        approved_receipt(),
+        approved_roots=("/invented/vault",),
+    )
+
+    resumable = store.list_resumable()
+    assert [item.run_id for item in resumable] == [saved.run_id]
 
 
 def test_diagnosis_run_storage_uses_app_state_outside_roots(

@@ -1,11 +1,11 @@
 """JSON command-line adapter for the deterministic diagnosis engine.
 
 This module is a shallow door. It parses arguments, calls an injected engine,
-and prints canonical JSON. It cannot issue or impersonate a scope-approval
-receipt. Collection and ``ScopeSnapshot.capture`` are not its job.
+and prints canonical JSON. Collection is not its job. Scope approval in the
+skill path is an explicit ``diagnosis approve`` after the person says yes
+in the same chat. The optional local page is not required.
 
 ``build_engine()`` is the injection point. Tests monkeypatch it with a fake.
-Task 8 wires the real ``DeterministicDiagnosisEngine``.
 """
 
 from __future__ import annotations
@@ -19,7 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from capability_exchange.diagnosis.run import DiagnosisRunView, DiagnosisStateError
+from capability_exchange.diagnosis.run import (
+    DiagnosisRunView,
+    DiagnosisStage,
+    DiagnosisStateError,
+)
 
 __all__ = [
     "DeterministicDiagnosisEngine",
@@ -67,22 +71,25 @@ class _BoundConsentSurface:
 
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
-_DIAGNOSIS_COMMANDS = frozenset({"prepare", "status", "advance", "submit", "result"})
+_DIAGNOSIS_COMMANDS = frozenset(
+    {"prepare", "approve", "status", "advance", "submit", "result"}
+)
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
 
 JSON goes to stdout. Refusals and human guidance go to stderr.
 
     dex-lens diagnosis prepare --root <folder> [--additional-root <folder>]
+    dex-lens diagnosis approve --run <id>
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
     dex-lens diagnosis submit --run <id> --proposal <json-file>
     dex-lens diagnosis result --run <id> --format json|markdown
 
-prepare records candidate folders and returns a run ID plus the local
-approval URL. It does not collect. Approval happens only in the existing
-local consent surface. This command cannot sign, send, install, repair,
-or modify the inspected system.
+prepare records candidate folders and returns a run ID. It does not collect.
+Approval happens in the same chat: show the person the exact folders, wait
+for a clear yes, then run approve. This command cannot sign, send, install,
+repair, or modify the inspected system.
 """
 
 
@@ -173,6 +180,7 @@ def start_or_reuse_consent_surface(
             "Approve the exact scope in the local consent surface:\n"
             f"{url}?token={token}",
             file=sys.stderr,
+            flush=True,
         )
     return url
 
@@ -194,6 +202,7 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         return 2
     handlers: dict[str, Callable[[list[str]], int]] = {
         "prepare": _prepare,
+        "approve": _approve,
         "status": _status,
         "advance": _advance,
         "submit": _submit,
@@ -237,10 +246,27 @@ def _existing_roots(paths: Sequence[Path]) -> tuple[Path, ...] | None:
     return resolved
 
 
+def _print_offered_folders(run_id: str, roots: tuple[Path, ...], *, approved: bool) -> None:
+    heading = (
+        "Approved. This diagnosis will look only at:"
+        if approved
+        else "This diagnosis will look only at:"
+    )
+    lines = [heading, *(f"  {root}" for root in roots)]
+    if not approved:
+        lines.extend(
+            (
+                "Nothing has been read. If that is the folder, say yes in this chat.",
+                f"Then run: dex-lens diagnosis approve --run {run_id}",
+            )
+        )
+    print("\n".join(lines), file=sys.stderr, flush=True)
+
+
 def _prepare(argv: list[str]) -> int:
     parser = _parser(
         "dex-lens diagnosis prepare",
-        "Record candidate folders and return the local approval action. Read nothing.",
+        "Record candidate folders and return the chat approval action. Read nothing.",
     )
     parser.add_argument(
         "--root",
@@ -256,26 +282,106 @@ def _prepare(argv: list[str]) -> int:
         help="Another candidate folder. May be repeated. Nothing is read yet.",
     )
     parser.add_argument(
+        "--consent-surface",
+        action="store_true",
+        help="Also start the optional local approval page. Not required in chat.",
+    )
+    parser.add_argument(
         "--wait",
         action="store_true",
-        help="Keep the local consent surface running until this run is approved.",
+        help="Keep the optional local page running until this run is approved.",
     )
     args = parser.parse_args(argv)
+    if args.wait and not args.consent_surface:
+        print(
+            "dex-lens: --wait is only for the optional local page. "
+            "In chat, run dex-lens diagnosis approve after they say yes.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
     roots = _existing_roots((args.root, *args.additional_root))
     if roots is None:
         return 2
     engine = build_engine()
     view = engine.prepare(PrepareDiagnosisRequest(roots=roots))
-    approval_url = start_or_reuse_consent_surface(
-        run_id=view.run_id,
-        roots=roots,
-        engine=engine,
-    )
-    if approval_url and view.approval_url is None:
-        view = view.model_copy(update={"approval_url": approval_url})
+    if args.consent_surface:
+        approval_url = start_or_reuse_consent_surface(
+            run_id=view.run_id,
+            roots=roots,
+            engine=engine,
+        )
+        if approval_url and view.approval_url is None:
+            view = view.model_copy(update={"approval_url": approval_url})
+    _print_offered_folders(view.run_id, roots, approved=False)
     _write_canonical_json(view.dump_for_storage())
     if args.wait:
         return _wait_for_approval(engine, view.run_id)
+    return 0
+
+
+def _approve(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis approve",
+        "Record the person's yes for the exact folders this run offered.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        action="append",
+        default=[],
+        help="Folder being approved. Repeat for each offered folder. Defaults to the prepared set.",
+    )
+    parser.add_argument(
+        "--additional-root",
+        type=Path,
+        action="append",
+        default=[],
+        help=argparse.SUPPRESS,
+    )
+    args = parser.parse_args(argv)
+    engine = build_engine()
+    store = getattr(engine, "run_store", None)
+    authority = getattr(engine, "consent_authority", None)
+    if store is None or authority is None:
+        print(
+            "dex-lens: this engine cannot record a chat scope approval.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+    engine.status(args.run)
+    offered = store.load_candidate_scope(args.run)
+    if offered is None:
+        print(
+            "dex-lens: unknown diagnosis run cannot be approved.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+    requested = tuple(args.root) + tuple(args.additional_root)
+    if requested:
+        roots = _existing_roots(requested)
+        if roots is None:
+            return 2
+    else:
+        roots = _existing_roots(tuple(Path(root) for root in offered.candidate_roots))
+        if roots is None:
+            return 2
+    from capability_exchange.concierge.consent import persist_offered_scope_approval
+
+    persist_offered_scope_approval(
+        authority,
+        store,
+        run_id=args.run,
+        roots=roots,
+    )
+    view = engine.status(args.run)
+    if view.stage is DiagnosisStage.CREATED:
+        view = engine.advance(args.run)
+    _print_offered_folders(args.run, roots, approved=True)
+    _write_canonical_json(view.dump_for_storage())
     return 0
 
 

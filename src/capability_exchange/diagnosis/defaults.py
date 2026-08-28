@@ -139,7 +139,9 @@ class ConsentBoundCollector:
     def collect(self, receipt: ApprovedScopeReceipt) -> EvidenceFingerprint:
         approval = self._runs.load_scope_approval(receipt.run_id)
         if approval is None:
-            raise DiagnosisStateError("approve the exact scope in the local consent surface")
+            raise DiagnosisStateError(
+                "approve the exact scope in this chat with dex-lens diagnosis approve"
+            )
         roots = tuple(Path(root) for root in approval.approved_roots)
         try:
             descriptors = default_source_descriptors(roots) if len(roots) > 1 else None

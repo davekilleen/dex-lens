@@ -9,7 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from capability_exchange.concierge.consent import LocalScopeConsentAuthority
+from capability_exchange.concierge.consent import (
+    LocalScopeConsentAuthority,
+    opaque_candidate_locator,
+)
 from capability_exchange.diagnosis.comparison import ComparisonLedger
 from capability_exchange.diagnosis.observations import EvidenceFingerprint
 from capability_exchange.diagnosis.report import (
@@ -184,8 +187,13 @@ class DeterministicDiagnosisEngine:
     def prepare(self, request: object) -> DiagnosisRunView:
         """Record candidate folders. Read nothing and do not collect."""
 
-        roots = tuple(Path(root) for root in request.roots)
+        roots = tuple(Path(root).expanduser().resolve() for root in request.roots)
         view = self._consent.prepare(candidate_roots=roots)
+        self._runs.save_candidate_scope(
+            view.run_id,
+            candidate_roots=tuple(str(root) for root in roots),
+            locators=tuple(opaque_candidate_locator(root) for root in roots),
+        )
         now = self._clock()
         run_identity = RunIdentity(
             run_id=view.run_id,
@@ -289,7 +297,9 @@ class DeterministicDiagnosisEngine:
         approval = self._runs.load_scope_approval(checkpoint.run_id)
         if approval is not None:
             return approval.receipt
-        raise DiagnosisStateError("approve the exact scope in the local consent surface")
+        raise DiagnosisStateError(
+            "approve the exact scope in this chat with dex-lens diagnosis approve"
+        )
 
     def _advance(
         self,

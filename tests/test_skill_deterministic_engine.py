@@ -51,6 +51,8 @@ def test_skill_names_the_engine_commands() -> None:
     text = SKILL.read_text(encoding="utf-8")
 
     assert "dex-lens diagnosis prepare" in text
+    assert "dex-lens diagnosis approve" in text
     assert "dex-lens diagnosis advance" in text
     assert "dex-lens diagnosis submit" in text
     assert "dex-lens diagnosis result" in text
+    assert "prepare --root <folder> --wait" not in text

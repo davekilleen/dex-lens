@@ -20,7 +20,15 @@ from capability_exchange.diagnosis.run import (
     canonical_json_digest,
 )
 
-__all__ = ["InMemoryConsentStore", "LocalScopeConsentAuthority"]
+__all__ = [
+    "CHAT_APPROVAL_SESSION_ID",
+    "InMemoryConsentStore",
+    "LocalScopeConsentAuthority",
+    "opaque_candidate_locator",
+    "persist_offered_scope_approval",
+]
+
+CHAT_APPROVAL_SESSION_ID = "cli-chat"
 
 
 def _utc_now() -> datetime:
@@ -108,6 +116,33 @@ class LocalScopeConsentAuthority:
         self._store.receipts[run_id] = receipt
         return receipt
 
+    def approve_offered_scope(
+        self,
+        *,
+        run_id: str,
+        scope_snapshot: ScopeSnapshot,
+        authenticated_session_id: str,
+        offered_locators: tuple[str, ...],
+    ) -> ApprovedScopeReceipt:
+        """Issue a receipt for folders the person just approved in chat."""
+
+        live = tuple(
+            opaque_candidate_locator(descriptor.canonical_root)
+            for descriptor in scope_snapshot.source_descriptors
+        )
+        if live != offered_locators:
+            raise DiagnosisStateError("offered folders do not match this run")
+        pending = self._store.pending.get(run_id)
+        if pending is None:
+            self._store.pending[run_id] = offered_locators
+        elif pending != offered_locators:
+            raise DiagnosisStateError("offered folders do not match this run")
+        return self.approve_from_local_session(
+            run_id=run_id,
+            scope_snapshot=scope_snapshot,
+            authenticated_session_id=authenticated_session_id,
+        )
+
     def view_for(self, run_id: str) -> DiagnosisRunView:
         receipt = self.receipt_for(run_id)
         if receipt is None:
@@ -127,3 +162,45 @@ class LocalScopeConsentAuthority:
                 {"engine_version": ENGINE_VERSION, "scope_digest": receipt.scope_digest}
             ),
         )
+
+
+def persist_offered_scope_approval(
+    authority: LocalScopeConsentAuthority,
+    run_store: object,
+    *,
+    run_id: str,
+    roots: tuple[Path, ...],
+    session_id: str = CHAT_APPROVAL_SESSION_ID,
+) -> ApprovedScopeReceipt:
+    """Record the same durable receipt the local /approve action would write."""
+
+    from capability_exchange.concierge.collection import (
+        ScopeSnapshot,
+        default_source_descriptors,
+    )
+
+    offered = getattr(run_store, "load_candidate_scope", lambda _run_id: None)(run_id)
+    if offered is None:
+        raise DiagnosisStateError("unknown diagnosis run cannot be approved")
+    locators = tuple(opaque_candidate_locator(root) for root in roots)
+    if locators != offered.locators:
+        raise DiagnosisStateError("offered folders do not match this run")
+    descriptors = default_source_descriptors(roots) if len(roots) > 1 else None
+    try:
+        snapshot = ScopeSnapshot.capture(roots, source_descriptors=descriptors)
+    except ValueError as exc:
+        raise DiagnosisStateError("approved root identity changed; start a new run") from exc
+    existing = getattr(run_store, "load_scope_approval", lambda _run_id: None)(run_id)
+    if existing is not None:
+        return existing.receipt
+    receipt = authority.approve_offered_scope(
+        run_id=run_id,
+        scope_snapshot=snapshot,
+        authenticated_session_id=session_id,
+        offered_locators=offered.locators,
+    )
+    persist = getattr(run_store, "save_scope_approval", None)
+    if not callable(persist):
+        raise DiagnosisStateError("diagnosis run store cannot persist scope approval")
+    persist(receipt, approved_roots=tuple(str(root) for root in roots))
+    return receipt

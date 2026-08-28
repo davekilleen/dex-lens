@@ -48,7 +48,7 @@ Local verification on this Cloud Agent VM, after the process-default engine:
   checklist is
   `docs/superpowers/plans/2026-08-27-dex-lens-diagnosis-engine-publication-checklist.md`.
 - Ruff: clean on `src` and `tests`.
-- Inventory: **774** fields; **148** stored with registered deletion paths;
+- Inventory: **777** fields; **151** stored with registered deletion paths;
   **1** transmitted through closed reviewed paths.
 - Privacy grep: no real `/Users/<name>`, `/home/<name>`, or session URL in
   product or replay artifacts. The invented canary

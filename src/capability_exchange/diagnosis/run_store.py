@@ -24,6 +24,7 @@ from capability_exchange.diagnosis.run import (
 __all__ = [
     "DiagnosisInputDrift",
     "DiagnosisRunStore",
+    "PersistedCandidateScope",
     "PersistedScopeApproval",
     "diagnosis_run_storage",
 ]
@@ -39,6 +40,14 @@ class PersistedScopeApproval(InventoriedModel):
     run_id: str = Field(pattern=r"^run:[a-z0-9]{16,64}$")
     approved_roots: tuple[str, ...] = Field(min_length=1)
     receipt: ApprovedScopeReceipt
+
+
+class PersistedCandidateScope(InventoriedModel):
+    """Offered folders for a prepared run, stored outside inspected roots."""
+
+    run_id: str = Field(pattern=r"^run:[a-z0-9]{16,64}$")
+    candidate_roots: tuple[str, ...] = Field(min_length=1)
+    locators: tuple[str, ...] = Field(min_length=1)
 
 
 def _checkpoint_name(run_id: str) -> str:
@@ -61,10 +70,14 @@ class DiagnosisRunStore:
         ):
             raise ValueError("diagnosis run storage must not be a symlink")
 
+    def _sidecar_path_for(self, run_id: str, suffix: str) -> Path:
+        return self._path_for(run_id).with_name(self._path_for(run_id).stem + suffix)
+
     def _approval_path_for(self, run_id: str) -> Path:
-        return self._path_for(run_id).with_name(
-            self._path_for(run_id).stem + ".scope.json"
-        )
+        return self._sidecar_path_for(run_id, ".scope.json")
+
+    def _candidate_path_for(self, run_id: str) -> Path:
+        return self._sidecar_path_for(run_id, ".candidate.json")
 
     def _write_atomic(self, path: Path, payload: str) -> None:
         self.storage.mkdir(parents=True, exist_ok=True)
@@ -116,6 +129,41 @@ class DiagnosisRunStore:
             return PersistedScopeApproval.model_validate(payload)
         except Exception as exc:
             raise DiagnosisStateError("stored scope approval is unreadable") from exc
+
+    def save_candidate_scope(
+        self,
+        run_id: str,
+        *,
+        candidate_roots: tuple[str, ...],
+        locators: tuple[str, ...],
+    ) -> PersistedCandidateScope:
+        if len(candidate_roots) != len(locators):
+            raise DiagnosisStateError("candidate roots and locators must be the same length")
+        offered = PersistedCandidateScope(
+            run_id=run_id,
+            candidate_roots=candidate_roots,
+            locators=locators,
+        )
+        self._write_atomic(
+            self._candidate_path_for(run_id),
+            json.dumps(
+                offered.model_dump(mode="json"),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        return offered
+
+    def load_candidate_scope(self, run_id: str) -> PersistedCandidateScope | None:
+        path = self._candidate_path_for(run_id)
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return PersistedCandidateScope.model_validate(payload)
+        except Exception as exc:
+            raise DiagnosisStateError("stored candidate scope is unreadable") from exc
 
     def _path_for(self, run_id: str) -> Path:
         path = (self.storage / _checkpoint_name(run_id)).resolve(strict=False)
@@ -169,7 +217,7 @@ class DiagnosisRunStore:
             return ()
         checkpoints: list[DiagnosisCheckpoint] = []
         for path in sorted(self.storage.glob("run-*.json")):
-            if path.name.endswith(".scope.json"):
+            if path.name.endswith((".scope.json", ".candidate.json")):
                 continue
             if path.is_symlink() or not path.is_file():
                 continue

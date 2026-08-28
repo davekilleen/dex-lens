@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from capability_exchange.diagnosis.run import (
     ENGINE_VERSION,
     INPUT_SCHEMA_VERSION,
+    NEXT_ACTION,
     NEXT_STAGE,
     ApprovedScopeReceipt,
     DiagnosisCheckpoint,
@@ -62,7 +63,7 @@ def created_checkpoint() -> DiagnosisCheckpoint:
         previous_digest=None,
         input_identity=diagnosis_input().identity_digest,
         artifact_digests=(),
-        next_action="Approve the exact scope in the local consent surface.",
+        next_action=NEXT_ACTION[DiagnosisStage.CREATED],
         engine_version=ENGINE_VERSION,
         created_at=NOW,
     )

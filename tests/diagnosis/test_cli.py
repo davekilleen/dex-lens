@@ -179,7 +179,9 @@ def test_status_prints_only_canonical_json(
 
 
 def test_prepare_reads_nothing_until_local_approval(engine_harness: EngineHarness) -> None:
-    prepared = engine_harness.cli(["prepare", "--root", str(engine_harness.root)])
+    prepared = engine_harness.cli(
+        ["prepare", "--root", str(engine_harness.root), "--consent-surface"]
+    )
     assert prepared.stage == "created"
     assert engine_harness.collector.calls == 0
     engine_harness.approve_in_local_browser(prepared.run_id)
@@ -233,20 +235,24 @@ def test_prepare_does_not_snapshot_or_collect(
         next_action=NEXT_ACTION[DiagnosisStage.CREATED],
     )
     monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(view))
+    started: list[object] = []
     monkeypatch.setattr(
-        cli, "start_or_reuse_consent_surface", lambda **kwargs: "http://127.0.0.1:9/"
+        cli,
+        "start_or_reuse_consent_surface",
+        lambda **kwargs: started.append(kwargs) or "http://127.0.0.1:9/",
     )
 
     assert diagnosis_main(["prepare", "--root", str(invented_root(tmp_path))]) == 0
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["run_id"] == RUN_ID
-    assert payload["approval_url"] == "http://127.0.0.1:9/"
+    assert payload["approval_url"] is None
     assert payload["stage"] == "created"
     assert captured == []
+    assert started == []
 
 
-def test_cli_has_no_approval_or_mutation_flags(
+def test_cli_has_no_mutation_flags_on_status(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW))
@@ -258,10 +264,53 @@ def test_cli_has_no_approval_or_mutation_flags(
         assert banned not in err
 
 
+def test_wait_without_consent_surface_fails_closed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert diagnosis_main(["prepare", "--root", str(invented_root(tmp_path)), "--wait"]) == 2
+    captured = capsys.readouterr()
+    assert "optional local page" in captured.err
+    assert captured.out == ""
+
+
 def test_unknown_diagnosis_command_fails_closed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert diagnosis_main(["invent"]) == 2
     captured = capsys.readouterr()
     assert "is not a dex-lens diagnosis command" in captured.err
+    assert "approve" in captured.err
     assert captured.out == ""
+
+
+def test_chat_approve_records_receipt_without_a_browser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    root = invented_root(tmp_path)
+    other = tmp_path / "other-vault"
+    other.mkdir()
+
+    assert diagnosis_main(["prepare", "--root", str(root)]) == 0
+    prepared = json.loads(capsys.readouterr().out)
+    run_id = prepared["run_id"]
+    assert prepared["approval_url"] is None
+    assert prepared["stage"] == "created"
+
+    assert diagnosis_main(["approve", "--run", run_id, "--root", str(other)]) == 2
+    refused = capsys.readouterr()
+    assert "do not match this run" in refused.err
+    assert refused.out == ""
+
+    assert diagnosis_main(["approve", "--run", run_id]) == 0
+    approved = json.loads(capsys.readouterr().out)
+    assert approved["run_id"] == run_id
+    assert approved["stage"] == "scope-approved"
+
+    assert diagnosis_main(["approve", "--run", run_id]) == 0
+    again = json.loads(capsys.readouterr().out)
+    assert again["stage"] == "scope-approved"
+
+    assert diagnosis_main(["status", "--run", run_id, "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["stage"] == "scope-approved"

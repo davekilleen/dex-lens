@@ -1821,6 +1821,42 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "same receipt as the in-memory consent store"
 
+  PersistedCandidateScope.run_id:
+    description: "run identity for folders offered at prepare, before any yes"
+    collection: "copied from the prepared diagnosis run"
+    derivation: "validated as a run-prefixed token"
+    display: "used to resume chat approval after the prepare process exits"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle only"
+
+  PersistedCandidateScope.candidate_roots:
+    description: "absolute offered-root paths retained only for later local approval"
+    collection: "recorded at prepare from the folders named in chat"
+    derivation: "tuple of absolute directory paths; never transmitted"
+    display: "shown on stderr at prepare so the person can say yes or no"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local approval resume only; not a public path"
+
+  PersistedCandidateScope.locators:
+    description: "opaque hashes of the offered roots, so approve can prove the same folders"
+    collection: "derived at prepare from the resolved offered paths"
+    derivation: "tuple of candidate:sha256 locators; no raw path on this field"
+    display: "not shown on CLI JSON or the MCP wire"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "binds later chat approval to the prepared offer"
+
   ApprovedScopeReceipt.run_id:
     description: "opaque identity of the diagnosis run whose scope was approved"
     collection: "assigned locally when prepare records candidate locators"
