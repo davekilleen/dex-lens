@@ -5,8 +5,11 @@ Last updated: 2026-08-28. Plain-language companion to
 
 ## First look is the default, 2026-08-28
 
-Product version on this line is **0.1.15**. Signed public latest remains
-`v0.1.14` until GitHub Release `v0.1.15` exists.
+The first-look skill fix is **live as signed Lens v0.1.15**. GitHub
+Release `v0.1.15` is latest (source commit `d009a8d`, run
+`33167244234`). The public one-line install serves
+`DEX_LENS_VERSION=0.1.15`. The repository `install.sh` was not
+hand-edited.
 
 Dave's first vault run after v0.1.14 still opened as a delta against
 yesterday's leftover report, even after "Ignore last report" and
@@ -319,7 +322,7 @@ M4–M6 and their final security remediation merged to `main` in PR #5 on
 2026-08-10 (`e139242`) after the Linux/macOS matrix, 1,291 local tests, lint,
 packaging and data-inventory verification were green on the exact candidate.
 
-Dex Lens is now released, but the pilot has not happened. Lens v0.1.14 is the
+Dex Lens is now released, but the pilot has not happened. Lens v0.1.15 is the
 signed public download for Apple Silicon Mac and Linux x86_64. Its release
 workflow built fixed offline bundles, signed the exact manifest, installed
 without administrator access, and passed clean consumer proofs on both
@@ -330,7 +333,7 @@ system to Dex's signed release catalogue — is built, merged, released, and
 proven live. The section-6 evidence pack (`docs/pilot/bridge-evidence.md`)
 preserves the earlier skills-only proof as history. The current signed
 catalogue is published by Core v1.97.2 at
-`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.14 accepts
+`https://heydex.ai/catalogue/dex-lens/v2.json`; released Lens v0.1.15 accepts
 all 115 entries across the four kinds described above. The privacy boundary is
 unchanged: a fresh install makes no catalogue request, while a person who asks
 for the Dex comparison receives the same public reference as everyone else.
