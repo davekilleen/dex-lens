@@ -75,3 +75,4 @@ def test_the_decisions_loop_is_closed() -> None:
     assert "What you decided" in phase_zero
     assert "Declined twice" in phase_zero
     assert "Taken" in phase_zero
+    assert "Only if they ask what has changed" in phase_zero

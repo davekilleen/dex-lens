@@ -30,7 +30,7 @@ __all__ = [
     "canonical_json_digest",
 ]
 
-ENGINE_VERSION = "0.1.14-diagnosis-engine"
+ENGINE_VERSION = "0.1.15-diagnosis-engine"
 INPUT_SCHEMA_VERSION = "1"
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")

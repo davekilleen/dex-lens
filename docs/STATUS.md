@@ -3,12 +3,27 @@
 Last updated: 2026-08-28. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
 
+## First look is the default, 2026-08-28
+
+Product version on this line is **0.1.15**. Signed public latest remains
+`v0.1.14` until GitHub Release `v0.1.15` exists.
+
+Dave's first vault run after v0.1.14 still opened as a delta against
+yesterday's leftover report, even after "Ignore last report" and
+"pretend it's your first time." That habit lived in the skill, not the
+browser path v0.1.14 fixed.
+
+What v0.1.15 changes: a first look is the default. "What Dex has that I
+don't" starts Phase 1 on the open folder. `dex-lens reports --last` runs
+only when they ask what changed. "Ignore last report", "first time", and
+"fresh eyes" win over a report sitting on disk.
+
 ## Deterministic diagnosis engine candidate, 2026-08-27
 
-The engine and chat-native approval are **live as signed Lens v0.1.14**.
-Dave approved publication on 2026-08-28. GitHub Release `v0.1.14` is
-latest (source commit `7aa1587`, run `33166503410`). The public
-one-line install serves `DEX_LENS_VERSION=0.1.14`. The repository
+The engine and chat-native approval first went **live as signed Lens
+v0.1.14**. Dave approved publication on 2026-08-28. GitHub Release
+`v0.1.14` is source commit `7aa1587`, run `33166503410`. The public
+one-line install then served `DEX_LENS_VERSION=0.1.14`. The repository
 `install.sh` was not hand-edited.
 
 What v0.1.14 adds: scope approval stays in the same chat

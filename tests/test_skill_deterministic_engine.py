@@ -56,3 +56,21 @@ def test_skill_names_the_engine_commands() -> None:
     assert "dex-lens diagnosis submit" in text
     assert "dex-lens diagnosis result" in text
     assert "prepare --root <folder> --wait" not in text
+
+
+def test_skill_treats_a_first_look_as_fresh_not_a_delta() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    phase_zero = text[text.index("## Phase 0") : text.index("## Phase 1")]
+
+    assert "A first look is the default" in phase_zero
+    assert "what Dex has that I don't" in phase_zero
+    assert "Do not open with `dex-lens reports --last`" in phase_zero
+    assert "Ignore last report" in phase_zero
+    assert "fresh eyes" in phase_zero
+    assert "do not read the last report" in phase_zero
+    assert "Do not ask which folder first" in phase_zero
+
+    opening, _, remainder = phase_zero.partition("```")
+    assert "dex-lens reports --last" not in opening
+    assert "Only if they ask what has changed" in opening
+    assert "dex-lens reports --last" in remainder

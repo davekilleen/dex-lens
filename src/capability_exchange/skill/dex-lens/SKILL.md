@@ -178,16 +178,31 @@ separate, explicitly approved flow. That work is not this diagnosis.
 
 ---
 
-## Phase 0: pick up where the last run left off
+## Phase 0: start the look they asked for
+
+A first look is the default. "Have a look at my setup", "what Dex has that I
+don't", "tell me what I'm missing" — those are first looks. Start Phase 1 on
+the folder you are already in. Do not ask which folder first.
+
+Do not open with `dex-lens reports --last`. Do not mention yesterday's
+report. Do not frame the job as "what has changed". A leftover report on
+this machine is not a request for a delta.
+
+If they say any of: Ignore last report, ignore the last report, pretend
+it's your first time, first time, fresh eyes, start over, do not compare —
+do not read the last report, do not mention it, and do not use it to bind
+Phases 5 and 6. That instruction wins over a report sitting on disk.
+
+Only if they ask what has changed, what is different since last time, or
+to compare with the last look, run:
 
 ```
 dex-lens reports --last
 ```
 
-If it prints a report, read it. Your job this run is not only "what is true"
-but "what has changed since then": findings they fixed, findings still
-standing, and anything new. Note the date of the previous report so you can
-say how long ago it was.
+Then your job is the delta: findings they fixed, findings still standing,
+and anything new. Note the date of the previous report so you can say how
+long ago it was.
 
 Read its **What you decided** section as carefully as the findings, and let
 it bind what you do in Phases 5 and 6:
@@ -206,13 +221,14 @@ it bind what you do in Phases 5 and 6:
   words that a third deferral will be treated as a no. A read-only tool that
   quietly counts non-answers is more assertive than it advertises.
 
-If the previous report is from the same day, say so and offer the short
-version first: a delta pass that checks what changed and answers their
-question, rather than a full restatement twenty minutes after the last one.
-Run the full diagnosis again only if they want it.
+If they asked for a delta and the previous report is from the same day, say
+so and offer the short version first: a pass that checks what changed and
+answers their question, rather than a full restatement twenty minutes after
+the last one. Run the full diagnosis again only if they want it.
 
-If it exits with "no report has been saved on this machine yet", this is the
-first run. Say so once, and skip the "since last time" section of the report.
+If that command exits with "no report has been saved on this machine yet",
+this is the first run. Say so once, and write the report's "since last
+look" section as a first look.
 
 ## Phase 1: read the system
 
@@ -706,7 +722,7 @@ publish. Ask `dex-lens diagnosis result` and speak that.
 The engine saves the report to Lens's own storage —
 `~/.local/state/dex-lens/reports/` — never inside the folder you inspected.
 Tell the person where the report was saved, in one line: they will want it
-next week, and the next run reads it to say what changed.
+next week. The next run reads it only if they ask what changed.
 
 The shape below is what a finished report looks like. It is not a form for
 you to fill with numbers you calculated. **Saving refuses a report that has not shown its work.** `dex-lens reports check` is how that refusal is
@@ -717,9 +733,12 @@ honest Unknown, pair any shortlist with the rejections, and show the
 contradiction hunt — either a conflict with both sides quoted, or the
 sentence saying you checked and found none. Hunting for contradictions is
 not optional; finding none is a real answer, and saying nothing is not.
-When a previous report exists for that label, it also requires a section
-accounting for it — a second look that silently repeats the first is how a
-person learns to stop reading them.
+When they asked for a delta and a previous report exists for that label, the
+save also requires a section accounting for it — a second look that silently
+repeats the first is how a person learns to stop reading them. When they
+asked for a first look, write that section as a first look even if an older
+report is on disk: "First look as requested. Previous reports on this
+machine were not used as the frame."
 
 ```
 dex-lens reports check /tmp/dex-lens-report.md
@@ -750,8 +769,11 @@ Nothing on this machine was changed. This is a read-only second opinion.
 - Fixed since then: <finding, and how you can tell>
 - Still standing: <finding>
 - New: <finding>
-(On a first look: "First look at this system, so there is nothing to compare
-with yet." Once a previous report exists this section is required, and
+(On a first look, including when they asked you to ignore the last report:
+"First look at this system, so there is nothing to compare with yet." Or,
+if an older report exists and they asked for a first look anyway: "First
+look as requested. Previous reports on this machine were not used as the
+frame." Only when they asked what changed is this section a delta, and
 "nothing has changed since then" is a complete answer.)
 
 ## What is working especially well
@@ -821,11 +843,12 @@ Why it matters: <which behaviour is now unpredictable>
 
 The **What you decided** section is what makes the next run a relationship
 rather than a rerun. Record every suggestion's fate in their own words:
-taken, declined, deferred. Next time, read it back before suggesting
+taken, declined, deferred. The next time they ask what changed, read it back before suggesting
 anything — a capability adopted last run should be checked ("you took
 backup-restore in March; it is in place and has run"), and one declined
 twice should stop being suggested unless something material changed. Being
-remembered accurately is most of what people mean by a good concierge.
+remembered accurately is most of what people mean by a good concierge. A
+first look they asked for does not reopen that ledger.
 
 Fill every section or say why it is empty. "No contradictions found" is a
 result. A missing section is not.
@@ -977,7 +1000,7 @@ the person who built the thing.
 
 | Command | What it gives you |
 | --- | --- |
-| `dex-lens reports --last` | The previous diagnosis, so this one can say what changed. Exits non-zero when there is none. |
+| `dex-lens reports --last` | The previous diagnosis. Use it only when they ask what changed. Exits non-zero when there is none. |
 | `dex-lens diagnosis prepare --root <folder>` | Starts a run and names the exact folders. Reads nothing. |
 | `dex-lens diagnosis approve --run <id>` | Records their yes in this chat. Do not run it before they say yes. |
 | `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |

@@ -1,7 +1,7 @@
 # Dex Lens diagnosis-engine publication checklist
 
-**Status:** Published. Signed Lens v0.1.14 is latest.
-**Public product:** signed Lens v0.1.14
+**Status:** Preparing signed Lens v0.1.15. Signed latest is still v0.1.14.
+**Public product:** signed Lens v0.1.14 until `v0.1.15` exists
 **Published commit:** `7aa1587318821a49743f53e3ee1fb766d0d5aadc`
 **Release run:** https://github.com/davekilleen/dex-lens/actions/runs/33166503410
 **GitHub Release:** https://github.com/davekilleen/dex-lens/releases/tag/v0.1.14
@@ -24,7 +24,10 @@ release workflow renders the public installer from the signed manifest.
 
 ## Remaining in this publication
 
-None.
+1. Land the first-look skill fix on `main` as product version `0.1.15`.
+2. Tag `v0.1.15` so the signed installer picks up the new skill.
+3. Confirm `releases/latest/download/install.sh` declares
+   `DEX_LENS_VERSION=0.1.15`.
 
 ## Still not done here
 
