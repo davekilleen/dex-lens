@@ -185,6 +185,7 @@ def _verify_result_digests(
         canonical_fact_block,
         canonical_ledger_appendix,
         canonical_ledger_digest,
+        canonical_ledger_payload,
         ledger_appendix_errors,
     )
 
@@ -203,11 +204,13 @@ def _verify_result_digests(
     if stored.get("ledger_sha256") != ledger_digest:
         raise ValueError("result JSON digest does not match the comparison ledger")
     payload = json.loads(ledger_json)
-    if payload.get("catalogue_sha256") != getattr(ledger, "catalogue_sha256", None):
-        raise ValueError("ledger JSON does not match the comparison ledger")
-    if stored.get("ledger") != payload:
-        raise ValueError("result JSON ledger does not match the comparison ledger")
-    if stored.get("ledger_appendix") != canonical_ledger_appendix(ledger):
+    canonical_payload = canonical_ledger_payload(ledger)
+    if payload != canonical_payload:
+        raise ValueError("ledger JSON is not the exact canonical comparison ledger")
+    if stored.get("ledger") != canonical_payload:
+        raise ValueError("result JSON is not bound to the exact canonical comparison ledger")
+    canonical_appendix = canonical_ledger_appendix(ledger)
+    if stored.get("ledger_appendix") != canonical_appendix:
         raise ValueError("result JSON appendix does not match the comparison ledger")
 
 

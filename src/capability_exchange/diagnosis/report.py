@@ -28,6 +28,7 @@ __all__ = [
     "canonical_fact_block",
     "canonical_ledger_appendix",
     "canonical_ledger_digest",
+    "canonical_ledger_payload",
     "ledger_appendix_errors",
     "ledger_derived_fact_errors",
 ]
@@ -47,7 +48,9 @@ _COVERAGE_CLAIM = re.compile(
 )
 
 
-def _canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
+def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
+    """Return the one stable structured payload used by digest and storage."""
+
     return {
         "catalogue_sha256": ledger.catalogue_sha256,
         "catalogue_version": ledger.catalogue_version,
@@ -72,6 +75,14 @@ def _canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             }
             for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
         ],
+        "mcp_tools_by_server": [
+            {
+                "server_id": item.server_id,
+                "server_name": item.server_name,
+                "tools": list(item.tools),
+            }
+            for item in sorted(ledger.mcp_tools_by_server, key=lambda item: item.server_id)
+        ],
         "local_entries": [
             {
                 "disposition": item.disposition.value,
@@ -82,7 +93,9 @@ def _canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
                 "mapped_capability_ids": list(item.mapped_capability_ids),
                 "mapped_catalogue_ids": list(item.mapped_catalogue_ids),
                 "observation_id": item.observation_id,
-                "operational_state": item.operational_state.value,
+                "configuration_state": item.configuration_state.value,
+                "runtime_state": item.runtime_state.value,
+                "health_state": item.health_state.value,
                 "reason": item.reason,
             }
             for item in sorted(ledger.local_entries, key=lambda item: item.observation_id)
@@ -95,7 +108,7 @@ def canonical_ledger_digest(ledger: ComparisonLedger) -> str:
     """Return a stable SHA-256 binding for one exact comparison ledger."""
 
     encoded = json.dumps(
-        _canonical_ledger_payload(ledger),
+        canonical_ledger_payload(ledger),
         ensure_ascii=True,
         separators=(",", ":"),
         sort_keys=True,
@@ -403,13 +416,23 @@ def _appendix_local_row(item: object) -> dict[str, object]:
         "observation_id": item.observation_id,
         "kind": item.kind.value,
         "identity": item.identity,
-        "operational_state": item.operational_state.value,
+        "configuration_state": item.configuration_state.value,
+        "runtime_state": item.runtime_state.value,
+        "health_state": item.health_state.value,
         "disposition": item.disposition.value,
         "mapped_catalogue_ids": list(item.mapped_catalogue_ids),
         "mapped_capability_ids": list(item.mapped_capability_ids),
         "evidence_references": list(item.evidence_references),
         "reason": item.reason,
         "limitation": item.limitation,
+    }
+
+
+def _appendix_mcp_tools(item: object) -> dict[str, object]:
+    return {
+        "server_id": item.server_id,
+        "server_name": item.server_name,
+        "tools": list(item.tools),
     }
 
 
@@ -434,6 +457,16 @@ def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
             sort_keys=True,
         )
         for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
+    )
+    lines.append("### Exact MCP tools by server")
+    lines.extend(
+        json.dumps(
+            {"row_type": "mcp-tools", **_appendix_mcp_tools(item)},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for item in sorted(ledger.mcp_tools_by_server, key=lambda item: item.server_id)
     )
     lines.append("### Local observations")
     lines.extend(

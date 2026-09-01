@@ -9,11 +9,15 @@ from typing import TYPE_CHECKING, Self
 from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
-from capability_exchange.catalogue.v2 import CatalogueV2
+from capability_exchange.catalogue.v2 import CatalogueV2, McpServerCapabilityEntryV2
 from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
     EvidenceFingerprint,
+    HealthState,
     ObservationKind,
     OperationalState,
+    RuntimeState,
+    migrate_stored_observation_payload,
     observation_id_for,
 )
 from capability_exchange.evidence.item import reference_rejection_reason
@@ -24,6 +28,7 @@ __all__ = [
     "Disposition",
     "HumanCapability",
     "LocalObservationDisposition",
+    "McpToolInventory",
 ]
 
 _ID_PATTERN = r"^[a-z0-9][a-z0-9._:-]{0,159}$"
@@ -119,6 +124,25 @@ class HumanCapability(InventoriedModel):
         return values
 
 
+class McpToolInventory(InventoriedModel):
+    """Every exact signed tool for one MCP server, kept in catalogue order."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    server_id: str = Field(pattern=_ID_PATTERN)
+    server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{1,80}$")
+    tools: tuple[str, ...] = Field(min_length=1, max_length=500)
+
+    @field_validator("tools")
+    @classmethod
+    def _tools_are_bounded_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("MCP tool inventory must not contain duplicates")
+        if any(re.fullmatch(r"^[a-z][a-z0-9_]{0,119}$", value) is None for value in values):
+            raise ValueError("MCP tool inventory contains an invalid tool identity")
+        return values
+
+
 class LocalObservationDisposition(InventoriedModel):
     """One explicit, source-bound disposition for a local observation.
 
@@ -129,10 +153,17 @@ class LocalObservationDisposition(InventoriedModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    def __init__(self, **data: object) -> None:
+        """Accept one legacy scalar at construction, but never persist it."""
+
+        super().__init__(**migrate_stored_observation_payload(data))
+
     observation_id: str = Field(pattern=_OBSERVATION_ID_PATTERN)
     kind: ObservationKind
     identity: str = Field(pattern=_ID_PATTERN)
-    operational_state: OperationalState
+    configuration_state: ConfigurationState
+    runtime_state: RuntimeState
+    health_state: HealthState
     disposition: Disposition = Disposition.NOT_ASSESSED
     mapped_catalogue_ids: tuple[str, ...] = ()
     mapped_capability_ids: tuple[str, ...] = ()
@@ -186,6 +217,27 @@ class LocalObservationDisposition(InventoriedModel):
         return self
 
     @property
+    def operational_state(self) -> OperationalState:
+        """Project the exact axes for old in-memory readers; never serialize it."""
+
+        runtime = {
+            RuntimeState.LOADED: OperationalState.LOADED,
+            RuntimeState.RECENTLY_RUN: OperationalState.RECENTLY_RUN,
+            RuntimeState.OUTCOME_VERIFIED: OperationalState.OUTCOME_VERIFIED,
+            RuntimeState.STALE: OperationalState.STALE,
+            RuntimeState.DISABLED: OperationalState.DISABLED,
+            RuntimeState.CONFLICTING: OperationalState.CONFLICTING,
+            RuntimeState.ABSENT: OperationalState.ABSENT,
+            RuntimeState.UNSUPPORTED: OperationalState.UNSUPPORTED,
+        }.get(self.runtime_state)
+        if runtime is not None:
+            return runtime
+        try:
+            return OperationalState(self.configuration_state.value)
+        except ValueError:
+            return OperationalState.NOT_ASSESSED
+
+    @property
     def status(self) -> OperationalState:
         """Compatibility alias for consumers that call operational state status."""
 
@@ -233,6 +285,7 @@ class ComparisonLedger(InventoriedModel):
     catalogue_sha256: str = Field(pattern=_HEX_SHA256_PATTERN)
     capabilities: tuple[HumanCapability, ...]
     entries: tuple[CatalogueDisposition, ...] = Field(min_length=1)
+    mcp_tools_by_server: tuple[McpToolInventory, ...] = ()
     local_entries: tuple[LocalObservationDisposition, ...] = ()
     reciprocal_answer: str = Field(min_length=1, max_length=1000)
 
@@ -259,6 +312,10 @@ class ComparisonLedger(InventoriedModel):
         capability_ids = [item.capability_id for item in self.capabilities]
         if len(capability_ids) != len(set(capability_ids)):
             raise ValueError("comparison ledger contains a duplicate human capability identity")
+        server_ids = [item.server_id for item in self.mcp_tools_by_server]
+        server_names = [item.server_name for item in self.mcp_tools_by_server]
+        if len(server_ids) != len(set(server_ids)) or len(server_names) != len(set(server_names)):
+            raise ValueError("comparison ledger contains a duplicate MCP server tool inventory")
         return self
 
     @classmethod
@@ -271,6 +328,7 @@ class ComparisonLedger(InventoriedModel):
         catalogue_sha256: str,
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
+        mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
@@ -289,6 +347,7 @@ class ComparisonLedger(InventoriedModel):
                 catalogue_sha256=catalogue_sha256,
                 capabilities=capabilities,
                 entries=entries,
+                mcp_tools_by_server=mcp_tools_by_server,
                 local_entries=local_entries,
                 reciprocal_answer=reciprocal_answer,
             )
@@ -326,11 +385,18 @@ class ComparisonLedger(InventoriedModel):
                 f"ledger entries reference unknown human capability IDs: {', '.join(unassigned)}",
                 unassigned,
             )
+        exact_mcp_tools = _mcp_tool_inventory(catalogue)
+        if mcp_tools_by_server is not None and tuple(mcp_tools_by_server) != exact_mcp_tools:
+            raise _model_validation_error(
+                "ledger MCP tool inventory must equal the exact verified catalogue inventory",
+                mcp_tools_by_server,
+            )
         return cls(
             catalogue_version=catalogue_version,
             catalogue_sha256=catalogue_sha256,
             capabilities=capabilities,
             entries=entries,
+            mcp_tools_by_server=exact_mcp_tools,
             local_entries=local_entries or (),
             reciprocal_answer=reciprocal_answer,
         )
@@ -345,6 +411,7 @@ class ComparisonLedger(InventoriedModel):
         catalogue_sha256: str,
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
+        mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
@@ -358,6 +425,7 @@ class ComparisonLedger(InventoriedModel):
             catalogue_sha256=catalogue_sha256,
             capabilities=capabilities,
             entries=entries,
+            mcp_tools_by_server=mcp_tools_by_server,
             reciprocal_answer=reciprocal_answer,
         )
         expected_observation_ids = tuple(
@@ -385,7 +453,9 @@ class ComparisonLedger(InventoriedModel):
             if (
                 entry.kind is not observation.kind
                 or entry.identity != observation.identity
-                or entry.operational_state is not observation.operational_state
+                or entry.configuration_state is not observation.configuration_state
+                or entry.runtime_state is not observation.runtime_state
+                or entry.health_state is not observation.health_state
             ):
                 raise _model_validation_error(
                     "local ledger observation facts must match the fingerprint",
@@ -424,6 +494,7 @@ class ComparisonLedger(InventoriedModel):
             catalogue_sha256=base.catalogue_sha256,
             capabilities=base.capabilities,
             entries=base.entries,
+            mcp_tools_by_server=base.mcp_tools_by_server,
             local_entries=supplied,
             reciprocal_answer=base.reciprocal_answer,
         )
@@ -446,11 +517,28 @@ def _seed_local_entries(
             observation_id=observation_id_for(observation),
             kind=observation.kind,
             identity=observation.identity,
-            operational_state=observation.operational_state,
+            configuration_state=observation.configuration_state,
+            runtime_state=observation.runtime_state,
+            health_state=observation.health_state,
             disposition=Disposition.NOT_ASSESSED,
             evidence_references=(observation.evidence.reference,),
             reason=_NO_LOCAL_PROPOSAL,
             limitation=_NO_LOCAL_PROPOSAL,
         )
         for observation in fingerprint.observations
+    )
+
+
+def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
+    """Copy only complete signed MCP tool inventories into stable server groups."""
+
+    return tuple(
+        McpToolInventory(
+            server_id=entry.capability_id,
+            server_name=entry.server_name,
+            tools=entry.tools,
+        )
+        for entry in sorted(catalogue.capabilities, key=lambda item: item.capability_id)
+        if isinstance(entry, McpServerCapabilityEntryV2)
+        and entry.tool_inventory == "complete"
     )

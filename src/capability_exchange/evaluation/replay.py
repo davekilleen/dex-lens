@@ -33,7 +33,10 @@ from capability_exchange.diagnosis.mcp_server import (
     build_mcp_server,
     canonical_result_bytes,
 )
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    migrate_stored_fingerprint_payload,
+)
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     DiagnosisResult,
@@ -324,10 +327,34 @@ class ReplayHarness:
             raise DiagnosisStateError("hostile count mutation")
         if ledger.catalogue_sha256 != self.bundle.ledger.catalogue_sha256:
             raise DiagnosisStateError("hostile catalogue hash mutation")
+        expected_local = {
+            item.observation_id: (
+                item.kind,
+                item.identity,
+                item.configuration_state,
+                item.runtime_state,
+                item.health_state,
+            )
+            for item in self.bundle.ledger.local_entries
+        }
+        actual_local = {
+            item.observation_id: (
+                item.kind,
+                item.identity,
+                item.configuration_state,
+                item.runtime_state,
+                item.health_state,
+            )
+            for item in ledger.local_entries
+        }
+        if actual_local != expected_local:
+            raise DiagnosisStateError("hostile local axes mutation")
+        if ledger.mcp_tools_by_server != self.bundle.ledger.mcp_tools_by_server:
+            raise DiagnosisStateError("hostile tool appendix mutation")
         allowed_refs = _evidence_references(self.bundle.fingerprint, self.bundle.ledger)
         actual_refs = {
             reference
-            for item in ledger.entries
+            for item in (*ledger.entries, *ledger.local_entries)
             for reference in item.evidence_references
         }
         if not actual_refs.issubset(allowed_refs):
@@ -353,7 +380,11 @@ class ReplayHarness:
         payload = self._artifact_payload(checkpoint, "fingerprint")
         if payload is None:
             return self.bundle.fingerprint
-        return EvidenceFingerprint.model_validate(payload)
+        try:
+            migrated = migrate_stored_fingerprint_payload(payload)
+            return EvidenceFingerprint.model_validate(migrated)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored replay fingerprint is unreadable") from exc
 
 
 def canonical_replay_bytes(result: DiagnosisResult) -> bytes:

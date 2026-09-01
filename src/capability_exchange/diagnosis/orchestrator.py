@@ -23,6 +23,7 @@ from capability_exchange.diagnosis.report import (
     canonical_fact_block,
     canonical_ledger_appendix,
     canonical_ledger_digest,
+    canonical_ledger_payload,
     ledger_appendix_errors,
 )
 from capability_exchange.diagnosis.run import (
@@ -114,7 +115,7 @@ class DiagnosisResult:
 
     def dump_for_storage(self) -> dict[str, object]:
         return {
-            "ledger": self.ledger.model_dump(mode="json"),
+            "ledger": canonical_ledger_payload(self.ledger),
             "ledger_appendix": canonical_ledger_appendix(self.ledger),
             "ledger_sha256": self.report.ledger_sha256,
             "report": self.report.model_dump(mode="json"),
@@ -127,7 +128,7 @@ class DiagnosisResult:
 
     def ledger_json(self) -> str:
         return json.dumps(
-            self.ledger.model_dump(mode="json"),
+            canonical_ledger_payload(self.ledger),
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,

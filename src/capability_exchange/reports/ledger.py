@@ -52,6 +52,10 @@ def load_and_validate_ledger(
             catalogue_sha256=ledger.catalogue_sha256,
             capabilities=ledger.capabilities,
             entries=ledger.entries,
+            mcp_tools_by_server=(
+                ledger.mcp_tools_by_server if "mcp_tools_by_server" in payload else None
+            ),
+            local_entries=ledger.local_entries,
             reciprocal_answer=ledger.reciprocal_answer,
         )
     except ValidationError as exc:

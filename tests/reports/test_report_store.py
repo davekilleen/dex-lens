@@ -7,6 +7,7 @@ and never lose or silently replace a report that was already written.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -261,3 +262,48 @@ class TestSaveResult:
     ) -> None:
         with pytest.raises(ValueError, match="typed result"):
             store.save_result("# Invented prose\n")
+
+    def test_it_refuses_a_self_consistent_noncanonical_ledger_payload(
+        self, store: LensReportStore
+    ) -> None:
+        from tests.diagnosis.test_report_model import run_identity
+        from tests.evals.real_session_fixture import real_session_ledger
+
+        from capability_exchange.diagnosis.orchestrator import DiagnosisResult
+        from capability_exchange.diagnosis.report import (
+            ReportModel,
+            canonical_ledger_digest,
+        )
+
+        ledger = real_session_ledger()
+        result = DiagnosisResult(
+            report=ReportModel.from_result(
+                run_identity=run_identity(),
+                ledger=ledger,
+                ledger_sha256=canonical_ledger_digest(ledger),
+            ),
+            ledger=ledger,
+        )
+        forged_ledger = ledger.model_dump(mode="json")
+        forged_ledger["reciprocal_answer"] = "A mutually consistent forged answer."
+        forged_result = result.dump_for_storage()
+        forged_result["ledger"] = forged_ledger
+
+        class ForgedStorageView:
+            report = result.report
+            ledger = result.ledger
+
+            @staticmethod
+            def render_markdown() -> str:
+                return result.render_markdown()
+
+            @staticmethod
+            def ledger_json() -> str:
+                return json.dumps(forged_ledger)
+
+            @staticmethod
+            def dump_for_storage() -> dict[str, object]:
+                return forged_result
+
+        with pytest.raises(ValueError, match="canonical comparison ledger"):
+            store.save_result(ForgedStorageView(), label="vault", now=NOW)

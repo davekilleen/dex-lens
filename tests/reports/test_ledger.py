@@ -10,6 +10,11 @@ from tests.catalogue.test_v2_verifier import NOW, sign_envelope, unsigned_envelo
 
 from capability_exchange.catalogue.agent import render_catalogue_ledger_template
 from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
+from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
+    HealthState,
+    RuntimeState,
+)
 from capability_exchange.reports import cli
 from capability_exchange.reports.ledger import load_and_validate_ledger
 
@@ -64,6 +69,37 @@ def test_ledger_missing_one_catalogue_entry_is_refused(tmp_path: Path) -> None:
 
     assert ledger is None
     assert any("ledger" in problem.lower() for problem in problems)
+
+
+def test_revalidation_preserves_stored_local_rows(tmp_path: Path) -> None:
+    verified = _verified_catalogue()
+    payload = json.loads(render_catalogue_ledger_template(verified))
+    payload["local_entries"] = [
+        {
+            "observation_id": "observation:sha256:" + "a" * 64,
+            "kind": "skill",
+            "identity": "invented-local-skill",
+            "configuration_state": ConfigurationState.IMPLEMENTED.value,
+            "runtime_state": RuntimeState.RECENTLY_RUN.value,
+            "health_state": HealthState.BROKEN.value,
+            "disposition": "not-assessed",
+            "mapped_catalogue_ids": [],
+            "mapped_capability_ids": [],
+            "evidence_references": [],
+            "reason": "Not assessed.",
+            "limitation": "No local comparison was made.",
+        }
+    ]
+    path = tmp_path / "ledger.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    ledger, problems = load_and_validate_ledger(path, verified)
+
+    assert problems == []
+    assert ledger is not None
+    assert len(ledger.local_entries) == 1
+    assert ledger.local_entries[0].runtime_state is RuntimeState.RECENTLY_RUN
+    assert ledger.local_entries[0].health_state is HealthState.BROKEN
 
 
 def test_report_command_requires_a_ledger() -> None:
