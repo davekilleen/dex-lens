@@ -849,6 +849,7 @@ class CatalogueV2(InventoriedModel):
         self, family: CapabilityFamilyV2, canonical_ids: set[str]
     ) -> None:
         """Validate component references against this catalogue's leaf truth."""
+        family_members = set(family.member_capability_ids)
         mcp_by_id: dict[str, McpServerCapabilityEntryV2] = {}
         for entry in self.capabilities:
             if isinstance(entry, McpServerCapabilityEntryV2):
@@ -862,12 +863,22 @@ class CatalogueV2(InventoriedModel):
                         f"capability family {family.family_id!r} component references "
                         f"unknown capability {component.capability_id!r}"
                     )
+                if component.capability_id not in family_members:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"non-member capability {component.capability_id!r}"
+                    )
             elif isinstance(component, McpToolReferenceV2):
                 server = mcp_by_id.get(component.server_id)
                 if server is None:
                     raise ValueError(
                         f"capability family {family.family_id!r} component references "
                         f"unknown MCP server {component.server_id!r}"
+                    )
+                if server.capability_id not in family_members:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"tool on non-member MCP server {server.capability_id!r}"
                     )
                 if server.tool_inventory != "complete":
                     raise ValueError(

@@ -246,6 +246,40 @@ def test_family_cross_references_and_typed_components_are_closed() -> None:
         )
 
 
+def test_family_components_must_reference_the_same_family_members() -> None:
+    second_mcp = _mcp()
+    second_mcp["capability_id"] = "dex-career-mcp"
+    second_mcp["server_name"] = "dex-career"
+
+    foreign_capability = _family()
+    foreign_capability["components"] = [
+        {"component_type": "capability", "capability_id": "dex-career-mcp"}
+    ]
+    with pytest.raises(ValidationError, match="non-member capability"):
+        CatalogueV2.model_validate(
+            _catalogue(
+                capabilities=[_mcp(), second_mcp],
+                families=[foreign_capability],
+            )
+        )
+
+    foreign_tool = _family()
+    foreign_tool["components"] = [
+        {
+            "component_type": "mcp-tool",
+            "server_id": "dex-career",
+            "tool_name": "list_tasks",
+        }
+    ]
+    with pytest.raises(ValidationError, match="non-member MCP server"):
+        CatalogueV2.model_validate(
+            _catalogue(
+                capabilities=[_mcp(), second_mcp],
+                families=[foreign_tool],
+            )
+        )
+
+
 def test_family_aliases_members_components_and_assessment_reject_duplicates_or_extras() -> None:
     with pytest.raises(ValidationError, match="duplicate"):
         CatalogueV2.model_validate(_catalogue(families=[_family(aliases=["same", "same"])]))
