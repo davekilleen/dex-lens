@@ -34,6 +34,7 @@ __all__ = [
     "MCP_CONFIG_BASENAMES",
     "RELEASE_BASENAMES",
     "claude_code_contract",
+    "is_mcp_manifest_path",
 ]
 
 CLAUDE_CODE_ADAPTER_ID = "claude-code-local"
@@ -61,13 +62,35 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
 )
 
 MCP_CONFIG_BASENAMES: frozenset[str] = frozenset(
-    {".mcp.json", "mcp.json", "settings.json", ".claude.json", "config.toml"}
+    {
+        ".mcp.json",
+        "mcp.json",
+        "mcp-servers.json",
+        "settings.json",
+        ".claude.json",
+        "config.toml",
+    }
 )
 AUTOMATION_SUFFIXES: frozenset[str] = frozenset({".plist", ".cron", ".service", ".timer"})
 INTEGRATION_BASENAMES: frozenset[str] = frozenset(
     {"registry.json", "config.yaml", "config.yml"}
 )
 RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", "VERSION", ".dex-version"})
+
+
+def is_mcp_manifest_path(relative_path: str) -> bool:
+    """Recognise reviewed Claude MCP manifest shapes without widening scope."""
+
+    parts = tuple(part.lower() for part in relative_path.replace("\\", "/").split("/") if part)
+    if not parts:
+        return False
+    if parts[-1] in MCP_CONFIG_BASENAMES:
+        return True
+    return (
+        len(parts) >= 3
+        and parts[-3:-1] == (".claude", "mcp")
+        and parts[-1].endswith(".json")
+    )
 
 #: File names the diagnosis reads: the probes' inputs plus the instruction
 #: files of the other assistants a real system is built with.

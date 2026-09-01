@@ -14,7 +14,11 @@ from capability_exchange.adapters.claude_code.discovery import discover_fingerpr
 from capability_exchange.adapters.claude_code.live_state import LiveState
 from capability_exchange.adapters.claude_code.snapshot import InspectionSnapshot, take_snapshot
 from capability_exchange.concierge.collection import ScopeSnapshot
-from capability_exchange.diagnosis.observations import ObservationKind, OperationalState
+from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
+    ObservationKind,
+    OperationalState,
+)
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
 
@@ -139,6 +143,57 @@ def test_mcp_and_hook_discovery_never_retains_secret_values(tmp_path: Path) -> N
     assert canary not in rendered
     assert "API_TOKEN" not in rendered
     assert "--token" not in rendered
+
+
+def test_discovers_per_server_and_direct_map_mcp_manifests_without_secrets(
+    tmp_path: Path,
+) -> None:
+    canary = "DEX_LENS_MCP_MANIFEST_CANARY"
+    root = tmp_path / "manifest-system"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/mcp/career.json",
+        json.dumps(
+            {
+                "name": "career",
+                "description": "Career evidence tools",
+                "server": {
+                    "command": "python",
+                    "args": ["private-server.py"],
+                    "env": {"API_TOKEN": canary},
+                },
+            }
+        ),
+    )
+    _write(
+        root,
+        ".claude/mcp-servers.json",
+        json.dumps(
+            {
+                "dev-browser": {
+                    "command": "browser-runner",
+                    "args": ["--credential", canary],
+                }
+            }
+        ),
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    servers = {
+        item.identity: item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.MCP_SERVER
+    }
+
+    assert set(servers) == {"career", "dev-browser"}
+    assert all(
+        item.configuration_state is ConfigurationState.DECLARED
+        for item in servers.values()
+    )
+    rendered = fingerprint.model_dump_json()
+    assert canary not in rendered
+    assert "private-server.py" not in rendered
 
 
 def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:

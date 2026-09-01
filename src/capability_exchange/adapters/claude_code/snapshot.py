@@ -44,7 +44,10 @@ from capability_exchange.adapters.claude_code.allowlist import (
     PathDecision,
     PathVerdict,
 )
-from capability_exchange.adapters.claude_code.contract import CLAUDE_CODE_DIAGNOSTIC_BASENAMES
+from capability_exchange.adapters.claude_code.contract import (
+    CLAUDE_CODE_DIAGNOSTIC_BASENAMES,
+    is_mcp_manifest_path,
+)
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
 from capability_exchange.boundary.approved_roots import reject_overlapping_roots
 from capability_exchange.diagnosis.provenance import (
@@ -415,7 +418,11 @@ def _diagnostic_files_first(admitted: Sequence[PathDecision]) -> list[PathDecisi
         admitted,
         key=lambda decision: (
             0
-            if os.path.basename(decision.relative_path or "") in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
+            if (
+                os.path.basename(decision.relative_path or "")
+                in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
+                or is_mcp_manifest_path(decision.relative_path or "")
+            )
             else 1
         ),
     )

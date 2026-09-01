@@ -290,6 +290,19 @@ class TestBoundedCollection:
         assert captured == ["SKILL.md"]
         assert not snapshot.complete
 
+    def test_per_server_mcp_manifest_is_prioritised_before_the_bound(self, tmp_path: Path) -> None:
+        root = tmp_path / "vault"
+        manifest = root / ".claude" / "mcp" / "career.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"name":"career","server":{"command":"python"}}')
+        for index in range(20):
+            (root / f"aaa-filler-{index:02d}.txt").write_text("x")
+
+        snapshot = snapshot_of(root, bounds=CollectionBounds(max_file_count=1))
+
+        assert [Path(path).name for path in snapshot.canonical_paths()] == ["career.json"]
+        assert not snapshot.complete
+
     def test_capture_order_is_stable_across_runs(self, claude_root: Path) -> None:
         """Two runs over an unchanged tree must capture the same files."""
         bounds = CollectionBounds(max_file_count=3)

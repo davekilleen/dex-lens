@@ -21,6 +21,7 @@ from capability_exchange.adapters.claude_code.contract import (
     INTEGRATION_BASENAMES,
     MCP_CONFIG_BASENAMES,
     RELEASE_BASENAMES,
+    is_mcp_manifest_path,
 )
 from capability_exchange.adapters.claude_code.snapshot import (
     InspectionSnapshot,
@@ -260,24 +261,45 @@ def _mcp_observations(
 ) -> tuple[Observation, ...]:
     observations: list[Observation] = []
     for entry in _all_entries(snapshot):
-        if Path(entry.relative_path).name not in MCP_CONFIG_BASENAMES:
+        if not is_mcp_manifest_path(entry.relative_path):
             continue
         for document in _documents(entry):
-            for servers in _mapping_values_for_key(document, frozenset({"mcpservers"})):
-                for raw_name, config in servers.items():
-                    name = _label(str(raw_name))
-                    observations.append(
-                        _entry_observation(
-                            entry,
-                            collected_at,
-                            kind=ObservationKind.MCP_SERVER,
-                            identity=name,
-                            label=name,
-                            configuration_state=ConfigurationState.DECLARED,
-                            attributes=_attributes(_attribute("transport", _mcp_transport(config))),
-                        )
+            for raw_name, config in _mcp_server_records(entry, document):
+                name = _label(str(raw_name))
+                observations.append(
+                    _entry_observation(
+                        entry,
+                        collected_at,
+                        kind=ObservationKind.MCP_SERVER,
+                        identity=name,
+                        label=name,
+                        configuration_state=ConfigurationState.DECLARED,
+                        attributes=_attributes(_attribute("transport", _mcp_transport(config))),
                     )
+                )
     return tuple(observations)
+
+
+def _mcp_server_records(
+    entry: SnapshotEntry,
+    document: object,
+) -> tuple[tuple[object, object], ...]:
+    """Return server name/config pairs from closed, secret-safe manifest shapes."""
+
+    if not isinstance(document, Mapping):
+        return ()
+    relative = entry.relative_path.replace("\\", "/").lower()
+    if "/.claude/mcp/" in f"/{relative}" and relative.endswith(".json"):
+        raw_name = document.get("name")
+        name = raw_name if isinstance(raw_name, str) and raw_name.strip() else Path(relative).stem
+        config = document.get("server")
+        return ((name, config),) if isinstance(config, Mapping) else ()
+    if Path(relative).name == "mcp-servers.json":
+        return tuple(document.items())
+    records: list[tuple[object, object]] = []
+    for servers in _mapping_values_for_key(document, frozenset({"mcpservers"})):
+        records.extend(servers.items())
+    return tuple(records)
 
 
 def _action_count(value: object) -> int:
@@ -655,7 +677,7 @@ def _render_limits(
     unreadable_configs = sum(
         1
         for entry in _all_entries(snapshot)
-        if Path(entry.relative_path).name in MCP_CONFIG_BASENAMES and not _documents(entry)
+        if is_mcp_manifest_path(entry.relative_path) and not _documents(entry)
     )
     if unreadable_configs:
         noun = "file" if unreadable_configs == 1 else "files"
