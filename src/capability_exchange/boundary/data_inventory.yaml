@@ -1075,6 +1075,186 @@ fields:
     deletion: not-stored
     audit: "ephemeral local explanation"
 
+  FamilyComponentEvidence.component_reference:
+    description: "exact typed identity of one signed capability-family component"
+    collection: "copied locally from the signature-verified family contract"
+    derivation: "closed capability, MCP tool, provider, or source-component reference"
+    display: "anchors a component match in the complete family ledger appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  FamilyComponentEvidence.observation_ids:
+    description: "exact local observation identities supporting one family component match"
+    collection: "copied from deterministic family assessment results"
+    derivation: "non-empty unique canonical observation identities"
+    display: "links a family component to bounded local evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral opaque identities; no raw local content"
+
+  FamilyComponentEvidence.evidence_references:
+    description: "bounded non-raw evidence references supporting one family component match"
+    collection: "copied from matched local observations"
+    derivation: "validated as non-empty unique safe references"
+    display: "supports the family match without exposing content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local evidence references"
+
+  FamilyComponentEvidence.match_bases:
+    description: "closed deterministic reasons an observation matches the signed component"
+    collection: "assigned by the reviewed significant-family assessor"
+    derivation: "non-empty unique ComponentMatchBasis values"
+    display: "explains whether identity, alias, tool, provider, or source evidence matched"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic assessment facts"
+
+  FamilyComponentEvidence.method_equivalent:
+    description: "constant false guard preventing identity overlap from claiming method equivalence"
+    collection: "assigned locally as false for every deterministic family component match"
+    derivation: "Literal false; true is unrepresentable"
+    display: "keeps the evidence limitation explicit in the family appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral fail-closed comparison guard"
+
+  FamilyLedgerEntry.family_id:
+    description: "exact signed significant capability-family identity"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "validated against the complete signed family identity set"
+    display: "identifies the significant outcome in coverage and the appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  FamilyLedgerEntry.title:
+    description: "signed plain-language title for one significant capability family"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "must remain byte-equal to signed family truth"
+    display: "labels one significant outcome in the human-readable report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue prose"
+
+  FamilyLedgerEntry.outcome:
+    description: "signed outcome description for one significant capability family"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "must remain byte-equal to signed family truth"
+    display: "explains the family outcome without inventing a local result"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue prose"
+
+  FamilyLedgerEntry.signed_availability:
+    description: "family availability derived only from signed member leaf states"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "closed available, partial, or unavailable FamilyAvailability"
+    display: "separates release availability from local evidence overlap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic release fact"
+
+  FamilyLedgerEntry.available_member_ids:
+    description: "signed family members whose canonical leaf availability is active"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact ordered subset of signed family member identities"
+    display: "supports family release-availability explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.unavailable_member_ids:
+    description: "signed family members whose canonical leaf availability is not active"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact ordered complement of available family members"
+    display: "keeps unavailable release members distinct from unknown local evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.recommendable_member_ids:
+    description: "active signed family members eligible for later leaf-level consideration"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact canonical recommendable subset; dormant and parked leaves excluded"
+    display: "supports recommendation eligibility without creating extra recommendations"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.matched_components:
+    description: "exact signed family components with evidence-bound local matches"
+    collection: "assembled from deterministic significant-family assessment"
+    derivation: "unique tuple of FamilyComponentEvidence records"
+    display: "shows which family building blocks have exact local evidence overlap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-bound assessment structure"
+
+  FamilyLedgerEntry.matched_observation_ids:
+    description: "deduplicated exact observations supporting all matched family components"
+    collection: "calculated from matched component evidence rows"
+    derivation: "must equal the sorted union of component observation identities"
+    display: "supports transparent overlap and strength counts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral opaque local identities"
+
+  FamilyLedgerEntry.unresolved_components:
+    description: "signed family components for which no exact local evidence match was found"
+    collection: "calculated by deterministic assessment over the approved fingerprint"
+    derivation: "exact unique complement of matched signed components"
+    display: "shown as Unknown rather than absent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-limit facts"
+
+  FamilyLedgerEntry.evidence_references:
+    description: "deduplicated bounded references supporting all matched family components"
+    collection: "calculated from matched component evidence rows"
+    derivation: "must equal the sorted union of component evidence references"
+    display: "grounds family overlap without exposing raw content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local evidence references"
+
+  FamilyLedgerEntry.disposition:
+    description: "closed deterministic local-evidence disposition for one signed family"
+    collection: "assigned by the significant-family assessor"
+    derivation: "closed not-assessed, unresolved, overlap, or not-recommendable state"
+    display: "summarises exact local overlap without claiming equivalence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic assessment result"
+
+  FamilyLedgerEntry.reason:
+    description: "bounded one-line explanation for the family disposition"
+    collection: "authored by the deterministic assessor from closed state"
+    derivation: "bounded safe single-line text"
+    display: "explains the evidence boundary of the family result"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic explanation"
+
   HumanCapability.capability_id:
     description: "stable local identity of one human-meaningful capability"
     collection: "assigned locally while grouping related system observations"
@@ -1184,6 +1364,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral public catalogue release facts"
+
+  ComparisonLedger.family_entries:
+    description: "one exact evidence-bound durable row for every signed capability family"
+    collection: "assembled locally from the verified family contract and approved fingerprint"
+    derivation: "validated for exact family identity, signed truth, component coverage, and evidence aggregates"
+    display: "drives significant-family coverage, strengths, reciprocal value, and the complete appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral complete family ledger; canonical report storage binds every row by digest"
 
   McpToolInventory.server_id:
     description: "signed catalogue capability identity for one MCP server tool group"

@@ -28,8 +28,10 @@ from capability_exchange.diagnosis.comparison import (
     CatalogueDisposition,
     ComparisonLedger,
     Disposition,
+    FamilyLedgerEntry,
     HumanCapability,
     LocalObservationDisposition,
+    family_entries_from_assessments,
 )
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
@@ -42,6 +44,7 @@ from capability_exchange.diagnosis.orchestrator import (
 )
 from capability_exchange.diagnosis.run import ApprovedScopeReceipt, DiagnosisStateError
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
+from capability_exchange.diagnosis.significant_families import assess_significant_families
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
     ProposalKind,
@@ -60,6 +63,49 @@ __all__ = [
 ]
 
 _NO_PROPOSAL = "No specialist proposal cleared the evidence bar."
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _reciprocal_answer(
+    fingerprint: EvidenceFingerprint,
+    family_entries: tuple[FamilyLedgerEntry, ...],
+) -> str:
+    matched_observation_ids = {
+        observation_id
+        for family in family_entries
+        for observation_id in family.matched_observation_ids
+    }
+    matched_components = sum(len(family.matched_components) for family in family_entries)
+    matched_families = sum(bool(family.matched_components) for family in family_entries)
+    if matched_observation_ids:
+        kind_count = len(
+            {
+                observation.kind
+                for observation in fingerprint.observations
+                if observation_id_for(observation) in matched_observation_ids
+            }
+        )
+        building_count = len(matched_observation_ids)
+        return (
+            f"Your approved snapshot demonstrates {building_count} evidence-backed local "
+            f"{_plural(building_count, 'building block')} across {kind_count} "
+            f"{_plural(kind_count, 'capability type')}, with {matched_components} exact "
+            f"signed {_plural(matched_components, 'component overlap')} across "
+            f"{matched_families} Dex outcome {_plural(matched_families, 'family', 'families')}. "
+            "Dex should learn how you assemble these building blocks; this configuration "
+            "evidence does not prove method equivalence, runtime quality, or outcomes."
+        )
+    observation_count = len(fingerprint.observations)
+    kind_count = len({observation.kind for observation in fingerprint.observations})
+    return (
+        f"Your approved snapshot contains {observation_count} evidence-bound local "
+        f"{_plural(observation_count, 'observation')} across {kind_count} observed "
+        f"{_plural(kind_count, 'capability type')}. What Dex should learn remains Unknown "
+        "because no exact significant-family overlap cleared the evidence bar."
+    )
 
 
 def _verified_store(store: VerifiedCatalogueStore | None) -> VerifiedCatalogueStore:
@@ -276,7 +322,7 @@ class CachedCatalogueLoader:
             catalogue_ids=tuple(item.capability_id for item in catalogue.capabilities),
             capability_ids=tuple(item.capability_id for item in catalogue.capabilities),
             unavailable_ids=unavailable,
-            family_contract_present=False,
+            family_contract_present=bool(catalogue.capability_families),
         )
 
 
@@ -319,6 +365,10 @@ class UnknownUntilProposedComparer:
             tuple(item.capability_id for item in envelope.catalogue.capabilities),
             proposals,
         )
+        family_entries = family_entries_from_assessments(
+            envelope.catalogue,
+            assess_significant_families(envelope.catalogue, fingerprint),
+        )
         return ComparisonLedger.for_catalogue_and_fingerprint(
             envelope.catalogue,
             fingerprint=fingerprint,
@@ -326,7 +376,9 @@ class UnknownUntilProposedComparer:
             catalogue_sha256=digest,
             capabilities=capabilities,
             entries=entries,
+            family_entries=family_entries,
             local_entries=local_dispositions_from_proposals(fingerprint, proposals),
+            reciprocal_answer=_reciprocal_answer(fingerprint, family_entries),
         )
 
 

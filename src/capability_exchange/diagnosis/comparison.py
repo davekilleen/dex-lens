@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
-from capability_exchange.catalogue.v2 import CatalogueV2, McpServerCapabilityEntryV2
+from capability_exchange.catalogue.v2 import (
+    CapabilityReferenceV2,
+    CatalogueV2,
+    McpServerCapabilityEntryV2,
+    McpToolReferenceV2,
+    NangoProviderReferenceV2,
+    SourceComponentReferenceV2,
+    capability_availability_of,
+)
+from capability_exchange.diagnosis.families import FamilyAvailability, summarise_family
 from capability_exchange.diagnosis.observations import (
     ConfigurationState,
     EvidenceFingerprint,
@@ -20,15 +29,24 @@ from capability_exchange.diagnosis.observations import (
     migrate_stored_observation_payload,
     observation_id_for,
 )
+from capability_exchange.diagnosis.significant_families import (
+    ComponentMatchBasis,
+    FamilyAssessmentDisposition,
+    SignificantFamilyAssessment,
+    assess_significant_families,
+)
 from capability_exchange.evidence.item import reference_rejection_reason
 
 __all__ = [
     "CatalogueDisposition",
     "ComparisonLedger",
     "Disposition",
+    "FamilyComponentEvidence",
+    "FamilyLedgerEntry",
     "HumanCapability",
     "LocalObservationDisposition",
     "McpToolInventory",
+    "family_entries_from_assessments",
 ]
 
 _ID_PATTERN = r"^[a-z0-9][a-z0-9._:-]{0,159}$"
@@ -141,6 +159,145 @@ class McpToolInventory(InventoriedModel):
         if any(re.fullmatch(r"^[a-z][a-z0-9_]{0,119}$", value) is None for value in values):
             raise ValueError("MCP tool inventory contains an invalid tool identity")
         return values
+
+
+class FamilyComponentEvidence(InventoriedModel):
+    """Exact local evidence matched to one signed family component."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    component_reference: str = Field(min_length=1, max_length=280)
+    observation_ids: tuple[str, ...]
+    evidence_references: tuple[str, ...]
+    match_bases: tuple[ComponentMatchBasis, ...]
+    method_equivalent: Literal[False] = False
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_exact_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if not values or len(values) != len(set(values)):
+            raise ValueError("family component observations must be non-empty and unique")
+        if any(re.fullmatch(_OBSERVATION_ID_PATTERN, value) is None for value in values):
+            raise ValueError("family component contains an invalid observation identity")
+        return values
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _component_references_are_safe(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if not values or len(values) != len(set(values)):
+            raise ValueError("family component evidence references must be non-empty and unique")
+        for value in values:
+            reason = reference_rejection_reason(value)
+            if reason is not None:
+                raise ValueError(reason)
+        return values
+
+    @field_validator("match_bases")
+    @classmethod
+    def _match_bases_are_nonempty_and_unique(
+        cls, values: tuple[ComponentMatchBasis, ...]
+    ) -> tuple[ComponentMatchBasis, ...]:
+        if not values or len(values) != len(set(values)):
+            raise ValueError("family component match bases must be non-empty and unique")
+        return values
+
+
+class FamilyLedgerEntry(InventoriedModel):
+    """One exact, evidence-bound durable row for a signed capability family."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    family_id: str = Field(pattern=_ID_PATTERN)
+    title: str = Field(min_length=1, max_length=160)
+    outcome: str = Field(min_length=1, max_length=800)
+    signed_availability: FamilyAvailability
+    available_member_ids: tuple[str, ...]
+    unavailable_member_ids: tuple[str, ...]
+    recommendable_member_ids: tuple[str, ...]
+    matched_components: tuple[FamilyComponentEvidence, ...]
+    matched_observation_ids: tuple[str, ...]
+    unresolved_components: tuple[str, ...]
+    evidence_references: tuple[str, ...]
+    disposition: FamilyAssessmentDisposition
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator(
+        "available_member_ids",
+        "unavailable_member_ids",
+        "recommendable_member_ids",
+    )
+    @classmethod
+    def _member_ids_are_unique_and_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("family member identity lists must be unique")
+        if any(re.fullmatch(_ID_PATTERN, value) is None for value in values):
+            raise ValueError("family member identity must be bounded")
+        return values
+
+    @field_validator("matched_observation_ids")
+    @classmethod
+    def _matched_observations_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("matched family observation identities must be unique")
+        if any(re.fullmatch(_OBSERVATION_ID_PATTERN, value) is None for value in values):
+            raise ValueError("matched family observation identity is invalid")
+        return values
+
+    @field_validator("unresolved_components")
+    @classmethod
+    def _unresolved_components_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)) or any(not value for value in values):
+            raise ValueError("unresolved family components must be non-empty and unique")
+        return values
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _family_evidence_is_safe(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("family evidence references must be unique")
+        for value in values:
+            reason = reference_rejection_reason(value)
+            if reason is not None:
+                raise ValueError(reason)
+        return values
+
+    @field_validator("reason", "title", "outcome")
+    @classmethod
+    def _family_text_is_safe(cls, value: str) -> str:
+        if _CONTROL.search(value):
+            raise ValueError("family ledger text must be bounded single-line text")
+        return value
+
+    @model_validator(mode="after")
+    def _aggregate_evidence_is_exact(self) -> Self:
+        component_references = [item.component_reference for item in self.matched_components]
+        if len(component_references) != len(set(component_references)):
+            raise ValueError("family ledger contains a duplicate matched component")
+        if set(component_references) & set(self.unresolved_components):
+            raise ValueError("a family component cannot be both matched and unresolved")
+        observation_ids = tuple(
+            sorted(
+                {
+                    observation_id
+                    for component in self.matched_components
+                    for observation_id in component.observation_ids
+                }
+            )
+        )
+        evidence_references = tuple(
+            sorted(
+                {
+                    reference
+                    for component in self.matched_components
+                    for reference in component.evidence_references
+                }
+            )
+        )
+        if self.matched_observation_ids != observation_ids:
+            raise ValueError("family matched observation summary must equal its component rows")
+        if self.evidence_references != evidence_references:
+            raise ValueError("family evidence summary must equal its component rows")
+        return self
 
 
 class LocalObservationDisposition(InventoriedModel):
@@ -262,6 +419,110 @@ class LocalObservationDisposition(InventoriedModel):
         return self.mapped_capability_ids
 
 
+def _signed_component_reference(component: object) -> str:
+    if isinstance(component, CapabilityReferenceV2):
+        return f"capability:{component.capability_id}"
+    if isinstance(component, McpToolReferenceV2):
+        return f"mcp-tool:{component.server_id}:{component.tool_name}"
+    if isinstance(component, NangoProviderReferenceV2):
+        return f"nango-provider:{component.provider_id}"
+    if isinstance(component, SourceComponentReferenceV2):
+        return f"source-component:{component.component_id}"
+    raise TypeError("family component must be a validated signed component")
+
+
+def family_entries_from_assessments(
+    catalogue: CatalogueV2,
+    assessments: tuple[SignificantFamilyAssessment, ...],
+) -> tuple[FamilyLedgerEntry, ...]:
+    """Bind deterministic assessment values to exact signed family prose."""
+
+    family_by_id = {family.family_id: family for family in catalogue.capability_families}
+    assessment_by_id = {item.family_id: item for item in assessments}
+    if len(assessment_by_id) != len(assessments) or set(assessment_by_id) != set(
+        family_by_id
+    ):
+        raise _model_validation_error(
+            "family entries must equal the verified catalogue family identity set",
+            tuple(sorted(assessment_by_id)),
+        )
+    return tuple(
+        FamilyLedgerEntry(
+            family_id=assessment.family_id,
+            title=family_by_id[assessment.family_id].title,
+            outcome=family_by_id[assessment.family_id].outcome,
+            signed_availability=assessment.signed_availability,
+            available_member_ids=assessment.available_member_ids,
+            unavailable_member_ids=assessment.unavailable_member_ids,
+            recommendable_member_ids=assessment.recommendable_member_ids,
+            matched_components=tuple(
+                FamilyComponentEvidence(
+                    component_reference=component.component_reference,
+                    observation_ids=component.observation_ids,
+                    evidence_references=component.evidence_references,
+                    match_bases=component.match_bases,
+                    method_equivalent=component.method_equivalent,
+                )
+                for component in assessment.matched_components
+            ),
+            matched_observation_ids=assessment.matched_observation_ids,
+            unresolved_components=assessment.unresolved_components,
+            evidence_references=assessment.evidence_references,
+            disposition=assessment.disposition,
+            reason=assessment.reason,
+        )
+        for assessment in sorted(assessments, key=lambda item: item.family_id)
+    )
+
+
+def _validate_family_entries(
+    catalogue: CatalogueV2,
+    family_entries: tuple[FamilyLedgerEntry, ...],
+) -> tuple[FamilyLedgerEntry, ...]:
+    expected_by_id = {
+        family.family_id: family
+        for family in sorted(catalogue.capability_families, key=lambda item: item.family_id)
+    }
+    actual_by_id = {entry.family_id: entry for entry in family_entries}
+    if len(actual_by_id) != len(family_entries) or set(actual_by_id) != set(expected_by_id):
+        raise _model_validation_error(
+            "family entries must equal the verified catalogue family identity set",
+            tuple(sorted(actual_by_id)),
+        )
+    capabilities = {entry.capability_id: entry for entry in catalogue.capabilities}
+    for family_id, family in expected_by_id.items():
+        entry = actual_by_id[family_id]
+        summary = summarise_family(
+            family,
+            tuple(capabilities[member_id] for member_id in family.member_capability_ids),
+        )
+        exact_signed_truth = (
+            entry.title == family.title
+            and entry.outcome == family.outcome
+            and entry.signed_availability is summary.availability
+            and entry.available_member_ids == summary.available_member_ids
+            and entry.unavailable_member_ids == summary.unavailable_member_ids
+            and entry.recommendable_member_ids == summary.recommendable_member_ids
+        )
+        expected_components = tuple(
+            sorted(_signed_component_reference(component) for component in family.components)
+        )
+        actual_components = tuple(
+            sorted(
+                [
+                    *(component.component_reference for component in entry.matched_components),
+                    *entry.unresolved_components,
+                ]
+            )
+        )
+        if not exact_signed_truth or actual_components != expected_components:
+            raise _model_validation_error(
+                "family entry must preserve exact signed family truth",
+                family_id,
+            )
+    return tuple(actual_by_id[family_id] for family_id in sorted(expected_by_id))
+
+
 def _model_validation_error(message: str, input_value: object) -> ValidationError:
     return ValidationError.from_exception_data(
         "ComparisonLedger",
@@ -286,6 +547,7 @@ class ComparisonLedger(InventoriedModel):
     capabilities: tuple[HumanCapability, ...]
     entries: tuple[CatalogueDisposition, ...] = Field(min_length=1)
     mcp_tools_by_server: tuple[McpToolInventory, ...] = ()
+    family_entries: tuple[FamilyLedgerEntry, ...] = ()
     local_entries: tuple[LocalObservationDisposition, ...] = ()
     reciprocal_answer: str = Field(min_length=1, max_length=1000)
 
@@ -316,6 +578,9 @@ class ComparisonLedger(InventoriedModel):
         server_names = [item.server_name for item in self.mcp_tools_by_server]
         if len(server_ids) != len(set(server_ids)) or len(server_names) != len(set(server_names)):
             raise ValueError("comparison ledger contains a duplicate MCP server tool inventory")
+        family_ids = [item.family_id for item in self.family_entries]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("comparison ledger contains a duplicate family identity")
         return self
 
     @classmethod
@@ -329,6 +594,7 @@ class ComparisonLedger(InventoriedModel):
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
+        family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
@@ -348,6 +614,7 @@ class ComparisonLedger(InventoriedModel):
                 capabilities=capabilities,
                 entries=entries,
                 mcp_tools_by_server=mcp_tools_by_server,
+                family_entries=family_entries,
                 local_entries=local_entries,
                 reciprocal_answer=reciprocal_answer,
             )
@@ -385,18 +652,39 @@ class ComparisonLedger(InventoriedModel):
                 f"ledger entries reference unknown human capability IDs: {', '.join(unassigned)}",
                 unassigned,
             )
+        unavailable_recommendations = sorted(
+            entry.catalogue_id
+            for entry in entries
+            if entry.disposition is Disposition.WORTH_BORROWING
+            and capability_availability_of(
+                next(
+                    item
+                    for item in catalogue.capabilities
+                    if item.capability_id == entry.catalogue_id
+                )
+            )
+            != "active"
+        )
+        if unavailable_recommendations:
+            raise _model_validation_error(
+                "unavailable catalogue entries cannot be recommended: "
+                + ", ".join(unavailable_recommendations),
+                unavailable_recommendations,
+            )
         exact_mcp_tools = _mcp_tool_inventory(catalogue)
         if mcp_tools_by_server is not None and tuple(mcp_tools_by_server) != exact_mcp_tools:
             raise _model_validation_error(
                 "ledger MCP tool inventory must equal the exact verified catalogue inventory",
                 mcp_tools_by_server,
             )
+        exact_family_entries = _validate_family_entries(catalogue, family_entries or ())
         return cls(
             catalogue_version=catalogue_version,
             catalogue_sha256=catalogue_sha256,
             capabilities=capabilities,
             entries=entries,
             mcp_tools_by_server=exact_mcp_tools,
+            family_entries=exact_family_entries,
             local_entries=local_entries or (),
             reciprocal_answer=reciprocal_answer,
         )
@@ -412,10 +700,21 @@ class ComparisonLedger(InventoriedModel):
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
+        family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
+
+        assessed_family_entries = family_entries_from_assessments(
+            catalogue,
+            assess_significant_families(catalogue, fingerprint),
+        )
+        if family_entries is not None and tuple(family_entries) != assessed_family_entries:
+            raise _model_validation_error(
+                "family entries must equal the deterministic fingerprint assessment",
+                family_entries,
+            )
 
         # Reuse the compatibility path for the catalogue side so all existing
         # recommendation and human-capability checks remain in one place.
@@ -426,6 +725,7 @@ class ComparisonLedger(InventoriedModel):
             capabilities=capabilities,
             entries=entries,
             mcp_tools_by_server=mcp_tools_by_server,
+            family_entries=assessed_family_entries,
             reciprocal_answer=reciprocal_answer,
         )
         expected_observation_ids = tuple(
@@ -495,6 +795,7 @@ class ComparisonLedger(InventoriedModel):
             capabilities=base.capabilities,
             entries=base.entries,
             mcp_tools_by_server=base.mcp_tools_by_server,
+            family_entries=base.family_entries,
             local_entries=supplied,
             reciprocal_answer=base.reciprocal_answer,
         )

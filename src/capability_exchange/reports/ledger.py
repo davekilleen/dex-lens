@@ -55,6 +55,9 @@ def load_and_validate_ledger(
             mcp_tools_by_server=(
                 ledger.mcp_tools_by_server if "mcp_tools_by_server" in payload else None
             ),
+            family_entries=(
+                ledger.family_entries if "family_entries" in payload else None
+            ),
             local_entries=ledger.local_entries,
             reciprocal_answer=ledger.reciprocal_answer,
         )

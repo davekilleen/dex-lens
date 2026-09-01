@@ -83,6 +83,10 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             }
             for item in sorted(ledger.mcp_tools_by_server, key=lambda item: item.server_id)
         ],
+        "family_entries": [
+            _family_row(item)
+            for item in sorted(ledger.family_entries, key=lambda item: item.family_id)
+        ],
         "local_entries": [
             {
                 "disposition": item.disposition.value,
@@ -290,6 +294,10 @@ class ReportModel(InventoriedModel):
             "## Coverage and limits\n"
             f"{block}"
             f"{extra}"
+            f"\n{_render_family_coverage(ledger)}"
+            f"\n{_render_strengths(ledger)}"
+            "\n## What Dex should learn from you\n"
+            f"{ledger.reciprocal_answer}\n"
             f"\n{appendix}"
             "\n"
             f"{self._render_decisions()}"
@@ -436,6 +444,118 @@ def _appendix_mcp_tools(item: object) -> dict[str, object]:
     }
 
 
+def _family_component_row(item: object) -> dict[str, object]:
+    return {
+        "component_reference": item.component_reference,
+        "observation_ids": list(item.observation_ids),
+        "evidence_references": list(item.evidence_references),
+        "match_bases": [basis.value for basis in item.match_bases],
+        "method_equivalent": item.method_equivalent,
+    }
+
+
+def _family_row(item: object) -> dict[str, object]:
+    return {
+        "family_id": item.family_id,
+        "title": item.title,
+        "outcome": item.outcome,
+        "signed_availability": item.signed_availability.value,
+        "available_member_ids": list(item.available_member_ids),
+        "unavailable_member_ids": list(item.unavailable_member_ids),
+        "recommendable_member_ids": list(item.recommendable_member_ids),
+        "matched_components": [
+            _family_component_row(component) for component in item.matched_components
+        ],
+        "matched_observation_ids": list(item.matched_observation_ids),
+        "unresolved_components": list(item.unresolved_components),
+        "evidence_references": list(item.evidence_references),
+        "disposition": item.disposition.value,
+        "reason": item.reason,
+    }
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _family_availability_phrase(value: str) -> str:
+    return {
+        "available": "Dex currently offers the full family",
+        "partial": "Dex currently offers part of this family",
+        "unavailable": "Dex does not currently offer this family for recommendation",
+    }[value]
+
+
+def _family_disposition_phrase(value: str) -> str:
+    return {
+        "not-assessed": "the local evidence still needs a manual review",
+        "unresolved": "no exact local overlap was proven",
+        "partial-overlap": "some exact local overlap was found",
+        "overlap-observed": "all published building blocks have exact local overlap",
+        "not-recommendable": "this release does not make the family recommendable",
+    }[value]
+
+
+def _render_family_coverage(ledger: ComparisonLedger) -> str:
+    lines = ["## Significant capability coverage"]
+    if not ledger.family_entries:
+        lines.append("No signed significant-family contract was present in this catalogue.")
+        return "\n".join(lines) + "\n"
+    for family in ledger.family_entries:
+        matched = len(family.matched_components)
+        unresolved = len(family.unresolved_components)
+        unknown = (
+            f"{unresolved} {_plural(unresolved, 'component')} "
+            f"{'remains' if unresolved == 1 else 'remain'} Unknown"
+            if unresolved
+            else "no signed components remain Unknown"
+        )
+        lines.append(
+            f"- {family.title} (`{family.family_id}`): {matched} exact "
+            f"{_plural(matched, 'component')} matched; {unknown}. "
+            f"{_family_availability_phrase(family.signed_availability.value)}; "
+            f"{_family_disposition_phrase(family.disposition.value)}."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _render_strengths(ledger: ComparisonLedger) -> str:
+    matched_observation_ids = {
+        observation_id
+        for family in ledger.family_entries
+        for observation_id in family.matched_observation_ids
+    }
+    matched_components = sum(len(family.matched_components) for family in ledger.family_entries)
+    matched_families = sum(bool(family.matched_components) for family in ledger.family_entries)
+    kinds = {
+        entry.kind
+        for entry in ledger.local_entries
+        if entry.observation_id in matched_observation_ids
+    }
+    lines = ["## What is working especially well"]
+    if matched_observation_ids:
+        building_count = len(matched_observation_ids)
+        lines.append(
+            f"Your approved snapshot contains {building_count} evidence-bound "
+            f"{_plural(building_count, 'building block')} across {len(kinds)} observed "
+            f"{_plural(len(kinds), 'capability type')}, creating {matched_components} exact "
+            f"signed {_plural(matched_components, 'component overlap')} across "
+            f"{matched_families} {_plural(matched_families, 'outcome family', 'outcome families')}."
+        )
+        lines.append(
+            "That is meaningful breadth in the building blocks you have assembled. "
+            "An exact signed match means the identity was verified from Dex's release. "
+            "It does not establish method equivalence, runtime quality, or outcomes."
+        )
+    else:
+        lines.append(
+            "No significant-family strength cleared the exact evidence bar. "
+            "Captured observations remain useful, but their relationship to these outcomes "
+            "is Unknown."
+        )
+    return "\n".join(lines) + "\n"
+
+
 def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
     """Render every ledger row as deterministic JSON lines.
 
@@ -457,6 +577,16 @@ def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
             sort_keys=True,
         )
         for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
+    )
+    lines.append("### Significant capability families")
+    lines.extend(
+        json.dumps(
+            {"row_type": "family", **_family_row(item)},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for item in sorted(ledger.family_entries, key=lambda item: item.family_id)
     )
     lines.append("### Exact MCP tools by server")
     lines.extend(
