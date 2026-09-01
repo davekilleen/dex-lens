@@ -544,8 +544,27 @@ def _render_strengths(ledger: ComparisonLedger) -> str:
         )
         lines.append(
             "That is meaningful breadth in the building blocks you have assembled. "
-            "An exact signed match means the identity was verified from Dex's release. "
-            "It does not establish method equivalence, runtime quality, or outcomes."
+            "An exact signed match means the identity was verified from Dex's release."
+        )
+        strongest = sorted(
+            (family for family in ledger.family_entries if family.matched_components),
+            key=lambda family: (
+                -len(family.matched_components)
+                / max(1, len(family.matched_components) + len(family.unresolved_components)),
+                -len(family.matched_components),
+                family.family_id,
+            ),
+        )[:3]
+        for family in strongest:
+            matched = len(family.matched_components)
+            total = matched + len(family.unresolved_components)
+            lines.append(
+                f"- {family.title}: {matched} of {total} published "
+                f"{_plural(total, 'building block')} have an exact local match. "
+                "That is evidence of real foundations in this area."
+            )
+        lines.append(
+            "This evidence does not establish method equivalence, runtime quality, or outcomes."
         )
     else:
         lines.append(

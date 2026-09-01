@@ -166,6 +166,9 @@ def test_comparer_persists_one_exact_evidence_bound_row_per_signed_family() -> N
     assert family.unresolved_components == ("mcp-tool:dex-work-mcp:create_task",)
     assert all(not component.method_equivalent for component in family.matched_components)
     assert "1 evidence-backed local building block" in ledger.reciprocal_answer
+    assert "The strongest evidence-bound patterns are around ‘Durable Task Flow’" in (
+        ledger.reciprocal_answer
+    )
     assert "does not prove method equivalence, runtime quality, or outcomes" in (
         ledger.reciprocal_answer
     )
@@ -254,6 +257,7 @@ def test_report_renders_honest_family_coverage_strength_and_reciprocal_value() -
     assert "1 component remains Unknown" in rendered
     assert "## What is working especially well" in rendered
     assert "1 evidence-bound building block" in rendered
+    assert "- Durable Task Flow: 1 of 2 published building blocks" in rendered
     assert "## What Dex should learn from you" in rendered
     assert ledger.reciprocal_answer in rendered
     assert "does not establish method equivalence, runtime quality, or outcomes" in rendered

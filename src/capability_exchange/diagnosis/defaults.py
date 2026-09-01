@@ -89,12 +89,18 @@ def _reciprocal_answer(
             }
         )
         building_count = len(matched_observation_ids)
+        strongest = sorted(
+            (family for family in family_entries if family.matched_components),
+            key=lambda family: (-len(family.matched_components), family.family_id),
+        )[:2]
+        named_strengths = " and ".join(f"‘{family.title}’" for family in strongest)
         return (
             f"Your approved snapshot demonstrates {building_count} evidence-backed local "
             f"{_plural(building_count, 'building block')} across {kind_count} "
             f"{_plural(kind_count, 'capability type')}, with {matched_components} exact "
             f"signed {_plural(matched_components, 'component overlap')} across "
             f"{matched_families} Dex outcome {_plural(matched_families, 'family', 'families')}. "
+            f"The strongest evidence-bound patterns are around {named_strengths}. "
             "Dex should learn how you assemble these building blocks; this configuration "
             "evidence does not prove method equivalence, runtime quality, or outcomes."
         )
