@@ -31,6 +31,8 @@ CATALOGUE_SCHEMA_ID = "https://heydex.ai/catalogue/dex-lens/v2.schema.json"
 # exported schema to verify the compatible Lens floor.
 MINIMUM_VERSION_KEYWORD = "x-dex-lens-minimum-version"
 MINIMUM_LENS_VERSION = "0.1.9"
+CONTRACT_STATUS_KEYWORD = "x-dex-lens-contract-status"
+CONTRACT_STATUS = "unreleased-significant-family-preview"
 
 # The five closed entry branches of the rollout-compatible union, in the
 # order the exported ``oneOf`` declares them: the legacy skill-only shape
@@ -311,6 +313,7 @@ def build_catalogue_schema() -> dict[str, Any]:
     schema["$schema"] = CATALOGUE_SCHEMA_DIALECT_ID
     schema["$id"] = CATALOGUE_SCHEMA_ID
     schema[MINIMUM_VERSION_KEYWORD] = MINIMUM_LENS_VERSION
+    schema[CONTRACT_STATUS_KEYWORD] = CONTRACT_STATUS
     schema["$comment"] = (
         "This contract requires the Dex Lens unique-by vocabulary. Vanilla "
         "Draft 2020-12 validation alone is incomplete; use the declared dialect "

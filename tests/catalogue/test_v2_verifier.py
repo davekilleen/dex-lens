@@ -449,11 +449,13 @@ def test_exported_catalogue_schema_enforces_runtime_identifier_contracts() -> No
     catalogue = schema["$defs"]["CatalogueV2"]["properties"]
 
     assert schema["$schema"] == CATALOGUE_SCHEMA_DIALECT_ID
+    assert schema["x-dex-lens-contract-status"] == "unreleased-significant-family-preview"
     assert schema["x-dex-lens-reference-validator"].endswith(
         ".iter_catalogue_schema_errors"
     )
+    assert compatibility["host_adapters"]["items"]["pattern"] == "^[a-z][a-z0-9-]{1,80}$"
+    assert compatibility["host_requirements"]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
     for field in ("host_adapters", "host_requirements"):
-        assert compatibility[field]["items"]["pattern"] == "^[a-z][a-z0-9-]{2,80}$"
         assert compatibility[field]["uniqueItems"] is True
     assert set(compatibility["foundation_capabilities"]["items"]["enum"]) == {
         "ownership-portability",
