@@ -780,13 +780,15 @@ class CatalogueV2(InventoriedModel):
                 )
 
         # MCP server names are a second lookup key used by typed tool
-        # references.  Keep them unique and outside the canonical capability
-        # namespace before any family component can resolve one.
-        mcp_server_names = [
-            entry.server_name
+        # references.  Keep them unique and prevent one server from borrowing
+        # another entry's canonical ID.  Historical catalogues legitimately
+        # use the server's own capability ID as its server_name.
+        mcp_entries = [
+            entry
             for entry in self.capabilities
             if isinstance(entry, McpServerCapabilityEntryV2)
         ]
+        mcp_server_names = [entry.server_name for entry in mcp_entries]
         duplicate_server_names = sorted(
             name
             for name in set(mcp_server_names)
@@ -796,10 +798,15 @@ class CatalogueV2(InventoriedModel):
             raise ValueError(
                 "duplicate MCP server_name: " + ", ".join(duplicate_server_names)
             )
-        colliding_server_names = sorted(set(mcp_server_names) & canonical_ids)
+        colliding_server_names = sorted(
+            entry.server_name
+            for entry in mcp_entries
+            if entry.server_name in canonical_ids
+            and entry.server_name != entry.capability_id
+        )
         if colliding_server_names:
             raise ValueError(
-                "MCP server_name cannot collide with a capability ID: "
+                "MCP server_name cannot collide with another capability ID: "
                 + ", ".join(colliding_server_names)
             )
 

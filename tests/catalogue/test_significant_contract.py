@@ -194,9 +194,10 @@ def test_mcp_server_names_are_unique_and_disjoint_from_capability_ids() -> None:
         CatalogueV2.model_validate(_catalogue(capabilities=[_mcp(), second]))
 
     colliding = _mcp()
+    colliding["capability_id"] = "another-mcp"
     colliding["server_name"] = "dex-work-mcp"
     with pytest.raises(ValidationError, match="server_name.*capability"):
-        CatalogueV2.model_validate(_catalogue(capabilities=[colliding]))
+        CatalogueV2.model_validate(_catalogue(capabilities=[_mcp(), colliding]))
 
 
 def test_sampled_mcp_inventory_remains_backward_compatible() -> None:
@@ -245,6 +246,15 @@ def test_family_cross_references_and_typed_components_are_closed() -> None:
                 families=[_family()],
             )
         )
+
+
+def test_mcp_server_name_may_equal_its_own_historical_capability_id() -> None:
+    historical = _mcp()
+    historical["server_name"] = historical["capability_id"]
+
+    catalogue = CatalogueV2.model_validate(_catalogue(capabilities=[historical]))
+
+    assert catalogue.capabilities[0].server_name == "dex-work-mcp"
 
 
 def test_family_components_must_reference_the_same_family_members() -> None:
