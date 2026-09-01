@@ -1175,6 +1175,46 @@ fields:
     deletion: not-stored
     audit: "ephemeral complete local comparison ledger"
 
+  ComparisonLedger.mcp_tools_by_server:
+    description: "every complete exact MCP tool inventory grouped by its signed catalogue server"
+    collection: "copied locally from signature-verified catalogue MCP server entries"
+    derivation: "server-sorted tuple of complete inventories with each signed tool order preserved"
+    display: "provides every exact MCP tool under its server in the complete report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release facts"
+
+  McpToolInventory.server_id:
+    description: "signed catalogue capability identity for one MCP server tool group"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated as a bounded catalogue identity"
+    display: "anchors one exact MCP tool group in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  McpToolInventory.server_name:
+    description: "signed runtime name of the MCP server owning this exact tool group"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated as a bounded MCP server name"
+    display: "labels the server above its exact tools in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue server name"
+
+  McpToolInventory.tools:
+    description: "complete exact signed tool tuple for one MCP server"
+    collection: "copied from a signature-verified catalogue entry whose tool inventory is complete"
+    derivation: "validated as non-empty, unique bounded tool identities with signed order preserved"
+    display: "lists every exact MCP tool under its server in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue tool identities"
+
   LocalObservationDisposition.observation_id:
     description: "opaque stable identity of one source-bound local observation"
     collection: "derived locally from observation kind, identity, and source identity"
@@ -1205,15 +1245,35 @@ fields:
     deletion: not-stored
     audit: "ephemeral safe observation identity"
 
-  LocalObservationDisposition.operational_state:
-    description: "operational state copied from the local evidence observation"
+  LocalObservationDisposition.configuration_state:
+    description: "configuration or installation state copied from the local evidence observation"
     collection: "copied from the verified evidence fingerprint"
-    derivation: "validated through the closed OperationalState vocabulary"
-    display: "keeps configuration, operation, and outcome claims distinct"
+    derivation: "validated through the closed ConfigurationState vocabulary"
+    display: "keeps the independently observed configuration fact in the report appendix"
     storage: none
     sharing: never
     deletion: not-stored
-    audit: "ephemeral local operational fact"
+    audit: "ephemeral local configuration fact"
+
+  LocalObservationDisposition.runtime_state:
+    description: "runtime or execution state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed RuntimeState vocabulary"
+    display: "keeps the independently observed runtime fact in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local runtime fact"
+
+  LocalObservationDisposition.health_state:
+    description: "explicit health-check state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed HealthState vocabulary"
+    display: "keeps the independently observed health fact in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local health fact"
 
   LocalObservationDisposition.disposition:
     description: "closed answer for how one local observation maps in this comparison"
