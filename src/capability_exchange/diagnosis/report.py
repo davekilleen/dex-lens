@@ -7,13 +7,15 @@ import json
 import re
 from collections import Counter
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
 from capability_exchange.diagnosis.finding import Finding
+from capability_exchange.diagnosis.observations import HealthState, RuntimeState
 from capability_exchange.diagnosis.receipts import (
     DecisionState,
     RecommendationDecision,
@@ -77,6 +79,8 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
         ],
         "mcp_tools_by_server": [
             {
+                "declared_tool_count": item.declared_tool_count,
+                "inventory_status": item.inventory_status,
                 "server_id": item.server_id,
                 "server_name": item.server_name,
                 "tools": list(item.tools),
@@ -87,6 +91,22 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             _family_row(item)
             for item in sorted(ledger.family_entries, key=lambda item: item.family_id)
         ],
+        "version_distance": (
+            {
+                "current_version": ledger.version_distance.current_version,
+                "evidence_references": list(ledger.version_distance.evidence_references),
+                "families": [
+                    _family_delta_row(item)
+                    for item in sorted(
+                        ledger.version_distance.families,
+                        key=lambda item: item.family_id,
+                    )
+                ],
+                "inspected_version": ledger.version_distance.inspected_version,
+            }
+            if ledger.version_distance is not None
+            else None
+        ),
         "local_entries": [
             {
                 "disposition": item.disposition.value,
@@ -222,6 +242,7 @@ class ReportModel(InventoriedModel):
     decisions: tuple[RecommendationDecision, ...] = ()
     share_state: ShareState = ShareState.NOT_OFFERED
     share_receipt: ShareReceipt | None = None
+    _report_location: str | None = PrivateAttr(default=None)
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         if not _FROM_RESULT.get():
@@ -240,6 +261,7 @@ class ReportModel(InventoriedModel):
         decisions: tuple[RecommendationDecision, ...] = (),
         share_state: ShareState = ShareState.NOT_OFFERED,
         share_receipt: ShareReceipt | None = None,
+        report_location: str | None = None,
     ) -> Self:
         expected = canonical_ledger_digest(ledger)
         supplied = (
@@ -249,7 +271,7 @@ class ReportModel(InventoriedModel):
             raise ValueError("report must bind the exact comparison ledger")
         token = _FROM_RESULT.set(True)
         try:
-            return cls(
+            report = cls(
                 run_identity=run_identity,
                 ledger_summary=LedgerSummary.from_ledger(ledger),
                 ledger_sha256=expected,
@@ -261,6 +283,8 @@ class ReportModel(InventoriedModel):
                 share_state=share_state,
                 share_receipt=share_receipt,
             )
+            report._report_location = report_location
+            return report
         finally:
             _FROM_RESULT.reset(token)
 
@@ -291,18 +315,22 @@ class ReportModel(InventoriedModel):
         extra = f"{limits}\n" if limits else ""
         return (
             "# Diagnosis\n\n"
-            "## Coverage and limits\n"
+            f"{_render_what_was_read(ledger)}"
+            f"\n{_render_version_distance(ledger)}"
+            f"\n{_render_strengths(ledger)}"
+            f"\n{_render_reciprocal_learning(ledger)}"
+            f"\n{_render_recommendations(ledger)}"
+            f"\n{_render_rejections(ledger)}"
+            f"\n{_render_fragility(ledger)}"
+            "\n## Coverage and limits\n"
             f"{block}"
             f"{extra}"
             f"\n{_render_family_coverage(ledger)}"
-            f"\n{_render_strengths(ledger)}"
-            "\n## What Dex should learn from you\n"
-            f"{ledger.reciprocal_answer}\n"
             f"\n{appendix}"
             "\n"
             f"{self._render_decisions()}"
             "\n"
-            f"{self._render_close()}"
+            f"{self._render_close(ledger)}"
         )
 
     def _render_decisions(self) -> str:
@@ -335,28 +363,102 @@ class ReportModel(InventoriedModel):
             return "Sharing was offered. Nothing was sent."
         return "Sharing was not offered."
 
-    def _render_close(self) -> str:
-        strongest = (
-            self.strongest_findings[0].practical_implication
-            if self.strongest_findings
-            else "No grounded strength cleared the evidence bar."
+    def _render_close(self, ledger: ComparisonLedger) -> str:
+        matched_observation_ids = {
+            observation_id
+            for family in ledger.family_entries
+            for observation_id in family.matched_observation_ids
+        }
+        working_count = sum(
+            item.observation_id in matched_observation_ids
+            and (
+                item.runtime_state is RuntimeState.OUTCOME_VERIFIED
+                or item.health_state is HealthState.HEALTHY
+            )
+            for item in ledger.local_entries
         )
-        learn = (
-            self.reciprocal_findings[0].practical_implication
-            if self.reciprocal_findings
-            else "No transferable method cleared the evidence bar."
+        if self.strongest_findings:
+            strongest = self.strongest_findings[0].practical_implication
+        elif working_count:
+            strongest = (
+                f"{working_count} matched {_plural(working_count, 'building block')} "
+                f"{_plural(working_count, 'has', 'have')} verified outcome or health "
+                "evidence."
+            )
+        elif matched_observation_ids:
+            count = len(matched_observation_ids)
+            strongest = (
+                f"{count} configured {_plural(count, 'building block')} matched Dex's "
+                "published families, but no working outcome was proven."
+            )
+        else:
+            strongest = "No grounded strength cleared the evidence bar."
+        learn_entries = sum(
+            item.disposition is Disposition.DEX_SHOULD_LEARN for item in ledger.entries
         )
-        first_move = (
-            self.strongest_findings[0].recommended_next_move
-            if self.strongest_findings
-            else "No first move cleared the bar."
+        if self.reciprocal_findings:
+            learn = self.reciprocal_findings[0].practical_implication
+        elif learn_entries:
+            learn = (
+                f"See {learn_entries} evidence-reviewed "
+                f"{_plural(learn_entries, 'pattern')} above."
+            )
+        else:
+            learn = "No transferable method cleared the evidence bar."
+        recommendations = tuple(
+            sorted(
+                (
+                    item
+                    for item in ledger.entries
+                    if item.disposition is Disposition.WORTH_BORROWING
+                ),
+                key=lambda item: item.catalogue_id,
+            )
+        )
+        if len(recommendations) == 1:
+            first_move = f"Consider `{recommendations[0].catalogue_id}`."
+        elif recommendations:
+            support_by_capability = {
+                item.capability_id: len(item.person_observation_ids)
+                for item in ledger.capabilities
+            }
+            scored = tuple(
+                (
+                    (
+                        support_by_capability.get(item.capability_id, 0),
+                        len(item.evidence_references),
+                    ),
+                    item.catalogue_id,
+                )
+                for item in recommendations
+            )
+            best_score = max(score for score, _catalogue_id in scored)
+            best_supported = tuple(
+                catalogue_id for score, catalogue_id in scored if score == best_score
+            )
+            if len(best_supported) == 1:
+                first_move = (
+                    f"Consider `{best_supported[0]}` (the best-supported option)."
+                )
+            else:
+                first_move = (
+                    "No single first move has stronger evidence than the other options above."
+                )
+        elif self.strongest_findings:
+            first_move = self.strongest_findings[0].recommended_next_move
+        else:
+            first_move = "No first move cleared the bar."
+        report_location = (
+            f"`{self._report_location}`."
+            if self._report_location is not None
+            else "This report will be saved before the run closes."
         )
         return (
             "## What happens next\n"
             f"- Already doing: {strongest}\n"
             f"- Dex should learn: {learn}\n"
             f"- First move: {first_move}\n"
-            "- Report location: This report has not been saved yet.\n"
+            f"- Report location: {report_location}\n"
             f"- Return to this run: {self.run_identity.run_id}\n"
             f"- Sharing: {self._render_share_choice()}\n"
             "- Future watch: Future-watch is a separate choice from sharing. "
@@ -384,6 +486,16 @@ class ReportModel(InventoriedModel):
         finally:
             _FROM_RESULT.reset(token)
 
+    def with_report_location(self, path: Path) -> Self:
+        """Return a local display copy naming its exact app-storage destination."""
+
+        location = str(path)
+        if not location.strip() or "`" in location or "\n" in location or "\r" in location:
+            raise ValueError("report location must be a non-empty single-line safe path")
+        report = self.model_copy()
+        report._report_location = location
+        return report
+
     def copy(self, **kwargs: object) -> Self:
         raise TypeError("copy() is disabled for ReportModel; use from_result()")
 
@@ -402,9 +514,47 @@ def canonical_fact_block(ledger: ComparisonLedger) -> str:
     """Exact factual block a report must embed under Coverage and limits."""
 
     summary = LedgerSummary.from_ledger(ledger)
+    local_total = len(ledger.local_entries)
+    local_mapped = sum(bool(item.mapped_catalogue_ids) for item in ledger.local_entries)
+    local_unassessed = sum(
+        item.disposition is Disposition.NOT_ASSESSED for item in ledger.local_entries
+    )
+    mcp_server_count = len(ledger.mcp_tools_by_server)
+    mcp_tool_count = sum(item.declared_tool_count for item in ledger.mcp_tools_by_server)
+    complete_mcp_servers = sum(
+        item.inventory_status == "complete" for item in ledger.mcp_tools_by_server
+    )
+    sampled_mcp_servers = mcp_server_count - complete_mcp_servers
+    published_mcp_tools = sum(len(item.tools) for item in ledger.mcp_tools_by_server)
+    matched_components = sum(
+        len(item.matched_components) for item in ledger.family_entries
+    )
+    unresolved_components = sum(
+        len(item.unresolved_components) for item in ledger.family_entries
+    )
     return (
         f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
+        + f"- Local observations: {local_total} captured; {local_mapped} mapped; "
+        + f"{local_unassessed} "
+        + ("remains" if local_unassessed == 1 else "remain")
+        + " not assessed.\n"
+        + f"- Signed MCP inventory: {mcp_tool_count} declared "
+        + f"{_plural(mcp_tool_count, 'tool')} across {mcp_server_count} "
+        + f"{_plural(mcp_server_count, 'server')}; {complete_mcp_servers} complete "
+        + f"{_plural(complete_mcp_servers, 'inventory', 'inventories')}; "
+        + f"{sampled_mcp_servers} sampled "
+        + f"{_plural(sampled_mcp_servers, 'inventory', 'inventories')}"
+        + (
+            f" ({published_mcp_tools} published examples; remaining tool identities Unknown)"
+            if sampled_mcp_servers
+            else ""
+        )
+        + ".\n"
+        + f"- Significant-family components: {matched_components} exact "
+        + f"{_plural(matched_components, 'match', 'matches')}; {unresolved_components} "
+        + ("remains" if unresolved_components == 1 else "remain")
+        + " Unknown.\n"
     )
 
 
@@ -438,6 +588,8 @@ def _appendix_local_row(item: object) -> dict[str, object]:
 
 def _appendix_mcp_tools(item: object) -> dict[str, object]:
     return {
+        "declared_tool_count": item.declared_tool_count,
+        "inventory_status": item.inventory_status,
         "server_id": item.server_id,
         "server_name": item.server_name,
         "tools": list(item.tools),
@@ -471,6 +623,22 @@ def _family_row(item: object) -> dict[str, object]:
         "evidence_references": list(item.evidence_references),
         "disposition": item.disposition.value,
         "reason": item.reason,
+    }
+
+
+def _family_delta_row(item: object) -> dict[str, object]:
+    return {
+        "available_member_ids": list(item.available_member_ids),
+        "availability": item.availability.value,
+        "changed_member_ids": list(item.changed_member_ids),
+        "current_version": item.current_version,
+        "family_id": item.family_id,
+        "inspected_version": item.inspected_version,
+        "introduced_member_ids": list(item.introduced_member_ids),
+        "outcome": item.outcome,
+        "recommendable_member_ids": list(item.recommendable_member_ids),
+        "title": item.title,
+        "unavailable_member_ids": list(item.unavailable_member_ids),
     }
 
 
@@ -532,9 +700,29 @@ def _render_strengths(ledger: ComparisonLedger) -> str:
         for entry in ledger.local_entries
         if entry.observation_id in matched_observation_ids
     }
+    working_observation_ids = {
+        entry.observation_id
+        for entry in ledger.local_entries
+        if entry.observation_id in matched_observation_ids
+        and (
+            entry.runtime_state is RuntimeState.OUTCOME_VERIFIED
+            or entry.health_state is HealthState.HEALTHY
+        )
+    }
     lines = ["## What is working especially well"]
     if matched_observation_ids:
         building_count = len(matched_observation_ids)
+        if not working_observation_ids:
+            subject = "the matched building block" if building_count == 1 else (
+                f"the {building_count} matched building blocks"
+            )
+            verb = "has" if building_count == 1 else "have"
+            lines.append(
+                "This approved snapshot cannot prove that a capability is working "
+                f"especially well because {subject} {verb} no verified outcome or "
+                "health evidence."
+            )
+            lines.append("## What is clearly built")
         lines.append(
             f"Your approved snapshot contains {building_count} evidence-bound "
             f"{_plural(building_count, 'building block')} across {len(kinds)} observed "
@@ -542,10 +730,18 @@ def _render_strengths(ledger: ComparisonLedger) -> str:
             f"signed {_plural(matched_components, 'component overlap')} across "
             f"{matched_families} {_plural(matched_families, 'outcome family', 'outcome families')}."
         )
-        lines.append(
-            "That is meaningful breadth in the building blocks you have assembled. "
-            "An exact signed match means the identity was verified from Dex's release."
-        )
+        if working_observation_ids:
+            lines.append(
+                "This snapshot provides verified outcome or health evidence for "
+                f"{len(working_observation_ids)} matched "
+                f"{_plural(len(working_observation_ids), 'building block')}. An exact "
+                "signed match means the identity was verified from Dex's release."
+            )
+        else:
+            lines.append(
+                "These exact configuration matches are meaningful evidence of what you "
+                "have assembled, not evidence that it runs well."
+            )
         strongest = sorted(
             (family for family in ledger.family_entries if family.matched_components),
             key=lambda family: (
@@ -558,10 +754,14 @@ def _render_strengths(ledger: ComparisonLedger) -> str:
         for family in strongest:
             matched = len(family.matched_components)
             total = matched + len(family.unresolved_components)
+            suffix = (
+                "That is evidence of real foundations in this area."
+                if set(family.matched_observation_ids) & working_observation_ids
+                else "That proves a local configuration match, not a working outcome."
+            )
             lines.append(
                 f"- {family.title}: {matched} of {total} published "
-                f"{_plural(total, 'building block')} have an exact local match. "
-                "That is evidence of real foundations in this area."
+                f"{_plural(total, 'building block')} have an exact local match. {suffix}"
             )
         lines.append(
             "This evidence does not establish method equivalence, runtime quality, or outcomes."
@@ -572,7 +772,157 @@ def _render_strengths(ledger: ComparisonLedger) -> str:
             "Captured observations remain useful, but their relationship to these outcomes "
             "is Unknown."
         )
+    titles = {item.capability_id: item.title for item in ledger.capabilities}
+    reviewed = sorted(
+        (
+            item
+            for item in ledger.entries
+            if item.disposition in {Disposition.STRONG_HERE, Disposition.SHARED}
+        ),
+        key=lambda item: item.catalogue_id,
+    )
+    for finding in reviewed:
+        lines.extend(
+            (
+                f"### {titles.get(finding.capability_id, finding.capability_id)} "
+                f"(`{finding.catalogue_id}`)",
+                finding.reason,
+                _render_human_evidence(finding.evidence_references),
+            )
+        )
     return "\n".join(lines) + "\n"
+
+
+def _render_reciprocal_learning(ledger: ComparisonLedger) -> str:
+    body = _render_disposition_findings(
+        ledger,
+        heading="What Dex should learn from you",
+        dispositions=frozenset({Disposition.DEX_SHOULD_LEARN}),
+        empty_message="",
+    ).splitlines()
+    reviewed_count = sum(
+        item.disposition is Disposition.DEX_SHOULD_LEARN for item in ledger.entries
+    )
+    answer = ledger.reciprocal_answer
+    if reviewed_count and (
+        "Unknown" in answer or "No transferable method" in answer
+    ):
+        answer = (
+            "The automatic identity match alone cannot prove a transferable method. "
+            f"The evidence-reviewed {_plural(reviewed_count, 'pattern')} below "
+            "cleared that stricter bar."
+        )
+    lines = [body[0], answer]
+    lines.extend(line for line in body[1:] if line)
+    return "\n".join(lines) + "\n"
+
+
+def _render_version_distance(ledger: ComparisonLedger) -> str:
+    distance = ledger.version_distance
+    if distance is None:
+        return ""
+    lines = [
+        "## What has changed since your identified Dex release",
+        (
+            f"The approved snapshot identifies Dex Core {distance.inspected_version}; "
+            f"the signed catalogue describes {distance.current_version}. The rows below "
+            "come only from signed skill `since_release` and `changed_in` fields. They do "
+            "not infer release history for MCP servers, scheduled work or engines; families "
+            "without signed lineage are omitted, not treated as unchanged."
+        ),
+    ]
+    for family in sorted(distance.families, key=lambda item: item.family_id):
+        lines.extend((f"### {family.title}", family.outcome))
+        if family.introduced_member_ids:
+            introduced = ", ".join(f"`{item}`" for item in family.introduced_member_ids)
+            lines.append(f"New signed skill entries: {introduced}.")
+        if family.changed_member_ids:
+            changed = ", ".join(f"`{item}`" for item in family.changed_member_ids)
+            lines.append(f"Signed skill entries changed after your release: {changed}.")
+        availability = _family_availability_phrase(family.availability.value)
+        lines.append(
+            f"Current signed family state: {availability}."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _render_disposition_findings(
+    ledger: ComparisonLedger,
+    *,
+    heading: str,
+    dispositions: frozenset[Disposition],
+    empty_message: str,
+) -> str:
+    titles = {item.capability_id: item.title for item in ledger.capabilities}
+    findings = sorted(
+        (item for item in ledger.entries if item.disposition in dispositions),
+        key=lambda item: item.catalogue_id,
+    )
+    lines = [f"## {heading}"]
+    if not findings:
+        lines.append(empty_message)
+        return "\n".join(lines) + "\n"
+    for finding in findings:
+        title = titles.get(finding.capability_id, finding.capability_id)
+        lines.extend(
+            (
+                f"### {title} (`{finding.catalogue_id}`)",
+                finding.reason,
+                _render_human_evidence(finding.evidence_references),
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _render_human_evidence(references: tuple[str, ...]) -> str:
+    count = len(references)
+    return (
+        f"Evidence: {count} approved {_plural(count, 'observation')}; exact references "
+        "are in the appendix."
+    )
+
+
+def _render_recommendations(ledger: ComparisonLedger) -> str:
+    return _render_disposition_findings(
+        ledger,
+        heading="Worth borrowing from Dex",
+        dispositions=frozenset({Disposition.WORTH_BORROWING}),
+        empty_message="No Dex addition cleared the evidence bar this time.",
+    )
+
+
+def _render_rejections(ledger: ComparisonLedger) -> str:
+    return _render_disposition_findings(
+        ledger,
+        heading="Considered and rejected",
+        dispositions=frozenset({Disposition.NOT_RELEVANT}),
+        empty_message="No catalogue entry was explicitly ruled out in this run.",
+    )
+
+
+def _render_what_was_read(ledger: ComparisonLedger) -> str:
+    kinds = {item.kind for item in ledger.local_entries}
+    return (
+        "## What I read\n"
+        f"- {len(ledger.local_entries)} consented local "
+        f"{_plural(len(ledger.local_entries), 'observation')} across {len(kinds)} "
+        f"{_plural(len(kinds), 'capability type')}.\n"
+        f"- {len(ledger.entries)} entries from the exact signed Dex catalogue recorded "
+        f"by digest `{ledger.catalogue_sha256}`.\n"
+        "- The complete evidence-bound accounting is in the ledger appendix below.\n"
+    )
+
+
+def _render_fragility(ledger: ComparisonLedger) -> str:
+    return _render_disposition_findings(
+        ledger,
+        heading="Fragility and contradictions",
+        dispositions=frozenset({Disposition.FRAGILE_OR_CONTRADICTORY}),
+        empty_message=(
+            "No evidence-backed contradiction cleared the bar. That is Unknown, not a "
+            "clean bill of health."
+        ),
+    )
 
 
 def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
@@ -607,7 +957,27 @@ def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
         )
         for item in sorted(ledger.family_entries, key=lambda item: item.family_id)
     )
-    lines.append("### Exact MCP tools by server")
+    lines.append("### Proven release changes")
+    if ledger.version_distance is not None:
+        lines.extend(
+            json.dumps(
+                {
+                    "row_type": "version-distance",
+                    **_family_delta_row(item),
+                    "evidence_references": list(
+                        ledger.version_distance.evidence_references
+                    ),
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            for item in sorted(
+                ledger.version_distance.families,
+                key=lambda item: item.family_id,
+            )
+        )
+    lines.append("### Signed MCP inventories by server")
     lines.extend(
         json.dumps(
             {"row_type": "mcp-tools", **_appendix_mcp_tools(item)},

@@ -252,6 +252,7 @@ class TestSaveResult:
 
         markdown = saved.path.read_text(encoding="utf-8")
         assert canonical_fact_block(ledger) in markdown
+        assert f"- Report location: `{saved.path}`." in markdown
         assert saved.ledger_path.is_file()
         assert saved.result_path.is_file()
         stored = saved.result_path.read_text(encoding="utf-8")

@@ -22,7 +22,7 @@ from capability_exchange.diagnosis.observations import (
     ObservationKind,
     OperationalState,
     RuntimeState,
-    migrate_stored_fingerprint_payload,
+    upgrade_stored_fingerprint_payload,
 )
 from capability_exchange.diagnosis.run import ApprovedScopeReceipt, canonical_json_digest
 
@@ -58,7 +58,7 @@ def _legacy_payload(state: str = "implemented") -> dict[str, object]:
 
 
 def test_legacy_stored_fingerprint_migrates_once_to_three_axes() -> None:
-    migrated = migrate_stored_fingerprint_payload(_legacy_payload())
+    migrated = upgrade_stored_fingerprint_payload(_legacy_payload())
     observation = migrated["observations"][0]
 
     assert isinstance(observation, dict)
@@ -73,7 +73,7 @@ def test_legacy_stored_fingerprint_migrates_once_to_three_axes() -> None:
 
 
 def test_new_fingerprint_payload_emits_no_competing_operational_scalar() -> None:
-    migrated = migrate_stored_fingerprint_payload(_legacy_payload())
+    migrated = upgrade_stored_fingerprint_payload(_legacy_payload())
     fingerprint = EvidenceFingerprint.model_validate(migrated)
     dumped = fingerprint.model_dump(mode="json")
 
@@ -85,16 +85,16 @@ def test_new_fingerprint_payload_emits_no_competing_operational_scalar() -> None
     } <= dumped["observations"][0].keys()
 
 
-def test_migration_is_idempotent_and_refuses_mixed_old_and_new_truths() -> None:
-    migrated = migrate_stored_fingerprint_payload(_legacy_payload("loaded"))
-    assert migrate_stored_fingerprint_payload(migrated) == migrated
+def test_stored_upgrade_is_idempotent_and_refuses_mixed_old_and_new_truths() -> None:
+    migrated = upgrade_stored_fingerprint_payload(_legacy_payload("loaded"))
+    assert upgrade_stored_fingerprint_payload(migrated) == migrated
 
     mixed = _legacy_payload()
     mixed_observation = mixed["observations"][0]
     assert isinstance(mixed_observation, dict)
     mixed_observation["runtime_state"] = RuntimeState.NOT_ASSESSED.value
     with pytest.raises(ValueError, match="operational_state"):
-        migrate_stored_fingerprint_payload(mixed)
+        upgrade_stored_fingerprint_payload(mixed)
 
 
 def test_observation_constructor_refuses_mixed_legacy_scalar_and_axes() -> None:
@@ -106,7 +106,7 @@ def test_observation_constructor_refuses_mixed_legacy_scalar_and_axes() -> None:
 
 
 def test_unknown_axis_values_fail_closed() -> None:
-    payload = migrate_stored_fingerprint_payload(_legacy_payload())
+    payload = upgrade_stored_fingerprint_payload(_legacy_payload())
     observation = payload["observations"][0]
     assert isinstance(observation, dict)
     observation["health_state"] = "healthy-ish"

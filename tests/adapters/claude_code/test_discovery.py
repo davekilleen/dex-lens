@@ -37,7 +37,7 @@ def _write(root: Path, relative: str, content: str) -> None:
 
 def _synthetic_legacy_system(root: Path) -> InspectionSnapshot:
     root.mkdir()
-    _write(root, "VERSION", "v0.8.3\n")
+    _write(root, ".dex-version", "v0.8.3\n")
     _write(
         root,
         ".claude/skills/daily-plan/SKILL.md",
@@ -110,6 +110,36 @@ def test_discovers_whole_system_without_equating_presence_with_working(tmp_path:
         is OperationalState.IMPLEMENTED
     )
     assert (ObservationKind.MCP_TOOL, "career-data:unknown") not in by_key
+
+
+def test_generic_project_version_file_is_not_dex_release_evidence(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "VERSION", "v9.8.7\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
+
+
+def test_unrelated_changelog_is_not_dex_release_evidence(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "CHANGELOG.md", "# Changelog\n\n## v9.8.7\n\nA generic project.\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
+
+
+def test_nested_dex_version_is_not_enough_to_claim_core_lineage(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "vendor/tool/.dex-version", "v9.8.7\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
 
 
 def test_mcp_and_hook_discovery_never_retains_secret_values(tmp_path: Path) -> None:
@@ -380,6 +410,30 @@ def test_task_adapter_missing_a_required_bridge_function_is_not_evidence(
     )
 
 
+@pytest.mark.parametrize(
+    "body",
+    (
+        "module.exports = { /* toExternal toDex create complete getChanges */ };\n",
+        'module.exports = { note: "toExternal toDex create complete getChanges" };\n',
+    ),
+)
+def test_task_adapter_comments_and_strings_cannot_impersonate_exported_keys(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    root = tmp_path / "comment-lookalike"
+    root.mkdir()
+    _write(root, ".claude/hooks/adapters/todoist.cjs", body)
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
+
+
 def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:
     root = tmp_path / "duplicate-system"
     root.mkdir()
@@ -439,6 +493,27 @@ def test_same_named_skills_from_distinct_approved_sources_emit_separately(
         "scope:global",
         "scope:vault",
     ]
+
+
+def test_same_named_skills_in_one_source_report_copy_and_variant_counts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "multi-harness-system"
+    root.mkdir()
+    _write(root, ".claude/skills/planner/SKILL.md", "# Planner\nUse the calendar.\n")
+    _write(root, ".agents/skills/planner/SKILL.md", "# Planner\nUse the task list.\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    planner = next(
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.SKILL and item.identity == "planner"
+    )
+
+    assert {attribute.key: attribute.value for attribute in planner.attributes} == {
+        "copy-count": "2",
+        "variant-count": "2",
+    }
 
 
 def test_unsourced_live_state_cannot_upgrade_same_automation_across_sources(

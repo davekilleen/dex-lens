@@ -435,3 +435,9 @@ def test_schema_only_payload_is_json_serializable() -> None:
     # Keep the schema contract test honest about the wire shape it hands to
     # the custom validator.
     assert json.loads(json.dumps(_envelope(_catalogue())))
+
+
+def test_significant_family_schema_reserves_next_lens_release() -> None:
+    schema = build_catalogue_schema()
+
+    assert schema["x-dex-lens-minimum-version"] == "0.1.16"

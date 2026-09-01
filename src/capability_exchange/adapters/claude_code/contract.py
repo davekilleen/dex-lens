@@ -79,7 +79,7 @@ AUTOMATION_SUFFIXES: frozenset[str] = frozenset({".plist", ".cron", ".service", 
 INTEGRATION_BASENAMES: frozenset[str] = frozenset(
     {"registry.json", "config.yaml", "config.yml"}
 )
-RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", "VERSION", ".dex-version"})
+RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", ".dex-version"})
 SAFE_PROBE_FOLDERS: frozenset[str] = frozenset(
     {".scripts", "scripts", "checks", "health", "system"}
 )

@@ -1375,6 +1375,166 @@ fields:
     deletion: not-stored
     audit: "ephemeral complete family ledger; canonical report storage binds every row by digest"
 
+  ComparisonLedger.version_distance:
+    description: "optional family-level signed skill-lineage changes after one proven inspected Core release"
+    collection: "derived locally from a root Dex release marker and signature-verified skill release fields"
+    derivation: "present only for one unambiguous Dex Core release identity and at least one exact signed skill change"
+    display: "drives the bounded what-changed section while omitting families without signed lineage"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral release comparison; canonical report storage binds it by digest"
+
+  VersionDistance.inspected_version:
+    description: "Dex Core semantic version proven by the approved local snapshot"
+    collection: "copied from the allowlisted release-id attribute on one approved release observation"
+    derivation: "retained only when all relevant release observations agree"
+    display: "identifies the release being compared"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded release identity"
+
+  VersionDistance.current_version:
+    description: "Dex Core semantic version named by the signature-verified catalogue metadata"
+    collection: "copied from the verified signed catalogue envelope"
+    derivation: "signature-verified public release metadata"
+    display: "identifies the current comparison endpoint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release identity"
+
+  VersionDistance.evidence_references:
+    description: "bounded approved references proving the inspected Core release identity"
+    collection: "copied from the approved release observations"
+    derivation: "deduplicated, sorted, and capped at eight references"
+    display: "kept in the canonical appendix rather than exposed as a private path in human prose"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral release evidence references"
+
+  VersionDistance.families:
+    description: "exact family rows containing at least one signed skill introduction or change after the inspected release"
+    collection: "derived from the verified family contract and signed skill since_release and changed_in fields"
+    derivation: "families without signed release lineage in the compared interval are omitted, never treated as unchanged"
+    display: "renders only proven family-level release changes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family release comparison"
+
+  FamilyDelta.family_id:
+    description: "signed identity of the capability family in a version-distance row"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "anchors one family comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family identity"
+
+  FamilyDelta.title:
+    description: "signed human-readable capability family title"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "heads the family comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family title"
+
+  FamilyDelta.outcome:
+    description: "signed plain-language outcome of the capability family"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "explains the family without requiring technical catalogue rows"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family outcome"
+
+  FamilyDelta.current_version:
+    description: "current signed Core semantic version for this family comparison"
+    collection: "copied from the verified catalogue envelope"
+    derivation: "validated to equal the parent version-distance endpoint"
+    display: "supports the family comparison context"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public release identity"
+
+  FamilyDelta.inspected_version:
+    description: "approved local Core semantic version for this family comparison"
+    collection: "copied from the proven release observation"
+    derivation: "validated to equal the parent version-distance endpoint"
+    display: "supports the family comparison context"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded release identity"
+
+  FamilyDelta.availability:
+    description: "current family availability derived from signed member capability states"
+    collection: "derived from the verified member entries"
+    derivation: "uses the one canonical leaf availability rule"
+    display: "states whether the current family is available, partial, or unavailable"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived public availability"
+
+  FamilyDelta.introduced_member_ids:
+    description: "signed skill members whose since_release is after the inspected release and no later than the current release"
+    collection: "derived from signature-verified skill since_release fields"
+    derivation: "exact ordered subset of signed family membership with bounded SemVer comparison"
+    display: "names the exact newly introduced signed skill entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyDelta.changed_member_ids:
+    description: "signed skill members with a changed_in release after the inspected release and no later than the current release"
+    collection: "derived from signature-verified skill changed_in fields"
+    derivation: "exact ordered family subset excluding entries already classified as introduced"
+    display: "names the exact signed skill entries changed after the inspected release"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyDelta.available_member_ids:
+    description: "signed family members currently available"
+    collection: "derived from the verified member entries"
+    derivation: "exact ordered subset of signed family membership"
+    display: "supports the family availability proof"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyDelta.unavailable_member_ids:
+    description: "signed family members not currently available"
+    collection: "derived from the verified member entries"
+    derivation: "exact ordered complement of available family members"
+    display: "supports honest partial or unavailable family status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyDelta.recommendable_member_ids:
+    description: "signed family members current catalogue rules allow Lens to recommend"
+    collection: "derived from the verified member entries"
+    derivation: "equal to available members under the canonical recommendation rule"
+    display: "prevents unavailable family members being pitched"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
   McpToolInventory.server_id:
     description: "signed catalogue capability identity for one MCP server tool group"
     collection: "copied from the signature-verified catalogue MCP server entry"
@@ -1395,11 +1555,31 @@ fields:
     deletion: not-stored
     audit: "ephemeral public catalogue server name"
 
+  McpToolInventory.inventory_status:
+    description: "whether the signed MCP tool list is complete or a published sample"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated against the closed sampled or complete states"
+    display: "prevents sampled tool examples being described as a complete inventory"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue inventory scope"
+
+  McpToolInventory.declared_tool_count:
+    description: "signed total number of tools declared for one MCP server"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated against the published complete or sampled tool tuple"
+    display: "reports total MCP breadth without inventing identities omitted from a sample"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue tool count"
+
   McpToolInventory.tools:
-    description: "complete exact signed tool tuple for one MCP server"
-    collection: "copied from a signature-verified catalogue entry whose tool inventory is complete"
-    derivation: "validated as non-empty, unique bounded tool identities with signed order preserved"
-    display: "lists every exact MCP tool under its server in the report appendix"
+    description: "signed complete tool tuple or signed published examples for one MCP server"
+    collection: "copied from the matching complete or sampled fields of the signature-verified catalogue entry"
+    derivation: "validated as non-empty, unique bounded tool identities with signed order preserved and explicit inventory scope"
+    display: "lists the exact published identities under their server while identifying samples as incomplete"
     storage: none
     sharing: never
     deletion: not-stored

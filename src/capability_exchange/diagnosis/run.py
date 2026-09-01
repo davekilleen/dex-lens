@@ -32,10 +32,10 @@ __all__ = [
     "required_step_for_stage",
 ]
 
-ENGINE_VERSION = "0.1.15-diagnosis-engine"
+ENGINE_VERSION = "0.1.16-diagnosis-engine"
 # Version 2 replaces the collapsed observation operational scalar with the
 # independent configuration/runtime/health axes.  Stored v1 fingerprints are
-# read through the explicit migration in ``observations``.
+# read through the explicit stored-payload upgrade in ``observations``.
 INPUT_SCHEMA_VERSION = "2"
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")

@@ -31,8 +31,8 @@ __all__ = [
     "RunningState",
     "SafeAttribute",
     "SourceProvenance",
-    "migrate_stored_fingerprint_payload",
-    "migrate_stored_observation_payload",
+    "upgrade_stored_fingerprint_payload",
+    "upgrade_stored_observation_payload",
     "observation_id_for",
     "observation_key_for",
 ]
@@ -49,6 +49,8 @@ _SAFE_ATTRIBUTE_KEYS = frozenset(
         "release-id",
         "source-kind",
         "provider-count",
+        "copy-count",
+        "variant-count",
         "receipt-age",
         "live-state-match",
     }
@@ -363,7 +365,7 @@ class Observation(InventoriedModel):
         # Existing adapters and fixtures construct observations directly with
         # ``operational_state``.  Translate that legacy input before Pydantic
         # sees it; model validation of stored dictionaries remains strict and
-        # must pass through ``migrate_stored_observation_payload`` explicitly.
+        # must pass through ``upgrade_stored_observation_payload`` explicitly.
         super().__init__(**_normalise_observation_input(data))
 
     kind: ObservationKind
@@ -516,10 +518,10 @@ class Observation(InventoriedModel):
         return cls(**_normalise_observation_input(values))
 
 
-def migrate_stored_observation_payload(payload: Mapping[str, object]) -> dict[str, object]:
+def upgrade_stored_observation_payload(payload: Mapping[str, object]) -> dict[str, object]:
     """Migrate one pre-axis stored observation without writing anything.
 
-    The migration is deliberately a pure, one-way boundary operation.  New
+    The upgrade is deliberately a pure, one-way boundary operation.  New
     payloads must carry all three axis fields and may not carry the old scalar;
     old payloads carry only ``operational_state`` and are translated once.
     """
@@ -552,8 +554,8 @@ def migrate_stored_observation_payload(payload: Mapping[str, object]) -> dict[st
     return migrated
 
 
-def migrate_stored_fingerprint_payload(payload: Mapping[str, object]) -> dict[str, object]:
-    """Read one stored fingerprint through the single legacy-axis migration."""
+def upgrade_stored_fingerprint_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Read one stored fingerprint through the single legacy-axis upgrade."""
 
     if not isinstance(payload, Mapping):
         raise ValueError("stored fingerprint payload must be a mapping")
@@ -564,7 +566,7 @@ def migrate_stored_fingerprint_payload(payload: Mapping[str, object]) -> dict[st
         raise ValueError("stored fingerprint observations must be a sequence")
     migrated = dict(payload)
     migrated["observations"] = [
-        migrate_stored_observation_payload(item)
+        upgrade_stored_observation_payload(item)
         if isinstance(item, Mapping)
         else (_raise_invalid_observation_payload())
         for item in raw_observations
@@ -573,7 +575,7 @@ def migrate_stored_fingerprint_payload(payload: Mapping[str, object]) -> dict[st
 
 
 def _raise_invalid_observation_payload() -> dict[str, object]:
-    """Raise from a list expression while retaining a precise migration error."""
+    """Raise from a list expression while retaining a precise upgrade error."""
 
     raise ValueError("stored fingerprint observation must be a mapping")
 

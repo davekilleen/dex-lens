@@ -120,6 +120,10 @@ def test_canonical_fact_block_is_exact_ledger_projection() -> None:
     assert block == (
         f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
+        + "- Local observations: 0 captured; 0 mapped; 0 remain not assessed.\n"
+        + "- Signed MCP inventory: 0 declared tools across 0 servers; 0 complete "
+        + "inventories; 0 sampled inventories.\n"
+        + "- Significant-family components: 0 exact matches; 0 remain Unknown.\n"
     )
     assert block.splitlines()[1] == (
         "- Catalogue accounting: 115 entries; 35 assessed; 80 remain Unknown."
@@ -342,9 +346,12 @@ def test_close_is_generated_from_the_report_model() -> None:
     close = _after_coverage(rendered)
 
     assert "No grounded strength cleared the evidence bar." in close
-    assert "No transferable method cleared the evidence bar." in close
-    assert "No first move cleared the bar." in close
-    assert "not been saved yet" in close.lower()
+    assert "See 2 evidence-reviewed patterns above." in close
+    assert (
+        "No single first move has stronger evidence than the other options above."
+        in close
+    )
+    assert "will be saved before the run closes" in close.lower()
     assert RUN_ID in close
     assert "Sharing was not offered." in close
     assert "Future-watch is a separate choice from sharing." in close

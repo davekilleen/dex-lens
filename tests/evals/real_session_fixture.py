@@ -167,7 +167,8 @@ def real_session_ledger() -> ComparisonLedger:
                     disposition=disposition,
                     capability_id=identity,
                     evidence_references=evidence_references,
-                    method_compared=disposition is Disposition.SHARED,
+                    method_compared=disposition
+                    in {Disposition.SHARED, Disposition.DEX_SHOULD_LEARN},
                     reason=f"Invented replay reason {index:03d} for {disposition.value}.",
                 )
             )

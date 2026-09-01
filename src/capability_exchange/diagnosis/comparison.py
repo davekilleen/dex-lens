@@ -18,7 +18,12 @@ from capability_exchange.catalogue.v2 import (
     SourceComponentReferenceV2,
     capability_availability_of,
 )
-from capability_exchange.diagnosis.families import FamilyAvailability, summarise_family
+from capability_exchange.diagnosis.families import (
+    FamilyAvailability,
+    FamilyDelta,
+    build_family_delta,
+    summarise_family,
+)
 from capability_exchange.diagnosis.observations import (
     ConfigurationState,
     EvidenceFingerprint,
@@ -26,8 +31,8 @@ from capability_exchange.diagnosis.observations import (
     ObservationKind,
     OperationalState,
     RuntimeState,
-    migrate_stored_observation_payload,
     observation_id_for,
+    upgrade_stored_observation_payload,
 )
 from capability_exchange.diagnosis.significant_families import (
     ComponentMatchBasis,
@@ -46,6 +51,7 @@ __all__ = [
     "HumanCapability",
     "LocalObservationDisposition",
     "McpToolInventory",
+    "VersionDistance",
     "family_entries_from_assessments",
 ]
 
@@ -117,6 +123,8 @@ class CatalogueDisposition(InventoriedModel):
             raise ValueError("a scored disposition requires evidence")
         if self.disposition is Disposition.SHARED and not self.method_compared:
             raise ValueError("shared requires method evidence, not name similarity")
+        if self.disposition is Disposition.DEX_SHOULD_LEARN and not self.method_compared:
+            raise ValueError("Dex-should-learn requires method evidence, not identity overlap")
         return self
 
 
@@ -143,13 +151,27 @@ class HumanCapability(InventoriedModel):
 
 
 class McpToolInventory(InventoriedModel):
-    """Every exact signed tool for one MCP server, kept in catalogue order."""
+    """One signed MCP inventory, complete or honestly marked as sampled."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     server_id: str = Field(pattern=_ID_PATTERN)
     server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{1,80}$")
+    inventory_status: Literal["sampled", "complete"]
+    declared_tool_count: int = Field(ge=1, le=500)
     tools: tuple[str, ...] = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_complete_rows(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        upgraded = dict(value)
+        tools = upgraded.get("tools")
+        if isinstance(tools, (list, tuple)):
+            upgraded.setdefault("inventory_status", "complete")
+            upgraded.setdefault("declared_tool_count", len(tools))
+        return upgraded
 
     @field_validator("tools")
     @classmethod
@@ -159,6 +181,53 @@ class McpToolInventory(InventoriedModel):
         if any(re.fullmatch(r"^[a-z][a-z0-9_]{0,119}$", value) is None for value in values):
             raise ValueError("MCP tool inventory contains an invalid tool identity")
         return values
+
+    @model_validator(mode="after")
+    def _inventory_scope_is_honest(self) -> Self:
+        if self.inventory_status == "complete" and self.declared_tool_count != len(self.tools):
+            raise ValueError("complete MCP inventory must contain every declared tool")
+        if self.inventory_status == "sampled" and self.declared_tool_count < len(self.tools):
+            raise ValueError("sampled MCP inventory cannot show more tools than declared")
+        return self
+
+
+class VersionDistance(InventoriedModel):
+    """Signed skill-lineage changes after one proven local Dex release."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    inspected_version: str = Field(
+        pattern=r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    )
+    current_version: str = Field(
+        pattern=r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    )
+    evidence_references: tuple[str, ...] = Field(min_length=1, max_length=8)
+    families: tuple[FamilyDelta, ...] = Field(min_length=1, max_length=80)
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _evidence_is_safe_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("version-distance evidence references must be unique")
+        for value in values:
+            reason = reference_rejection_reason(value)
+            if reason is not None:
+                raise ValueError(reason)
+        return values
+
+    @model_validator(mode="after")
+    def _family_rows_share_the_same_version_pair(self) -> Self:
+        family_ids = [item.family_id for item in self.families]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("version distance contains a duplicate family identity")
+        if any(
+            item.inspected_version != self.inspected_version
+            or item.current_version != self.current_version
+            for item in self.families
+        ):
+            raise ValueError("version-distance family rows must share the proven version pair")
+        return self
 
 
 class FamilyComponentEvidence(InventoriedModel):
@@ -313,7 +382,7 @@ class LocalObservationDisposition(InventoriedModel):
     def __init__(self, **data: object) -> None:
         """Accept one legacy scalar at construction, but never persist it."""
 
-        super().__init__(**migrate_stored_observation_payload(data))
+        super().__init__(**upgrade_stored_observation_payload(data))
 
     observation_id: str = Field(pattern=_OBSERVATION_ID_PATTERN)
     kind: ObservationKind
@@ -548,6 +617,7 @@ class ComparisonLedger(InventoriedModel):
     entries: tuple[CatalogueDisposition, ...] = Field(min_length=1)
     mcp_tools_by_server: tuple[McpToolInventory, ...] = ()
     family_entries: tuple[FamilyLedgerEntry, ...] = ()
+    version_distance: VersionDistance | None = None
     local_entries: tuple[LocalObservationDisposition, ...] = ()
     reciprocal_answer: str = Field(min_length=1, max_length=1000)
 
@@ -581,6 +651,22 @@ class ComparisonLedger(InventoriedModel):
         family_ids = [item.family_id for item in self.family_entries]
         if len(family_ids) != len(set(family_ids)):
             raise ValueError("comparison ledger contains a duplicate family identity")
+        if self.version_distance is not None:
+            delta_by_id = {item.family_id: item for item in self.version_distance.families}
+            family_by_id = {item.family_id: item for item in self.family_entries}
+            if not set(delta_by_id) <= set(family_by_id):
+                raise ValueError("version distance references an unknown signed family")
+            for family_id, delta in delta_by_id.items():
+                family = family_by_id[family_id]
+                if (
+                    delta.title != family.title
+                    or delta.outcome != family.outcome
+                    or delta.availability is not family.signed_availability
+                    or delta.available_member_ids != family.available_member_ids
+                    or delta.unavailable_member_ids != family.unavailable_member_ids
+                    or delta.recommendable_member_ids != family.recommendable_member_ids
+                ):
+                    raise ValueError("version distance must preserve exact signed family truth")
         return self
 
     @classmethod
@@ -595,6 +681,7 @@ class ComparisonLedger(InventoriedModel):
         entries: tuple[CatalogueDisposition, ...],
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
+        version_distance: VersionDistance | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
@@ -615,6 +702,7 @@ class ComparisonLedger(InventoriedModel):
                 entries=entries,
                 mcp_tools_by_server=mcp_tools_by_server,
                 family_entries=family_entries,
+                version_distance=version_distance,
                 local_entries=local_entries,
                 reciprocal_answer=reciprocal_answer,
             )
@@ -678,6 +766,29 @@ class ComparisonLedger(InventoriedModel):
                 mcp_tools_by_server,
             )
         exact_family_entries = _validate_family_entries(catalogue, family_entries or ())
+        if version_distance is not None:
+            entries_by_id = {item.capability_id: item for item in catalogue.capabilities}
+            expected_deltas = tuple(
+                delta
+                for family in sorted(catalogue.capability_families, key=lambda item: item.family_id)
+                if (
+                    delta := build_family_delta(
+                        current_version=version_distance.current_version,
+                        inspected_version=version_distance.inspected_version,
+                        family=family,
+                        entries=tuple(
+                            entries_by_id[member_id]
+                            for member_id in family.member_capability_ids
+                        ),
+                    )
+                )
+                is not None
+            )
+            if version_distance.families != expected_deltas:
+                raise _model_validation_error(
+                    "version distance must equal exact signed release lineage",
+                    version_distance.families,
+                )
         return cls(
             catalogue_version=catalogue_version,
             catalogue_sha256=catalogue_sha256,
@@ -685,6 +796,7 @@ class ComparisonLedger(InventoriedModel):
             entries=entries,
             mcp_tools_by_server=exact_mcp_tools,
             family_entries=exact_family_entries,
+            version_distance=version_distance,
             local_entries=local_entries or (),
             reciprocal_answer=reciprocal_answer,
         )
@@ -701,6 +813,7 @@ class ComparisonLedger(InventoriedModel):
         entries: tuple[CatalogueDisposition, ...],
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
+        version_distance: VersionDistance | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
     ) -> ComparisonLedger:
@@ -726,6 +839,7 @@ class ComparisonLedger(InventoriedModel):
             entries=entries,
             mcp_tools_by_server=mcp_tools_by_server,
             family_entries=assessed_family_entries,
+            version_distance=version_distance,
             reciprocal_answer=reciprocal_answer,
         )
         expected_observation_ids = tuple(
@@ -796,6 +910,7 @@ class ComparisonLedger(InventoriedModel):
             entries=base.entries,
             mcp_tools_by_server=base.mcp_tools_by_server,
             family_entries=base.family_entries,
+            version_distance=base.version_distance,
             local_entries=supplied,
             reciprocal_answer=base.reciprocal_answer,
         )
@@ -831,15 +946,16 @@ def _seed_local_entries(
 
 
 def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
-    """Copy only complete signed MCP tool inventories into stable server groups."""
+    """Copy every signed MCP inventory and preserve whether it is sampled."""
 
     return tuple(
         McpToolInventory(
             server_id=entry.capability_id,
             server_name=entry.server_name,
-            tools=entry.tools,
+            inventory_status=entry.tool_inventory,
+            declared_tool_count=entry.tool_count,
+            tools=(entry.tools if entry.tool_inventory == "complete" else entry.example_tools),
         )
         for entry in sorted(catalogue.capabilities, key=lambda item: item.capability_id)
         if isinstance(entry, McpServerCapabilityEntryV2)
-        and entry.tool_inventory == "complete"
     )

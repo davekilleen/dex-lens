@@ -87,6 +87,15 @@ def test_same_name_without_method_evidence_cannot_be_shared() -> None:
         )
 
 
+def test_dex_should_learn_requires_compared_method_evidence() -> None:
+    with pytest.raises(ValidationError, match="Dex-should-learn requires method evidence"):
+        _disposition(
+            "system-doctor",
+            Disposition.DEX_SHOULD_LEARN,
+            evidence=("path-token:doctor",),
+        )
+
+
 def test_scored_disposition_requires_evidence() -> None:
     with pytest.raises(ValidationError, match="requires evidence"):
         _disposition("backup-proof", Disposition.STRONG_HERE)

@@ -126,12 +126,36 @@ def test_legacy_entry_uses_the_catalogue_leaf_availability_rule() -> None:
     assert summary.recommendable_member_ids == ("legacy-entry",)
 
 
-def test_family_delta_explains_unavailable_members_without_recommending_them() -> None:
+def test_family_without_signed_release_lineage_is_not_presented_as_a_delta() -> None:
     delta = build_family_delta(
         current_version="1.97.2",
         inspected_version="1.18.1",
         family=_family(("parked-entry",)),
         entries=(_entry("parked-entry", "parked"),),
     )
-    assert "not currently available" in delta.plain_language_state
-    assert delta.recommendable_member_ids == ()
+    assert delta is None
+
+
+def test_family_delta_contains_only_signed_skill_release_changes() -> None:
+    introduced_payload = legacy_skill("introduced-skill", "Introduced Skill")
+    introduced_payload["since_release"] = "1.90.0"
+    introduced_payload["changed_in"] = ["1.95.0"]
+    changed_payload = legacy_skill("changed-skill", "Changed Skill")
+    changed_payload["since_release"] = "1.10.0"
+    changed_payload["changed_in"] = ["1.85.0", "1.96.0"]
+    entries = (
+        LegacySkillCapabilityEntryV2.model_validate(introduced_payload),
+        LegacySkillCapabilityEntryV2.model_validate(changed_payload),
+    )
+
+    delta = build_family_delta(
+        current_version="v1.97.2",
+        inspected_version="v1.80.0",
+        family=_family(("introduced-skill", "changed-skill")),
+        entries=entries,
+    )
+
+    assert delta is not None
+    assert delta.introduced_member_ids == ("introduced-skill",)
+    assert delta.changed_member_ids == ("changed-skill",)
+    assert delta.recommendable_member_ids == ("introduced-skill", "changed-skill")

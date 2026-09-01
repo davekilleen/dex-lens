@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from capability_exchange.catalogue.v2 import SignedCatalogueEnvelopeV2
 from capability_exchange.diagnosis.comparison import ComparisonLedger
+from capability_exchange.diagnosis.observations import ObservationKind
 
 __all__ = ["load_and_validate_ledger"]
 
@@ -45,6 +46,22 @@ def load_and_validate_ledger(
             "the comparison ledger does not belong to the exact verified catalogue "
             "used for this diagnosis"
         ]
+    if ledger.version_distance is not None:
+        release_evidence = tuple(
+            sorted(
+                {
+                    reference
+                    for item in ledger.local_entries
+                    if item.kind is ObservationKind.RELEASE and item.identity == "dex-core"
+                    for reference in item.evidence_references
+                }
+            )[:8]
+        )
+        if ledger.version_distance.evidence_references != release_evidence:
+            return None, [
+                "the version distance release evidence does not match the exact "
+                "local Dex release observation"
+            ]
     try:
         rebound = ComparisonLedger.for_catalogue(
             envelope.catalogue,
@@ -58,9 +75,18 @@ def load_and_validate_ledger(
             family_entries=(
                 ledger.family_entries if "family_entries" in payload else None
             ),
+            version_distance=(
+                ledger.version_distance if "version_distance" in payload else None
+            ),
             local_entries=ledger.local_entries,
             reciprocal_answer=ledger.reciprocal_answer,
         )
     except ValidationError as exc:
         return None, [f"the comparison ledger is incomplete: {exc.errors()[0]['msg']}"]
+    if (
+        ledger.version_distance is not None
+        and ledger.version_distance.current_version
+        != getattr(envelope.metadata, "core_release", None)
+    ):
+        return None, ["the version distance does not match the exact catalogue release"]
     return rebound, []

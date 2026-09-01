@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.concierge.test_diagnosis_consent import approved_scope_snapshot, invented_root
 from tests.diagnosis.test_run import RUN_ID, approved_receipt
+from tests.diagnosis.test_significant_family_assessment import _catalogue
 
+from capability_exchange.catalogue.v2 import CatalogueV2
 from capability_exchange.diagnosis import defaults
 from capability_exchange.diagnosis.comparison import Disposition
 from capability_exchange.diagnosis.defaults import (
+    CachedCatalogueLoader,
     ConsentBoundCollector,
+    UnknownUntilProposedComparer,
     build_default_engine,
     dispositions_from_proposals,
     local_dispositions_from_proposals,
@@ -24,6 +29,8 @@ from capability_exchange.diagnosis.observations import (
     Observation,
     ObservationKind,
     RuntimeState,
+    SafeAttribute,
+    observation_id_for,
 )
 from capability_exchange.diagnosis.orchestrator import DeterministicDiagnosisEngine
 from capability_exchange.diagnosis.run import DiagnosisStateError, canonical_json_digest
@@ -226,3 +233,72 @@ def test_local_disposition_preserves_all_three_observation_axes() -> None:
     assert entries[0].configuration_state is ConfigurationState.ENABLED
     assert entries[0].runtime_state is RuntimeState.LOADED
     assert entries[0].health_state is HealthState.BROKEN
+
+
+def test_differing_skill_copies_deterministically_recommend_skill_grading() -> None:
+    payload = _catalogue().model_dump(mode="json")
+    payload["capabilities"][0]["capability_id"] = "skill-score"
+    payload["capabilities"][0]["title"] = "Skill grading"
+    payload["capability_aliases"] = []
+    catalogue = CatalogueV2.model_validate(payload)
+    store = SimpleNamespace(
+        load_last_verified=lambda **_kwargs: SimpleNamespace(
+            catalogue=catalogue,
+            metadata=SimpleNamespace(catalog_version=7),
+            _signed_json="synthetic-signed-catalogue",
+        )
+    )
+    fingerprint = EvidenceFingerprint(
+        adapter_id="synthetic",
+        collected_at=_NOW,
+        observations=(
+            Observation(
+                kind=ObservationKind.SKILL,
+                identity="morning-plan",
+                label="Morning plan",
+                configuration_state=ConfigurationState.CONFLICTING,
+                runtime_state=RuntimeState.NOT_ASSESSED,
+                health_state=HealthState.NOT_ASSESSED,
+                attributes=(
+                    SafeAttribute(key="copy-count", value="5"),
+                    SafeAttribute(key="variant-count", value="3"),
+                ),
+                evidence=EvidenceItem(
+                    state="observed",
+                    captured_at=_NOW,
+                    reference="file-token:morning-plan",
+                ),
+                provenance={
+                    "source_id": "scope:primary",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "a" * 64,
+                    "relative_reference": "skills/morning-plan",
+                },
+            ),
+        ),
+    )
+    slice_ = CachedCatalogueLoader(store).load(
+        run_id=RUN_ID,
+        fingerprint_digest="sha256:" + "b" * 64,
+    )
+
+    ledger = UnknownUntilProposedComparer(store).compare(
+        fingerprint=fingerprint,
+        catalogue=slice_,
+        jobs=(),
+        proposals=(),
+    )
+
+    recommendation = next(
+        item for item in ledger.entries if item.catalogue_id == "skill-score"
+    )
+    assert recommendation.disposition is Disposition.WORTH_BORROWING
+    assert "1 skill identity has 5 copies across 3 differing variants" in recommendation.reason
+    assert recommendation.evidence_references == ("file-token:morning-plan",)
+    local = next(
+        item
+        for item in ledger.local_entries
+        if item.observation_id == observation_id_for(fingerprint.observations[0])
+    )
+    assert local.disposition is Disposition.WORTH_BORROWING
+    assert local.mapped_catalogue_ids == ("skill-score",)

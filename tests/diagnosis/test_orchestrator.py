@@ -452,6 +452,24 @@ def test_result_after_close_can_render_canonical_markdown(engine: EngineHarness)
     assert payload["stage"] == DiagnosisStage.CLOSED.value
     markdown = result.render_markdown()
     assert canonical_fact_block(result.ledger) in markdown
+    saved = engine.report_store.last()
+    assert saved is not None
+    assert f"- Report location: `{saved.path}`." in markdown
+    assert "not been saved" not in markdown
+
+
+def test_report_carries_collection_limits_from_the_bound_fingerprint(
+    engine: EngineHarness,
+) -> None:
+    engine.collector.fingerprint = engine.collector.fingerprint.model_copy(
+        update={"limits": ("Collection stopped at the approved safe-file bound.",)}
+    )
+    prepared = engine.prepare(prepare_request())
+    engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+
+    markdown = engine.result(prepared.run_id).render_markdown()
+
+    assert "- Collection stopped at the approved safe-file bound." in markdown
 
 
 def test_orchestrator_does_not_import_follow_on_surfaces() -> None:

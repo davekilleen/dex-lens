@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -20,6 +21,12 @@ from tests.catalogue.test_bridge import _catalogue
 from tests.catalogue.test_significant_contract import _catalogue as _significant_catalogue
 from tests.catalogue.test_significant_contract import _family as _significant_family
 from tests.catalogue.test_v2_verifier import NOW, sign_envelope, unsigned_envelope
+from tests.diagnosis.test_significant_family_assessment import (
+    _catalogue as assessment_catalogue,
+)
+from tests.diagnosis.test_significant_family_assessment import (
+    _family as assessment_family,
+)
 
 from capability_exchange.catalogue.agent import (
     capability_by_id,
@@ -96,6 +103,22 @@ class TestDigest:
         assert "Durable task continuity" in digest
         assert "available" in digest
 
+    def test_family_digest_ignores_unrelated_catalogue_entries(self) -> None:
+        catalogue = assessment_catalogue(
+            assessment_family(
+                "work-family",
+                profile="mcp",
+                members=["dex-work-mcp"],
+                components=[
+                    {"component_type": "capability", "capability_id": "dex-work-mcp"}
+                ],
+            )
+        )
+
+        digest = render_catalogue_digest(catalogue)
+
+        assert "Work Family" in digest
+
 
 def test_ledger_template_contains_every_entry_and_release_identity() -> None:
     signing_key = Ed25519PrivateKey.from_private_bytes(b"ledger-template-test-key".ljust(32, b"!"))
@@ -125,6 +148,49 @@ def test_ledger_template_contains_every_entry_and_release_identity() -> None:
         item.capability_id for item in verified.catalogue.capabilities
     }
     assert all(item["disposition"] == "not-assessed" for item in rendered["entries"])
+    assert rebound == parsed
+
+
+def test_ledger_template_is_complete_for_enriched_family_catalogue() -> None:
+    catalogue = assessment_catalogue(
+        assessment_family(
+            "work-family",
+            profile="mcp",
+            members=["dex-work-mcp"],
+            components=[
+                {"component_type": "capability", "capability_id": "dex-work-mcp"},
+                {
+                    "component_type": "mcp-tool",
+                    "server_id": "dex-work-mcp",
+                    "tool_name": "create_task",
+                },
+            ],
+        )
+    )
+    envelope = SimpleNamespace(
+        catalogue=catalogue,
+        metadata=SimpleNamespace(catalog_version=7),
+        _signed_json="synthetic-verified-enriched-catalogue",
+    )
+
+    rendered = json.loads(render_catalogue_ledger_template(envelope))
+    parsed = ComparisonLedger.model_validate(rendered)
+    rebound = ComparisonLedger.for_catalogue(
+        catalogue,
+        catalogue_version=parsed.catalogue_version,
+        catalogue_sha256=parsed.catalogue_sha256,
+        capabilities=parsed.capabilities,
+        entries=parsed.entries,
+        mcp_tools_by_server=parsed.mcp_tools_by_server,
+        family_entries=parsed.family_entries,
+        reciprocal_answer=parsed.reciprocal_answer,
+    )
+
+    assert parsed.family_entries[0].unresolved_components == (
+        "capability:dex-work-mcp",
+        "mcp-tool:dex-work-mcp:create_task",
+    )
+    assert parsed.mcp_tools_by_server
     assert rebound == parsed
 
 

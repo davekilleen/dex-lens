@@ -11,8 +11,10 @@ from capability_exchange.diagnosis.comparison import (
 )
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
+    HealthState,
     ObservationKind,
     OperationalState,
+    RuntimeState,
     observation_id_for,
 )
 from capability_exchange.diagnosis.report import (
@@ -60,6 +62,7 @@ class SignificantCoverageGrade:
     recommendation_usefulness: int
     privacy_read_only_completion: int
     critical_omissions: tuple[str, ...]
+    withheld_reason: str | None = None
 
     def __post_init__(self) -> None:
         maxima = (30, 20, 15, 15, 10, 10)
@@ -80,7 +83,9 @@ class SignificantCoverageGrade:
             raise ValueError("critical omissions must be unique")
 
     @property
-    def total(self) -> int:
+    def total(self) -> int | None:
+        if self.withheld_reason is not None:
+            return None
         return (
             self.family_completeness
             + self.critical_family_recall
@@ -92,7 +97,8 @@ class SignificantCoverageGrade:
 
     @property
     def passed(self) -> bool:
-        return self.total >= 90 and not self.critical_omissions
+        total = self.total
+        return total is not None and total >= 90 and not self.critical_omissions
 
 
 def _proportional_score(*, observed: int, expected: int, maximum: int) -> int:
@@ -115,6 +121,20 @@ def grade_significant_coverage(
     """Grade a completed run without embedding any private-vault expectations."""
 
     expected_families = set(expected_family_ids)
+    if not expected_families and not ledger.family_entries:
+        return SignificantCoverageGrade(
+            family_completeness=0,
+            critical_family_recall=0,
+            axis_state_honesty=0,
+            reciprocal_strengths=0,
+            recommendation_usefulness=0,
+            privacy_read_only_completion=0,
+            critical_omissions=(),
+            withheld_reason=(
+                "The signed catalogue has no significant-family contract; a coverage "
+                "score would be misleading."
+            ),
+        )
     family_by_id = {item.family_id: item for item in ledger.family_entries}
     expected_local_axes = {
         observation_id_for(item): (
@@ -196,9 +216,21 @@ def grade_significant_coverage(
     reciprocal_score = 0
     if "## What is working especially well" in report_markdown:
         reciprocal_score += 5
+    reviewed_reciprocal = tuple(
+        item
+        for item in ledger.entries
+        if item.disposition is Disposition.DEX_SHOULD_LEARN
+        and item.evidence_references
+    )
     if (
         "## What Dex should learn from you" in report_markdown
-        and ledger.reciprocal_answer in report_markdown
+        and (
+            ledger.reciprocal_answer in report_markdown
+            or (
+                reviewed_reciprocal
+                and all(item.reason in report_markdown for item in reviewed_reciprocal)
+            )
+        )
     ):
         reciprocal_score += 5
     matched_observations = {
@@ -207,13 +239,23 @@ def grade_significant_coverage(
         for observation_id in family.matched_observation_ids
     }
     matched_components = sum(len(family.matched_components) for family in ledger.family_entries)
+    working_observations = {
+        observation_id_for(observation)
+        for observation in fingerprint.observations
+        if observation.runtime_state is RuntimeState.OUTCOME_VERIFIED
+        or observation.health_state is HealthState.HEALTHY
+    }
     count_claims_are_exact = (
         f"{len(matched_observations)} evidence-bound "
         f"{'building block' if len(matched_observations) == 1 else 'building blocks'}"
         in report_markdown
         and f"{matched_components} exact signed " in report_markdown
     )
-    if count_claims_are_exact and conservative_sentence in report_markdown:
+    if (
+        matched_observations & working_observations
+        and count_claims_are_exact
+        and conservative_sentence in report_markdown
+    ):
         reciprocal_score += 5
 
     recommendations = {
@@ -221,8 +263,8 @@ def grade_significant_coverage(
         for item in ledger.entries
         if item.disposition is Disposition.WORTH_BORROWING
     }
-    recommendation_score = 5 if len(recommendations) <= 3 else 0
-    if not recommendations & set(unavailable_catalogue_ids):
+    recommendation_score = 5 if 1 <= len(recommendations) <= 3 else 0
+    if recommendations and not recommendations & set(unavailable_catalogue_ids):
         recommendation_score += 5
 
     privacy_score = 4 if read_only_proven else 0

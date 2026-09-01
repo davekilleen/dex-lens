@@ -35,7 +35,7 @@ from capability_exchange.diagnosis.mcp_server import (
 )
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
-    migrate_stored_fingerprint_payload,
+    upgrade_stored_fingerprint_payload,
 )
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
@@ -381,7 +381,7 @@ class ReplayHarness:
         if payload is None:
             return self.bundle.fingerprint
         try:
-            migrated = migrate_stored_fingerprint_payload(payload)
+            migrated = upgrade_stored_fingerprint_payload(payload)
             return EvidenceFingerprint.model_validate(migrated)
         except (TypeError, ValueError) as exc:
             raise DiagnosisStateError("stored replay fingerprint is unreadable") from exc

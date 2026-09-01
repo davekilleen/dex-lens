@@ -16,7 +16,7 @@ from capability_exchange.concierge.consent import (
 from capability_exchange.diagnosis.comparison import ComparisonLedger
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
-    migrate_stored_fingerprint_payload,
+    upgrade_stored_fingerprint_payload,
 )
 from capability_exchange.diagnosis.report import (
     ReportModel,
@@ -104,6 +104,7 @@ class VerifiedCatalogueSlice:
     capability_ids: tuple[str, ...]
     unavailable_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
+    core_release: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,14 @@ class DiagnosisResult:
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
+        )
+
+    def with_report_location(self, path: Path) -> DiagnosisResult:
+        """Bind the exact app-storage destination before canonical rendering."""
+
+        return DiagnosisResult(
+            report=self.report.with_report_location(path),
+            ledger=self.ledger,
         )
 
 
@@ -374,6 +383,7 @@ class DeterministicDiagnosisEngine:
             {
                 "capability_ids": list(loaded.capability_ids),
                 "catalogue_ids": list(loaded.catalogue_ids),
+                "core_release": loaded.core_release,
                 "family_contract_present": loaded.family_contract_present,
                 "sha256": loaded.sha256,
                 "unavailable_ids": list(loaded.unavailable_ids),
@@ -455,10 +465,15 @@ class DeterministicDiagnosisEngine:
 
     def _save(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
         result = self._diagnosis_result(checkpoint)
-        self._reports.save_result(
+        saved = self._reports.save_result(
             result, label=result.report.run_identity.run_id, now=self._clock()
         )
-        return self._advance(checkpoint, DiagnosisStage.SAVED)
+        artifact = self._put("saved-report", {"path": str(saved.path)})
+        return self._advance(
+            checkpoint,
+            DiagnosisStage.SAVED,
+            artifacts=(artifact,),
+        )
 
     def _close(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
         return self._advance(checkpoint, DiagnosisStage.CLOSED)
@@ -466,10 +481,19 @@ class DeterministicDiagnosisEngine:
     def _diagnosis_result(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisResult:
         ledger = ComparisonLedger.model_validate(self._find_kind(checkpoint, "ledger"))
         identity = RunIdentity.model_validate(self._find_kind(checkpoint, "run-identity"))
+        fingerprint = self._fingerprint(checkpoint)
+        saved_report = self._find_kind(checkpoint, "saved-report")
+        report_location = (
+            str(saved_report["path"])
+            if isinstance(saved_report, dict) and saved_report.get("path")
+            else None
+        )
         report = ReportModel.from_result(
             run_identity=identity,
             ledger=ledger,
             ledger_sha256=canonical_ledger_digest(ledger),
+            limits=fingerprint.limits,
+            report_location=report_location,
         )
         return DiagnosisResult(report=report, ledger=ledger)
 
@@ -478,7 +502,7 @@ class DeterministicDiagnosisEngine:
         if payload is None:
             raise DiagnosisStateError("fingerprint is missing from this diagnosis checkpoint")
         try:
-            migrated = migrate_stored_fingerprint_payload(payload)
+            migrated = upgrade_stored_fingerprint_payload(payload)
             return EvidenceFingerprint.model_validate(migrated)
         except (TypeError, ValueError) as exc:
             raise DiagnosisStateError("stored evidence fingerprint is unreadable") from exc
@@ -496,6 +520,11 @@ class DeterministicDiagnosisEngine:
             capability_ids=tuple(payload["capability_ids"]),
             unavailable_ids=tuple(payload.get("unavailable_ids") or ()),
             family_contract_present=bool(payload.get("family_contract_present", False)),
+            core_release=(
+                str(payload["core_release"])
+                if payload.get("core_release") is not None
+                else None
+            ),
         )
 
     def _proposal_context(

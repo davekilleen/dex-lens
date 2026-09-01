@@ -165,10 +165,10 @@ evidence IDs. Omission, duplication or an unknown reference fails closed.
 - Modify `src/capability_exchange/adapters/claude_code/discovery.py`
 - Modify `src/capability_exchange/adapters/claude_code/live_state.py`
 - Modify `src/capability_exchange/diagnosis/run.py`
-- Add read-only stored-run migration tests
+- Add read-only stored-run upgrade tests
 
 Replace the single operational scalar in the new run schema with three closed
-axes. Old stored runs are read through one explicit migration; the new schema
+axes. Old stored runs are read through one explicit upgrade; the new schema
 does not emit two competing truths. Live host state is collected only when the
 approved scope receipt includes it.
 
@@ -332,4 +332,3 @@ The current build is ready for Dave's release decision when:
 4. both diffs pass independent review; and
 5. production signing/publication remains mechanically blocked until a tagged
    Lens release is vendored by exact bytes.
-

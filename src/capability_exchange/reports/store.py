@@ -241,6 +241,25 @@ class LensReportStore:
         slug = _slug(label)
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self._free_path(stamp, slug)
+        return self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
+
+    def _write_saved_report(
+        self,
+        path: Path,
+        markdown: str,
+        *,
+        stamp: datetime,
+        slug: str,
+        ledger_json: str | None,
+    ) -> SavedReport:
+        """Write one already-allocated path so its report can name itself exactly."""
+
         path.write_text(markdown, encoding="utf-8")
         saved = SavedReport(
             path=path,
@@ -273,7 +292,38 @@ class LensReportStore:
         render = getattr(result, "render_markdown", None)
         if not callable(render):
             raise ValueError("save_result requires a typed result with render_markdown()")
-        markdown = render()
+        # Validate the supplied typed view before enriching it with the final
+        # destination.  This preserves the stronger canonical-ledger error for
+        # a forged storage view instead of letting a missing convenience
+        # method mask the actual integrity failure.
+        initial_markdown = render()
+        if not isinstance(initial_markdown, str) or not initial_markdown.strip():
+            raise ValueError("a report with no content is not a report")
+        initial_dump = getattr(result, "dump_for_storage", None)
+        if not callable(initial_dump):
+            raise ValueError("save_result requires a typed result with dump_for_storage()")
+        initial_ledger_json = _ledger_json_from_result(result)
+        initial_result_json = json.dumps(
+            initial_dump(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        _verify_result_digests(
+            result,
+            initial_markdown,
+            initial_ledger_json,
+            initial_result_json,
+        )
+        bind_location = getattr(result, "with_report_location", None)
+        if not callable(bind_location):
+            raise ValueError("save_result requires a typed result with report location binding")
+        stamp = (now or datetime.now(UTC)).astimezone(UTC)
+        slug = _slug(label)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self._free_path(stamp, slug)
+        result = bind_location(path)
+        markdown = result.render_markdown()
         if not isinstance(markdown, str) or not markdown.strip():
             raise ValueError("a report with no content is not a report")
         dump = getattr(result, "dump_for_storage", None)
@@ -287,7 +337,13 @@ class LensReportStore:
             sort_keys=True,
         )
         _verify_result_digests(result, markdown, ledger_json, result_json)
-        saved = self.save(markdown, label=label, now=now, ledger_json=ledger_json)
+        saved = self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
         try:
             saved.result_path.write_text(result_json, encoding="utf-8")
         except OSError:

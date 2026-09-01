@@ -84,6 +84,13 @@ _BACKUP_VERIFY_COMMAND = re.compile(
 _COMMONJS_ADAPTER_EXPORT = re.compile(
     r"(?ms)^\s*module\.exports\s*=\s*\{(?P<body>[^{}]{1,4096})\}\s*;?"
 )
+_JS_COMMENT_OR_STRING = re.compile(
+    r'''(?sx)/\*.*?\*/|//[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''
+)
+_COMMONJS_PROPERTY = re.compile(
+    r"^\s*(?P<key>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"(?:\s*:\s*[A-Za-z_$][A-Za-z0-9_$]*)?\s*$"
+)
 _EXTERNAL_TASK_ADAPTER_API = frozenset(
     {"toExternal", "toDex", "create", "complete", "getChanges"}
 )
@@ -173,7 +180,13 @@ def _all_entries(snapshot: InspectionSnapshot) -> tuple[SnapshotEntry, ...]:
 def _release_version(entry: SnapshotEntry) -> str | None:
     text = entry.content.decode("utf-8", "replace")
     if Path(entry.relative_path).name == "CHANGELOG.md":
-        for line in text.splitlines()[:80]:
+        lines = text.splitlines()[:80]
+        if not any(
+            line.strip() == "All notable changes to Dex will be documented in this file."
+            for line in lines
+        ):
+            return None
+        for line in lines:
             if line.startswith("##"):
                 match = _VERSION.search(line)
                 if match is not None:
@@ -190,10 +203,10 @@ def _release_observations(
         (
             entry
             for entry in _all_entries(snapshot)
-            if Path(entry.relative_path).name in RELEASE_BASENAMES
+            if entry.relative_path in RELEASE_BASENAMES
         ),
         key=lambda entry: (
-            {".dex-version": 0, "VERSION": 1, "CHANGELOG.md": 2}[Path(entry.relative_path).name],
+            {".dex-version": 0, "CHANGELOG.md": 1}[Path(entry.relative_path).name],
             entry.relative_path.count("/"),
             entry.relative_path,
         ),
@@ -223,21 +236,34 @@ def _skill_observations(
     snapshot: InspectionSnapshot, collected_at: datetime
 ) -> tuple[Observation, ...]:
     observations: list[Observation] = []
+    grouped: dict[tuple[str, str], list[SnapshotEntry]] = {}
     for entry in snapshot.entries_named("SKILL.md"):
         name = Path(entry.relative_path).parent.name
-        state = (
+        grouped.setdefault((name, entry.source.source_id), []).append(entry)
+    for (name, _source_id), entries in sorted(grouped.items()):
+        entries = sorted(entries, key=lambda item: item.relative_path)
+        states = {
             ConfigurationState.DISABLED
             if _FRONTMATTER_DISABLED.search(entry.content)
             else ConfigurationState.IMPLEMENTED
-        )
+            for entry in entries
+        }
+        state = next(iter(states)) if len(states) == 1 else ConfigurationState.CONFLICTING
+        attributes = ()
+        if len(entries) > 1:
+            attributes = _attributes(
+                _attribute("copy-count", len(entries)),
+                _attribute("variant-count", len({entry.keyed_digest for entry in entries})),
+            )
         observations.append(
             _entry_observation(
-                entry,
+                entries[0],
                 collected_at,
                 kind=ObservationKind.SKILL,
                 identity=name,
                 label=name,
                 configuration_state=state,
+                attributes=attributes,
             )
         )
     return tuple(observations)
@@ -487,12 +513,18 @@ def _declares_external_task_adapter(entry: SnapshotEntry) -> bool:
     """Recognise one closed CommonJS declaration without retaining its body."""
 
     text = entry.content.decode("utf-8", "replace")
-    match = _COMMONJS_ADAPTER_EXPORT.search(text)
+    syntax_only = _JS_COMMENT_OR_STRING.sub(" ", text)
+    match = _COMMONJS_ADAPTER_EXPORT.search(syntax_only)
     if match is None:
         return False
-    exported_names = frozenset(
-        re.findall(r"\b[A-Za-z_$][A-Za-z0-9_$]*\b", match.group("body"))
-    )
+    exported_names: set[str] = set()
+    for declaration in match.group("body").split(","):
+        if not declaration.strip():
+            continue
+        property_match = _COMMONJS_PROPERTY.fullmatch(declaration)
+        if property_match is None:
+            return False
+        exported_names.add(property_match.group("key"))
     return _EXTERNAL_TASK_ADAPTER_API.issubset(exported_names)
 
 

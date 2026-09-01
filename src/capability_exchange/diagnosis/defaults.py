@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,9 +19,12 @@ from capability_exchange.catalogue.subscription import (
 )
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
+    LegacySkillCapabilityEntryV2,
     VerifiedCatalogueStore,
     capability_availability_of,
+    capability_class_of,
     default_keyring,
+    verify_catalogue_envelope,
 )
 from capability_exchange.concierge.collection import ScopeSnapshot, default_source_descriptors
 from capability_exchange.concierge.consent import LocalScopeConsentAuthority
@@ -31,11 +35,16 @@ from capability_exchange.diagnosis.comparison import (
     FamilyLedgerEntry,
     HumanCapability,
     LocalObservationDisposition,
+    VersionDistance,
     family_entries_from_assessments,
 )
+from capability_exchange.diagnosis.families import build_family_delta
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
+    HealthState,
     Observation,
+    ObservationKind,
+    RuntimeState,
     observation_id_for,
 )
 from capability_exchange.diagnosis.orchestrator import (
@@ -47,6 +56,7 @@ from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.significant_families import assess_significant_families
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
+    MAX_RECOMMENDATIONS,
     ProposalKind,
     SpecialistProposalError,
     ValidatedProposal,
@@ -63,6 +73,13 @@ __all__ = [
 ]
 
 _NO_PROPOSAL = "No specialist proposal cleared the evidence bar."
+_SKILL_SCORE_ID = "skill-score"
+_BUNDLED_REFERENCE_PATH = (
+    Path(__file__).resolve().parents[1] / "skill" / "dex-lens" / "dex-capabilities.json"
+)
+_FOUR_CAPABILITY_CLASSES = frozenset(
+    {"active-skill", "mcp-server", "scheduled-automation", "system-engine"}
+)
 
 
 def _plural(count: int, singular: str, plural: str | None = None) -> str:
@@ -81,6 +98,17 @@ def _reciprocal_answer(
     matched_components = sum(len(family.matched_components) for family in family_entries)
     matched_families = sum(bool(family.matched_components) for family in family_entries)
     if matched_observation_ids:
+        matched_observations = {
+            observation_id_for(observation): observation
+            for observation in fingerprint.observations
+            if observation_id_for(observation) in matched_observation_ids
+        }
+        working_observation_ids = {
+            observation_id
+            for observation_id, observation in matched_observations.items()
+            if observation.runtime_state is RuntimeState.OUTCOME_VERIFIED
+            or observation.health_state is HealthState.HEALTHY
+        }
         kind_count = len(
             {
                 observation.kind
@@ -94,15 +122,32 @@ def _reciprocal_answer(
             key=lambda family: (-len(family.matched_components), family.family_id),
         )[:2]
         named_strengths = " and ".join(f"‘{family.title}’" for family in strongest)
+        if not working_observation_ids:
+            return (
+                f"Your approved snapshot contains {building_count} evidence-bound local "
+                f"{_plural(building_count, 'building block')} across {kind_count} "
+                f"{_plural(kind_count, 'capability type')}, with {matched_components} exact "
+                f"signed {_plural(matched_components, 'component overlap')} across "
+                f"{matched_families} Dex outcome "
+                f"{_plural(matched_families, 'family', 'families')}. These are exact "
+                "configuration matches: they show what you have assembled, not whether it "
+                "runs well. What Dex should learn remains Unknown until verified outcome or "
+                "health evidence, or an evidence-bound method review, establishes a "
+                "transferable pattern."
+            )
         return (
-            f"Your approved snapshot demonstrates {building_count} evidence-backed local "
-            f"{_plural(building_count, 'building block')} across {kind_count} "
-            f"{_plural(kind_count, 'capability type')}, with {matched_components} exact "
+            f"Your approved snapshot demonstrates {len(working_observation_ids)} outcome- "
+            f"or health-verified local {_plural(len(working_observation_ids), 'building block')} "
+            f"within {building_count} matched {_plural(building_count, 'building block')} "
+            f"across {kind_count} {_plural(kind_count, 'capability type')}, with "
+            f"{matched_components} exact "
             f"signed {_plural(matched_components, 'component overlap')} across "
             f"{matched_families} Dex outcome {_plural(matched_families, 'family', 'families')}. "
-            f"The strongest evidence-bound patterns are around {named_strengths}. "
-            "Dex should learn how you assemble these building blocks; this configuration "
-            "evidence does not prove method equivalence, runtime quality, or outcomes."
+            f"The strongest evidence-bound overlaps are around {named_strengths}. "
+            "What Dex should learn remains Unknown until an evidence-bound method review "
+            "establishes a transferable pattern. Exact identity overlap does not prove "
+            "method equivalence; the working-state claim is limited to the cited local "
+            "outcome or health evidence."
         )
     observation_count = len(fingerprint.observations)
     kind_count = len({observation.kind for observation in fingerprint.observations})
@@ -111,6 +156,66 @@ def _reciprocal_answer(
         f"{_plural(observation_count, 'observation')} across {kind_count} observed "
         f"{_plural(kind_count, 'capability type')}. What Dex should learn remains Unknown "
         "because no exact significant-family overlap cleared the evidence bar."
+    )
+
+
+def _version_distance(
+    fingerprint: EvidenceFingerprint,
+    *,
+    current_version: str | None,
+    catalogue: object,
+) -> VersionDistance | None:
+    """Use only exact local Dex lineage and signed skill release fields."""
+
+    if current_version is None or not catalogue.capability_families:
+        return None
+    release_observations = tuple(
+        observation
+        for observation in fingerprint.observations
+        if observation.kind is ObservationKind.RELEASE and observation.identity == "dex-core"
+    )
+    observed_versions = {
+        attribute.value
+        for observation in release_observations
+        for attribute in observation.attributes
+        if attribute.key == "release-id"
+    }
+    if len(observed_versions) != 1:
+        return None
+    inspected_version = next(iter(observed_versions))
+    if inspected_version == current_version:
+        return None
+    evidence = tuple(
+        sorted({observation.evidence.reference for observation in release_observations})
+    )[:8]
+    if not evidence:
+        return None
+    entries_by_id = {entry.capability_id: entry for entry in catalogue.capabilities}
+    try:
+        families = tuple(
+            delta
+            for family in sorted(catalogue.capability_families, key=lambda item: item.family_id)
+            if (
+                delta := build_family_delta(
+                    current_version=current_version,
+                    inspected_version=inspected_version,
+                    family=family,
+                    entries=tuple(
+                        entries_by_id[item] for item in family.member_capability_ids
+                    ),
+                )
+            )
+            is not None
+        )
+    except ValueError:
+        return None
+    if not families:
+        return None
+    return VersionDistance(
+        inspected_version=inspected_version,
+        current_version=current_version,
+        evidence_references=evidence,
+        families=families,
     )
 
 
@@ -132,6 +237,62 @@ def _load_verified(store: VerifiedCatalogueStore) -> object:
         raise DiagnosisStateError(
             "verify the Dex catalogue first with dex-lens catalogue"
         ) from exc
+
+
+def _load_bundled_reference(*, now: datetime | None = None) -> object:
+    """Re-verify the current packaged four-class fallback; never trust summary prose."""
+
+    try:
+        wrapper = json.loads(_BUNDLED_REFERENCE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(wrapper, dict) or wrapper.get("reference_version") != 2:
+            raise ValueError("unexpected bundled reference contract")
+        signed_catalogue = wrapper["signed_catalogue"]
+        raw = json.dumps(signed_catalogue, sort_keys=True, separators=(",", ":"))
+        envelope = verify_catalogue_envelope(
+            raw,
+            keyring=default_keyring(),
+            now=now,
+        )
+    except (OSError, KeyError, TypeError, ValueError, CatalogueVerificationError) as exc:
+        raise DiagnosisStateError(
+            "the bundled Dex capability reference could not be verified for current diagnosis"
+        ) from exc
+    classes = {capability_class_of(item) for item in envelope.catalogue.capabilities}
+    if classes != _FOUR_CAPABILITY_CLASSES:
+        raise DiagnosisStateError(
+            "the bundled Dex capability reference does not contain all four classes"
+        )
+    return envelope
+
+
+def _load_diagnosis_envelope(store: VerifiedCatalogueStore) -> object:
+    """Choose one complete verified envelope without overlaying catalogue truth."""
+
+    current = _load_verified(store)
+    entries = tuple(current.catalogue.capabilities)
+    classes = {capability_class_of(item) for item in current.catalogue.capabilities}
+    legacy_entries = tuple(
+        item for item in entries if isinstance(item, LegacySkillCapabilityEntryV2)
+    )
+    if legacy_entries and len(legacy_entries) != len(entries):
+        raise DiagnosisStateError(
+            "the verified catalogue mixes legacy and enriched skill entries; "
+            "diagnosis requires one complete contract shape"
+        )
+    if not legacy_entries and classes == _FOUR_CAPABILITY_CLASSES:
+        return current
+    if not legacy_entries:
+        raise DiagnosisStateError(
+            "the verified catalogue has incomplete capability classes; diagnosis requires "
+            "either the legacy skills-only contract or all four enriched classes"
+        )
+    bundled = _load_bundled_reference()
+    if bundled.metadata.catalog_version < current.metadata.catalog_version:
+        raise DiagnosisStateError(
+            "the verified catalogue is skills-only and the bundled four-class "
+            "reference is older"
+        )
+    return bundled
 
 
 def dispositions_from_proposals(
@@ -158,9 +319,7 @@ def _entry_for(capability_id: str, group: list[ValidatedProposal]) -> CatalogueD
         )
     disagreement = next((item for item in group if item.reason == DISAGREEMENT_REASON), None)
     chosen = disagreement or _agreed_or_unknown(capability_id, group)
-    method_compared = (
-        chosen.kind is ProposalKind.METHOD_COMPARISON or chosen.disposition is Disposition.SHARED
-    )
+    method_compared = chosen.kind is ProposalKind.METHOD_COMPARISON
     return CatalogueDisposition(
         catalogue_id=chosen.catalogue_id,
         disposition=chosen.disposition,
@@ -224,6 +383,74 @@ def local_dispositions_from_proposals(
     return tuple(
         _local_entry_for(observation, by_observation[observation_id_for(observation)])
         for observation in fingerprint.observations
+    )
+
+
+def _attribute_count(observation: Observation, key: str) -> int:
+    value = next((item.value for item in observation.attributes if item.key == key), "0")
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
+def _with_deterministic_skill_copy_recommendation(
+    fingerprint: EvidenceFingerprint,
+    catalogue: VerifiedCatalogueSlice,
+    proposals: tuple[ValidatedProposal, ...],
+) -> tuple[ValidatedProposal, ...]:
+    """Recommend grading only when bounded evidence proves differing skill copies."""
+
+    catalogue_ids = set(catalogue.catalogue_ids)
+    if (
+        _SKILL_SCORE_ID not in catalogue_ids
+        or _SKILL_SCORE_ID in set(catalogue.unavailable_ids)
+        or any(item.catalogue_id == _SKILL_SCORE_ID for item in proposals)
+    ):
+        return proposals
+    recommendation_count = sum(
+        item.kind is ProposalKind.RECOMMENDATION
+        or item.disposition is Disposition.WORTH_BORROWING
+        for item in proposals
+    )
+    if recommendation_count >= MAX_RECOMMENDATIONS:
+        return proposals
+    differing = tuple(
+        observation
+        for observation in fingerprint.observations
+        if observation.kind is ObservationKind.SKILL
+        and _attribute_count(observation, "copy-count") > 1
+        and _attribute_count(observation, "variant-count") > 1
+    )
+    if not differing:
+        return proposals
+    identities = len({observation.identity for observation in differing})
+    copy_count = sum(_attribute_count(observation, "copy-count") for observation in differing)
+    variant_count = sum(
+        _attribute_count(observation, "variant-count") for observation in differing
+    )
+    reason = (
+        f"{identities} skill {_plural(identities, 'identity', 'identities')} "
+        f"{_plural(identities, 'has', 'have')} {copy_count} copies across "
+        f"{variant_count} differing variants in the approved snapshot; grade and "
+        "choose canonical copies before consolidating them."
+    )
+    evidence_ids = tuple(
+        sorted({observation.evidence.reference for observation in differing})
+    )[:8]
+    observation_ids = tuple(
+        sorted({observation_id_for(observation) for observation in differing})
+    )[:8]
+    return proposals + (
+        ValidatedProposal(
+            kind=ProposalKind.RECOMMENDATION,
+            catalogue_id=_SKILL_SCORE_ID,
+            capability_id=_SKILL_SCORE_ID,
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_ids=evidence_ids,
+            reason=reason,
+            observation_ids=observation_ids,
+        ),
     )
 
 
@@ -315,7 +542,7 @@ class CachedCatalogueLoader:
 
     def load(self, *, run_id: str, fingerprint_digest: str) -> VerifiedCatalogueSlice:
         del run_id, fingerprint_digest
-        envelope = _load_verified(self._store)
+        envelope = _load_diagnosis_envelope(self._store)
         catalogue = envelope.catalogue
         unavailable = tuple(
             item.capability_id
@@ -329,6 +556,7 @@ class CachedCatalogueLoader:
             capability_ids=tuple(item.capability_id for item in catalogue.capabilities),
             unavailable_ids=unavailable,
             family_contract_present=bool(catalogue.capability_families),
+            core_release=getattr(envelope.metadata, "core_release", None),
         )
 
 
@@ -347,10 +575,15 @@ class UnknownUntilProposedComparer:
         proposals: tuple[ValidatedProposal, ...],
     ) -> ComparisonLedger:
         del jobs
-        envelope = _load_verified(self._store)
+        envelope = _load_diagnosis_envelope(self._store)
         digest = _signed_digest(envelope)
         if digest != catalogue.sha256:
             raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
+        proposals = _with_deterministic_skill_copy_recommendation(
+            fingerprint,
+            catalogue,
+            proposals,
+        )
         observations_by_capability: dict[str, set[str]] = defaultdict(set)
         for proposal in proposals:
             for observation_id in proposal.observation_ids:
@@ -375,6 +608,11 @@ class UnknownUntilProposedComparer:
             envelope.catalogue,
             assess_significant_families(envelope.catalogue, fingerprint),
         )
+        version_distance = _version_distance(
+            fingerprint,
+            current_version=catalogue.core_release,
+            catalogue=envelope.catalogue,
+        )
         return ComparisonLedger.for_catalogue_and_fingerprint(
             envelope.catalogue,
             fingerprint=fingerprint,
@@ -383,6 +621,7 @@ class UnknownUntilProposedComparer:
             capabilities=capabilities,
             entries=entries,
             family_entries=family_entries,
+            version_distance=version_distance,
             local_entries=local_dispositions_from_proposals(fingerprint, proposals),
             reciprocal_answer=_reciprocal_answer(fingerprint, family_entries),
         )

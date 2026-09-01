@@ -16,6 +16,26 @@ Core publication is held until this exact Lens contract has been reviewed,
 merged, and released under a tagged Lens version. No Core catalogue signing or
 public catalogue update is enabled by this local implementation.
 
+The unreleased `v0.1.16` candidate also makes the diagnosis report honest at
+the point a person reads it: configuration matches are not described as
+working outcomes, evidence-reviewed strengths and reciprocal lessons are
+shown before the technical ledger, differing copies of the same skill can
+trigger a bounded grading recommendation, sampled MCP inventories remain
+explicitly incomplete, and opaque evidence tokens stay in the appendix. An
+older skills-only cache is replaced only by the re-verified bundled four-class
+reference while that reference is current; no catalogue overlay is invented.
+Release-number detection is restricted to Dex-specific evidence. The report
+shows “changes since your version” only for skill entries whose signed
+`since_release` or `changed_in` fields prove that change. MCP servers, scheduled
+work, engines and families without that lineage are explicitly omitted rather
+than treated as unchanged; current component matches remain the deciding
+evidence for those classes.
+A consented read-only benchmark against an older full system reached every
+declared outcome family and preserved the inspected checkout unchanged. That
+is development evidence only; Lens `v0.1.15` and live signed catalogue v6
+remain the public releases until the separate review and release gates are
+completed.
+
 ## First look is the default, 2026-08-28
 
 The first-look skill fix is **live as signed Lens v0.1.15**. GitHub

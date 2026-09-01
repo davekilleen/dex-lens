@@ -8,10 +8,15 @@ module is read-only and has no serialization or report-engine side effects.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Self
 
+from pydantic import ConfigDict, Field, field_validator, model_validator
+
+from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.catalogue.v2 import (
     ActiveSkillCapabilityEntryV2,
     CapabilityFamilyV2,
@@ -63,20 +68,64 @@ class CapabilityFamilySummary:
     recommendable_member_ids: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class FamilyDelta:
-    """A plain-language family state suitable for a version-distance view."""
+class FamilyDelta(InventoriedModel):
+    """Exact signed member changes after one inspected Dex release."""
 
-    family_id: str
-    title: str
-    outcome: str
-    current_version: str
-    inspected_version: str
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    family_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,119}$")
+    title: str = Field(min_length=1, max_length=160)
+    outcome: str = Field(min_length=1, max_length=800)
+    current_version: str = Field(
+        pattern=r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    )
+    inspected_version: str = Field(
+        pattern=r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    )
     availability: FamilyAvailability
-    plain_language_state: str
+    introduced_member_ids: tuple[str, ...]
+    changed_member_ids: tuple[str, ...]
     available_member_ids: tuple[str, ...]
     unavailable_member_ids: tuple[str, ...]
     recommendable_member_ids: tuple[str, ...]
+
+    @field_validator(
+        "introduced_member_ids",
+        "changed_member_ids",
+        "available_member_ids",
+        "unavailable_member_ids",
+        "recommendable_member_ids",
+    )
+    @classmethod
+    def _member_ids_are_bounded_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("family release member IDs must be unique")
+        if any(re.fullmatch(r"^[a-z0-9][a-z0-9-]{0,119}$", value) is None for value in values):
+            raise ValueError("family release member ID is invalid")
+        return values
+
+    @model_validator(mode="after")
+    def _release_change_is_derived(self) -> Self:
+        changed = set(self.introduced_member_ids) | set(self.changed_member_ids)
+        members = set(self.available_member_ids) | set(self.unavailable_member_ids)
+        if not changed:
+            raise ValueError("family release change must contain signed lineage evidence")
+        if set(self.introduced_member_ids) & set(self.changed_member_ids):
+            raise ValueError("introduced and changed family members must not overlap")
+        if not changed <= members:
+            raise ValueError("family release changes must reference family members")
+        expected_availability = (
+            FamilyAvailability.AVAILABLE
+            if not self.unavailable_member_ids
+            else FamilyAvailability.UNAVAILABLE
+            if not self.available_member_ids
+            else FamilyAvailability.PARTIAL
+        )
+        if self.availability is not expected_availability:
+            raise ValueError("family release availability must derive from member state")
+        if self.recommendable_member_ids != self.available_member_ids:
+            raise ValueError("only available family members may be recommended")
+        return self
 
 
 def _ordered_member_entries(
@@ -161,24 +210,71 @@ def summarize_family(
     return summarise_family(family, entries)
 
 
+def _semver_key(value: str) -> tuple[tuple[int, int, int], tuple[tuple[int, object], ...]]:
+    """Return a comparison key for the bounded SemVer forms Lens accepts."""
+
+    clean = value.removeprefix("v").split("+", maxsplit=1)[0]
+    release, separator, prerelease = clean.partition("-")
+    release_key = tuple(int(part) for part in release.split("."))
+    if len(release_key) != 3:
+        raise ValueError(f"{value!r} is not a semantic version")
+    if not separator:
+        # A final release sorts after every prerelease of the same version.
+        return release_key, ((2, ""),)
+    prerelease_key: list[tuple[int, object]] = []
+    for part in prerelease.split("."):
+        prerelease_key.append((0, int(part)) if part.isdigit() else (1, part))
+    return release_key, tuple(prerelease_key)
+
+
+def _release_changed_after(
+    release: str,
+    *,
+    inspected_version: str,
+    current_version: str,
+) -> bool:
+    release_key = _semver_key(release)
+    return _semver_key(inspected_version) < release_key <= _semver_key(current_version)
+
+
 def build_family_delta(
     *,
     current_version: str,
     inspected_version: str,
     family: CapabilityFamilyV2,
     entries: Iterable[CatalogueCapabilityEntryV2],
-) -> FamilyDelta:
-    """Build a deterministic family explanation for a version-distance view."""
+) -> FamilyDelta | None:
+    """Build a delta only from signed skill lineage; otherwise return Unknown."""
 
-    summary = summarise_family(family, entries)
-    if summary.availability is FamilyAvailability.AVAILABLE:
-        state = "currently available"
-    elif summary.availability is FamilyAvailability.PARTIAL:
-        state = (
-            "partly available; some members are not currently available"
+    ordered = _ordered_member_entries(family, entries)
+    summary = summarise_family(family, ordered)
+    introduced = tuple(
+        entry.capability_id
+        for entry in ordered
+        if isinstance(entry, (LegacySkillCapabilityEntryV2, ActiveSkillCapabilityEntryV2))
+        and _release_changed_after(
+            entry.since_release,
+            inspected_version=inspected_version,
+            current_version=current_version,
         )
-    else:
-        state = "not currently available"
+    )
+    introduced_set = set(introduced)
+    changed = tuple(
+        entry.capability_id
+        for entry in ordered
+        if isinstance(entry, (LegacySkillCapabilityEntryV2, ActiveSkillCapabilityEntryV2))
+        and entry.capability_id not in introduced_set
+        and any(
+            _release_changed_after(
+                release,
+                inspected_version=inspected_version,
+                current_version=current_version,
+            )
+            for release in entry.changed_in
+        )
+    )
+    if not introduced and not changed:
+        return None
     return FamilyDelta(
         family_id=summary.family_id,
         title=summary.title,
@@ -186,7 +282,8 @@ def build_family_delta(
         current_version=current_version,
         inspected_version=inspected_version,
         availability=summary.availability,
-        plain_language_state=state,
+        introduced_member_ids=introduced,
+        changed_member_ids=changed,
         available_member_ids=summary.available_member_ids,
         unavailable_member_ids=summary.unavailable_member_ids,
         recommendable_member_ids=summary.recommendable_member_ids,
