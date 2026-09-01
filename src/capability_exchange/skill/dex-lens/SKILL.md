@@ -505,49 +505,25 @@ dex-lens catalogue --jobs manage-tasks-reliably,track-people-and-relationships
 an empty list when a name is wrong, so an empty result never gets mistaken
 for "Dex has nothing here".
 
-### The bundled reference — fallback for an older skills-only catalogue
+### The bundled signed snapshot — engine-owned compatibility fallback
 
-This Lens release also carries a snapshot of Dex's broader surface. Use it
-only if the verified catalogue you received is an older compatible version
-that contains skills but not the other three kinds:
+This Lens release carries `dex-capabilities.json` next to this skill. It is an
+exact signed catalogue snapshot, not a second hand-written list. Do not open,
+copy, combine or interpret it yourself.
 
-- **MCP servers** — sets of tools the assistant calls directly and gets the
-  same answer every time (MCP is just the plug that lets an assistant use an
-  outside tool; explain it once, in a sentence, and move on).
-- **Scheduled automations** — jobs that run on their own timetable, with
-  nobody asking.
-- **A brain-and-concierge engine** — the always-on layer underneath: the part
-  that links and cools entities, notices when a relationship or a project has
-  gone quiet, watches system health, and fires the daily rituals. It is not a
-  skill you invoke; it is already running before the person types.
+The diagnosis engine alone may select that snapshot, and only when the current
+verified catalogue is an older compatible skills-only catalogue. Before use,
+the engine re-verifies the embedded envelope with Lens's normal pinned Dex key
+ring. If the current verified catalogue already contains skills, MCP servers,
+scheduled automations and system engines, that current enriched catalogue is
+authoritative and the snapshot is ignored. Fallback facts are never merged
+into a current enriched signed catalogue.
 
-The snapshot sits next to this skill:
-
-```
-src/capability_exchange/skill/dex-lens/dex-capabilities.json
-```
-
-Read it. Its shape: a `source_release` (the Dex version it was captured from),
-a `jobs` list (Dex's jobs to be done), and a `capabilities` list where each
-entry names its `capability_class` (`active-skill`, `mcp-server`,
-`scheduled-automation` or `system-engine`), an `impact_tier` (`core`, `high`,
-`medium` or `niche`), the `jobs_served` it belongs to, and the `since_release`
-it first appeared in.
-
-**Be scrupulous about how you label it, because it is not the same kind of
-thing as the catalogue.** The catalogue is signed and verified on this
-machine. The bundled reference is **not** live-signed data — it is a snapshot
-shipped inside this copy of Lens, current only as of its `source_release`.
-When you lean on it, say so in those words: "Dex's broader capability surface
-as of <the `source_release` you read>", never "the catalogue says". Do not use
-the snapshot when the verified catalogue already supplies all four kinds.
-
-**If you need this fallback and the file is missing or will not parse, do not
-guess.** Use the older verified catalogue alone, and say plainly in the report
-that you compared against Dex's published skills only — that its wider surface
-of tools, automations and engine was not available to this run. When the
-verified catalogue already supplies all four kinds, a missing fallback file is
-irrelevant. That is the fail-closed answer, and the honest one.
+If the snapshot is missing, malformed, expired as current data, signed by an
+unknown key or fails signature/schema verification, the engine fails closed.
+Do not repair the gap with remembered facts or a manual checklist. Ask
+`dex-lens diagnosis status` for the required step and, once closed, speak only
+`dex-lens diagnosis result`.
 
 ## Phase 5: compare on jobs, across all four kinds of capability
 
@@ -568,10 +544,9 @@ engine that never guesses, the automation that runs without being asked, or
 the proactive brain that notices a cold relationship before the person does.
 If you only line up skills against skills, those findings never surface.
 
-For each job the person actually does, gather all four kinds from the signed
-catalogue. If and only if the verified catalogue is an older skills-only
-version, supplement those skills with the **MCP servers, automations and engine
-capabilities** in the bundled reference whose `jobs_served` includes that job.
+The engine accounts for each relevant job across all four kinds. It also owns
+the compatibility choice between a current enriched catalogue and the bundled
+signed snapshot; never assemble a combined set yourself.
 
 **A matching name is a candidate, not proof. Compare the method, supporting
 machinery, version and usable state before calling a Capability shared.**
@@ -760,7 +735,7 @@ Nothing on this machine was changed. This is a read-only second opinion.
 ## What I read
 - Inventory: <folder>, <N> distinct items across <M> files (`dex-lens inventory`)
 - Read in full: <list every file, by path>
-- Dex compared against: signed catalogue <core_release> covering all four kinds; or, for an older skills-only catalogue, signed skills catalogue + bundled reference <source_release>
+- Dex compared against: <the exact verified source identity returned by the diagnosis engine>
 - Version distance: <roughly how far the vault sits behind Dex, and how you know — or "Unknown", or "not a Dex-derived system">
 - Not read: <what you deliberately skipped, and why>
 - Limits: <bounded capture, unreadable files, anything Unknown that matters>
