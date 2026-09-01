@@ -19,6 +19,7 @@ from capability_exchange.catalogue.schema_contract import (
     iter_catalogue_schema_errors,
 )
 from capability_exchange.catalogue.v2 import (
+    UNIQUE_COMPONENT_IDENTITY_KEYWORD,
     CapabilityFamilyV2,
     CatalogueV2,
     McpServerCapabilityEntryV2,
@@ -343,6 +344,45 @@ def test_nango_provider_and_assessment_branches_have_no_arbitrary_code() -> None
     bad_assessment["assessment"] = {"mode": "automatic", "profile": "run-shell-command"}
     with pytest.raises(ValidationError):
         CatalogueV2.model_validate(_catalogue(families=[bad_assessment]))
+
+
+def test_schema_and_runtime_reject_duplicate_component_identity_with_changed_metadata() -> None:
+    family = _family()
+    family["components"] = [
+        {
+            "component_type": "nango-provider",
+            "provider_id": "google-calendar",
+            "source_package": "@nangohq/providers",
+            "source_version": "0.70.5",
+            "dex_support": "supported",
+            "security_vetted": True,
+        },
+        {
+            "component_type": "nango-provider",
+            "provider_id": "google-calendar",
+            "source_package": "@nangohq/providers",
+            "source_version": "0.70.5",
+            "dex_support": "unsupported",
+            "security_vetted": False,
+        },
+    ]
+    catalogue = _catalogue(families=[family])
+
+    with pytest.raises(ValidationError, match="duplicate component"):
+        CatalogueV2.model_validate(catalogue)
+    assert any(
+        "duplicate capability component identity" in error.message
+        for error in iter_catalogue_schema_errors(_envelope(catalogue))
+    )
+
+    schema = build_catalogue_schema()
+    schema["$defs"]["CapabilityFamilyV2"]["properties"]["components"].pop(  # type: ignore[index]
+        UNIQUE_COMPONENT_IDENTITY_KEYWORD
+    )
+    assert any(
+        UNIQUE_COMPONENT_IDENTITY_KEYWORD in error.message
+        for error in iter_catalogue_schema_errors(_envelope(_catalogue()), schema=schema)
+    )
 
 
 def test_schema_only_payload_is_json_serializable() -> None:

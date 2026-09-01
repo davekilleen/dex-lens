@@ -109,11 +109,7 @@ def _ordered_member_entries(
 
 
 def _entry_is_active(entry: CatalogueCapabilityEntryV2) -> bool:
-    """Apply leaf availability without upgrading legacy entries by default."""
-    if not hasattr(entry, "availability"):
-        # Legacy skill entries intentionally predate the availability field;
-        # absence is not evidence that the capability is currently offered.
-        return False
+    """Apply the catalogue's one canonical leaf-availability rule."""
     return capability_is_active(entry)
 
 

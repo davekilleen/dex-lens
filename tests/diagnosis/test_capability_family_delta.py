@@ -113,7 +113,7 @@ def test_plain_objects_are_not_accepted_as_family_entries() -> None:
         )
 
 
-def test_legacy_entry_without_availability_never_upgrades_family_to_active() -> None:
+def test_legacy_entry_uses_the_catalogue_leaf_availability_rule() -> None:
     legacy = LegacySkillCapabilityEntryV2.model_validate(
         legacy_skill("legacy-entry", "Legacy Entry")
     )
@@ -121,8 +121,9 @@ def test_legacy_entry_without_availability_never_upgrades_family_to_active() -> 
         family=_family(("legacy-entry",)),
         entries=(legacy,),
     )
-    assert summary.availability is FamilyAvailability.UNAVAILABLE
-    assert summary.recommendable_member_ids == ()
+    assert summary.availability is FamilyAvailability.AVAILABLE
+    assert summary.available_member_ids == ("legacy-entry",)
+    assert summary.recommendable_member_ids == ("legacy-entry",)
 
 
 def test_family_delta_explains_unavailable_members_without_recommending_them() -> None:

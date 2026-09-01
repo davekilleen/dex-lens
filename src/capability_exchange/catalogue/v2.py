@@ -88,6 +88,7 @@ _FoundationCapabilityId = Literal[
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
 UNIQUE_BY_KEYWORD = "x-dex-lens-unique-by"
+UNIQUE_COMPONENT_IDENTITY_KEYWORD = "x-dex-lens-unique-component-identity"
 
 # Release-owned Dex Core signing keys. Private keys live only in the Dex release
 # environment; Lens ships public keys so catalogues verify locally.
@@ -668,7 +669,12 @@ class CapabilityFamilyV2(InventoriedModel):
         min_length=1, max_length=80, json_schema_extra={"uniqueItems": True}
     )
     components: tuple[CapabilityComponentV2, ...] = Field(
-        min_length=1, max_length=120, json_schema_extra={"uniqueItems": True}
+        min_length=1,
+        max_length=120,
+        json_schema_extra={
+            "uniqueItems": True,
+            UNIQUE_COMPONENT_IDENTITY_KEYWORD: True,
+        },
     )
     assessment: CapabilityAssessmentV2
 

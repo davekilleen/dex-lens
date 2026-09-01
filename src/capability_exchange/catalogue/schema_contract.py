@@ -20,6 +20,7 @@ from jsonschema.exceptions import ValidationError
 
 from capability_exchange.catalogue.v2 import (
     UNIQUE_BY_KEYWORD,
+    UNIQUE_COMPONENT_IDENTITY_KEYWORD,
     SignedCatalogueEnvelopeV2,
 )
 
@@ -51,6 +52,9 @@ UNIQUE_BY_VOCABULARY_ID = (
 MCP_TOOL_INVENTORY_KEYWORD = "x-dex-lens-mcp-tool-inventory"
 MCP_TOOL_INVENTORY_VOCABULARY_ID = (
     "https://heydex.ai/catalogue/dex-lens/vocab/mcp-tool-inventory"
+)
+UNIQUE_COMPONENT_IDENTITY_VOCABULARY_ID = (
+    "https://heydex.ai/catalogue/dex-lens/vocab/unique-component-identity"
 )
 
 
@@ -173,11 +177,54 @@ def _validate_mcp_tool_inventory(
             )
 
 
+def _component_identity(item: Mapping[str, Any]) -> tuple[object, ...] | None:
+    component_type = item.get("component_type")
+    if component_type == "capability" and "capability_id" in item:
+        return (component_type, item["capability_id"])
+    if component_type == "mcp-tool" and {"server_id", "tool_name"} <= set(item):
+        return (component_type, item["server_id"], item["tool_name"])
+    if component_type == "nango-provider" and "provider_id" in item:
+        return (component_type, item["provider_id"])
+    if component_type == "source-component" and "component_id" in item:
+        return (component_type, item["component_id"])
+    return None
+
+
+def _validate_unique_component_identity(
+    _validator: Draft202012Validator,
+    enabled: object,
+    instance: object,
+    schema: Mapping[str, Any],
+) -> Iterator[ValidationError]:
+    """Reject duplicate typed component identities even when metadata differs."""
+    if enabled is not True or not isinstance(instance, list):
+        return
+    seen: dict[tuple[object, ...], int] = {}
+    for index, item in enumerate(instance):
+        if not isinstance(item, Mapping):
+            continue
+        identity = _component_identity(item)
+        if identity is None:
+            continue
+        first_index = seen.setdefault(identity, index)
+        if first_index == index:
+            continue
+        yield ValidationError(
+            f"duplicate capability component identity at indexes {first_index} and {index}",
+            validator=UNIQUE_COMPONENT_IDENTITY_KEYWORD,
+            validator_value=enabled,
+            instance=instance,
+            schema=schema,
+            path=deque((index,)),
+        )
+
+
 CatalogueContractValidator = validators.extend(
     Draft202012Validator,
     validators={
         UNIQUE_BY_KEYWORD: _validate_unique_by,
         MCP_TOOL_INVENTORY_KEYWORD: _validate_mcp_tool_inventory,
+        UNIQUE_COMPONENT_IDENTITY_KEYWORD: _validate_unique_component_identity,
     },
     version="dex-lens-catalogue-v2",
 )
@@ -198,6 +245,7 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
             "https://json-schema.org/draft/2020-12/vocab/content": True,
             UNIQUE_BY_VOCABULARY_ID: True,
             MCP_TOOL_INVENTORY_VOCABULARY_ID: True,
+            UNIQUE_COMPONENT_IDENTITY_VOCABULARY_ID: True,
         },
         "$dynamicAnchor": "meta",
         "title": "Dex Lens catalogue v2 schema dialect",
@@ -208,7 +256,8 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
         "$comment": (
             "The required x-dex-lens-unique-by vocabulary rejects reused "
             "identifier fields inside arrays of otherwise different objects; "
-            "the MCP inventory vocabulary enforces complete cross-field counts."
+            "the MCP inventory vocabulary enforces complete cross-field counts; "
+            "component identities remain unique even when metadata differs."
         ),
         "properties": {
             UNIQUE_BY_KEYWORD: {
@@ -216,6 +265,7 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
                 "enum": ["job_id", "capability_id", "alias", "family_id"],
             },
             MCP_TOOL_INVENTORY_KEYWORD: {"type": "boolean"},
+            UNIQUE_COMPONENT_IDENTITY_KEYWORD: {"type": "boolean"},
         },
     }
 
@@ -339,6 +389,36 @@ def iter_catalogue_schema_errors(
                 "rule on the MCP server entry"
             ),
             validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=True,
+            instance=instance,
+            schema=contract,
+        )
+        return
+    family_definition = (
+        definitions.get("CapabilityFamilyV2")
+        if isinstance(definitions, Mapping)
+        else None
+    )
+    family_properties = (
+        family_definition.get("properties")
+        if isinstance(family_definition, Mapping)
+        else None
+    )
+    components_schema = (
+        family_properties.get("components")
+        if isinstance(family_properties, Mapping)
+        else None
+    )
+    if (
+        not isinstance(components_schema, Mapping)
+        or components_schema.get(UNIQUE_COMPONENT_IDENTITY_KEYWORD) is not True
+    ):
+        yield ValidationError(
+            (
+                f"catalogue schema is missing required "
+                f"{UNIQUE_COMPONENT_IDENTITY_KEYWORD} rule on family components"
+            ),
+            validator=UNIQUE_COMPONENT_IDENTITY_KEYWORD,
             validator_value=True,
             instance=instance,
             schema=contract,
