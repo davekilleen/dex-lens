@@ -1,7 +1,20 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-08-28. Plain-language companion to
+Last updated: 2026-09-01. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## Significant capability coverage contract, 2026-09-01
+
+The Lens catalogue contract is implemented and locally verified: older
+family-free signed catalogues remain valid, while new catalogues may carry
+closed capability aliases, outcome families, typed component references,
+complete MCP tool inventories, and declarative automatic/manual-only
+assessment metadata. Family availability is derived from signed member
+entries; it is never stored as a second status.
+
+Core publication is held until this exact Lens contract has been reviewed,
+merged, and released under a tagged Lens version. No Core catalogue signing or
+public catalogue update is enabled by this local implementation.
 
 ## First look is the default, 2026-08-28
 

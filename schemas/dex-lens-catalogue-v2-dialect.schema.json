@@ -22,7 +22,9 @@
     "x-dex-lens-unique-by": {
       "enum": [
         "job_id",
-        "capability_id"
+        "capability_id",
+        "alias",
+        "family_id"
       ],
       "type": "string"
     }

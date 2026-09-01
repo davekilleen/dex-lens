@@ -7489,6 +7489,296 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  McpServerCapabilityEntryV2.tools:
+    description: "complete exact tool names exposed by the MCP server when inventory is complete"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a unique tuple of exact snake_case tool names"
+    display: "used locally to prove exact MCP tool component references"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.tool_inventory:
+    description: "whether the MCP tool tuple is sampled or complete"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal sampled or complete; complete inventories are count-checked"
+    display: "shown locally when explaining whether exact tool coverage is proven"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityReferenceV2.component_type:
+    description: "closed discriminator identifying a capability component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal capability"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityReferenceV2.capability_id:
+    description: "canonical signed capability id referenced by a family component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the exact catalogue capability identity set"
+    display: "shown locally as a family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.component_type:
+    description: "closed discriminator identifying an exact MCP tool component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal mcp-tool"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.server_id:
+    description: "canonical MCP server capability id or published server name"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against an MCP entry with a complete tool inventory"
+    display: "shown locally as the exact server owning a tool component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.tool_name:
+    description: "exact snake_case MCP tool name referenced by a family component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the referenced server's complete tools tuple"
+    display: "shown locally as an exact tool component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  NangoProviderReferenceV2.component_type:
+    description: "closed discriminator identifying a Nango provider component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal nango-provider"
+    display: "used locally to render a typed provider component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  NangoProviderReferenceV2.provider_id:
+    description: "safe bounded provider type slug from the Nango catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded provider slug; account and workspace identities are excluded"
+    display: "shown locally as a provider type only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no account, workspace, token, or credential data"
+
+  NangoProviderReferenceV2.source_package:
+    description: "exact package identity from which the provider type was reviewed"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal @nangohq/providers"
+    display: "shown locally as provider-source provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.source_version:
+    description: "semantic version of the pinned provider source package"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as MAJOR.MINOR.PATCH"
+    display: "shown locally as provider-source provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.dex_support:
+    description: "whether Dex supports the referenced provider type"
+    collection: "reviewed by the Dex Core release process"
+    derivation: "closed literal supported or unsupported; not inferred from security review"
+    display: "shown locally as a separate support fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.security_vetted:
+    description: "whether the referenced provider type has a separate security review"
+    collection: "reviewed by the Dex Core security process"
+    derivation: "boolean independent from dex_support"
+    display: "shown locally as a separate security fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  SourceComponentReferenceV2.component_type:
+    description: "closed discriminator identifying a reviewed source component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal source-component"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SourceComponentReferenceV2.component_id:
+    description: "bounded kebab-case identity of a reviewed source component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a safe bounded component slug; raw paths are excluded"
+    display: "shown locally as a source component fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  AutomaticAssessmentV2.mode:
+    description: "closed discriminator identifying an automatic family assessment"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal automatic"
+    display: "shown locally as the family assessment mode"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  AutomaticAssessmentV2.profile:
+    description: "closed name of a built-in read-only detector profile"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated against Lens's closed assessment profile vocabulary"
+    display: "shown locally as the family assessment profile"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; no arbitrary command or detector code is retained"
+
+  ManualOnlyAssessmentV2.mode:
+    description: "closed discriminator identifying a manual-only family assessment"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal manual-only"
+    display: "shown locally as the family assessment mode"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  ManualOnlyAssessmentV2.reason:
+    description: "bounded plain-language reason an assessment remains manual-only"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; no commands or detector code"
+    display: "shown locally to explain why no automatic detector runs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityAliasV2.alias:
+    description: "human-friendly alias for one canonical signed capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded id and unique across aliases"
+    display: "used locally as a convenience lookup name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityAliasV2.capability_id:
+    description: "canonical signed capability id targeted by an alias"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the exact catalogue capability identity set"
+    display: "used locally to resolve a capability alias"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.family_id:
+    description: "stable public id of a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded id and unique across families"
+    display: "used locally to identify a family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.title:
+    description: "plain-language title of a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; rendered as escaped text"
+    display: "shown locally as the family heading"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.outcome:
+    description: "plain-language outcome the family represents"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; rendered as escaped text"
+    display: "shown locally as the family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.jobs:
+    description: "public job taxonomy ids served by this capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally to organize family outcomes by job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.aliases:
+    description: "human-friendly aliases for a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids in one family alias namespace"
+    display: "used locally as convenience lookup names"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.member_capability_ids:
+    description: "exact canonical capability ids making up the family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against capabilities"
+    display: "shown locally beneath the family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.components:
+    description: "typed reviewed components supporting the family outcome"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated through the closed component union and exact identity checks"
+    display: "shown locally as family support details"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.assessment:
+    description: "closed automatic-detector or manual-only assessment declaration"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated through the closed assessment union"
+    display: "shown locally as family assessment provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; no arbitrary commands or detector code are retained"
+
   ScheduledAutomationCapabilityEntryV2.capability_id:
     description: "stable public Dex capability id"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
@@ -7868,6 +8158,26 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "public product data; contains no personal system data"
+
+  CatalogueV2.capability_aliases:
+    description: "optional public aliases resolving to canonical capability ids"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a closed tuple with unique aliases and known targets"
+    display: "used locally for convenience lookup without changing canonical identity"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CatalogueV2.capability_families:
+    description: "optional signed significant capability families"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a closed tuple with exact jobs, members, components, and assessment"
+    display: "used locally to explain connected outcomes over detailed capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; family availability is derived from member entries and never stored"
 
   CatalogueV2.portable_brief:
     description: "public portable brief contract for the catalogue"

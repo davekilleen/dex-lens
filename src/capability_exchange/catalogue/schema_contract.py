@@ -126,7 +126,7 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
         "properties": {
             UNIQUE_BY_KEYWORD: {
                 "type": "string",
-                "enum": ["job_id", "capability_id"],
+                "enum": ["job_id", "capability_id", "alias", "family_id"],
             }
         },
     }
@@ -208,6 +208,8 @@ def iter_catalogue_schema_errors(
     required_rules = {
         "jobs_taxonomy": "job_id",
         "capabilities": "capability_id",
+        "capability_aliases": "alias",
+        "capability_families": "family_id",
     }
     for collection, identifier in required_rules.items():
         collection_schema = (
