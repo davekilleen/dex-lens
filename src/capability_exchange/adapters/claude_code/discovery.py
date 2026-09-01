@@ -70,11 +70,11 @@ _TEMP_DIRECTORY_ASSIGNMENT = re.compile(
     r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[\"']?\$\(\s*mktemp\s+-(?:[A-Za-z]*d|-[A-Za-z-]*directory)\b[^)]*\)"
 )
 _BACKUP_FETCH_COMMAND = re.compile(
-    r"^\s*(?:git\s+clone\b|rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
+    r"^\s*(?:if\s+!\s+)?(?:git\s+clone\b|rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
     re.IGNORECASE,
 )
 _BACKUP_RESTORE_COMMAND = re.compile(
-    r"^\s*(?:git\s+clone\b|tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)",
+    r"^\s*(?:if\s+!\s+)?(?:git\s+clone\b|tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)",
     re.IGNORECASE,
 )
 _BACKUP_VERIFY_COMMAND = re.compile(

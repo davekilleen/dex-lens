@@ -279,7 +279,7 @@ def test_git_clone_restore_proof_tracks_a_derived_throwaway_directory(tmp_path: 
         """#!/bin/sh
 work_dir="$(mktemp -d)"
 clone_dir="$work_dir/clone"
-git clone remote:backup "$clone_dir"
+if ! git clone remote:backup "$clone_dir"; then exit 1; fi
 git -C "$clone_dir" fsck --no-progress
 """,
     )
