@@ -270,6 +270,29 @@ sha256sum --check "$restore_dir/restored/SHA256SUMS"
     assert recovery[0].evidence.reference.startswith("file:scripts/backup-verify.sh#snap:")
 
 
+def test_git_clone_restore_proof_tracks_a_derived_throwaway_directory(tmp_path: Path) -> None:
+    root = tmp_path / "git-recovery-system"
+    root.mkdir()
+    _write(
+        root,
+        "scripts/backup-verify.sh",
+        """#!/bin/sh
+work_dir="$(mktemp -d)"
+clone_dir="$work_dir/clone"
+git clone remote:backup "$clone_dir"
+git -C "$clone_dir" fsck --no-progress
+""",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert [
+        item.identity
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.RECOVERY_PROOF
+    ] == ["vault-backup"]
+
+
 def test_external_task_adapters_emit_one_bounded_source_observation_without_secrets(
     tmp_path: Path,
 ) -> None:
@@ -280,22 +303,22 @@ def test_external_task_adapters_emit_one_bounded_source_observation_without_secr
         root,
         ".claude/hooks/adapters/todoist.cjs",
         f'const privateValue = "{canary}";\n'
-        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
     )
     _write(
         root,
         ".claude/hooks/adapters/trello.cjs",
-        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
     )
     _write(
         root,
         "ordinary/todoist.cjs",
-        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
     )
     _write(
         root,
         ".claude/hooks/adapters/asana.cjs",
-        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
     )
 
     fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
@@ -326,6 +349,26 @@ def test_task_adapter_filename_without_export_declaration_is_not_evidence(
         root,
         ".claude/hooks/adapters/todoist.cjs",
         '// A note about todoist; no adapter is exported.\nconst provider = "todoist";\n',
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
+
+
+def test_task_adapter_missing_a_required_bridge_function_is_not_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "incomplete-task-adapter"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/trello.cjs",
+        "module.exports = { toExternal, toDex, create, complete };\n",
     )
 
     fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)

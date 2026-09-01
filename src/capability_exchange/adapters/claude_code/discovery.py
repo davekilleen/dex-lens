@@ -70,21 +70,22 @@ _TEMP_DIRECTORY_ASSIGNMENT = re.compile(
     r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[\"']?\$\(\s*mktemp\s+-(?:[A-Za-z]*d|-[A-Za-z-]*directory)\b[^)]*\)"
 )
 _BACKUP_FETCH_COMMAND = re.compile(
-    r"^\s*(?:rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
+    r"^\s*(?:git\s+clone\b|rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
     re.IGNORECASE,
 )
 _BACKUP_RESTORE_COMMAND = re.compile(
-    r"^\s*(?:tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)", re.IGNORECASE
+    r"^\s*(?:git\s+clone\b|tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)",
+    re.IGNORECASE,
 )
 _BACKUP_VERIFY_COMMAND = re.compile(
-    r"^\s*(?:sha(?:256|512)sum\s+(?:--check|-c)\b|shasum\b.*\s-c\b|cmp\b|diff\b)",
+    r"^\s*(?:git\s+-C\s+\S+\s+fsck\b|sha(?:256|512)sum\s+(?:--check|-c)\b|shasum\b.*\s-c\b|cmp\b|diff\b)",
     re.IGNORECASE,
 )
 _COMMONJS_ADAPTER_EXPORT = re.compile(
     r"(?ms)^\s*module\.exports\s*=\s*\{(?P<body>[^{}]{1,4096})\}\s*;?"
 )
 _EXTERNAL_TASK_ADAPTER_API = frozenset(
-    {"toExternal", "toDex", "create", "complete", "getChanges", "health"}
+    {"toExternal", "toDex", "create", "complete", "getChanges"}
 )
 
 
@@ -678,9 +679,30 @@ def _has_closed_backup_proof(entry: SnapshotEntry) -> bool:
 
     text = entry.content.decode("utf-8", "replace")
     for assignment in _TEMP_DIRECTORY_ASSIGNMENT.finditer(text):
-        variable = assignment.group(1)
-        variable_use = re.compile(rf"\$(?:\{{{re.escape(variable)}\}}|{re.escape(variable)}\b)")
-        linked_lines = [line for line in text.splitlines() if variable_use.search(line)]
+        linked_variables = {assignment.group(1)}
+        changed = True
+        while changed:
+            changed = False
+            alternatives = "|".join(
+                re.escape(item) for item in sorted(linked_variables)
+            )
+            linked_use = re.compile(
+                rf"\$(?:\{{(?:{alternatives})\}}|(?:{alternatives})\b)"
+            )
+            for line in text.splitlines():
+                derived = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+                if (
+                    derived
+                    and linked_use.search(line)
+                    and derived.group(1) not in linked_variables
+                ):
+                    linked_variables.add(derived.group(1))
+                    changed = True
+        alternatives = "|".join(re.escape(item) for item in sorted(linked_variables))
+        linked_use = re.compile(
+            rf"\$(?:\{{(?:{alternatives})\}}|(?:{alternatives})\b)"
+        )
+        linked_lines = [line for line in text.splitlines() if linked_use.search(line)]
         if (
             any(_BACKUP_FETCH_COMMAND.search(line) for line in linked_lines)
             and any(_BACKUP_RESTORE_COMMAND.search(line) for line in linked_lines)
