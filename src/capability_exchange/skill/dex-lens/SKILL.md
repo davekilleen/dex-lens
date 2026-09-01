@@ -488,7 +488,9 @@ work from an unverified list. Everything in it is verified. The current
 catalogue covers skills, MCP servers (the plugs that let an assistant use
 outside tools), scheduled automations (jobs that run on their own
 timetable), and system engines (the behind-the-scenes services those
-abilities depend on).
+abilities depend on). Summarise that proof in plain English as a “verified
+signed catalogue <core_release> covering all four kinds”, replacing the
+placeholder with the verified release shown by the command.
 
 The output is grouped by **job to be done**, which is the axis the comparison
 runs on.
