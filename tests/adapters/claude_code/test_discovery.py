@@ -196,6 +196,40 @@ def test_discovers_per_server_and_direct_map_mcp_manifests_without_secrets(
     assert "private-server.py" not in rendered
 
 
+def test_provider_identities_reject_every_canonical_secret_marker(tmp_path: Path) -> None:
+    root = tmp_path / "provider-registry"
+    root.mkdir()
+    rejected = {
+        "api_key",
+        "calendar-api-key",
+        "auth",
+        "private-key",
+        "passwd",
+        "access-token",
+    }
+    _write(
+        root,
+        "System/integrations/registry.json",
+        json.dumps({"providers": {"calendar": {}, **dict.fromkeys(rejected, {})}}),
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    provider_ids = {
+        item.identity
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_PROVIDER
+    }
+    registry = next(
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_REGISTRY
+    )
+
+    assert provider_ids == {"calendar"}
+    assert rejected.isdisjoint(provider_ids)
+    assert next(item.value for item in registry.attributes if item.key == "provider-count") == "1"
+
+
 def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:
     root = tmp_path / "duplicate-system"
     root.mkdir()

@@ -196,12 +196,9 @@ def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, objec
 
 def _required_step(exc: DiagnosisStateError) -> str:
     typed = getattr(exc, "required_step", RequiredStep.REQUIRED_STEP)
-    if isinstance(typed, RequiredStep) and typed is not RequiredStep.REQUIRED_STEP:
+    if isinstance(typed, RequiredStep):
         return typed.value
-    text = str(exc).lower()
-    if "approve" in text or "scope" in text or "consent" in text:
-        return "approve_scope"
-    return "required_step"
+    return RequiredStep.REQUIRED_STEP.value
 
 
 def _refuse_hostile_payload(payload: object) -> None:

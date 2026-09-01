@@ -20,6 +20,7 @@ from capability_exchange.diagnosis.mcp_server import (
     FORBIDDEN_TOOL_SUBSTRINGS,
     PrepareDiagnosisRequest,
     SpecialistProposal,
+    _required_step,
     build_engine,
     build_mcp_server,
     canonical_result_bytes,
@@ -30,6 +31,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+    RequiredStep,
 )
 from capability_exchange.diagnosis.specialists import (
     ProposalKind,
@@ -102,7 +104,10 @@ class FakeEngine:
 
     def advance(self, run_id: str) -> DiagnosisRunView:
         if not self.consented:
-            raise DiagnosisStateError("approve the exact scope")
+            raise DiagnosisStateError(
+                "approve the exact scope",
+                required_step=RequiredStep.APPROVE_SCOPE,
+            )
         self.collection_calls += 1
         return DiagnosisRunView(
             run_id=run_id,
@@ -206,6 +211,18 @@ async def test_advance_before_consent_is_structured_mcp_error_without_collection
     assert error.data is not None
     assert error.data["required_step"] == "approve_scope"
     assert "approve the exact scope" in error.message
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "approve this scope",
+        "consent is required",
+        "scope approval is missing",
+    ),
+)
+def test_required_step_is_never_inferred_from_error_message(message: str) -> None:
+    assert _required_step(DiagnosisStateError(message)) == RequiredStep.REQUIRED_STEP.value
 
 
 @pytest.mark.anyio

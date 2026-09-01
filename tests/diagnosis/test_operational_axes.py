@@ -18,6 +18,7 @@ from capability_exchange.diagnosis.observations import (
     ConfigurationState,
     EvidenceFingerprint,
     HealthState,
+    Observation,
     ObservationKind,
     OperationalState,
     RuntimeState,
@@ -94,6 +95,14 @@ def test_migration_is_idempotent_and_refuses_mixed_old_and_new_truths() -> None:
     mixed_observation["runtime_state"] = RuntimeState.NOT_ASSESSED.value
     with pytest.raises(ValueError, match="operational_state"):
         migrate_stored_fingerprint_payload(mixed)
+
+
+def test_observation_constructor_refuses_mixed_legacy_scalar_and_axes() -> None:
+    mixed = dict(_legacy_payload()["observations"][0])
+    mixed["runtime_state"] = RuntimeState.LOADED
+
+    with pytest.raises(ValueError, match="operational_state alongside axis fields"):
+        Observation(**mixed)
 
 
 def test_unknown_axis_values_fail_closed() -> None:

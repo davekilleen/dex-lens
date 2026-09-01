@@ -28,6 +28,7 @@ from capability_exchange.adapters.claude_code.snapshot import (
     SnapshotEntry,
     reference_token,
 )
+from capability_exchange.boundary.secret_markers import has_secret_shape_marker
 from capability_exchange.diagnosis.observations import (
     ConfigurationState,
     EvidenceFingerprint,
@@ -62,7 +63,7 @@ _INTEGRATION_PATH_PARTS = frozenset(
 _HEALTH_WORDS = frozenset({"doctor", "health", "smoke"})
 _SAFE_PROBE_FOLDERS = frozenset({".scripts", "scripts", "checks", "health", "system"})
 _SAFE_PROVIDER_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
-_SECRET_PROVIDER_MARKERS = ("token", "secret", "password", "credential", "account", "workspace")
+_PRIVATE_PROVIDER_MARKERS = ("account", "workspace")
 
 
 class _LiveStateLike(Protocol):
@@ -344,10 +345,13 @@ def _hook_observations(
 def _safe_provider_slug(value: object) -> str | None:
     """Keep provider *types* only; reject account/workspace and secret-shaped labels."""
 
-    text = str(value).strip().lower()
+    raw = str(value).strip()
+    text = raw.lower()
     if (
         not text
-        or any(marker in text for marker in _SECRET_PROVIDER_MARKERS)
+        or has_secret_shape_marker(raw)
+        or has_secret_shape_marker(text)
+        or any(marker in text for marker in _PRIVATE_PROVIDER_MARKERS)
         or _SAFE_PROVIDER_SLUG.fullmatch(text) is None
     ):
         return None

@@ -264,6 +264,8 @@ def _normalise_observation_input(values: Mapping[str, object]) -> dict[str, obje
             if canonical in normalised and normalised[canonical] != normalised[alias]:
                 raise ValueError(f"observation supplied competing {canonical} values")
             normalised[canonical] = normalised.pop(alias)
+    if "operational_state" in normalised and _AXIS_FIELD_NAMES & normalised.keys():
+        raise ValueError("observation cannot contain operational_state alongside axis fields")
     legacy = normalised.pop("operational_state", _LEGACY_MISSING)
     if legacy is not _LEGACY_MISSING:
         configuration_state, runtime_state, health_state = _axes_for_operational_state(legacy)

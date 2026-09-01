@@ -10,6 +10,7 @@ from pathlib import Path
 from capability_exchange.adapters.claude_code.allowlist import CanonicalAllowlist
 from capability_exchange.adapters.claude_code.contract import claude_code_contract
 from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+from capability_exchange.adapters.claude_code.live_state import collect_live_states
 from capability_exchange.adapters.claude_code.snapshot import take_snapshot
 from capability_exchange.catalogue.subscription import (
     default_lens_app_storage,
@@ -44,6 +45,7 @@ from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
     ProposalKind,
+    SpecialistProposalError,
     ValidatedProposal,
 )
 from capability_exchange.reports.store import LensReportStore, default_report_directory
@@ -150,6 +152,19 @@ def local_dispositions_from_proposals(
     reference; no raw content or path is introduced here.
     """
 
+    known_observation_ids = {
+        observation_id_for(observation) for observation in fingerprint.observations
+    }
+    cited_observation_ids = {
+        observation_id
+        for proposal in proposals
+        for observation_id in proposal.observation_ids
+    }
+    if not cited_observation_ids.issubset(known_observation_ids):
+        raise SpecialistProposalError(
+            "validated proposal observation identity is not present in the current fingerprint"
+        )
+
     by_observation: dict[str, list[ValidatedProposal]] = defaultdict(list)
     for proposal in proposals:
         for observation_id in proposal.observation_ids:
@@ -170,7 +185,9 @@ def _local_entry_for(
             observation_id=observation_id,
             kind=observation.kind,
             identity=observation.identity,
-            operational_state=observation.operational_state,
+            configuration_state=observation.configuration_state,
+            runtime_state=observation.runtime_state,
+            health_state=observation.health_state,
             disposition=Disposition.NOT_ASSESSED,
             evidence_references=(observation.evidence.reference,),
             reason="No specialist proposal cited this observation.",
@@ -184,7 +201,9 @@ def _local_entry_for(
         observation_id=observation_id,
         kind=observation.kind,
         identity=observation.identity,
-        operational_state=observation.operational_state,
+        configuration_state=observation.configuration_state,
+        runtime_state=observation.runtime_state,
+        health_state=observation.health_state,
         disposition=chosen.disposition,
         mapped_catalogue_ids=catalogue_ids,
         mapped_capability_ids=capability_ids,
@@ -210,6 +229,8 @@ class ConsentBoundCollector:
             raise DiagnosisStateError(
                 "approve the exact scope in this chat with dex-lens diagnosis approve"
             )
+        if approval.receipt != receipt:
+            raise DiagnosisStateError("approved scope receipt changed; start a new run")
         roots = tuple(Path(root) for root in approval.approved_roots)
         try:
             descriptors = default_source_descriptors(roots) if len(roots) > 1 else None
@@ -223,9 +244,13 @@ class ConsentBoundCollector:
         contract = claude_code_contract(tuple(str(root) for root in roots))
         allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
         inspection = take_snapshot(allowlist, source_descriptors=snapshot.source_descriptors)
+        live_states = (
+            collect_live_states(scope_receipt=receipt) if receipt.include_live_state else ()
+        )
         return discover_fingerprint(
             inspection,
             collected_at=inspection.taken_at,
+            live_states=live_states,
             scope_receipt=receipt,
         )
 
