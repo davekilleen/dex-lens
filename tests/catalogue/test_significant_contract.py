@@ -257,6 +257,42 @@ def test_mcp_server_name_may_equal_its_own_historical_capability_id() -> None:
     assert catalogue.capabilities[0].server_name == "dex-work-mcp"
 
 
+def test_two_character_host_adapter_ids_remain_valid() -> None:
+    skill = _catalogue()["capabilities"][0]
+    skill = copy.deepcopy(skill)
+    skill["capability_class"] = "active-skill"
+    skill["availability"] = "active"
+    skill["impact_tier"] = "high"
+    skill.pop("server_name")
+    skill.pop("tool_count")
+    skill.pop("example_tools")
+    skill.pop("source_paths")
+    skill.pop("tools")
+    skill.pop("tool_inventory")
+    skill["compatibility"] = {
+        "host_adapters": ["bb", "pi"],
+        "foundation_capabilities": ["context-orientation"],
+        "minimum_lens_contract": "0.1.0",
+        "platforms": ["macos"],
+        "needs_hooks": False,
+        "needs_mcp": False,
+        "host_requirements": ["skills-directory"],
+        "limitations": ["Local inspection is still required."],
+    }
+    skill["docs_url"] = "https://github.com/davekilleen/Dex"
+    skill["since_release"] = "1.0.0"
+    skill["changed_in"] = []
+    skill["portable_brief"] = {
+        "goal": "Test a short host adapter identity.",
+        "method_outline": ["Inspect locally."],
+        "verification_checklist": ["The adapter remains explicit."],
+        "rollback_advice": "Remove the local adapter configuration.",
+        "safety_notes": ["Do not share private material."],
+    }
+
+    assert CatalogueV2.model_validate(_catalogue(capabilities=[skill]))
+
+
 def test_family_components_must_reference_the_same_family_members() -> None:
     second_mcp = _mcp()
     second_mcp["capability_id"] = "dex-career-mcp"

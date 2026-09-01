@@ -32,9 +32,11 @@ from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.foundations import FoundationCapability
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
+_HOST_ADAPTER_RE = re.compile(r"^[a-z][a-z0-9-]{1,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _CatalogueId = Annotated[str, Field(pattern=_ID_RE.pattern)]
+_HostAdapterId = Annotated[str, Field(pattern=_HOST_ADAPTER_RE.pattern)]
 _SemanticVersion = Annotated[str, Field(pattern=_SEMVER_RE.pattern)]
 _ToolName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 _ProviderId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{2,80}$")]
@@ -194,7 +196,7 @@ class CapabilityEvidenceV2(InventoriedModel):
 
 
 class CapabilityCompatibilityV2(InventoriedModel):
-    host_adapters: tuple[_CatalogueId, ...] = Field(
+    host_adapters: tuple[_HostAdapterId, ...] = Field(
         min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
     )
     foundation_capabilities: tuple[_FoundationCapabilityId, ...] = Field(
@@ -211,14 +213,14 @@ class CapabilityCompatibilityV2(InventoriedModel):
     )
     limitations: tuple[str, ...] = Field(min_length=1, max_length=20)
 
-    @field_validator("host_adapters", "foundation_capabilities")
+    @field_validator("host_adapters")
     @classmethod
-    def _ids_are_kebab_case(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def _host_adapter_ids_are_safe(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
-            if not _ID_RE.match(value):
-                raise ValueError(f"{value!r} is not a catalogue id")
+            if not _HOST_ADAPTER_RE.fullmatch(value):
+                raise ValueError(f"{value!r} is not a host adapter id")
         if len(set(values)) != len(values):
-            raise ValueError("duplicate compatibility id")
+            raise ValueError("duplicate host adapter id")
         return values
 
     @field_validator("foundation_capabilities")
@@ -226,6 +228,8 @@ class CapabilityCompatibilityV2(InventoriedModel):
     def _foundation_capabilities_are_known(
         cls, values: tuple[str, ...]
     ) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate foundation capability id")
         known = {capability.value for capability in FoundationCapability}
         unknown = sorted(set(values) - known)
         if unknown:
