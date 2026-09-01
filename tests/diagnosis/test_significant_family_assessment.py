@@ -358,6 +358,67 @@ def test_source_component_requires_exact_profile_supported_evidence() -> None:
     )
 
 
+def test_restore_proof_matches_the_signed_vault_backup_source_component() -> None:
+    family = _family(
+        "backup-and-restore-confidence",
+        profile="filesystem",
+        members=["workflow-skill"],
+        components=[{"component_type": "source-component", "component_id": "vault-backup"}],
+    )
+
+    result = assess_significant_families(
+        _catalogue(family),
+        _fingerprint(_observation(ObservationKind.RECOVERY_PROOF, "vault-backup")),
+    )[0]
+
+    assert result.unresolved_components == ()
+    assert result.matched_components[0].component_reference == "source-component:vault-backup"
+    assert result.matched_components[0].match_bases == (
+        ComponentMatchBasis.EXACT_SOURCE_EVIDENCE,
+    )
+
+
+def test_mcp_profile_accepts_only_exact_integration_registry_source_evidence() -> None:
+    family = _family(
+        "external-task-interoperability",
+        profile="mcp",
+        members=["dex-work-mcp"],
+        components=[
+            {
+                "component_type": "mcp-tool",
+                "server_id": "dex-work-mcp",
+                "tool_name": "create_task",
+            },
+            {
+                "component_type": "source-component",
+                "component_id": "external-task-sync",
+            },
+        ],
+    )
+
+    configured_server = assess_significant_families(
+        _catalogue(family),
+        _fingerprint(_observation(ObservationKind.MCP_SERVER, "external-task-sync")),
+    )[0]
+    generic_registry = assess_significant_families(
+        _catalogue(family),
+        _fingerprint(_observation(ObservationKind.INTEGRATION_REGISTRY, "local-integrations")),
+    )[0]
+    exact_registry = assess_significant_families(
+        _catalogue(family),
+        _fingerprint(_observation(ObservationKind.INTEGRATION_REGISTRY, "external-task-sync")),
+    )[0]
+
+    assert configured_server.matched_components == ()
+    assert generic_registry.matched_components == ()
+    assert exact_registry.matched_components[0].component_reference == (
+        "source-component:external-task-sync"
+    )
+    assert exact_registry.unresolved_components == (
+        "mcp-tool:dex-work-mcp:create_task",
+    )
+
+
 def test_all_profiles_in_current_core_preview_have_closed_handlers() -> None:
     families = (
         _family(

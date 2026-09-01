@@ -230,6 +230,113 @@ def test_provider_identities_reject_every_canonical_secret_marker(tmp_path: Path
     assert next(item.value for item in registry.attributes if item.key == "provider-count") == "1"
 
 
+def test_backup_restore_proof_requires_safe_path_and_closed_semantics(tmp_path: Path) -> None:
+    root = tmp_path / "recovery-system"
+    root.mkdir()
+    _write(
+        root,
+        "scripts/backup-verify.sh",
+        """#!/bin/sh
+set -eu
+restore_dir="$(mktemp -d)"
+trap 'rm -rf "$restore_dir"' EXIT
+rclone copy remote:backups/latest "$restore_dir/archive"
+tar -xzf "$restore_dir/archive/vault.tar.gz" -C "$restore_dir/restored"
+sha256sum --check "$restore_dir/restored/SHA256SUMS"
+""",
+    )
+    _write(root, "checks/backup-verify.sh", "#!/bin/sh\necho not-a-restore-proof\n")
+    _write(
+        root,
+        "ordinary/backup-verify.sh",
+        """#!/bin/sh
+restore_dir="$(mktemp -d)"
+rclone copy remote:backups/latest "$restore_dir/archive"
+tar -xzf "$restore_dir/archive/vault.tar.gz" -C "$restore_dir/restored"
+sha256sum --check "$restore_dir/restored/SHA256SUMS"
+""",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    recovery = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.RECOVERY_PROOF
+    ]
+
+    assert [(item.identity, item.configuration_state) for item in recovery] == [
+        ("vault-backup", ConfigurationState.IMPLEMENTED)
+    ]
+    assert recovery[0].evidence.reference.startswith("file:scripts/backup-verify.sh#snap:")
+
+
+def test_external_task_adapters_emit_one_bounded_source_observation_without_secrets(
+    tmp_path: Path,
+) -> None:
+    canary = "DEX_LENS_TASK_ADAPTER_CANARY_DO_NOT_RETAIN"
+    root = tmp_path / "task-adapter-system"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/todoist.cjs",
+        f'const privateValue = "{canary}";\n'
+        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+    )
+    _write(
+        root,
+        ".claude/hooks/adapters/trello.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+    )
+    _write(
+        root,
+        "ordinary/todoist.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+    )
+    _write(
+        root,
+        ".claude/hooks/adapters/asana.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    matching = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+    ]
+
+    assert len(matching) == 1
+    assert matching[0].configuration_state is ConfigurationState.IMPLEMENTED
+    assert {(item.key, item.value) for item in matching[0].attributes} == {
+        ("provider-count", "2"),
+        ("source-kind", "claude-hook-adapter"),
+    }
+    rendered = fingerprint.model_dump_json()
+    assert canary not in rendered
+    assert "privateValue" not in rendered
+
+
+def test_task_adapter_filename_without_export_declaration_is_not_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "task-adapter-lookalike"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/todoist.cjs",
+        '// A note about todoist; no adapter is exported.\nconst provider = "todoist";\n',
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
+
+
 def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:
     root = tmp_path / "duplicate-system"
     root.mkdir()

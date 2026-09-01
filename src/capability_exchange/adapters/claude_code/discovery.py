@@ -21,6 +21,9 @@ from capability_exchange.adapters.claude_code.contract import (
     INTEGRATION_BASENAMES,
     MCP_CONFIG_BASENAMES,
     RELEASE_BASENAMES,
+    SAFE_PROBE_FOLDERS,
+    external_task_adapter_id,
+    is_backup_proof_probe_path,
     is_mcp_manifest_path,
 )
 from capability_exchange.adapters.claude_code.snapshot import (
@@ -61,9 +64,28 @@ _INTEGRATION_PATH_PARTS = frozenset(
     {"integration", "integrations", "connection", "connections", "provider", "providers"}
 )
 _HEALTH_WORDS = frozenset({"doctor", "health", "smoke"})
-_SAFE_PROBE_FOLDERS = frozenset({".scripts", "scripts", "checks", "health", "system"})
 _SAFE_PROVIDER_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
 _PRIVATE_PROVIDER_MARKERS = ("account", "workspace")
+_TEMP_DIRECTORY_ASSIGNMENT = re.compile(
+    r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[\"']?\$\(\s*mktemp\s+-(?:[A-Za-z]*d|-[A-Za-z-]*directory)\b[^)]*\)"
+)
+_BACKUP_FETCH_COMMAND = re.compile(
+    r"^\s*(?:rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
+    re.IGNORECASE,
+)
+_BACKUP_RESTORE_COMMAND = re.compile(
+    r"^\s*(?:tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)", re.IGNORECASE
+)
+_BACKUP_VERIFY_COMMAND = re.compile(
+    r"^\s*(?:sha(?:256|512)sum\s+(?:--check|-c)\b|shasum\b.*\s-c\b|cmp\b|diff\b)",
+    re.IGNORECASE,
+)
+_COMMONJS_ADAPTER_EXPORT = re.compile(
+    r"(?ms)^\s*module\.exports\s*=\s*\{(?P<body>[^{}]{1,4096})\}\s*;?"
+)
+_EXTERNAL_TASK_ADAPTER_API = frozenset(
+    {"toExternal", "toDex", "create", "complete", "getChanges", "health"}
+)
 
 
 class _LiveStateLike(Protocol):
@@ -460,6 +482,52 @@ def _integration_observations(
     return tuple(observations)
 
 
+def _declares_external_task_adapter(entry: SnapshotEntry) -> bool:
+    """Recognise one closed CommonJS declaration without retaining its body."""
+
+    text = entry.content.decode("utf-8", "replace")
+    match = _COMMONJS_ADAPTER_EXPORT.search(text)
+    if match is None:
+        return False
+    exported_names = frozenset(
+        re.findall(r"\b[A-Za-z_$][A-Za-z0-9_$]*\b", match.group("body"))
+    )
+    return _EXTERNAL_TASK_ADAPTER_API.issubset(exported_names)
+
+
+def _external_task_adapter_observations(
+    snapshot: InspectionSnapshot, collected_at: datetime
+) -> tuple[Observation, ...]:
+    by_source: dict[str, list[tuple[SnapshotEntry, str]]] = {}
+    for entry in _all_entries(snapshot):
+        adapter_id = external_task_adapter_id(entry.relative_path)
+        if adapter_id is None or not _declares_external_task_adapter(entry):
+            continue
+        by_source.setdefault(entry.source.source_id, []).append((entry, adapter_id))
+
+    observations: list[Observation] = []
+    for source_id in sorted(by_source):
+        records = by_source[source_id]
+        source_entry = min(records, key=lambda item: item[0].relative_path)[0]
+        observations.append(
+            _entry_observation(
+                source_entry,
+                collected_at,
+                kind=ObservationKind.INTEGRATION_REGISTRY,
+                identity="external-task-sync",
+                label="External task adapters",
+                configuration_state=ConfigurationState.IMPLEMENTED,
+                attributes=_attributes(
+                    _attribute(
+                        "provider-count", len({adapter_id for _entry, adapter_id in records})
+                    ),
+                    _attribute("source-kind", "claude-hook-adapter"),
+                ),
+            )
+        )
+    return tuple(observations)
+
+
 def _plist_fact(entry: SnapshotEntry) -> tuple[str, str, str]:
     label = Path(entry.relative_path).stem
     schedule = "cadence-not-readable"
@@ -605,6 +673,23 @@ def _automation_observations(
     return tuple(upgraded)
 
 
+def _has_closed_backup_proof(entry: SnapshotEntry) -> bool:
+    """Require fetch, throwaway restore, and result verification in one script."""
+
+    text = entry.content.decode("utf-8", "replace")
+    for assignment in _TEMP_DIRECTORY_ASSIGNMENT.finditer(text):
+        variable = assignment.group(1)
+        variable_use = re.compile(rf"\$(?:\{{{re.escape(variable)}\}}|{re.escape(variable)}\b)")
+        linked_lines = [line for line in text.splitlines() if variable_use.search(line)]
+        if (
+            any(_BACKUP_FETCH_COMMAND.search(line) for line in linked_lines)
+            and any(_BACKUP_RESTORE_COMMAND.search(line) for line in linked_lines)
+            and any(_BACKUP_VERIFY_COMMAND.search(line) for line in linked_lines)
+        ):
+            return True
+    return False
+
+
 def _health_and_recovery_observations(
     snapshot: InspectionSnapshot, collected_at: datetime
 ) -> tuple[Observation, ...]:
@@ -612,7 +697,7 @@ def _health_and_recovery_observations(
     for entry in _all_entries(snapshot):
         path = Path(entry.relative_path)
         parent_parts = {part.lower() for part in path.parts[:-1]}
-        if not parent_parts & _SAFE_PROBE_FOLDERS:
+        if not parent_parts & SAFE_PROBE_FOLDERS:
             continue
         stem = _identity(path.stem)
         words = frozenset(stem.replace("_", "-").split("-"))
@@ -642,6 +727,18 @@ def _health_and_recovery_observations(
                     attributes=_attributes(
                         _attribute("source-kind", path.suffix.lstrip(".") or "file")
                     ),
+                )
+            )
+        if is_backup_proof_probe_path(entry.relative_path) and _has_closed_backup_proof(entry):
+            observations.append(
+                _entry_observation(
+                    entry,
+                    collected_at,
+                    kind=ObservationKind.RECOVERY_PROOF,
+                    identity="vault-backup",
+                    label="Backup restore proof",
+                    configuration_state=ConfigurationState.IMPLEMENTED,
+                    attributes=_attributes(_attribute("source-kind", "shell")),
                 )
             )
     return tuple(observations)
@@ -722,6 +819,7 @@ def discover_fingerprint(
         *_mcp_observations(snapshot, collected_at),
         *_hook_observations(snapshot, collected_at),
         *_integration_observations(snapshot, collected_at),
+        *_external_task_adapter_observations(snapshot, collected_at),
         *_automation_observations(snapshot, collected_at, live_states),
         *_health_and_recovery_observations(snapshot, collected_at),
     )

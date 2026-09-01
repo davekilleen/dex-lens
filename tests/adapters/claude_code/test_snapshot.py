@@ -303,6 +303,41 @@ class TestBoundedCollection:
         assert [Path(path).name for path in snapshot.canonical_paths()] == ["career.json"]
         assert not snapshot.complete
 
+    @pytest.mark.parametrize(
+        ("relative_path", "content"),
+        (
+            (
+                "scripts/backup-verify.sh",
+                '#!/bin/sh\ntmp_dir="$(mktemp -d)"\nrclone copy remote:backup "$tmp_dir"\n',
+            ),
+            (
+                ".claude/hooks/adapters/todoist.cjs",
+                "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+            ),
+            (
+                ".claude/hooks/adapters/trello.cjs",
+                "module.exports = { toExternal, toDex, create, complete, getChanges, health };\n",
+            ),
+        ),
+    )
+    def test_reviewed_recovery_and_task_adapter_probes_are_prioritised_before_bound(
+        self,
+        tmp_path: Path,
+        relative_path: str,
+        content: str,
+    ) -> None:
+        root = tmp_path / "vault"
+        target = root / relative_path
+        target.parent.mkdir(parents=True)
+        target.write_text(content)
+        for index in range(20):
+            (root / f"aaa-filler-{index:02d}.txt").write_text("x")
+
+        snapshot = snapshot_of(root, bounds=CollectionBounds(max_file_count=1))
+
+        assert [Path(path).name for path in snapshot.canonical_paths()] == [target.name]
+        assert not snapshot.complete
+
     def test_capture_order_is_stable_across_runs(self, claude_root: Path) -> None:
         """Two runs over an unchanged tree must capture the same files."""
         bounds = CollectionBounds(max_file_count=3)

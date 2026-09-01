@@ -122,7 +122,10 @@ class _ProfileRules:
 # these reviewed profiles but cannot name code, add a kind, or broaden a read.
 _PROFILE_RULES: dict[str, _ProfileRules] = {
     "catalogue": _ProfileRules(frozenset({"capability", "mcp-tool"})),
-    "mcp": _ProfileRules(frozenset({"capability", "mcp-tool"})),
+    "mcp": _ProfileRules(
+        frozenset({"capability", "mcp-tool", "source-component"}),
+        frozenset({ObservationKind.INTEGRATION_REGISTRY}),
+    ),
     "mcp-tool": _ProfileRules(frozenset({"mcp-tool"})),
     "provider": _ProfileRules(
         frozenset({"capability", "nango-provider", "source-component"}),

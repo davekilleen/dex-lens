@@ -46,6 +46,8 @@ from capability_exchange.adapters.claude_code.allowlist import (
 )
 from capability_exchange.adapters.claude_code.contract import (
     CLAUDE_CODE_DIAGNOSTIC_BASENAMES,
+    external_task_adapter_id,
+    is_backup_proof_probe_path,
     is_mcp_manifest_path,
 )
 from capability_exchange.adapters.claude_code.secrets import redact_secret_content
@@ -422,6 +424,8 @@ def _diagnostic_files_first(admitted: Sequence[PathDecision]) -> list[PathDecisi
                 os.path.basename(decision.relative_path or "")
                 in CLAUDE_CODE_DIAGNOSTIC_BASENAMES
                 or is_mcp_manifest_path(decision.relative_path or "")
+                or is_backup_proof_probe_path(decision.relative_path or "")
+                or external_task_adapter_id(decision.relative_path or "") is not None
             )
             else 1
         ),
