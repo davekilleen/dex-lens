@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.jobs.contract import SuccessContract
@@ -25,21 +25,50 @@ __all__ = [
     "DiagnosisRunView",
     "DiagnosisStage",
     "DiagnosisStateError",
+    "RequiredStep",
     "RunIdentity",
     "advance_to",
     "canonical_json_digest",
+    "required_step_for_stage",
 ]
 
 ENGINE_VERSION = "0.1.15-diagnosis-engine"
-INPUT_SCHEMA_VERSION = "1"
+# Version 2 replaces the collapsed observation operational scalar with the
+# independent configuration/runtime/health axes.  Stored v1 fingerprints are
+# read through the explicit migration in ``observations``.
+INPUT_SCHEMA_VERSION = "2"
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
+class RequiredStep(StrEnum):
+    """Typed next action exposed by the engine and MCP adapter."""
+
+    APPROVE_SCOPE = "approve_scope"
+    CAPTURE_FINGERPRINT = "capture_fingerprint"
+    VERIFY_CATALOGUE = "verify_catalogue"
+    CONFIRM_JOBS = "confirm_jobs"
+    COMPARE = "compare"
+    RENDER = "render"
+    CHECK = "check"
+    SAVE = "save"
+    CLOSE = "close"
+    REQUIRED_STEP = "required_step"
+
+
 class DiagnosisStateError(ValueError):
     """A diagnosis run was asked to take an unlawful step."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        required_step: RequiredStep = RequiredStep.REQUIRED_STEP,
+    ) -> None:
+        super().__init__(message)
+        self.required_step = required_step
 
 
 class DiagnosisStage(StrEnum):
@@ -55,6 +84,26 @@ class DiagnosisStage(StrEnum):
     CHECKED = "checked"
     SAVED = "saved"
     CLOSED = "closed"
+
+
+_REQUIRED_STEP_BY_STAGE: dict[DiagnosisStage, RequiredStep] = {
+    DiagnosisStage.CREATED: RequiredStep.APPROVE_SCOPE,
+    DiagnosisStage.SCOPE_APPROVED: RequiredStep.CAPTURE_FINGERPRINT,
+    DiagnosisStage.CAPTURED: RequiredStep.VERIFY_CATALOGUE,
+    DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.CONFIRM_JOBS,
+    DiagnosisStage.JOBS_CONFIRMED: RequiredStep.COMPARE,
+    DiagnosisStage.COMPARED: RequiredStep.RENDER,
+    DiagnosisStage.RENDERED: RequiredStep.CHECK,
+    DiagnosisStage.CHECKED: RequiredStep.SAVE,
+    DiagnosisStage.SAVED: RequiredStep.CLOSE,
+    DiagnosisStage.CLOSED: RequiredStep.REQUIRED_STEP,
+}
+
+
+def required_step_for_stage(stage: DiagnosisStage) -> RequiredStep:
+    """Return the typed action needed from one deterministic stage."""
+
+    return _REQUIRED_STEP_BY_STAGE[stage]
 
 
 NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
@@ -141,6 +190,7 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
     scope_digest: str = Field(pattern=_SHA256.pattern)
     session_receipt_id: str = Field(min_length=8, max_length=120)
     approved_at: datetime
+    include_live_state: StrictBool = False
 
     @field_validator("scope_references")
     @classmethod
@@ -242,6 +292,7 @@ class DiagnosisRunView(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     stage: DiagnosisStage
     next_action: str = Field(min_length=1, max_length=240)
+    required_step: RequiredStep = RequiredStep.REQUIRED_STEP
     input_identity: str | None = Field(default=None, pattern=_SHA256.pattern)
     approval_url: str | None = Field(default=None, max_length=240)
 

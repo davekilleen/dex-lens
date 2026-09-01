@@ -183,7 +183,9 @@ def _verify_result_digests(
 
     from capability_exchange.diagnosis.report import (
         canonical_fact_block,
+        canonical_ledger_appendix,
         canonical_ledger_digest,
+        ledger_appendix_errors,
     )
 
     ledger = getattr(result, "ledger", None)
@@ -195,12 +197,18 @@ def _verify_result_digests(
         raise ValueError("result ledger digest does not match the comparison ledger")
     if canonical_fact_block(ledger) not in markdown:
         raise ValueError("canonical markdown does not match the comparison ledger")
+    if ledger_appendix_errors(markdown, ledger):
+        raise ValueError("canonical markdown appendix does not match the comparison ledger")
     stored = json.loads(result_json)
     if stored.get("ledger_sha256") != ledger_digest:
         raise ValueError("result JSON digest does not match the comparison ledger")
     payload = json.loads(ledger_json)
     if payload.get("catalogue_sha256") != getattr(ledger, "catalogue_sha256", None):
         raise ValueError("ledger JSON does not match the comparison ledger")
+    if stored.get("ledger") != payload:
+        raise ValueError("result JSON ledger does not match the comparison ledger")
+    if stored.get("ledger_appendix") != canonical_ledger_appendix(ledger):
+        raise ValueError("result JSON appendix does not match the comparison ledger")
 
 
 class LensReportStore:

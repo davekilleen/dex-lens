@@ -26,7 +26,9 @@ __all__ = [
     "LedgerSummary",
     "ReportModel",
     "canonical_fact_block",
+    "canonical_ledger_appendix",
     "canonical_ledger_digest",
+    "ledger_appendix_errors",
     "ledger_derived_fact_errors",
 ]
 
@@ -69,6 +71,21 @@ def _canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
                 "reason": item.reason,
             }
             for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
+        ],
+        "local_entries": [
+            {
+                "disposition": item.disposition.value,
+                "evidence_references": list(item.evidence_references),
+                "identity": item.identity,
+                "kind": item.kind.value,
+                "limitation": item.limitation,
+                "mapped_capability_ids": list(item.mapped_capability_ids),
+                "mapped_catalogue_ids": list(item.mapped_catalogue_ids),
+                "observation_id": item.observation_id,
+                "operational_state": item.operational_state.value,
+                "reason": item.reason,
+            }
+            for item in sorted(ledger.local_entries, key=lambda item: item.observation_id)
         ],
         "reciprocal_answer": ledger.reciprocal_answer,
     }
@@ -252,6 +269,7 @@ class ReportModel(InventoriedModel):
 
     def render_markdown(self, ledger: ComparisonLedger) -> str:
         block = canonical_fact_block(ledger)
+        appendix = canonical_ledger_appendix(ledger)
         limits = "\n".join(f"- {item}" for item in self.limits)
         extra = f"{limits}\n" if limits else ""
         return (
@@ -259,6 +277,7 @@ class ReportModel(InventoriedModel):
             "## Coverage and limits\n"
             f"{block}"
             f"{extra}"
+            f"\n{appendix}"
             "\n"
             f"{self._render_decisions()}"
             "\n"
@@ -366,6 +385,89 @@ def canonical_fact_block(ledger: ComparisonLedger) -> str:
         f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
     )
+
+
+def _appendix_catalogue_row(item: object) -> dict[str, object]:
+    return {
+        "catalogue_id": item.catalogue_id,
+        "capability_id": item.capability_id,
+        "disposition": item.disposition.value,
+        "evidence_references": list(item.evidence_references),
+        "method_compared": item.method_compared,
+        "reason": item.reason,
+    }
+
+
+def _appendix_local_row(item: object) -> dict[str, object]:
+    return {
+        "observation_id": item.observation_id,
+        "kind": item.kind.value,
+        "identity": item.identity,
+        "operational_state": item.operational_state.value,
+        "disposition": item.disposition.value,
+        "mapped_catalogue_ids": list(item.mapped_catalogue_ids),
+        "mapped_capability_ids": list(item.mapped_capability_ids),
+        "evidence_references": list(item.evidence_references),
+        "reason": item.reason,
+        "limitation": item.limitation,
+    }
+
+
+def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
+    """Render every ledger row as deterministic JSON lines.
+
+    The appendix is intentionally machine-readable and separate from the
+    short human summary.  Rows are sorted by catalogue identity, then local
+    observation identity, so equivalent ledgers produce byte-identical text.
+    """
+
+    lines = [
+        "## Complete ledger appendix",
+        "<!-- canonical-ledger-appendix -->",
+        "### Catalogue entries",
+    ]
+    lines.extend(
+        json.dumps(
+            {"row_type": "catalogue", **_appendix_catalogue_row(item)},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
+    )
+    lines.append("### Local observations")
+    lines.extend(
+        json.dumps(
+            {"row_type": "local", **_appendix_local_row(item)},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for item in sorted(ledger.local_entries, key=lambda item: item.observation_id)
+    )
+    return "\n".join(lines) + "\n"
+
+
+def ledger_appendix_errors(
+    report_markdown: str,
+    ledger: ComparisonLedger,
+) -> tuple[str, ...]:
+    """Reject missing, duplicated, altered, or reordered appendix rows."""
+
+    marker = "## Complete ledger appendix\n"
+    if report_markdown.count(marker) != 1:
+        return ("report ledger appendix must contain exactly one complete section",)
+    start = report_markdown.find(marker)
+    if start < 0:
+        return ("report is missing the complete ledger appendix",)
+    end = report_markdown.find("\n## ", start + len(marker))
+    # ``render_markdown`` leaves one blank line before the following section;
+    # exclude that separator while comparing the exact appendix bytes.
+    actual = report_markdown[start:] if end < 0 else report_markdown[start:end]
+    expected = canonical_ledger_appendix(ledger)
+    if actual != expected:
+        return ("report ledger appendix rows are missing, altered, duplicated, or reordered",)
+    return ()
 
 
 def ledger_derived_fact_errors(report_markdown: str, ledger: ComparisonLedger) -> tuple[str, ...]:

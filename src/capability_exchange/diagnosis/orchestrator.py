@@ -14,11 +14,16 @@ from capability_exchange.concierge.consent import (
     opaque_candidate_locator,
 )
 from capability_exchange.diagnosis.comparison import ComparisonLedger
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    migrate_stored_fingerprint_payload,
+)
 from capability_exchange.diagnosis.report import (
     ReportModel,
     canonical_fact_block,
+    canonical_ledger_appendix,
     canonical_ledger_digest,
+    ledger_appendix_errors,
 )
 from capability_exchange.diagnosis.run import (
     ENGINE_VERSION,
@@ -31,9 +36,11 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+    RequiredStep,
     RunIdentity,
     advance_to,
     canonical_json_digest,
+    required_step_for_stage,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
@@ -107,6 +114,8 @@ class DiagnosisResult:
 
     def dump_for_storage(self) -> dict[str, object]:
         return {
+            "ledger": self.ledger.model_dump(mode="json"),
+            "ledger_appendix": canonical_ledger_appendix(self.ledger),
             "ledger_sha256": self.report.ledger_sha256,
             "report": self.report.model_dump(mode="json"),
             "run_id": self.report.run_identity.run_id,
@@ -283,6 +292,7 @@ class DeterministicDiagnosisEngine:
             run_id=checkpoint.run_id,
             stage=checkpoint.stage,
             next_action=checkpoint.next_action,
+            required_step=required_step_for_stage(checkpoint.stage),
             input_identity=checkpoint.input_identity,
             approval_url=None,
         )
@@ -298,7 +308,8 @@ class DeterministicDiagnosisEngine:
         if approval is not None:
             return approval.receipt
         raise DiagnosisStateError(
-            "approve the exact scope in this chat with dex-lens diagnosis approve"
+            "approve the exact scope in this chat with dex-lens diagnosis approve",
+            required_step=RequiredStep.APPROVE_SCOPE,
         )
 
     def _advance(
@@ -437,6 +448,8 @@ class DeterministicDiagnosisEngine:
             raise DiagnosisStateError("report is missing exact ledger-derived facts")
         if result.report.ledger_sha256 != canonical_ledger_digest(result.ledger):
             raise DiagnosisStateError("report is missing exact ledger-derived facts")
+        if ledger_appendix_errors(result.render_markdown(), result.ledger):
+            raise DiagnosisStateError("report is missing the complete ledger appendix")
         return self._advance(checkpoint, DiagnosisStage.CHECKED)
 
     def _save(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
@@ -463,7 +476,11 @@ class DeterministicDiagnosisEngine:
         payload = self._find_kind(checkpoint, "fingerprint")
         if payload is None:
             raise DiagnosisStateError("fingerprint is missing from this diagnosis checkpoint")
-        return EvidenceFingerprint.model_validate(payload)
+        try:
+            migrated = migrate_stored_fingerprint_payload(payload)
+            return EvidenceFingerprint.model_validate(migrated)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored evidence fingerprint is unreadable") from exc
 
     def _catalogue(self, checkpoint: DiagnosisCheckpoint) -> VerifiedCatalogueSlice:
         payload = self._find_kind(checkpoint, "catalogue")
@@ -497,6 +514,7 @@ class DeterministicDiagnosisEngine:
             )
             for item in fingerprint.observations
         )
+        observation_ids = tuple(item.observation_id for item in fingerprint.observations)
         return ProposalContext(
             run_id=checkpoint.run_id,
             fingerprint_digest=digest,
@@ -504,6 +522,7 @@ class DeterministicDiagnosisEngine:
             evidence_ids=evidence_ids,
             catalogue_ids=catalogue.catalogue_ids,
             capability_ids=catalogue.capability_ids,
+            observation_ids=observation_ids,
             held_ids=catalogue.unavailable_ids,
             family_contract_present=catalogue.family_contract_present,
         )

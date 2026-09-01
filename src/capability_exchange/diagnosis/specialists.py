@@ -108,6 +108,7 @@ class SpecialistShard(_ValidatedInventoried):
     evidence_ids: tuple[str, ...]
     catalogue_ids: tuple[str, ...]
     capability_ids: tuple[str, ...]
+    observation_ids: tuple[str, ...] = ()
 
     @field_validator("evidence_ids")
     @classmethod
@@ -124,6 +125,11 @@ class SpecialistShard(_ValidatedInventoried):
     def _capability_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_identities(values, "shard capability identities")
 
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _unique_identities(values, "shard observation identities")
+
 
 class SpecialistProposal(_ValidatedInventoried):
     """One untrusted, evidence-referenced specialist claim."""
@@ -137,12 +143,18 @@ class SpecialistProposal(_ValidatedInventoried):
     capability_id: str = Field(pattern=_ID.pattern)
     disposition: Disposition
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
+    observation_ids: tuple[str, ...] = ()
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
 
     @field_validator("evidence_ids")
     @classmethod
     def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_tokens(values, "proposal evidence tokens", max_items=MAX_EVIDENCE_IDS)
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _unique_identities(values, "proposal observation identities")
 
     @field_validator("reason")
     @classmethod
@@ -164,6 +176,7 @@ class ProposalContext(_ValidatedInventoried):
     held_ids: tuple[str, ...] = ()
     collapsed_provenance_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
+    observation_ids: tuple[str, ...] = ()
 
     @field_validator("evidence_ids")
     @classmethod
@@ -179,6 +192,11 @@ class ProposalContext(_ValidatedInventoried):
     @classmethod
     def _capability_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_identities(values, "context capability identities")
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _unique_identities(values, "context observation identities")
 
     @field_validator("held_ids")
     @classmethod
@@ -202,11 +220,17 @@ class ValidatedProposal(_ValidatedInventoried):
     disposition: Disposition
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
+    observation_ids: tuple[str, ...] = ()
 
     @field_validator("evidence_ids")
     @classmethod
     def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_tokens(values, "validated evidence tokens", max_items=MAX_EVIDENCE_IDS)
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _unique_identities(values, "validated observation identities")
 
     @field_validator("reason")
     @classmethod
@@ -244,6 +268,7 @@ def issue_shard(role: SpecialistRole, *, context: ProposalContext) -> Specialist
         evidence_ids=context.evidence_ids,
         catalogue_ids=context.catalogue_ids,
         capability_ids=context.capability_ids,
+        observation_ids=context.observation_ids,
     )
 
 
@@ -279,6 +304,7 @@ def validate_proposal(
             "proposal catalogue digest does not match the verified catalogue"
         )
     allowed_evidence = set(context.evidence_ids)
+    allowed_observations = set(context.observation_ids)
     collapsed = set(context.collapsed_provenance_ids)
     for token in proposal.evidence_ids:
         if token not in allowed_evidence:
@@ -288,6 +314,11 @@ def validate_proposal(
         if token in collapsed:
             raise SpecialistProposalError(
                 "proposal cites evidence whose source provenance has been collapsed"
+            )
+    for observation_id in proposal.observation_ids:
+        if observation_id not in allowed_observations:
+            raise SpecialistProposalError(
+                "proposal observation identity is not present in the current fingerprint"
             )
     if _is_recommendation(proposal) and proposal.catalogue_id in set(context.held_ids):
         raise SpecialistProposalError(
@@ -309,6 +340,7 @@ def validate_proposal(
         disposition=proposal.disposition,
         evidence_ids=tuple(sorted(proposal.evidence_ids)),
         reason=proposal.reason,
+        observation_ids=tuple(sorted(proposal.observation_ids)),
     )
 
 
@@ -319,6 +351,7 @@ def _group_key(proposal: ValidatedProposal) -> tuple[str, str, str]:
 def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
     dispositions = {item.disposition for item in group}
     evidence_ids = tuple(sorted({token for item in group for token in item.evidence_ids}))
+    observation_ids = tuple(sorted({token for item in group for token in item.observation_ids}))
     if len(evidence_ids) > MAX_EVIDENCE_IDS:
         raise SpecialistProposalError(
             f"coalesced proposals may cite at most {MAX_EVIDENCE_IDS} evidence tokens"
@@ -333,6 +366,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
             disposition=sample.disposition,
             evidence_ids=evidence_ids,
             reason=reasons[0],
+            observation_ids=observation_ids,
         )
     return ValidatedProposal(
         kind=sample.kind,
@@ -341,6 +375,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         disposition=Disposition.NOT_ASSESSED,
         evidence_ids=evidence_ids,
         reason=DISAGREEMENT_REASON,
+        observation_ids=observation_ids,
     )
 
 

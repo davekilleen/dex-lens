@@ -12,7 +12,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from capability_exchange.diagnosis.observations import OperationalState
+from capability_exchange.diagnosis.observations import HealthState, OperationalState, RuntimeState
 
 __all__ = ["LiveState", "collect_live_states"]
 
@@ -33,8 +33,50 @@ class LiveState:
 
     kind: str
     identity: str
-    operational_state: OperationalState
+    runtime_state: RuntimeState
     captured_at: datetime
+    health_state: HealthState = HealthState.NOT_ASSESSED
+    source_id: str | None = None
+
+    def __init__(
+        self,
+        kind: str,
+        identity: str,
+        runtime_state: RuntimeState | str | None = None,
+        captured_at: datetime | None = None,
+        *,
+        operational_state: OperationalState | str | None = None,
+        health_state: HealthState | str = HealthState.NOT_ASSESSED,
+        source_id: str | None = None,
+    ) -> None:
+        """Build a runtime-only status record.
+
+        ``operational_state`` is accepted only for old callers; the record
+        stores ``runtime_state`` and never carries the collapsed scalar.
+        """
+
+        if runtime_state is not None and operational_state is not None:
+            raise ValueError("live state cannot carry both runtime and operational state")
+        selected = runtime_state if runtime_state is not None else operational_state
+        if selected is None:
+            raise ValueError("live state requires a runtime state")
+        if captured_at is None:
+            raise ValueError("live state requires a capture timestamp")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "identity", identity)
+        object.__setattr__(self, "runtime_state", RuntimeState(selected))
+        object.__setattr__(self, "captured_at", captured_at)
+        object.__setattr__(self, "health_state", HealthState(health_state))
+        object.__setattr__(self, "source_id", source_id)
+
+    @property
+    def operational_state(self) -> OperationalState:
+        """Compatibility projection; live state is persisted as runtime only."""
+
+        try:
+            return OperationalState(self.runtime_state.value)
+        except ValueError:
+            return OperationalState.NOT_ASSESSED
 
 
 def _run(argv: tuple[str, ...]) -> str:
@@ -67,7 +109,7 @@ def _parse_launchctl(output: str, captured_at: datetime) -> tuple[LiveState, ...
             LiveState(
                 kind="automation",
                 identity=label,
-                operational_state=OperationalState.LOADED,
+                runtime_state=RuntimeState.LOADED,
                 captured_at=captured_at,
             )
         )
@@ -90,15 +132,30 @@ def _parse_systemd(output: str, captured_at: datetime) -> tuple[LiveState, ...]:
             LiveState(
                 kind="automation",
                 identity=identity,
-                operational_state=OperationalState.LOADED,
+                runtime_state=RuntimeState.LOADED,
                 captured_at=captured_at,
             )
         )
     return tuple(sorted(states, key=lambda item: item.identity))
 
 
-def collect_live_states(*, platform: str = sys.platform) -> tuple[LiveState, ...]:
-    """Ask the host whether scheduled jobs are loaded, using fixed commands."""
+def collect_live_states(
+    *,
+    platform: str = sys.platform,
+    scope_receipt: object | None = None,
+) -> tuple[LiveState, ...]:
+    """Ask the host whether scheduled jobs are loaded, using fixed commands.
+
+    When a receipt is supplied, live collection is permitted only when that
+    receipt explicitly includes ``include_live_state``.  The no-receipt form
+    remains a compatibility path for the standalone inventory command; the
+    diagnosis flow always supplies its approved receipt before collecting.
+    """
+
+    if scope_receipt is not None and not bool(
+        getattr(scope_receipt, "include_live_state", False)
+    ):
+        return ()
     captured_at = datetime.now(UTC)
     if platform == "darwin":
         return _parse_launchctl(_run(_DARWIN_COMMAND), captured_at)

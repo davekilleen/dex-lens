@@ -1165,6 +1165,116 @@ fields:
     deletion: not-stored
     audit: "ephemeral complete comparison ledger"
 
+  ComparisonLedger.local_entries:
+    description: "one explicit disposition for every captured local observation"
+    collection: "assembled locally from the fingerprint and validated specialist mappings"
+    derivation: "validated for exact observation identity coverage, uniqueness, and source facts"
+    display: "provides the reciprocal local-observation accounting behind the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral complete local comparison ledger"
+
+  LocalObservationDisposition.observation_id:
+    description: "opaque stable identity of one source-bound local observation"
+    collection: "derived locally from observation kind, identity, and source identity"
+    derivation: "canonical SHA-256 observation identity"
+    display: "anchors one exact local observation appendix row"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identity"
+
+  LocalObservationDisposition.kind:
+    description: "closed class of the local observation receiving a disposition"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed ObservationKind vocabulary"
+    display: "explains which local system surface was observed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation structure"
+
+  LocalObservationDisposition.identity:
+    description: "bounded stable identity copied from the local observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated as a bounded observation identity"
+    display: "names the safe local observation without raw content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral safe observation identity"
+
+  LocalObservationDisposition.operational_state:
+    description: "operational state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed OperationalState vocabulary"
+    display: "keeps configuration, operation, and outcome claims distinct"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local operational fact"
+
+  LocalObservationDisposition.disposition:
+    description: "closed answer for how one local observation maps in this comparison"
+    collection: "assigned locally from validated specialist evidence"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "shows whether the local observation was assessed or remains unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-led local judgement"
+
+  LocalObservationDisposition.mapped_catalogue_ids:
+    description: "signed Dex catalogue identities mapped to this local observation"
+    collection: "copied from validated specialist mappings"
+    derivation: "validated against the exact catalogue identity set"
+    display: "connects local evidence to the Dex entries it informs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public identity mapping"
+
+  LocalObservationDisposition.mapped_capability_ids:
+    description: "human capability identities mapped to this local observation"
+    collection: "copied from validated specialist mappings"
+    derivation: "validated against the current comparison capability set"
+    display: "connects local evidence to the jobs it informs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local identity mapping"
+
+  LocalObservationDisposition.evidence_references:
+    description: "non-raw evidence references supporting this local disposition"
+    collection: "copied from the fingerprint or validated specialist evidence tokens"
+    derivation: "validated as unique bounded locators or digests"
+    display: "supports the local observation row without exposing content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence references"
+
+  LocalObservationDisposition.reason:
+    description: "bounded one-line explanation for the local observation disposition"
+    collection: "authored locally from validated comparison evidence"
+    derivation: "bounded single-line text"
+    display: "explains why the local observation received its answer"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  LocalObservationDisposition.limitation:
+    description: "bounded explicit limit on what the local observation proves"
+    collection: "authored locally from the observation evidence boundary"
+    derivation: "bounded single-line text"
+    display: "keeps local evidence limits visible in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local limitation"
+
   ComparisonLedger.reciprocal_answer:
     description: "bounded answer describing what Dex could learn from the person's system"
     collection: "authored locally from evidenced transferable methods"
@@ -1917,6 +2027,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "local approval time only"
 
+  ApprovedScopeReceipt.include_live_state:
+    description: "whether this consent receipt explicitly includes a read-only host live-state check"
+    collection: "selected by the person on the local consent surface"
+    derivation: "strict boolean; omitted legacy receipts default to false"
+    display: "controls whether operating-system runtime state may be collected"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "explicit consent scope flag; never inferred from configuration files"
+
   RunIdentity.run_id:
     description: "opaque public identity for one diagnosis run"
     collection: "assigned at prepare before any read"
@@ -2217,6 +2339,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "product guidance only"
 
+  DiagnosisRunView.required_step:
+    description: "typed next step required to advance the diagnosis run"
+    collection: "derived by the engine from the closed diagnosis stage"
+    derivation: "validated through the closed RequiredStep vocabulary"
+    display: "returned by CLI and MCP without parsing error strings"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed progress marker only"
+
   DiagnosisRunView.input_identity:
     description: "optional SHA-256 of the execution input once it exists"
     collection: "copied after scope approval binds an input identity"
@@ -2291,15 +2425,35 @@ fields:
     deletion: not-stored
     audit: "ephemeral label visible only during the local session"
 
-  Observation.operational_state:
-    description: "closed state describing how far a capability is proved to operate"
-    collection: "assigned locally from the evidence actually observed"
-    derivation: "validated through OperationalState separately from evidence provenance"
-    display: "explains whether something is declared, installed, running, or outcome-verified"
+  Observation.configuration_state:
+    description: "closed configuration axis for one observed capability"
+    collection: "assigned locally from the approved snapshot declaration"
+    derivation: "validated through the closed ConfigurationState vocabulary"
+    display: "explains whether configuration is declared, implemented, installed, enabled, disabled, or absent"
     storage: none
     sharing: never
     deletion: not-stored
-    audit: "ephemeral local assessment that never upgrades configuration into outcome proof"
+    audit: "ephemeral configuration fact; it never implies runtime or health"
+
+  Observation.runtime_state:
+    description: "closed runtime axis for one observed capability"
+    collection: "assigned only from an explicitly approved live-state check or outcome evidence"
+    derivation: "validated through the closed RuntimeState vocabulary"
+    display: "explains whether execution is loaded, running, recently run, stale, or not assessed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral runtime fact; configuration alone cannot populate it"
+
+  Observation.health_state:
+    description: "closed health axis for one observed capability"
+    collection: "assigned only from an explicit health check"
+    derivation: "validated through the closed HealthState vocabulary"
+    display: "explains whether an explicit check found healthy, broken, stale, disabled, or unknown health"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral health fact; file presence never upgrades it to healthy"
 
   Observation.evidence:
     description: "typed evidence item supporting one operational observation"
@@ -8406,3 +8560,43 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "local bridge state only; no personal system content"
+
+  SpecialistShard.observation_ids:
+    description: "local observation identities present in the specialist shard"
+    collection: "copied from the exact captured fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "limits which local observations a specialist may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identities"
+
+  SpecialistProposal.observation_ids:
+    description: "local observation identities cited by one specialist proposal"
+    collection: "selected from the current specialist shard"
+    derivation: "validated against the exact fingerprint observation identity set"
+    display: "shows which local facts the untrusted claim concerns"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted observation mapping"
+
+  ProposalContext.observation_ids:
+    description: "local observation identities valid for this specialist context"
+    collection: "copied from the captured evidence fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "the only local observations proposals may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-owned observation identities"
+
+  ValidatedProposal.observation_ids:
+    description: "validated local observation identities retained on a proposal"
+    collection: "copied from a specialist proposal after identity checks"
+    derivation: "unique identities accepted by ProposalContext"
+    display: "feeds deterministic local-observation ledger mappings"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated observation mapping"

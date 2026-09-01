@@ -19,7 +19,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
-from capability_exchange.diagnosis.run import DiagnosisStateError
+from capability_exchange.diagnosis.run import DiagnosisStateError, RequiredStep
 from capability_exchange.diagnosis.specialists import SpecialistProposal as EngineProposal
 
 __all__ = [
@@ -195,6 +195,9 @@ def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, objec
 
 
 def _required_step(exc: DiagnosisStateError) -> str:
+    typed = getattr(exc, "required_step", RequiredStep.REQUIRED_STEP)
+    if isinstance(typed, RequiredStep) and typed is not RequiredStep.REQUIRED_STEP:
+        return typed.value
     text = str(exc).lower()
     if "approve" in text or "scope" in text or "consent" in text:
         return "approve_scope"

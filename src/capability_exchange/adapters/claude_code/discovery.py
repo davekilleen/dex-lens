@@ -28,10 +28,12 @@ from capability_exchange.adapters.claude_code.snapshot import (
     reference_token,
 )
 from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
     EvidenceFingerprint,
+    HealthState,
     Observation,
     ObservationKind,
-    OperationalState,
+    RuntimeState,
     SafeAttribute,
 )
 from capability_exchange.diagnosis.provenance import SourceClass
@@ -58,12 +60,15 @@ _INTEGRATION_PATH_PARTS = frozenset(
 )
 _HEALTH_WORDS = frozenset({"doctor", "health", "smoke"})
 _SAFE_PROBE_FOLDERS = frozenset({".scripts", "scripts", "checks", "health", "system"})
+_SAFE_PROVIDER_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
+_SECRET_PROVIDER_MARKERS = ("token", "secret", "password", "credential", "account", "workspace")
 
 
 class _LiveStateLike(Protocol):
     kind: str
     identity: str
-    operational_state: OperationalState
+    runtime_state: RuntimeState
+    health_state: HealthState
 
 
 def _identity(value: str, *, fallback: str = "unnamed") -> str:
@@ -103,19 +108,33 @@ def _entry_observation(
     kind: ObservationKind,
     identity: str,
     label: str,
-    operational_state: OperationalState,
+    configuration_state: ConfigurationState,
+    runtime_state: RuntimeState = RuntimeState.NOT_ASSESSED,
+    health_state: HealthState = HealthState.NOT_ASSESSED,
     attributes: tuple[SafeAttribute, ...] = (),
 ) -> Observation:
-    effective_state = (
-        OperationalState.NOT_ASSESSED
+    effective_configuration = (
+        ConfigurationState.NOT_ASSESSED
         if entry.source.source_class is SourceClass.WORKING_COPY
-        else operational_state
+        else configuration_state
+    )
+    effective_runtime = (
+        RuntimeState.NOT_ASSESSED
+        if entry.source.source_class is SourceClass.WORKING_COPY
+        else runtime_state
+    )
+    effective_health = (
+        HealthState.NOT_ASSESSED
+        if entry.source.source_class is SourceClass.WORKING_COPY
+        else health_state
     )
     return Observation(
         kind=kind,
         identity=_identity(identity),
         label=_label(label),
-        operational_state=effective_state,
+        configuration_state=effective_configuration,
+        runtime_state=effective_runtime,
+        health_state=effective_health,
         evidence=_evidence(entry, collected_at),
         provenance=entry.source,
         attributes=attributes,
@@ -167,7 +186,7 @@ def _release_observations(
                     kind=ObservationKind.RELEASE,
                     identity="dex-core",
                     label="Dex Core release",
-                    operational_state=OperationalState.INSTALLED,
+                    configuration_state=ConfigurationState.INSTALLED,
                     attributes=_attributes(_attribute("release-id", version)),
                 )
             )
@@ -182,9 +201,9 @@ def _skill_observations(
     for entry in snapshot.entries_named("SKILL.md"):
         name = Path(entry.relative_path).parent.name
         state = (
-            OperationalState.DISABLED
+            ConfigurationState.DISABLED
             if _FRONTMATTER_DISABLED.search(entry.content)
-            else OperationalState.IMPLEMENTED
+            else ConfigurationState.IMPLEMENTED
         )
         observations.append(
             _entry_observation(
@@ -193,7 +212,7 @@ def _skill_observations(
                 kind=ObservationKind.SKILL,
                 identity=name,
                 label=name,
-                operational_state=state,
+                configuration_state=state,
             )
         )
     return tuple(observations)
@@ -254,7 +273,7 @@ def _mcp_observations(
                             kind=ObservationKind.MCP_SERVER,
                             identity=name,
                             label=name,
-                            operational_state=OperationalState.DECLARED,
+                            configuration_state=ConfigurationState.DECLARED,
                             attributes=_attributes(_attribute("transport", _mcp_transport(config))),
                         )
                     )
@@ -290,7 +309,7 @@ def _hook_observations(
                             kind=ObservationKind.HOOK,
                             identity=event,
                             label=event,
-                            operational_state=OperationalState.DECLARED,
+                            configuration_state=ConfigurationState.DECLARED,
                             attributes=_attributes(
                                 _attribute("hook-event", event),
                                 _attribute("tool-count", count),
@@ -300,7 +319,20 @@ def _hook_observations(
     return tuple(observations)
 
 
-def _integration_provider_count(entry: SnapshotEntry) -> int:
+def _safe_provider_slug(value: object) -> str | None:
+    """Keep provider *types* only; reject account/workspace and secret-shaped labels."""
+
+    text = str(value).strip().lower()
+    if (
+        not text
+        or any(marker in text for marker in _SECRET_PROVIDER_MARKERS)
+        or _SAFE_PROVIDER_SLUG.fullmatch(text) is None
+    ):
+        return None
+    return text
+
+
+def _integration_provider_names(entry: SnapshotEntry) -> tuple[str, ...]:
     documents = _documents(entry)
     if documents:
         names: set[str] = set()
@@ -308,8 +340,10 @@ def _integration_provider_count(entry: SnapshotEntry) -> int:
             for block in _mapping_values_for_key(
                 document, frozenset({"providers", "integrations", "connections"})
             ):
-                names.update(str(key) for key in block)
-        return len(names)
+                names.update(
+                    slug for key in block if (slug := _safe_provider_slug(key)) is not None
+                )
+        return tuple(sorted(names))
     text = entry.content.decode("utf-8", "replace")
     in_block = False
     names = set()
@@ -322,8 +356,13 @@ def _integration_provider_count(entry: SnapshotEntry) -> int:
         if in_block:
             match = re.match(r"^\s{2,}([A-Za-z0-9._-]+):", line)
             if match is not None:
-                names.add(match.group(1))
-    return len(names)
+                if slug := _safe_provider_slug(match.group(1)):
+                    names.add(slug)
+    return tuple(sorted(names))
+
+
+def _integration_provider_count(entry: SnapshotEntry) -> int:
+    return len(_integration_provider_names(entry))
 
 
 def _integration_observations(
@@ -339,7 +378,36 @@ def _integration_observations(
     observations: list[Observation] = []
     for source_id in sorted({entry.source.source_id for entry in entries}):
         source_entries = [entry for entry in entries if entry.source.source_id == source_id]
-        provider_count = sum(_integration_provider_count(entry) for entry in source_entries)
+        providers_by_entry = {
+            entry: _integration_provider_names(entry) for entry in source_entries
+        }
+        provider_names = sorted({name for names in providers_by_entry.values() for name in names})
+        for provider_name in provider_names:
+            source_entry = min(
+                (
+                    entry
+                    for entry, names in providers_by_entry.items()
+                    if provider_name in names
+                ),
+                key=lambda item: (item.relative_path.count("/"), item.relative_path),
+            )
+            observations.append(
+                _entry_observation(
+                    source_entry,
+                    collected_at,
+                    kind=ObservationKind.INTEGRATION_PROVIDER,
+                    identity=provider_name,
+                    label=provider_name,
+                    configuration_state=ConfigurationState.DECLARED,
+                    attributes=_attributes(
+                        _attribute(
+                            "source-kind",
+                            Path(source_entry.relative_path).suffix.lstrip(".") or "unknown",
+                        )
+                    ),
+                )
+            )
+        provider_count = len(provider_names)
         source_kinds = sorted(
             {Path(entry.relative_path).suffix.lstrip(".") for entry in source_entries}
         )
@@ -356,7 +424,7 @@ def _integration_observations(
                 kind=ObservationKind.INTEGRATION_REGISTRY,
                 identity="local-integrations",
                 label="Local integrations",
-                operational_state=OperationalState.IMPLEMENTED,
+                configuration_state=ConfigurationState.IMPLEMENTED,
                 attributes=_attributes(
                     _attribute("provider-count", provider_count),
                     _attribute("source-kind", "+".join(source_kinds) or "unknown"),
@@ -420,7 +488,7 @@ def _automation_observations(
                     kind=ObservationKind.AUTOMATION,
                     identity=label,
                     label=label,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=attributes,
                 )
             )
@@ -438,7 +506,7 @@ def _automation_observations(
                         kind=ObservationKind.AUTOMATION,
                         identity=label,
                         label=label,
-                        operational_state=OperationalState.IMPLEMENTED,
+                        configuration_state=ConfigurationState.IMPLEMENTED,
                         attributes=_attributes(
                             _attribute("schedule", match.group(1)),
                             _attribute("source-kind", source_kind),
@@ -454,7 +522,7 @@ def _automation_observations(
                     kind=ObservationKind.AUTOMATION,
                     identity=label,
                     label=label,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(_attribute("source-kind", source_kind)),
                 )
             )
@@ -480,7 +548,8 @@ def _automation_observations(
             upgraded.append(
                 observation.model_copy(
                     update={
-                        "operational_state": OperationalState.NOT_ASSESSED,
+                        "runtime_state": RuntimeState.NOT_ASSESSED,
+                        "health_state": HealthState.NOT_ASSESSED,
                         "attributes": _attributes(*observation.attributes, ambiguity),
                     }
                 )
@@ -500,7 +569,12 @@ def _automation_observations(
             continue
         live = eligible[0]
         upgraded.append(
-            observation.model_copy(update={"operational_state": live.operational_state})
+            observation.model_copy(
+                update={
+                    "runtime_state": live.runtime_state,
+                    "health_state": getattr(live, "health_state", HealthState.NOT_ASSESSED),
+                }
+            )
         )
     return tuple(upgraded)
 
@@ -524,7 +598,7 @@ def _health_and_recovery_observations(
                     kind=ObservationKind.HEALTH_CHECK,
                     identity=stem,
                     label=path.stem,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(
                         _attribute("source-kind", path.suffix.lstrip(".") or "file")
                     ),
@@ -538,7 +612,7 @@ def _health_and_recovery_observations(
                     kind=ObservationKind.RECOVERY_PROOF,
                     identity=stem,
                     label=path.stem,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(
                         _attribute("source-kind", path.suffix.lstrip(".") or "file")
                     ),
@@ -603,8 +677,19 @@ def discover_fingerprint(
     *,
     collected_at: datetime,
     live_states: tuple[_LiveStateLike, ...] = (),
+    scope_receipt: object | None = None,
 ) -> EvidenceFingerprint:
-    """Build one local-only fingerprint from the approved immutable snapshot."""
+    """Build one local-only fingerprint from the approved immutable snapshot.
+
+    Live host state is accepted only when an explicitly supplied consent
+    receipt includes it.  The omitted-receipt form remains for the legacy
+    standalone inventory command; diagnosis callers pass their receipt.
+    """
+
+    if scope_receipt is not None and not bool(
+        getattr(scope_receipt, "include_live_state", False)
+    ):
+        live_states = ()
     observations = (
         *_release_observations(snapshot, collected_at),
         *_skill_observations(snapshot, collected_at),

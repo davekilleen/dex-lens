@@ -28,8 +28,13 @@ from capability_exchange.diagnosis.comparison import (
     ComparisonLedger,
     Disposition,
     HumanCapability,
+    LocalObservationDisposition,
 )
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    Observation,
+    observation_id_for,
+)
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     VerifiedCatalogueSlice,
@@ -49,6 +54,7 @@ __all__ = [
     "UnknownUntilProposedComparer",
     "build_default_engine",
     "dispositions_from_proposals",
+    "local_dispositions_from_proposals",
 ]
 
 _NO_PROPOSAL = "No specialist proposal cleared the evidence bar."
@@ -127,6 +133,68 @@ def _agreed_or_unknown(
         disposition=Disposition.NOT_ASSESSED,
         evidence_ids=evidence or ordered[0].evidence_ids,
         reason=DISAGREEMENT_REASON,
+        observation_ids=tuple(
+            sorted({token for item in ordered for token in item.observation_ids})
+        ),
+    )
+
+
+def local_dispositions_from_proposals(
+    fingerprint: EvidenceFingerprint,
+    proposals: tuple[ValidatedProposal, ...],
+) -> tuple[LocalObservationDisposition, ...]:
+    """Apply validated specialist mappings to every captured observation.
+
+    Observations without a cited proposal remain visible and explicitly
+    ``not-assessed``.  Their source evidence is retained as a bounded
+    reference; no raw content or path is introduced here.
+    """
+
+    by_observation: dict[str, list[ValidatedProposal]] = defaultdict(list)
+    for proposal in proposals:
+        for observation_id in proposal.observation_ids:
+            by_observation[observation_id].append(proposal)
+    return tuple(
+        _local_entry_for(observation, by_observation[observation_id_for(observation)])
+        for observation in fingerprint.observations
+    )
+
+
+def _local_entry_for(
+    observation: Observation,
+    group: list[ValidatedProposal],
+) -> LocalObservationDisposition:
+    observation_id = observation_id_for(observation)
+    if not group:
+        return LocalObservationDisposition(
+            observation_id=observation_id,
+            kind=observation.kind,
+            identity=observation.identity,
+            operational_state=observation.operational_state,
+            disposition=Disposition.NOT_ASSESSED,
+            evidence_references=(observation.evidence.reference,),
+            reason="No specialist proposal cited this observation.",
+            limitation="No specialist proposal cited this observation.",
+        )
+    chosen = _agreed_or_unknown(group[0].catalogue_id, group)
+    catalogue_ids = tuple(sorted({item.catalogue_id for item in group}))
+    capability_ids = tuple(sorted({item.capability_id for item in group}))
+    evidence = tuple(sorted({token for item in group for token in item.evidence_ids}))
+    return LocalObservationDisposition(
+        observation_id=observation_id,
+        kind=observation.kind,
+        identity=observation.identity,
+        operational_state=observation.operational_state,
+        disposition=chosen.disposition,
+        mapped_catalogue_ids=catalogue_ids,
+        mapped_capability_ids=capability_ids,
+        evidence_references=evidence or (observation.evidence.reference,),
+        reason=chosen.reason,
+        limitation=(
+            "Specialist proposals disagreed; this observation remains not-assessed."
+            if chosen.disposition is Disposition.NOT_ASSESSED
+            else "Assessment is limited to the cited local evidence."
+        ),
     )
 
 
@@ -155,7 +223,11 @@ class ConsentBoundCollector:
         contract = claude_code_contract(tuple(str(root) for root in roots))
         allowlist = CanonicalAllowlist(contract.read_scope, denied_paths=contract.denied_paths)
         inspection = take_snapshot(allowlist, source_descriptors=snapshot.source_descriptors)
-        return discover_fingerprint(inspection, collected_at=inspection.taken_at)
+        return discover_fingerprint(
+            inspection,
+            collected_at=inspection.taken_at,
+            scope_receipt=receipt,
+        )
 
 
 class CachedCatalogueLoader:
@@ -197,18 +269,24 @@ class UnknownUntilProposedComparer:
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
     ) -> ComparisonLedger:
-        del fingerprint, jobs
+        del jobs
         envelope = _load_verified(self._store)
         digest = _signed_digest(envelope)
         if digest != catalogue.sha256:
             raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
+        observations_by_capability: dict[str, set[str]] = defaultdict(set)
+        for proposal in proposals:
+            for observation_id in proposal.observation_ids:
+                observations_by_capability[proposal.capability_id].add(observation_id)
         capabilities = tuple(
             HumanCapability(
                 capability_id=item.capability_id,
                 title=item.title,
                 job_ids=tuple(item.jobs),
                 catalogue_ids=(item.capability_id,),
-                person_observation_ids=(),
+                person_observation_ids=tuple(
+                    sorted(observations_by_capability.get(item.capability_id, ()))
+                ),
             )
             for item in envelope.catalogue.capabilities
         )
@@ -216,12 +294,14 @@ class UnknownUntilProposedComparer:
             tuple(item.capability_id for item in envelope.catalogue.capabilities),
             proposals,
         )
-        return ComparisonLedger.for_catalogue(
+        return ComparisonLedger.for_catalogue_and_fingerprint(
             envelope.catalogue,
+            fingerprint=fingerprint,
             catalogue_version=catalogue.version,
             catalogue_sha256=digest,
             capabilities=capabilities,
             entries=entries,
+            local_entries=local_dispositions_from_proposals(fingerprint, proposals),
         )
 
 
