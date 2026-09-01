@@ -1,9 +1,10 @@
 {
-  "$comment": "The required x-dex-lens-unique-by vocabulary rejects reused identifier fields inside arrays of otherwise different objects.",
+  "$comment": "The required x-dex-lens-unique-by vocabulary rejects reused identifier fields inside arrays of otherwise different objects; the MCP inventory vocabulary enforces complete cross-field counts.",
   "$dynamicAnchor": "meta",
   "$id": "https://heydex.ai/catalogue/dex-lens/v2-dialect.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$vocabulary": {
+    "https://heydex.ai/catalogue/dex-lens/vocab/mcp-tool-inventory": true,
     "https://heydex.ai/catalogue/dex-lens/vocab/unique-by": true,
     "https://json-schema.org/draft/2020-12/vocab/applicator": true,
     "https://json-schema.org/draft/2020-12/vocab/content": true,
@@ -19,6 +20,9 @@
     }
   ],
   "properties": {
+    "x-dex-lens-mcp-tool-inventory": {
+      "type": "boolean"
+    },
     "x-dex-lens-unique-by": {
       "enum": [
         "job_id",

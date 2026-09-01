@@ -8,8 +8,13 @@ can never be upgraded by family metadata.
 from __future__ import annotations
 
 import pytest
+from tests.catalogue.test_enriched_contract import legacy_skill
 
-from capability_exchange.catalogue.v2 import CapabilityFamilyV2
+from capability_exchange.catalogue.v2 import (
+    CapabilityFamilyV2,
+    LegacySkillCapabilityEntryV2,
+    SystemEngineCapabilityEntryV2,
+)
 from capability_exchange.diagnosis.families import (
     FamilyAvailability,
     build_family_delta,
@@ -35,15 +40,32 @@ def _family(member_ids: tuple[str, ...]) -> CapabilityFamilyV2:
 
 
 def _entry(capability_id: str, availability: str) -> object:
-    # A tiny duck-typed entry keeps this test independent of the catalogue's
-    # four class fixture helpers; summarise_family only needs the existing
-    # capability_is_active contract.
-    class Entry:
-        def __init__(self) -> None:
-            self.capability_id = capability_id
-            self.availability = availability
-
-    return Entry()
+    return SystemEngineCapabilityEntryV2.model_validate(
+        {
+            "capability_id": capability_id,
+            "capability_class": "system-engine",
+            "impact_tier": "high",
+            "availability": availability,
+            "title": "Test engine",
+            "summary": "A test engine.",
+            "value": "A test outcome.",
+            "jobs": ["plan-my-work"],
+            "prerequisites": ["a running Dex install"],
+            "trade_offs": ["test only"],
+            "evidence": [
+                {
+                    "level": "supported",
+                    "source": "test",
+                    "summary": "release evidence",
+                    "limitations": "local state is not inspected",
+                }
+            ],
+            "release_provenance": "core-release",
+            "source_paths": ["core/engines/test.py"],
+            "component_count": 1,
+            "example_components": ["core/engines/test.py"],
+        }
+    )
 
 
 def test_family_state_is_derived_from_active_member_entries() -> None:
@@ -83,6 +105,26 @@ def test_missing_member_entry_fails_closed() -> None:
         )
 
 
+def test_plain_objects_are_not_accepted_as_family_entries() -> None:
+    with pytest.raises(TypeError, match="validated CatalogueCapabilityEntryV2"):
+        summarise_family(
+            family=_family(("active-entry",)),
+            entries=(object(),),
+        )
+
+
+def test_legacy_entry_without_availability_never_upgrades_family_to_active() -> None:
+    legacy = LegacySkillCapabilityEntryV2.model_validate(
+        legacy_skill("legacy-entry", "Legacy Entry")
+    )
+    summary = summarise_family(
+        family=_family(("legacy-entry",)),
+        entries=(legacy,),
+    )
+    assert summary.availability is FamilyAvailability.UNAVAILABLE
+    assert summary.recommendable_member_ids == ()
+
+
 def test_family_delta_explains_unavailable_members_without_recommending_them() -> None:
     delta = build_family_delta(
         current_version="1.97.2",
@@ -92,4 +134,3 @@ def test_family_delta_explains_unavailable_members_without_recommending_them() -
     )
     assert "not currently available" in delta.plain_language_state
     assert delta.recommendable_member_ids == ()
-

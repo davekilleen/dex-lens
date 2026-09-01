@@ -773,11 +773,49 @@ class CatalogueV2(InventoriedModel):
                     f"{item.capability_id!r}"
                 )
 
+        # MCP server names are a second lookup key used by typed tool
+        # references.  Keep them unique and outside the canonical capability
+        # namespace before any family component can resolve one.
+        mcp_server_names = [
+            entry.server_name
+            for entry in self.capabilities
+            if isinstance(entry, McpServerCapabilityEntryV2)
+        ]
+        duplicate_server_names = sorted(
+            name
+            for name in set(mcp_server_names)
+            if mcp_server_names.count(name) > 1
+        )
+        if duplicate_server_names:
+            raise ValueError(
+                "duplicate MCP server_name: " + ", ".join(duplicate_server_names)
+            )
+        colliding_server_names = sorted(set(mcp_server_names) & canonical_ids)
+        if colliding_server_names:
+            raise ValueError(
+                "MCP server_name cannot collide with a capability ID: "
+                + ", ".join(colliding_server_names)
+            )
+
         # Family IDs and aliases share a namespace so a producer cannot make
         # two different outcomes resolve from one human-facing name.
         family_ids = [family.family_id for family in self.capability_families]
         if len(set(family_ids)) != len(family_ids):
             raise ValueError("duplicate capability family id")
+        family_id_collisions = sorted(set(family_ids) & (canonical_ids | set(aliases)))
+        if family_id_collisions:
+            collisions = set(family_id_collisions)
+            namespaces: list[str] = []
+            if collisions & canonical_ids:
+                namespaces.append("canonical capability IDs")
+            if collisions & set(aliases):
+                namespaces.append("capability aliases")
+            raise ValueError(
+                "capability family IDs cannot collide with "
+                + " or ".join(namespaces)
+                + ": "
+                + ", ".join(family_id_collisions)
+            )
         family_aliases = [alias for family in self.capability_families for alias in family.aliases]
         if len(set(family_aliases)) != len(family_aliases):
             raise ValueError("duplicate capability family alias")

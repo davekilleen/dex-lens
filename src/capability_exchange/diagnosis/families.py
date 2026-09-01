@@ -13,8 +13,13 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from capability_exchange.catalogue.v2 import (
+    ActiveSkillCapabilityEntryV2,
     CapabilityFamilyV2,
     CatalogueCapabilityEntryV2,
+    LegacySkillCapabilityEntryV2,
+    McpServerCapabilityEntryV2,
+    ScheduledAutomationCapabilityEntryV2,
+    SystemEngineCapabilityEntryV2,
     capability_is_active,
 )
 
@@ -26,6 +31,14 @@ __all__ = [
     "summarise_family",
     "summarize_family",
 ]
+
+_VALID_ENTRY_TYPES = (
+    LegacySkillCapabilityEntryV2,
+    ActiveSkillCapabilityEntryV2,
+    McpServerCapabilityEntryV2,
+    ScheduledAutomationCapabilityEntryV2,
+    SystemEngineCapabilityEntryV2,
+)
 
 
 class FamilyAvailability(StrEnum):
@@ -68,13 +81,15 @@ class FamilyDelta:
 
 def _ordered_member_entries(
     family: CapabilityFamilyV2,
-    entries: Iterable[CatalogueCapabilityEntryV2 | object],
-) -> tuple[object, ...]:
-    by_id: dict[str, object] = {}
+    entries: Iterable[CatalogueCapabilityEntryV2],
+) -> tuple[CatalogueCapabilityEntryV2, ...]:
+    by_id: dict[str, CatalogueCapabilityEntryV2] = {}
     for entry in entries:
-        capability_id = getattr(entry, "capability_id", None)
-        if not isinstance(capability_id, str):
-            raise ValueError("family member entry has no capability_id")
+        if not isinstance(entry, _VALID_ENTRY_TYPES):
+            raise TypeError(
+                "family entries must be validated CatalogueCapabilityEntryV2 model instances"
+            )
+        capability_id = entry.capability_id
         if capability_id in by_id:
             raise ValueError(f"duplicate family member entry {capability_id!r}")
         by_id[capability_id] = entry
@@ -93,9 +108,18 @@ def _ordered_member_entries(
     return tuple(by_id[member_id] for member_id in member_ids)
 
 
+def _entry_is_active(entry: CatalogueCapabilityEntryV2) -> bool:
+    """Apply leaf availability without upgrading legacy entries by default."""
+    if not hasattr(entry, "availability"):
+        # Legacy skill entries intentionally predate the availability field;
+        # absence is not evidence that the capability is currently offered.
+        return False
+    return capability_is_active(entry)
+
+
 def summarise_family(
     family: CapabilityFamilyV2,
-    entries: Iterable[CatalogueCapabilityEntryV2 | object],
+    entries: Iterable[CatalogueCapabilityEntryV2],
 ) -> CapabilityFamilySummary:
     """Derive family availability solely from the supplied member entries.
 
@@ -109,7 +133,7 @@ def summarise_family(
     available = tuple(
         capability_id
         for capability_id, entry in zip(member_ids, ordered, strict=True)
-        if capability_is_active(entry)  # type: ignore[arg-type]
+        if _entry_is_active(entry)
     )
     unavailable = tuple(member_id for member_id in member_ids if member_id not in available)
     if not unavailable:
@@ -134,7 +158,7 @@ def summarise_family(
 
 def summarize_family(
     family: CapabilityFamilyV2,
-    entries: Iterable[CatalogueCapabilityEntryV2 | object],
+    entries: Iterable[CatalogueCapabilityEntryV2],
 ) -> CapabilityFamilySummary:
     """US-spelling alias for :func:`summarise_family`."""
 
@@ -146,7 +170,7 @@ def build_family_delta(
     current_version: str,
     inspected_version: str,
     family: CapabilityFamilyV2,
-    entries: Iterable[CatalogueCapabilityEntryV2 | object],
+    entries: Iterable[CatalogueCapabilityEntryV2],
 ) -> FamilyDelta:
     """Build a deterministic family explanation for a version-distance view."""
 

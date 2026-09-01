@@ -17,6 +17,8 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from tests.catalogue.test_bridge import _catalogue
+from tests.catalogue.test_significant_contract import _catalogue as _significant_catalogue
+from tests.catalogue.test_significant_contract import _family as _significant_family
 from tests.catalogue.test_v2_verifier import NOW, sign_envelope, unsigned_envelope
 
 from capability_exchange.catalogue.agent import (
@@ -25,7 +27,7 @@ from capability_exchange.catalogue.agent import (
     render_catalogue_digest,
     render_catalogue_ledger_template,
 )
-from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
+from capability_exchange.catalogue.v2 import CatalogueV2, KeyRing, verify_catalogue_envelope
 from capability_exchange.diagnosis.comparison import ComparisonLedger
 
 
@@ -82,6 +84,17 @@ class TestDigest:
             1 for job in catalogue.jobs_taxonomy if job.job_id in wanted.jobs
         )
         assert f"1 capabilities across {shown_jobs} jobs" in digest
+
+    def test_digest_includes_family_state_derived_from_leaf_entries(self) -> None:
+        catalogue = CatalogueV2.model_validate(
+            _significant_catalogue(families=[_significant_family()])
+        )
+
+        digest = render_catalogue_digest(catalogue)
+
+        assert "## Capability families" in digest
+        assert "Durable task continuity" in digest
+        assert "available" in digest
 
 
 def test_ledger_template_contains_every_entry_and_release_identity() -> None:

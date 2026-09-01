@@ -1002,7 +1002,8 @@
         "source_paths"
       ],
       "title": "McpServerCapabilityEntryV2",
-      "type": "object"
+      "type": "object",
+      "x-dex-lens-mcp-tool-inventory": true
     },
     "McpToolReferenceV2": {
       "additionalProperties": false,

@@ -48,6 +48,10 @@ CATALOGUE_SCHEMA_DIALECT_ID = (
 UNIQUE_BY_VOCABULARY_ID = (
     "https://heydex.ai/catalogue/dex-lens/vocab/unique-by"
 )
+MCP_TOOL_INVENTORY_KEYWORD = "x-dex-lens-mcp-tool-inventory"
+MCP_TOOL_INVENTORY_VOCABULARY_ID = (
+    "https://heydex.ai/catalogue/dex-lens/vocab/mcp-tool-inventory"
+)
 
 
 def _validate_unique_by(
@@ -91,9 +95,90 @@ def _validate_unique_by(
         )
 
 
+def _validate_mcp_tool_inventory(
+    _validator: Draft202012Validator,
+    enabled: object,
+    instance: object,
+    schema: Mapping[str, Any],
+) -> Iterator[ValidationError]:
+    """Enforce the cross-field rules for a complete MCP tool inventory.
+
+    JSON Schema can describe each field and can require array items to be
+    unique, but it cannot express the relationship between ``tool_count``,
+    ``tools`` and ``example_tools``.  This vocabulary keyword keeps the
+    producer schema honest about the same relationship Pydantic enforces.
+    """
+    if enabled is not True or not isinstance(instance, Mapping):
+        return
+    if instance.get("tool_inventory") != "complete":
+        return
+
+    tools = instance.get("tools")
+    if tools is None:
+        yield ValidationError(
+            "complete MCP tool inventory requires a non-empty tools list",
+            validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=enabled,
+            instance=instance,
+            schema=schema,
+            path=deque(("tools",)),
+        )
+        return
+    if not isinstance(tools, list):
+        # The structural schema reports the wrong type and item shape.
+        return
+    if not tools:
+        yield ValidationError(
+            "complete MCP tool inventory tools must be non-empty",
+            validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=enabled,
+            instance=instance,
+            schema=schema,
+            path=deque(("tools",)),
+        )
+    if all(isinstance(tool, str) for tool in tools) and len(set(tools)) != len(tools):
+        yield ValidationError(
+            "complete MCP tool inventory tools must be unique",
+            validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=enabled,
+            instance=instance,
+            schema=schema,
+            path=deque(("tools",)),
+        )
+
+    tool_count = instance.get("tool_count")
+    if type(tool_count) is int and tool_count != len(tools):
+        yield ValidationError(
+            "complete MCP tool inventory tool_count must equal the number of tools "
+            f"({tool_count} != {len(tools)})",
+            validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=enabled,
+            instance=instance,
+            schema=schema,
+            path=deque(("tool_count",)),
+        )
+
+    examples = instance.get("example_tools")
+    if isinstance(examples, list) and all(isinstance(example, str) for example in examples):
+        missing_examples = sorted(set(examples) - set(tools))
+        if missing_examples:
+            yield ValidationError(
+                "complete MCP tool inventory example_tools must be a subset of tools: "
+                + ", ".join(missing_examples),
+                validator=MCP_TOOL_INVENTORY_KEYWORD,
+                validator_value=enabled,
+                instance=instance,
+                schema=schema,
+                path=deque(("example_tools",)),
+            )
+
+
 CatalogueContractValidator = validators.extend(
     Draft202012Validator,
-    validators={UNIQUE_BY_KEYWORD: _validate_unique_by},
+    validators={
+        UNIQUE_BY_KEYWORD: _validate_unique_by,
+        MCP_TOOL_INVENTORY_KEYWORD: _validate_mcp_tool_inventory,
+    },
     version="dex-lens-catalogue-v2",
 )
 
@@ -112,6 +197,7 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
             "https://json-schema.org/draft/2020-12/vocab/format-annotation": True,
             "https://json-schema.org/draft/2020-12/vocab/content": True,
             UNIQUE_BY_VOCABULARY_ID: True,
+            MCP_TOOL_INVENTORY_VOCABULARY_ID: True,
         },
         "$dynamicAnchor": "meta",
         "title": "Dex Lens catalogue v2 schema dialect",
@@ -121,13 +207,15 @@ def build_catalogue_schema_dialect() -> dict[str, object]:
         "type": ["object", "boolean"],
         "$comment": (
             "The required x-dex-lens-unique-by vocabulary rejects reused "
-            "identifier fields inside arrays of otherwise different objects."
+            "identifier fields inside arrays of otherwise different objects; "
+            "the MCP inventory vocabulary enforces complete cross-field counts."
         ),
         "properties": {
             UNIQUE_BY_KEYWORD: {
                 "type": "string",
                 "enum": ["job_id", "capability_id", "alias", "family_id"],
-            }
+            },
+            MCP_TOOL_INVENTORY_KEYWORD: {"type": "boolean"},
         },
     }
 
@@ -166,6 +254,10 @@ def build_catalogue_schema() -> dict[str, Any]:
         mode="validation",
     )
     _close_entry_union(schema)
+    mcp_definition = schema["$defs"].get("McpServerCapabilityEntryV2")
+    if not isinstance(mcp_definition, dict):
+        raise ValueError("catalogue schema is missing MCP server entry definition")
+    mcp_definition[MCP_TOOL_INVENTORY_KEYWORD] = True
     schema["$schema"] = CATALOGUE_SCHEMA_DIALECT_ID
     schema["$id"] = CATALOGUE_SCHEMA_ID
     schema[MINIMUM_VERSION_KEYWORD] = MINIMUM_LENS_VERSION
@@ -232,5 +324,25 @@ def iter_catalogue_schema_errors(
                 schema=contract,
             )
             return
+    mcp_definition = (
+        definitions.get("McpServerCapabilityEntryV2")
+        if isinstance(definitions, Mapping)
+        else None
+    )
+    if (
+        not isinstance(mcp_definition, Mapping)
+        or mcp_definition.get(MCP_TOOL_INVENTORY_KEYWORD) is not True
+    ):
+        yield ValidationError(
+            (
+                f"catalogue schema is missing required {MCP_TOOL_INVENTORY_KEYWORD} "
+                "rule on the MCP server entry"
+            ),
+            validator=MCP_TOOL_INVENTORY_KEYWORD,
+            validator_value=True,
+            instance=instance,
+            schema=contract,
+        )
+        return
     validator = CatalogueContractValidator(contract)
     yield from validator.iter_errors(instance)

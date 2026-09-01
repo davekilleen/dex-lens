@@ -36,6 +36,7 @@ from capability_exchange.catalogue.v2 import (
     capability_class_fact_lines,
     capability_class_of,
 )
+from capability_exchange.diagnosis.families import summarise_family
 
 __all__ = [
     "capability_by_id",
@@ -155,6 +156,37 @@ def render_catalogue_digest(
                 f"- **{_safe_markdown(entry.title)}** (`{entry.capability_id}`)"
                 f"{_class_tier_tag(entry)} — {_safe_markdown(entry.value)}"
             )
+        lines.append("")
+
+    # Families are outcome-level views over the same leaf entries.  Derive
+    # their state from the complete verified catalogue even when the digest is
+    # narrowed: passing a partial member list would turn an omitted leaf into a
+    # false unavailable state.  A narrowed digest still omits unrelated
+    # families so the summary stays aligned with the requested capabilities.
+    families = [
+        family
+        for family in catalogue.capability_families
+        if wanted is None or wanted.intersection(family.member_capability_ids)
+    ]
+    if families:
+        lines.extend(["## Capability families", ""])
+        for family in sorted(families, key=lambda item: item.family_id):
+            summary = summarise_family(family, catalogue.capabilities)
+            line = (
+                f"- **{_safe_markdown(summary.title)}** (`{summary.family_id}`) — "
+                f"{_safe_markdown(summary.outcome)} "
+                f"(availability: **{summary.availability.value}**)."
+            )
+            if summary.unavailable_member_ids:
+                line += (
+                    " Unavailable members: "
+                    + ", ".join(
+                        f"`{_safe_markdown(member_id)}`"
+                        for member_id in summary.unavailable_member_ids
+                    )
+                    + "."
+                )
+            lines.append(line)
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

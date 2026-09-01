@@ -7,9 +7,17 @@ is closed and every cross-reference is checked against the same catalogue.
 
 from __future__ import annotations
 
+import copy
+import json
+
 import pytest
 from pydantic import ValidationError
 
+from capability_exchange.catalogue.schema_contract import (
+    MCP_TOOL_INVENTORY_KEYWORD,
+    build_catalogue_schema,
+    iter_catalogue_schema_errors,
+)
 from capability_exchange.catalogue.v2 import (
     CapabilityFamilyV2,
     CatalogueV2,
@@ -103,6 +111,23 @@ def _catalogue(
     }
 
 
+def _envelope(catalogue: dict[str, object]) -> dict[str, object]:
+    """A schema-only envelope; signature bytes are irrelevant to this test."""
+    return {
+        "metadata": {
+            "contract_version": "dex-lens-catalogue-v2",
+            "catalog_version": 7,
+            "produced_at": "2026-08-26T12:00:00Z",
+            "expires_at": "2026-09-26T12:00:00Z",
+            "producer": "Dex Core release pipeline",
+            "core_release": "v1.97.0",
+            "key_id": "dex-core-test",
+        },
+        "catalogue": catalogue,
+        "signature": "schema-only-placeholder",
+    }
+
+
 def test_family_free_catalogue_defaults_aliases_and_families() -> None:
     catalogue = CatalogueV2.model_validate(
         {
@@ -122,6 +147,55 @@ def test_complete_mcp_inventory_requires_nonempty_unique_exact_tools() -> None:
         McpServerCapabilityEntryV2.model_validate(_mcp(tools=["list_tasks", "list_tasks"]))
     with pytest.raises(ValidationError):
         McpServerCapabilityEntryV2.model_validate(_mcp(tools=["list_tasks"], examples=["add_note"]))
+
+
+def test_exported_schema_enforces_complete_mcp_inventory_semantics() -> None:
+    valid = _envelope(_catalogue())
+    assert not list(iter_catalogue_schema_errors(valid))
+
+    mismatched_count = copy.deepcopy(valid)
+    mismatched_count["catalogue"]["capabilities"][0]["tool_count"] = 1  # type: ignore[index]
+    errors = list(iter_catalogue_schema_errors(mismatched_count))
+    assert any("tool_count" in error.message for error in errors)
+
+    missing_example = copy.deepcopy(valid)
+    missing_example["catalogue"]["capabilities"][0]["example_tools"] = [  # type: ignore[index]
+        "missing_tool"
+    ]
+    errors = list(iter_catalogue_schema_errors(missing_example))
+    assert any("example" in error.message and "tools" in error.message for error in errors)
+
+    # The same malformed payload is rejected by the runtime Pydantic path.
+    with pytest.raises(ValidationError, match="complete MCP tool inventory"):
+        CatalogueV2.model_validate(mismatched_count["catalogue"])
+
+
+def test_exported_schema_fails_closed_if_mcp_inventory_rule_is_removed() -> None:
+    envelope = _envelope(_catalogue())
+    schema = build_catalogue_schema()
+    schema["$defs"]["McpServerCapabilityEntryV2"].pop(  # type: ignore[index]
+        MCP_TOOL_INVENTORY_KEYWORD
+    )
+
+    errors = list(iter_catalogue_schema_errors(envelope, schema=schema))
+
+    assert any(
+        error.validator == MCP_TOOL_INVENTORY_KEYWORD
+        and "missing required" in error.message
+        for error in errors
+    ), errors
+
+
+def test_mcp_server_names_are_unique_and_disjoint_from_capability_ids() -> None:
+    second = _mcp()
+    second["capability_id"] = "another-mcp"
+    with pytest.raises(ValidationError, match="server_name"):
+        CatalogueV2.model_validate(_catalogue(capabilities=[_mcp(), second]))
+
+    colliding = _mcp()
+    colliding["server_name"] = "dex-work-mcp"
+    with pytest.raises(ValidationError, match="server_name.*capability"):
+        CatalogueV2.model_validate(_catalogue(capabilities=[colliding]))
 
 
 def test_sampled_mcp_inventory_remains_backward_compatible() -> None:
@@ -185,6 +259,23 @@ def test_family_aliases_members_components_and_assessment_reject_duplicates_or_e
         CatalogueV2.model_validate(_catalogue(families=[extra]))
 
 
+def test_family_ids_cannot_collide_with_capability_ids_or_aliases() -> None:
+    colliding_capability = _family()
+    colliding_capability["family_id"] = "dex-work-mcp"
+    with pytest.raises(ValidationError, match="family.*canonical"):
+        CatalogueV2.model_validate(_catalogue(families=[colliding_capability]))
+
+    colliding_alias = _family()
+    colliding_alias["family_id"] = "work-tools"
+    with pytest.raises(ValidationError, match="family.*alias"):
+        CatalogueV2.model_validate(
+            _catalogue(
+                aliases=[{"alias": "work-tools", "capability_id": "dex-work-mcp"}],
+                families=[colliding_alias],
+            )
+        )
+
+
 def test_nango_provider_and_assessment_branches_have_no_arbitrary_code() -> None:
     provider_family = _family()
     provider_family["components"] = [
@@ -218,3 +309,9 @@ def test_nango_provider_and_assessment_branches_have_no_arbitrary_code() -> None
     bad_assessment["assessment"] = {"mode": "automatic", "profile": "run-shell-command"}
     with pytest.raises(ValidationError):
         CatalogueV2.model_validate(_catalogue(families=[bad_assessment]))
+
+
+def test_schema_only_payload_is_json_serializable() -> None:
+    # Keep the schema contract test honest about the wire shape it hands to
+    # the custom validator.
+    assert json.loads(json.dumps(_envelope(_catalogue())))
