@@ -621,6 +621,38 @@ def test_guided_work_does_not_turn_stored_context_failure_into_a_retry(
     assert queue.receipts == ()
 
 
+def test_guided_work_fails_closed_for_tampered_stored_diagnosis_input(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packet = engine.engine.work(prepared.run_id)
+    assert packet is not None
+    checkpoint = engine.run_store.load(prepared.run_id)
+    payload = engine.engine._find_kind(checkpoint, "diagnosis-input")  # noqa: SLF001
+    assert isinstance(payload, dict)
+    tampered = dict(payload)
+    tampered["analysis_mode"] = AnalysisMode.INVENTORY_ONLY.value
+    replacement = engine.engine._put("diagnosis-input", tampered)  # noqa: SLF001
+    kept = tuple(
+        digest
+        for digest in checkpoint.artifact_digests
+        if engine.engine._get(digest).get("kind") != "diagnosis-input"  # noqa: SLF001
+    )
+    engine.run_store.save(
+        checkpoint.model_copy(update={"artifact_digests": (*kept, replacement)})
+    )
+
+    with pytest.raises(DiagnosisStateError, match="identity"):
+        engine.engine.work(prepared.run_id)
+    with pytest.raises(DiagnosisStateError, match="identity"):
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    assert queue.receipts == ()
+
+
 def test_guided_normal_and_sceptical_proposals_reconcile_from_stored_work(
     engine: EngineHarness,
 ) -> None:

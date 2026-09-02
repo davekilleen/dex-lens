@@ -558,22 +558,22 @@ class DeterministicDiagnosisEngine:
     def _analysis_mode(self, checkpoint: DiagnosisCheckpoint) -> AnalysisMode:
         """Return the persisted mode, migrating old inputs conservatively."""
 
-        try:
+        # Only a genuinely absent diagnosis-input artifact may use the
+        # candidate-scope sidecar as its pre-confirmation mode authority.  If
+        # an artifact exists, let every parse or identity failure propagate so
+        # tampered state cannot be silently reinterpreted as compatibility.
+        if self._has_kind(checkpoint, "diagnosis-input"):
             return AnalysisMode(self._diagnosis_input(checkpoint).analysis_mode)
-        except DiagnosisStateError:
-            # The candidate-scope sidecar is the durable mode authority before
-            # job confirmation materialises ``diagnosis-input``.  This keeps a
-            # new guided run packet-bound even at CATALOGUE_VERIFIED.
-            candidate_scope = self._runs.load_candidate_scope(checkpoint.run_id)
-            if candidate_scope is not None:
-                return candidate_scope.analysis_mode
-            # A genuine pre-mode checkpoint may not carry either a diagnosis
-            # input artifact or a candidate-scope sidecar.  Such a run is
-            # legacy and retains inventory-only semantics.
-            payload = self._find_kind(checkpoint, "diagnosis-input")
-            if payload is None:
-                return AnalysisMode.INVENTORY_ONLY
-            raise
+        # The candidate-scope sidecar is the durable mode authority before
+        # job confirmation materialises ``diagnosis-input``.  This keeps a new
+        # guided run packet-bound even at CATALOGUE_VERIFIED.
+        candidate_scope = self._runs.load_candidate_scope(checkpoint.run_id)
+        if candidate_scope is not None:
+            return candidate_scope.analysis_mode
+        # A genuine pre-mode checkpoint may not carry either a diagnosis input
+        # artifact or a candidate-scope sidecar.  Such a run is legacy and
+        # retains inventory-only semantics.
+        return AnalysisMode.INVENTORY_ONLY
 
     def _require_receipt(self, checkpoint: DiagnosisCheckpoint) -> ApprovedScopeReceipt:
         receipt = self._consent.receipt_for(checkpoint.run_id)
@@ -1293,3 +1293,11 @@ class DeterministicDiagnosisEngine:
             if envelope.get("kind") == kind:
                 return envelope.get("payload")
         return None
+
+    def _has_kind(self, checkpoint: DiagnosisCheckpoint, kind: str) -> bool:
+        """Return whether a digest-bound artifact of ``kind`` exists."""
+
+        for digest in reversed(checkpoint.artifact_digests):
+            if self._get(digest).get("kind") == kind:
+                return True
+        return False
