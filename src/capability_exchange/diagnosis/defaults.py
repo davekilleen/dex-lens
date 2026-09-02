@@ -28,6 +28,7 @@ from capability_exchange.catalogue.v2 import (
 )
 from capability_exchange.concierge.collection import ScopeSnapshot, default_source_descriptors
 from capability_exchange.concierge.consent import LocalScopeConsentAuthority
+from capability_exchange.diagnosis.automatic import build_automatic_candidates
 from capability_exchange.diagnosis.comparison import (
     CatalogueDisposition,
     ComparisonLedger,
@@ -37,7 +38,10 @@ from capability_exchange.diagnosis.comparison import (
     LocalObservationDisposition,
     VersionDistance,
     family_entries_from_assessments,
+    insights_from_proposals,
+    ranked_recommendations_from_proposals,
 )
+from capability_exchange.diagnosis.expectations import assess_wow_expectations
 from capability_exchange.diagnosis.families import build_family_delta
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
@@ -61,6 +65,8 @@ from capability_exchange.diagnosis.specialists import (
     SpecialistProposalError,
     ValidatedProposal,
 )
+from capability_exchange.diagnosis.work import WorkAudit
+from capability_exchange.diagnosis.workflows import WorkflowGraph, build_workflow_graph
 from capability_exchange.reports.store import LensReportStore, default_report_directory
 
 __all__ = [
@@ -394,6 +400,64 @@ def _attribute_count(observation: Observation, key: str) -> int:
         return 0
 
 
+def _automatic_proposals(
+    *,
+    fingerprint: EvidenceFingerprint,
+    catalogue: VerifiedCatalogueSlice,
+    envelope: object,
+    family_assessments: tuple[object, ...],
+    workflows: WorkflowGraph,
+    proposals: tuple[ValidatedProposal, ...],
+) -> tuple[ValidatedProposal, ...]:
+    """Add conservative automatic candidates when typed preconditions are met."""
+
+    automatic = build_automatic_candidates(
+        catalogue=envelope.catalogue,
+        fingerprint=fingerprint,
+        workflows=workflows,
+        family_assessments=family_assessments,
+    )
+    if not automatic:
+        return proposals
+    existing = {
+        item.catalogue_id
+        for item in proposals
+        if item.disposition is Disposition.WORTH_BORROWING
+    }
+    extras: list[ValidatedProposal] = []
+    for candidate in automatic:
+        if candidate.catalogue_id in existing:
+            continue
+        if (
+            candidate.catalogue_id in set(catalogue.unavailable_ids)
+            or candidate.catalogue_id not in set(catalogue.catalogue_ids)
+        ):
+            continue
+        if sum(
+            item.kind is ProposalKind.RECOMMENDATION
+            or item.disposition is Disposition.WORTH_BORROWING
+            for item in (*proposals, *extras)
+        ) >= MAX_RECOMMENDATIONS:
+            break
+        extras.append(
+            ValidatedProposal(
+                kind=ProposalKind.RECOMMENDATION,
+                catalogue_id=candidate.catalogue_id,
+                capability_id=candidate.capability_id,
+                disposition=Disposition.WORTH_BORROWING,
+                evidence_ids=candidate.evidence_ids,
+                observation_ids=candidate.observation_ids,
+                reason=candidate.reason,
+                recommendation_factors=candidate.factors,
+                candidate_id=f"automatic:{candidate.catalogue_id}",
+            )
+        )
+        existing.add(candidate.catalogue_id)
+    if not extras:
+        return proposals
+    return proposals + tuple(extras)
+
+
 def _with_deterministic_skill_copy_recommendation(
     fingerprint: EvidenceFingerprint,
     catalogue: VerifiedCatalogueSlice,
@@ -573,16 +637,26 @@ class UnknownUntilProposedComparer:
         catalogue: VerifiedCatalogueSlice,
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
+        work_audit: WorkAudit | None = None,
     ) -> ComparisonLedger:
         del jobs
         envelope = _load_diagnosis_envelope(self._store)
         digest = _signed_digest(envelope)
         if digest != catalogue.sha256:
             raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
-        proposals = _with_deterministic_skill_copy_recommendation(
-            fingerprint,
-            catalogue,
-            proposals,
+        workflows = build_workflow_graph(fingerprint)
+        assessments = assess_significant_families(envelope.catalogue, fingerprint)
+        proposals = _automatic_proposals(
+            fingerprint=fingerprint,
+            catalogue=catalogue,
+            envelope=envelope,
+            family_assessments=assessments,
+            workflows=workflows,
+            proposals=_with_deterministic_skill_copy_recommendation(
+                fingerprint,
+                catalogue,
+                proposals,
+            ),
         )
         observations_by_capability: dict[str, set[str]] = defaultdict(set)
         for proposal in proposals:
@@ -604,10 +678,8 @@ class UnknownUntilProposedComparer:
             tuple(item.capability_id for item in envelope.catalogue.capabilities),
             proposals,
         )
-        family_entries = family_entries_from_assessments(
-            envelope.catalogue,
-            assess_significant_families(envelope.catalogue, fingerprint),
-        )
+        family_entries = family_entries_from_assessments(envelope.catalogue, assessments)
+        strengths, reciprocal_lessons, workflow_insights = insights_from_proposals(proposals)
         version_distance = _version_distance(
             fingerprint,
             current_version=catalogue.core_release,
@@ -620,10 +692,17 @@ class UnknownUntilProposedComparer:
             catalogue_sha256=digest,
             capabilities=capabilities,
             entries=entries,
+            ranked_recommendations=ranked_recommendations_from_proposals(proposals),
             family_entries=family_entries,
             version_distance=version_distance,
             local_entries=local_dispositions_from_proposals(fingerprint, proposals),
             reciprocal_answer=_reciprocal_answer(fingerprint, family_entries),
+            workflow_graph=workflows,
+            work_audit=work_audit,
+            expectations=assess_wow_expectations(envelope.catalogue, assessments),
+            strengths=strengths,
+            reciprocal_lessons=reciprocal_lessons,
+            workflow_insights=workflow_insights,
         )
 
 
