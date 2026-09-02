@@ -71,7 +71,7 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
                 "capability_id": item.capability_id,
                 "catalogue_id": item.catalogue_id,
                 "disposition": item.disposition.value,
-                "evidence_references": list(item.evidence_references),
+                "evidence_references": sorted(item.evidence_references),
                 "method_compared": item.method_compared,
                 "reason": item.reason,
             }

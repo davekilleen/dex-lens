@@ -169,6 +169,20 @@ def test_canonical_ledger_digest_is_stable_and_content_bound() -> None:
     assert canonical_ledger_digest(drifted) != digest
 
 
+def test_canonical_ledger_digest_ignores_catalogue_evidence_order() -> None:
+    ledger = ranked_ledger().model_copy(update={"ranked_recommendations": ()})
+    unsorted_entry = ledger.entries[0].model_copy(
+        update={"evidence_references": ("evidence:z", "evidence:a")}
+    )
+    sorted_entry = unsorted_entry.model_copy(
+        update={"evidence_references": ("evidence:a", "evidence:z")}
+    )
+    unsorted_ledger = ledger.model_copy(update={"entries": (unsorted_entry, *ledger.entries[1:])})
+    sorted_ledger = ledger.model_copy(update={"entries": (sorted_entry, *ledger.entries[1:])})
+
+    assert canonical_ledger_digest(unsorted_ledger) == canonical_ledger_digest(sorted_ledger)
+
+
 @pytest.mark.parametrize("change", ("rank", "factors", "evidence_ids", "reason"))
 def test_canonical_ledger_digest_binds_ranked_recommendation_details(change: str) -> None:
     ledger = ranked_ledger()
