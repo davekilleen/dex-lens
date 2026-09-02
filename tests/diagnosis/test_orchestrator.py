@@ -113,6 +113,7 @@ class RecordingComparer:
         catalogue: VerifiedCatalogueSlice,
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
+        work_audit: object | None = None,
     ) -> ComparisonLedger:
         self.calls.append(
             {
@@ -120,6 +121,7 @@ class RecordingComparer:
                 "catalogue": catalogue,
                 "jobs": jobs,
                 "proposals": proposals,
+                "work_audit": work_audit,
             }
         )
         return self.ledger

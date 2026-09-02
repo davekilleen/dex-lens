@@ -59,6 +59,7 @@ from capability_exchange.diagnosis.specialists import (
 )
 from capability_exchange.diagnosis.work import (
     AnalysisMode,
+    WorkAudit,
     WorkPacket,
     WorkQueue,
     WorkQueueError,
@@ -181,6 +182,7 @@ class ComparisonBuilder(Protocol):
         catalogue: VerifiedCatalogueSlice,
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
+        work_audit: WorkAudit | None = None,
     ) -> ComparisonLedger: ...
 
 
@@ -810,11 +812,20 @@ class DeterministicDiagnosisEngine:
                 proposals,
                 context=self._proposal_context(checkpoint, fingerprint, catalogue),
             )
+        work_audit = None
+        if mode is AnalysisMode.GUIDED:
+            audit_payload = self._find_kind(checkpoint, "work-audit")
+            if audit_payload is not None:
+                try:
+                    work_audit = WorkAudit.model_validate(audit_payload)
+                except (TypeError, ValueError) as exc:
+                    raise DiagnosisStateError("stored work audit is unreadable") from exc
         ledger = self._compare.compare(
             fingerprint=fingerprint,
             catalogue=catalogue,
             jobs=(),
             proposals=reconciled,
+            work_audit=work_audit,
         )
         artifact = self._put("ledger", ledger.model_dump(mode="json"))
         if (

@@ -13,7 +13,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
-from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
+from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition, GroundedInsight
 from capability_exchange.diagnosis.finding import Finding
 from capability_exchange.diagnosis.observations import HealthState, RuntimeState
 from capability_exchange.diagnosis.receipts import (
@@ -48,6 +48,18 @@ _COVERAGE_CLAIM = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+
+def _insight_row(item: GroundedInsight) -> dict[str, object]:
+    return {
+        "insight_id": item.insight_id,
+        "kind": item.kind.value,
+        "title": item.title,
+        "explanation": item.explanation,
+        "evidence_ids": list(item.evidence_ids),
+        "observation_ids": list(item.observation_ids),
+        "workflow_ids": list(item.workflow_ids),
+    }
 
 
 def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
@@ -143,6 +155,52 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             for item in sorted(ledger.local_entries, key=lambda item: item.observation_id)
         ],
         "reciprocal_answer": ledger.reciprocal_answer,
+        "workflow_graph": {
+            "nodes": [
+                {
+                    "node_id": item.node_id,
+                    "kind": item.kind.value,
+                    "configuration_state": item.configuration_state.value,
+                    "runtime_state": item.runtime_state.value,
+                    "health_state": item.health_state.value,
+                    "evidence_ids": list(item.evidence_ids),
+                }
+                for item in sorted(ledger.workflow_graph.nodes, key=lambda item: item.node_id)
+            ],
+            "edges": [
+                {
+                    "workflow_id": item.workflow_id,
+                    "source_id": item.source_id,
+                    "target_id": item.target_id,
+                    "kind": item.kind.value,
+                    "evidence_ids": list(item.evidence_ids),
+                }
+                for item in sorted(
+                    ledger.workflow_graph.edges,
+                    key=lambda item: (
+                        item.workflow_id,
+                        item.source_id,
+                        item.target_id,
+                        item.kind.value,
+                    ),
+                )
+            ],
+        },
+        "work_audit": (
+            ledger.work_audit.model_dump(mode="json") if ledger.work_audit is not None else None
+        ),
+        "expectations": [
+            {
+                "family_id": item.family_id,
+                "state": item.state.value,
+                "evidence_ids": list(item.evidence_ids),
+                "reason": item.reason,
+            }
+            for item in ledger.expectations
+        ],
+        "strengths": [_insight_row(item) for item in ledger.strengths],
+        "reciprocal_lessons": [_insight_row(item) for item in ledger.reciprocal_lessons],
+        "workflow_insights": [_insight_row(item) for item in ledger.workflow_insights],
     }
 
 
@@ -287,6 +345,7 @@ class ReportModel(InventoriedModel):
         )
         if supplied != expected:
             raise ValueError("report must bind the exact comparison ledger")
+        _validate_ledger_insights(ledger)
         token = _FROM_RESULT.set(True)
         try:
             report = cls(
@@ -335,9 +394,12 @@ class ReportModel(InventoriedModel):
             "# Diagnosis\n\n"
             f"{_render_what_was_read(ledger)}"
             f"\n{_render_version_distance(ledger)}"
+            f"\n{_render_grounded_strengths(ledger)}"
             f"\n{_render_strengths(ledger)}"
             f"\n{_render_reciprocal_learning(ledger)}"
+            f"\n{_render_ranked_recommendations(ledger)}"
             f"\n{_render_recommendations(ledger)}"
+            f"\n{_render_workflow_connections(ledger)}"
             f"\n{_render_rejections(ledger)}"
             f"\n{_render_fragility(ledger)}"
             "\n## Coverage and limits\n"
@@ -705,6 +767,87 @@ def _render_family_coverage(ledger: ComparisonLedger) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _validate_ledger_insights(ledger: ComparisonLedger) -> None:
+    for insight in (
+        *ledger.strengths,
+        *ledger.reciprocal_lessons,
+        *ledger.workflow_insights,
+    ):
+        if not insight.evidence_ids:
+            raise ValueError("insight requires evidence")
+
+
+def _render_grounded_strengths(ledger: ComparisonLedger) -> str:
+    if not ledger.strengths:
+        return ""
+    lines = ["## What is especially strong here"]
+    for insight in ledger.strengths:
+        lines.extend(
+            (
+                f"### {insight.title}",
+                insight.explanation,
+                _render_human_evidence(insight.evidence_ids),
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _render_ranked_recommendations(ledger: ComparisonLedger) -> str:
+    ranked = ledger.ranked_recommendations
+    if not ranked:
+        return ""
+    by_rank = {item.rank: item for item in ranked}
+    lines: list[str] = []
+    if 1 in by_rank:
+        item = by_rank[1]
+        lines.extend(
+            (
+                "## The best first move",
+                f"### `{item.catalogue_id}`",
+                item.reason,
+                _render_human_evidence(item.evidence_ids),
+            )
+        )
+    next_items = tuple(by_rank[rank] for rank in (2, 3) if rank in by_rank)
+    if next_items:
+        lines.append("## Next most useful")
+        for item in next_items:
+            lines.extend(
+                (
+                    f"### `{item.catalogue_id}`",
+                    item.reason,
+                    _render_human_evidence(item.evidence_ids),
+                )
+            )
+    also = tuple(item for item in ranked if item.rank >= 4)
+    if also:
+        lines.append("## Also worth considering")
+        for item in also:
+            lines.extend(
+                (
+                    f"### `{item.catalogue_id}`",
+                    item.reason,
+                    _render_human_evidence(item.evidence_ids),
+                )
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _render_workflow_connections(ledger: ComparisonLedger) -> str:
+    if not ledger.workflow_insights:
+        return ""
+    lines = ["## Connections Lens noticed"]
+    for insight in ledger.workflow_insights:
+        lines.extend(
+            (
+                f"### {insight.title}",
+                insight.explanation,
+                _render_human_evidence(insight.evidence_ids),
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _render_strengths(ledger: ComparisonLedger) -> str:
     matched_observation_ids = {
         observation_id
@@ -831,6 +974,14 @@ def _render_reciprocal_learning(ledger: ComparisonLedger) -> str:
             "cleared that stricter bar."
         )
     lines = [body[0], answer]
+    for insight in ledger.reciprocal_lessons:
+        lines.extend(
+            (
+                f"### {insight.title}",
+                insight.explanation,
+                _render_human_evidence(insight.evidence_ids),
+            )
+        )
     lines.extend(line for line in body[1:] if line)
     return "\n".join(lines) + "\n"
 

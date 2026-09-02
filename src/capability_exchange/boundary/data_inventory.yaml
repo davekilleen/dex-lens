@@ -1905,6 +1905,246 @@ fields:
     deletion: not-stored
     audit: "ephemeral local answer; never transmitted without a later separate consent path"
 
+  ComparisonLedger.workflow_graph:
+    description: "evidence-bound reconstructed workflow graph for one diagnosis"
+    collection: "assembled locally from deterministic detectors"
+    derivation: "WorkflowGraph built from the approved fingerprint"
+    display: "supports cross-surface workflow insights in the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow graph"
+
+  ComparisonLedger.work_audit:
+    description: "packet completion audit for one guided analysis run"
+    collection: "derived locally from the persisted work queue and receipts"
+    derivation: "WorkAudit summarising packet completion and provenance"
+    display: "binds autonomous completion claims to packet receipts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided-analysis audit"
+
+  ComparisonLedger.expectations:
+    description: "versioned Wow Gate expectation rows for every significant family"
+    collection: "joined locally from signed family assessments"
+    derivation: "one SignificantExpectation per manifest family ID"
+    display: "drives significant-family coverage grading"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation manifest rows"
+
+  ComparisonLedger.strengths:
+    description: "evidence-bound strengths surfaced in the report"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight strength rows"
+    display: "shown under What is especially strong here"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded strength insights"
+
+  ComparisonLedger.reciprocal_lessons:
+    description: "evidence-bound reciprocal lessons for Dex"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight reciprocal-lesson rows"
+    display: "shown under What Dex should learn from you"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded reciprocal lessons"
+
+  ComparisonLedger.workflow_insights:
+    description: "accepted cross-surface workflow insights"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight workflow-connection rows"
+    display: "shown under Connections Lens noticed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded workflow insights"
+
+  SignificantExpectation.family_id:
+    description: "signed significant-family identity for one expectation row"
+    collection: "copied from the Wow Gate manifest"
+    derivation: "must match one signed catalogue family exactly once"
+    display: "anchors one expectation row to a family"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation family identity"
+
+  SignificantExpectation.state:
+    description: "closed evidence state for one significant-family expectation"
+    collection: "derived locally from family assessment"
+    derivation: "one ExpectationState value"
+    display: "records whether the family is present, partial, absent, or unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation state"
+
+  SignificantExpectation.evidence_ids:
+    description: "evidence identities supporting one expectation row"
+    collection: "copied from the family assessment evidence references"
+    derivation: "unique bounded evidence tokens"
+    display: "binds each expectation to cited evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation evidence binding"
+
+  SignificantExpectation.reason:
+    description: "bounded explanation for one expectation row"
+    collection: "copied from the family assessment reason"
+    derivation: "single bounded line of text"
+    display: "explains the expectation state in plain language"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation explanation"
+
+  GroundedInsight.insight_id:
+    description: "stable identity for one grounded insight"
+    collection: "assigned locally during reconciliation"
+    derivation: "bounded insight identity"
+    display: "anchors one insight in the ledger and report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight identity"
+
+  GroundedInsight.kind:
+    description: "closed kind for one grounded insight"
+    collection: "assigned locally from the reconciled proposal role"
+    derivation: "one InsightKind value"
+    display: "distinguishes strengths, lessons, and workflow connections"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight classification"
+
+  GroundedInsight.title:
+    description: "bounded title for one grounded insight"
+    collection: "derived locally from reconciled proposal content"
+    derivation: "single bounded title line"
+    display: "headline for one insight section"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight title"
+
+  GroundedInsight.explanation:
+    description: "bounded explanation for one grounded insight"
+    collection: "derived locally from reconciled proposal content"
+    derivation: "single bounded explanation line"
+    display: "explains one insight in plain language"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight explanation"
+
+  GroundedInsight.evidence_ids:
+    description: "evidence identities supporting one grounded insight"
+    collection: "copied from reconciled proposal evidence"
+    derivation: "one to eight unique bounded evidence tokens"
+    display: "refuses unsupported insight claims"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight evidence binding"
+
+  GroundedInsight.observation_ids:
+    description: "observation identities cited by one grounded insight"
+    collection: "copied from reconciled proposal observations"
+    derivation: "unique bounded observation tokens"
+    display: "binds insights to local observations when present"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight observation binding"
+
+  GroundedInsight.workflow_ids:
+    description: "workflow identities cited by one grounded insight"
+    collection: "copied from reconciled workflow synthesis proposals"
+    derivation: "unique bounded workflow tokens"
+    display: "binds insights to reconstructed workflows when present"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight workflow binding"
+
+  WowGrade.significant_coverage:
+    description: "Wow Gate points for significant-family expectation coverage"
+    collection: "derived locally from typed expectation rows"
+    derivation: "integer from 0 through 25"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.workflow_quality:
+    description: "Wow Gate points for workflow reconstruction quality"
+    collection: "derived locally from workflow graph edges"
+    derivation: "integer from 0 through 20"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.recommendation_quality:
+    description: "Wow Gate points for ranked recommendation quality"
+    collection: "derived locally from ranked recommendations"
+    derivation: "integer from 0 through 20"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.reciprocal_quality:
+    description: "Wow Gate points for grounded strengths and reciprocal lessons"
+    collection: "derived locally from grounded insights"
+    derivation: "integer from 0 through 15"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.evidence_integrity:
+    description: "Wow Gate points for evidence integrity and operational honesty"
+    collection: "derived locally from ledger facts"
+    derivation: "integer from 0 through 15"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.autonomy_and_clarity:
+    description: "Wow Gate points for one-request autonomy and clear close"
+    collection: "derived locally from work audit completion"
+    derivation: "integer from 0 through 5"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.hard_failures:
+    description: "closed Wow Gate hard-failure reasons for one run"
+    collection: "derived locally from typed ledger and audit facts"
+    derivation: "tuple of bounded failure tokens"
+    display: "fails the run regardless of numeric score"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Wow Gate hard-failure list"
+
   LedgerSummary.total:
     description: "exact catalogue entry count derived from one comparison ledger"
     collection: "calculated locally from ComparisonLedger.entries"

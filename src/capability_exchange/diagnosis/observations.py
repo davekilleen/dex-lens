@@ -13,7 +13,14 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Self
 
-from pydantic import AliasChoices, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance

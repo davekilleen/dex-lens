@@ -700,3 +700,12 @@ def build_work_queue(*, context: object, mode: AnalysisMode) -> WorkQueue:
         packets=(*packets, sceptical),
         sceptical_packet_id=sceptical.packet_id,
     )
+
+
+def _rebuild_comparison_ledger_types() -> None:
+    from capability_exchange.diagnosis.comparison import ComparisonLedger
+
+    ComparisonLedger.model_rebuild(_types_namespace={"WorkAudit": WorkAudit})
+
+
+_rebuild_comparison_ledger_types()

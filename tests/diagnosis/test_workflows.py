@@ -12,7 +12,6 @@ from capability_exchange.diagnosis.observations import (
     HealthState,
     Observation,
     ObservationKind,
-    OperationalState,
     RuntimeState,
     SafeAttribute,
 )

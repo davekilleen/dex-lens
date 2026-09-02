@@ -20,7 +20,9 @@ from capability_exchange.diagnosis.comparison import (
     CatalogueDisposition,
     ComparisonLedger,
     Disposition,
+    GroundedInsight,
     HumanCapability,
+    InsightKind,
 )
 from capability_exchange.diagnosis.ranking import (
     RecommendationCandidate,
@@ -463,3 +465,109 @@ def test_close_is_generated_from_the_report_model() -> None:
     assert "Future-watch is a separate choice from sharing." in close
     assert "taken" not in close
     assert re.search(r"\bshared\b", close, flags=re.IGNORECASE) is None
+
+
+def result_with_rich_grounded_findings() -> tuple[ComparisonLedger, ReportModel]:
+    evidence = ("evidence:sha256:" + "e" * 64, "evidence:sha256:" + "f" * 64)
+    ranked = rank_recommendations(
+        tuple(
+            RecommendationCandidate(
+                catalogue_id=f"recommendation-{index}",
+                capability_id=f"capability-{index}",
+                factors=RecommendationFactors(
+                    reliability_risk=max(0, 3 - index),
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=(evidence[0],),
+                reason=f"Reason {index}.",
+            )
+            for index in range(1, 5)
+        )
+    )
+    entries = tuple(
+        CatalogueDisposition(
+            catalogue_id=item.catalogue_id,
+            capability_id=item.capability_id,
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_references=(evidence[0],),
+            method_compared=True,
+            reason=item.reason,
+        )
+        for item in ranked
+    )
+    ledger = ComparisonLedger(
+        catalogue_version=1,
+        catalogue_sha256="a" * 64,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=f"capability-{index}",
+                title=f"Capability {index}",
+                job_ids=(),
+                catalogue_ids=(f"recommendation-{index}",),
+                person_observation_ids=(),
+            )
+            for index in range(1, 5)
+        ),
+        entries=entries,
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+        strengths=(
+            GroundedInsight(
+                insight_id="strength:rich",
+                kind=InsightKind.STRENGTH,
+                title="Strong operating rhythm",
+                explanation="Weekly planning closes the loop with evidence.",
+                evidence_ids=evidence,
+            ),
+        ),
+        reciprocal_lessons=(
+            GroundedInsight(
+                insight_id="lesson:rich",
+                kind=InsightKind.RECIPROCAL_LESSON,
+                title="Portable review method",
+                explanation="Dex could borrow this review cadence.",
+                evidence_ids=evidence,
+            ),
+        ),
+        workflow_insights=(
+            GroundedInsight(
+                insight_id="connection:rich",
+                kind=InsightKind.WORKFLOW_CONNECTION,
+                title="Planning to task bridge",
+                explanation="Planning notes create tasks with follow-through.",
+                evidence_ids=evidence,
+            ),
+        ),
+    )
+    report = ReportModel.from_result(
+        run_identity=run_identity(),
+        ledger=ledger,
+        ledger_sha256=canonical_ledger_digest(ledger),
+        findings=(),
+    )
+    return ledger, report
+
+
+def test_report_renders_ranking_strengths_lessons_and_connections() -> None:
+    ledger, report = result_with_rich_grounded_findings()
+    rendered = report.render_markdown(ledger)
+    assert "## The best first move" in rendered
+    assert "## Next most useful" in rendered
+    assert "## Also worth considering" in rendered
+    assert "## What is especially strong here" in rendered
+    assert "## What Dex should learn from you" in rendered
+    assert "## Connections Lens noticed" in rendered
+
+
+def test_report_rejects_an_insight_without_bound_evidence() -> None:
+    with pytest.raises(ValueError, match="evidence"):
+        GroundedInsight(
+            insight_id="strength:bad",
+            kind=InsightKind.STRENGTH,
+            title="Unsupported",
+            explanation="No evidence.",
+            evidence_ids=(),
+        )

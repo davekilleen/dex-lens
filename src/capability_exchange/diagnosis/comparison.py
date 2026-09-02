@@ -18,6 +18,7 @@ from capability_exchange.catalogue.v2 import (
     SourceComponentReferenceV2,
     capability_availability_of,
 )
+from capability_exchange.diagnosis.expectations import SignificantExpectation
 from capability_exchange.diagnosis.families import (
     FamilyAvailability,
     FamilyDelta,
@@ -37,6 +38,7 @@ from capability_exchange.diagnosis.observations import (
 from capability_exchange.diagnosis.ranking import (
     MAX_RECOMMENDATIONS,
     RankedRecommendation,
+    RecommendationCandidate,
     rank_recommendations,
 )
 from capability_exchange.diagnosis.run import _ValidatedInventoried
@@ -46,6 +48,7 @@ from capability_exchange.diagnosis.significant_families import (
     SignificantFamilyAssessment,
     assess_significant_families,
 )
+from capability_exchange.diagnosis.workflows import WorkflowGraph
 from capability_exchange.evidence.item import reference_rejection_reason
 
 __all__ = [
@@ -54,13 +57,17 @@ __all__ = [
     "Disposition",
     "FamilyComponentEvidence",
     "FamilyLedgerEntry",
+    "GroundedInsight",
     "HumanCapability",
+    "InsightKind",
     "LocalObservationDisposition",
     "McpToolInventory",
     "MAX_RECOMMENDATIONS",
     "RankedRecommendation",
     "VersionDistance",
     "family_entries_from_assessments",
+    "insights_from_proposals",
+    "ranked_recommendations_from_proposals",
 ]
 
 _ID_PATTERN = r"^[a-z0-9][a-z0-9._:-]{0,159}$"
@@ -72,6 +79,7 @@ _NO_LOCAL_PROPOSAL = "No specialist proposal cited this observation."
 
 if TYPE_CHECKING:
     from capability_exchange.diagnosis.report import LedgerSummary
+    from capability_exchange.diagnosis.work import WorkAudit
 
 
 class Disposition(StrEnum):
@@ -84,6 +92,30 @@ class Disposition(StrEnum):
     FRAGILE_OR_CONTRADICTORY = "fragile-or-contradictory"
     NOT_RELEVANT = "not-relevant"
     NOT_ASSESSED = "not-assessed"
+
+
+class InsightKind(StrEnum):
+    STRENGTH = "strength"
+    RECIPROCAL_LESSON = "reciprocal-lesson"
+    WORKFLOW_CONNECTION = "workflow-connection"
+    RELIABILITY_CONCERN = "reliability-concern"
+
+
+class GroundedInsight(_ValidatedInventoried):
+    insight_id: str = Field(pattern=_ID_PATTERN)
+    kind: InsightKind
+    title: str = Field(min_length=1, max_length=160)
+    explanation: str = Field(min_length=1, max_length=600)
+    evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=8)
+    observation_ids: tuple[str, ...] = ()
+    workflow_ids: tuple[str, ...] = ()
+
+    @field_validator("evidence_ids", "observation_ids", "workflow_ids")
+    @classmethod
+    def _ids_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("insight identities must be unique")
+        return values
 
 
 class CatalogueDisposition(InventoriedModel):
@@ -629,6 +661,14 @@ class ComparisonLedger(_ValidatedInventoried):
     version_distance: VersionDistance | None = None
     local_entries: tuple[LocalObservationDisposition, ...] = ()
     reciprocal_answer: str = Field(min_length=1, max_length=1000)
+    workflow_graph: WorkflowGraph = Field(
+        default_factory=lambda: WorkflowGraph(nodes=(), edges=())
+    )
+    work_audit: WorkAudit | None = None
+    expectations: tuple[SignificantExpectation, ...] = ()
+    strengths: tuple[GroundedInsight, ...] = ()
+    reciprocal_lessons: tuple[GroundedInsight, ...] = ()
+    workflow_insights: tuple[GroundedInsight, ...] = ()
 
     @field_validator("reciprocal_answer")
     @classmethod
@@ -887,6 +927,12 @@ class ComparisonLedger(_ValidatedInventoried):
         version_distance: VersionDistance | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
+        workflow_graph: WorkflowGraph | None = None,
+        work_audit: WorkAudit | None = None,
+        expectations: tuple[SignificantExpectation, ...] | None = None,
+        strengths: tuple[GroundedInsight, ...] | None = None,
+        reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
+        workflow_insights: tuple[GroundedInsight, ...] | None = None,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
 
@@ -986,6 +1032,12 @@ class ComparisonLedger(_ValidatedInventoried):
             version_distance=base.version_distance,
             local_entries=supplied,
             reciprocal_answer=base.reciprocal_answer,
+            workflow_graph=workflow_graph or WorkflowGraph(nodes=(), edges=()),
+            work_audit=work_audit,
+            expectations=expectations or (),
+            strengths=strengths or (),
+            reciprocal_lessons=reciprocal_lessons or (),
+            workflow_insights=workflow_insights or (),
         )
 
     def derived_summary(self) -> LedgerSummary:
@@ -994,6 +1046,91 @@ class ComparisonLedger(_ValidatedInventoried):
         from capability_exchange.diagnosis.report import LedgerSummary
 
         return LedgerSummary.from_ledger(self)
+
+
+def ranked_recommendations_from_proposals(
+    proposals: tuple[object, ...],
+) -> tuple[RankedRecommendation, ...]:
+    from capability_exchange.diagnosis.specialists import ValidatedProposal
+
+    candidates: list[RecommendationCandidate] = []
+    for item in proposals:
+        if not isinstance(item, ValidatedProposal):
+            continue
+        if item.disposition is not Disposition.WORTH_BORROWING:
+            continue
+        if item.recommendation_factors is None:
+            continue
+        candidates.append(
+            RecommendationCandidate(
+                catalogue_id=item.catalogue_id,
+                capability_id=item.capability_id,
+                factors=item.recommendation_factors,
+                evidence_ids=item.evidence_ids,
+                observation_ids=item.observation_ids,
+                reason=item.reason,
+            )
+        )
+    if not candidates:
+        return ()
+    return rank_recommendations(candidates)
+
+
+def insights_from_proposals(
+    proposals: tuple[object, ...],
+) -> tuple[
+    tuple[GroundedInsight, ...],
+    tuple[GroundedInsight, ...],
+    tuple[GroundedInsight, ...],
+]:
+    from capability_exchange.diagnosis.specialists import ProposalKind, ValidatedProposal
+
+    strengths: list[GroundedInsight] = []
+    lessons: list[GroundedInsight] = []
+    connections: list[GroundedInsight] = []
+    for item in proposals:
+        if not isinstance(item, ValidatedProposal):
+            continue
+        if not item.evidence_ids:
+            continue
+        candidate_id = item.candidate_id or item.catalogue_id
+        if item.kind is ProposalKind.STRENGTH:
+            strengths.append(
+                GroundedInsight(
+                    insight_id=f"strength:{candidate_id}",
+                    kind=InsightKind.STRENGTH,
+                    title=item.catalogue_id,
+                    explanation=item.reason,
+                    evidence_ids=item.evidence_ids,
+                    observation_ids=item.observation_ids,
+                )
+            )
+        elif item.kind is ProposalKind.RECIPROCAL or (
+            item.disposition is Disposition.DEX_SHOULD_LEARN
+        ):
+            lessons.append(
+                GroundedInsight(
+                    insight_id=f"lesson:{candidate_id}",
+                    kind=InsightKind.RECIPROCAL_LESSON,
+                    title=item.catalogue_id,
+                    explanation=item.reason,
+                    evidence_ids=item.evidence_ids,
+                    observation_ids=item.observation_ids,
+                )
+            )
+        elif len(item.evidence_ids) >= 2:
+            connections.append(
+                GroundedInsight(
+                    insight_id=f"connection:{candidate_id}",
+                    kind=InsightKind.WORKFLOW_CONNECTION,
+                    title=item.catalogue_id,
+                    explanation=item.reason,
+                    evidence_ids=item.evidence_ids,
+                    observation_ids=item.observation_ids,
+                    workflow_ids=(),
+                )
+            )
+    return tuple(strengths), tuple(lessons), tuple(connections)
 
 
 def _seed_local_entries(
