@@ -59,11 +59,24 @@ Existing Lens modules changed:
 - Create: tests/diagnosis/test_ranking.py
 - Modify: src/capability_exchange/diagnosis/specialists.py
 - Modify: src/capability_exchange/diagnosis/comparison.py
+- Modify: src/capability_exchange/diagnosis/report.py
+- Modify: src/capability_exchange/evaluation/diagnosis.py
+- Modify: src/capability_exchange/reports/ledger.py
+- Modify: src/capability_exchange/reports/store.py
+- Modify: src/capability_exchange/skill/dex-lens/SKILL.md
 - Modify: tests/diagnosis/test_specialists.py
 - Modify: tests/diagnosis/test_comparison.py
+- Modify: tests/diagnosis/test_report_model.py
+- Modify: tests/evals/test_real_session_replay.py
+- Modify: tests/fixtures/evals/legacy-system-expected.json
+- Modify: tests/fixtures/evals/real-session-expected.json
+- Modify: tests/reports/test_evidence_gate.py
+- Modify: tests/reports/test_ledger.py
+- Modify: tests/reports/test_report_store.py
+- Modify: tests/test_skill_complete_diagnosis.py
 - Modify: src/capability_exchange/boundary/data_inventory.yaml
 
-- [ ] **Step 1: Write the failing ceiling and ordering tests**
+- [x] **Step 1: Write the failing ceiling and ordering tests**
 
 ~~~python
 def test_ten_recommendations_are_allowed_but_eleven_are_refused() -> None:
@@ -88,7 +101,7 @@ def test_recommendations_have_one_stable_explainable_order() -> None:
     ]
 ~~~
 
-- [ ] **Step 2: Run the focused tests and observe the old cap fail**
+- [x] **Step 2: Run the focused tests and observe the old cap fail**
 
 Run:
 
@@ -101,7 +114,7 @@ python3 -m pytest tests/diagnosis/test_ranking.py \
 Expected: failure because ranking.py does not exist and the current cap is
 three.
 
-- [ ] **Step 3: Add the closed ranking domain**
+- [x] **Step 3: Add the closed ranking domain**
 
 Implement these public types and ordering rule in ranking.py:
 
@@ -157,7 +170,7 @@ delete the duplicated constant and every hard-coded “three” error. Add facto
 to validated recommendation proposals and the exact ranked tuple to
 ComparisonLedger.
 
-- [ ] **Step 4: Inventory the fields and prove the slice**
+- [x] **Step 4: Inventory the fields and prove the slice**
 
 ~~~bash
 python3 scripts/check_inventory.py
@@ -167,15 +180,25 @@ python3 -m pytest tests/diagnosis/test_ranking.py \
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git add src/capability_exchange/diagnosis/ranking.py \
   src/capability_exchange/diagnosis/specialists.py \
   src/capability_exchange/diagnosis/comparison.py \
+  src/capability_exchange/diagnosis/report.py \
+  src/capability_exchange/evaluation/diagnosis.py \
+  src/capability_exchange/reports/ledger.py \
+  src/capability_exchange/reports/store.py \
+  src/capability_exchange/skill/dex-lens/SKILL.md \
   src/capability_exchange/boundary/data_inventory.yaml \
   tests/diagnosis/test_ranking.py tests/diagnosis/test_specialists.py \
-  tests/diagnosis/test_comparison.py
+  tests/diagnosis/test_comparison.py tests/evals/test_real_session_replay.py \
+  tests/fixtures/evals/legacy-system-expected.json \
+  tests/fixtures/evals/real-session-expected.json \
+  tests/diagnosis/test_report_model.py tests/reports/test_evidence_gate.py \
+  tests/reports/test_ledger.py tests/reports/test_report_store.py \
+  tests/test_skill_complete_diagnosis.py
 git commit -m "feat: rank up to ten Lens recommendations"
 ~~~
 
