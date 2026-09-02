@@ -445,7 +445,15 @@ def run_cli(replay: ReplayBundle) -> bytes:
         diagnosis_cli.bind_consent_surface(_SilentSession(), _SilentServer())
         try:
             with patch.object(diagnosis_cli, "build_engine", lambda: harness.engine):
-                _cli_json(["prepare", "--root", str(harness.root)])
+                _cli_json(
+                    [
+                        "prepare",
+                        "--root",
+                        str(harness.root),
+                        "--mode",
+                        harness.analysis_mode.value,
+                    ]
+                )
                 harness.approve()
                 view = _cli_json(["status", "--run", replay.run_id, "--json"])
                 while view["stage"] != DiagnosisStage.CLOSED.value:
@@ -456,7 +464,10 @@ def run_cli(replay: ReplayBundle) -> bytes:
                     ):
                         _cli_submit(replay, harness)
                     if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
-                        harness.complete_guided_work()
+                        if harness.analysis_mode is AnalysisMode.GUIDED:
+                            _complete_guided_work_cli(harness)
+                        else:
+                            harness.complete_guided_work()
                     view = _cli_json(["advance", "--run", replay.run_id, "--json"])
                 payload = _cli_json(["result", "--run", replay.run_id, "--format", "json"])
         finally:
@@ -510,7 +521,10 @@ async def _drive_mcp(harness: ReplayHarness, discover: DiscoverOrder) -> bytes:
             ):
                 harness.submit_proposals()
             if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
-                harness.complete_guided_work()
+                if harness.analysis_mode is AnalysisMode.GUIDED:
+                    await _complete_guided_work_mcp(client, harness)
+                else:
+                    harness.complete_guided_work()
             view = _tool_payload(
                 await client.call_tool(
                     "advance_diagnosis",
@@ -530,6 +544,46 @@ def _discover_tool_names(names: Sequence[str], discover: DiscoverOrder) -> list[
     if discover == "codex":
         return sorted(names)
     return list(names)
+
+
+def _complete_guided_work_cli(harness: ReplayHarness) -> None:
+    while True:
+        work = _cli_json(["work", "--run", harness.bundle.run_id, "--json"])
+        packet = work.get("packet")
+        if packet is None:
+            return
+        assert isinstance(packet, dict)
+        _cli_json(
+            [
+                "submit",
+                "--run",
+                harness.bundle.run_id,
+                "--packet",
+                str(packet["packet_id"]),
+            ]
+        )
+
+
+async def _complete_guided_work_mcp(client: Client, harness: ReplayHarness) -> None:
+    while True:
+        work = _tool_payload(
+            await client.call_tool(
+                "get_diagnosis_work",
+                {"run_id": harness.bundle.run_id},
+            )
+        )
+        packet = work.get("packet")
+        if packet is None:
+            return
+        assert isinstance(packet, dict)
+        await client.call_tool(
+            "submit_specialist_proposal",
+            {
+                "run_id": harness.bundle.run_id,
+                "packet_id": packet["packet_id"],
+                "proposals": [],
+            },
+        )
 
 
 def _cli_json(argv: list[str]) -> dict[str, object]:

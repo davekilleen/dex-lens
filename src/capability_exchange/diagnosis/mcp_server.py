@@ -20,7 +20,13 @@ from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
 from capability_exchange.diagnosis.run import DiagnosisStateError, RequiredStep
-from capability_exchange.diagnosis.specialists import SpecialistProposal as EngineProposal
+from capability_exchange.diagnosis.specialists import (
+    SpecialistProposal as EngineProposal,
+)
+from capability_exchange.diagnosis.specialists import (
+    SpecialistProposalError,
+)
+from capability_exchange.diagnosis.work import WorkQueueError
 
 __all__ = [
     "EXPECTED_TOOLS",
@@ -32,6 +38,7 @@ __all__ = [
     "build_engine",
     "build_mcp_server",
     "canonical_result_bytes",
+    "canonical_work_bytes",
     "main",
 ]
 
@@ -39,6 +46,7 @@ EXPECTED_TOOLS = {
     "prepare_diagnosis",
     "get_diagnosis_status",
     "advance_diagnosis",
+    "get_diagnosis_work",
     "submit_specialist_proposal",
     "get_diagnosis_result",
 }
@@ -105,8 +113,23 @@ class DiagnosisEngine(Protocol):
     def prepare(self, request: PrepareDiagnosisRequest) -> StoredResult: ...
     def status(self, run_id: str) -> StoredResult: ...
     def advance(self, run_id: str) -> StoredResult: ...
+    def work(self, run_id: str) -> object: ...
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> StoredResult: ...
     def submit(self, run_id: str, proposal: object) -> StoredResult: ...
     def result(self, run_id: str) -> StoredResult: ...
+
+
+def canonical_work_bytes(payload: object) -> bytes:
+    """Sorted compact JSON bytes used for engine-vs-adapter work equality."""
+
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
 
 
 def canonical_result_bytes(payload: object) -> bytes:
@@ -130,6 +153,7 @@ def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:
     _register_status_tool(server, engine)
     _register_advance_tool(server, engine)
     register_prepare_tool(server, engine)
+    register_work_tool(server, engine)
     register_proposal_tool(server, engine)
     register_result_tool(server, engine)
     _forbid_unknown_tool_fields(server)
@@ -148,16 +172,42 @@ def register_prepare_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
         return _dump(engine.prepare, request)
 
 
+def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
+    @server.tool(annotations=_READ_ONLY)
+    def get_diagnosis_work(run_id: str) -> dict[str, object]:
+        """Return the next engine-issued packet, or a typed empty result."""
+        try:
+            packet = engine.work(run_id)
+        except DiagnosisStateError as exc:
+            raise MCPError(
+                code=INVALID_REQUEST,
+                message=str(exc),
+                data={"required_step": _required_step(exc), "error": type(exc).__name__},
+            ) from exc
+        payload = {
+            "packet": None
+            if packet is None
+            else packet.model_dump(mode="json")
+        }
+        _refuse_hostile_payload(payload)
+        return payload
+
+
 def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
-    def submit_specialist_proposal(run_id: str, proposal: dict[str, object]) -> dict[str, object]:
-        """Offer typed, evidence-referenced semantic help for later validation."""
+    def submit_specialist_proposal(
+        run_id: str,
+        packet_id: str,
+        proposals: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Validate and record one engine-issued packet response."""
         try:
-            parsed = SpecialistProposal.from_mapping(proposal)
+            parsed = tuple(SpecialistProposal.from_mapping(item) for item in proposals)
         except (TypeError, ValueError) as exc:
             raise ToolError("specialist proposal is not a closed typed payload") from exc
-        _refuse_hostile_payload(parsed.model_dump())
-        return _dump(engine.submit, run_id, parsed)
+        for item in parsed:
+            _refuse_hostile_payload(item.model_dump())
+        return _dump_work(engine.submit_work, run_id, packet_id, parsed)
 
 
 def register_result_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
@@ -179,6 +229,24 @@ def _register_advance_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     def advance_diagnosis(run_id: str) -> dict[str, object]:
         """Perform one lawful read-only diagnosis transition."""
         return _dump(engine.advance, run_id)
+
+
+def _dump_work(method: Callable[..., StoredResult], *args: object) -> dict[str, object]:
+    try:
+        payload = method(*args).dump_for_storage()
+    except (DiagnosisStateError, WorkQueueError, SpecialistProposalError) as exc:
+        raise MCPError(
+            code=INVALID_REQUEST,
+            message=str(exc),
+            data={
+                "required_step": _required_step(exc)
+                if isinstance(exc, DiagnosisStateError)
+                else RequiredStep.REQUIRED_STEP.value,
+                "error": type(exc).__name__,
+            },
+        ) from exc
+    _refuse_hostile_payload(payload)
+    return payload
 
 
 def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, object]:

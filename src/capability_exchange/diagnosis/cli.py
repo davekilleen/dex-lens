@@ -24,6 +24,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
 )
+from capability_exchange.diagnosis.work import AnalysisMode
 
 __all__ = [
     "DeterministicDiagnosisEngine",
@@ -49,6 +50,15 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def advance(self, run_id: str) -> DiagnosisRunView: ...
 
+    def work(self, run_id: str) -> object: ...
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView: ...
+
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView: ...
 
     def result(self, run_id: str) -> _DiagnosisResult: ...
@@ -59,6 +69,7 @@ class PrepareDiagnosisRequest:
     """Candidate folders recorded without reading them."""
 
     roots: tuple[Path, ...]
+    analysis_mode: AnalysisMode = AnalysisMode.GUIDED
 
 
 @dataclass
@@ -72,18 +83,19 @@ class _BoundConsentSurface:
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
 _DIAGNOSIS_COMMANDS = frozenset(
-    {"prepare", "approve", "status", "advance", "submit", "result"}
+    {"prepare", "approve", "status", "advance", "work", "submit", "result"}
 )
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
 
 JSON goes to stdout. Refusals and human guidance go to stderr.
 
-    dex-lens diagnosis prepare --root <folder> [--additional-root <folder>]
+    dex-lens diagnosis prepare --root <folder> [--mode guided-analysis|inventory-only]
     dex-lens diagnosis approve --run <id>
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
-    dex-lens diagnosis submit --run <id> --proposal <json-file>
+    dex-lens diagnosis work --run <id> --json
+    dex-lens diagnosis submit --run <id> --packet <id> [--proposal <json-file>]
     dex-lens diagnosis result --run <id> --format json|markdown
 
 prepare records candidate folders and returns a run ID. It does not collect.
@@ -205,6 +217,7 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         "approve": _approve,
         "status": _status,
         "advance": _advance,
+        "work": _work,
         "submit": _submit,
         "result": _result,
     }
@@ -282,6 +295,12 @@ def _prepare(argv: list[str]) -> int:
         help="Another candidate folder. May be repeated. Nothing is read yet.",
     )
     parser.add_argument(
+        "--mode",
+        choices=(AnalysisMode.GUIDED.value, AnalysisMode.INVENTORY_ONLY.value),
+        default=AnalysisMode.GUIDED.value,
+        help="Analysis mode. Guided analysis issues engine-owned specialist work.",
+    )
+    parser.add_argument(
         "--consent-surface",
         action="store_true",
         help="Also start the optional local approval page. Not required in chat.",
@@ -304,7 +323,12 @@ def _prepare(argv: list[str]) -> int:
     if roots is None:
         return 2
     engine = build_engine()
-    view = engine.prepare(PrepareDiagnosisRequest(roots=roots))
+    view = engine.prepare(
+        PrepareDiagnosisRequest(
+            roots=roots,
+            analysis_mode=AnalysisMode(args.mode),
+        )
+    )
     if args.consent_surface:
         approval_url = start_or_reuse_consent_surface(
             run_id=view.run_id,
@@ -441,23 +465,66 @@ def _advance(argv: list[str]) -> int:
     return 0
 
 
-def _submit(argv: list[str]) -> int:
+def _work(argv: list[str]) -> int:
     parser = _parser(
-        "dex-lens diagnosis submit",
-        "Offer a typed specialist proposal. The engine still owns the facts.",
+        "dex-lens diagnosis work",
+        "Return the next engine-issued specialist packet, or a typed empty result.",
     )
     parser.add_argument("--run", required=True, help="Diagnosis run ID.")
     parser.add_argument(
-        "--proposal",
-        type=Path,
-        required=True,
-        help="JSON file holding one specialist proposal.",
+        "--json",
+        action="store_true",
+        help="Write the canonical work payload as JSON on stdout.",
     )
     args = parser.parse_args(argv)
-    proposal = _load_proposal(args.proposal)
-    if proposal is None:
-        return 2
-    view = build_engine().submit(args.run, proposal)
+    packet = build_engine().work(args.run)
+    payload = {
+        "packet": None
+        if packet is None
+        else getattr(packet, "model_dump", lambda **_: packet)(mode="json")
+    }
+    _write_canonical_json(payload)
+    return 0
+
+
+def _submit(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis submit",
+        "Offer typed specialist responses for one engine-issued packet.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--packet",
+        help="Engine-issued packet ID. When omitted, submit one legacy proposal.",
+    )
+    parser.add_argument(
+        "--proposal",
+        type=Path,
+        action="append",
+        default=[],
+        help="JSON file holding one specialist proposal. May be repeated.",
+    )
+    args = parser.parse_args(argv)
+    engine = build_engine()
+    if args.packet:
+        proposals: list[object] = []
+        for path in args.proposal:
+            proposal = _load_proposal(path)
+            if proposal is None:
+                return 2
+            proposals.append(proposal)
+        view = engine.submit_work(args.run, args.packet, tuple(proposals))
+    else:
+        if len(args.proposal) != 1:
+            print(
+                "dex-lens: legacy submit requires exactly one --proposal file.",
+                file=sys.stderr,
+            )
+            return 2
+        proposal = _load_proposal(args.proposal[0])
+        if proposal is None:
+            return 2
+        view = engine.submit(args.run, proposal)
     _write_canonical_json(view.dump_for_storage())
     return 0
 

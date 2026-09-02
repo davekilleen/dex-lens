@@ -68,6 +68,33 @@ class FixedEngine:
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView:
         return self.view
 
+    def work(self, run_id: str) -> dict[str, object] | None:
+        return {
+            "packet_id": "packet:sha256:" + "a" * 64,
+            "packet_digest": "sha256:" + "b" * 64,
+            "role": "tools-and-integrations",
+            "run_id": run_id,
+            "fingerprint_digest": "sha256:" + "c" * 64,
+            "catalogue_digest": "sha256:" + "d" * 64,
+            "evidence_ids": [],
+            "catalogue_ids": ["daily-planning"],
+            "capability_ids": ["planning"],
+            "observation_ids": [],
+            "family_ids": [],
+            "workflow_ids": [],
+            "question": "What tools matter?",
+            "max_attempts": 2,
+            "max_proposals": 24,
+        }
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView:
+        return self.view
+
     def result(self, run_id: str) -> FakeResult:
         if self.closed_result is None:
             raise DiagnosisStateError("diagnosis result is not closed")
@@ -314,3 +341,43 @@ def test_chat_approve_records_receipt_without_a_browser(
     assert diagnosis_main(["status", "--run", run_id, "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["stage"] == "scope-approved"
+
+
+def test_work_prints_only_canonical_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    engine = fake_engine(CAPTURED_VIEW)
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["packet"] is not None
+    assert payload["packet"]["packet_id"] == "packet:sha256:" + "a" * 64
+
+
+def test_prepare_accepts_guided_analysis_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def prepare(self, request: cli.PrepareDiagnosisRequest) -> DiagnosisRunView:
+            captured.append(request)
+            return self.view
+
+    view = DiagnosisRunView(
+        run_id=RUN_ID,
+        stage=DiagnosisStage.CREATED,
+        next_action=NEXT_ACTION[DiagnosisStage.CREATED],
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=view))
+    root = invented_root(tmp_path)
+    assert (
+        diagnosis_main(
+            ["prepare", "--root", str(root), "--mode", "guided-analysis"]
+        )
+        == 0
+    )
+    assert len(captured) == 1
+    assert captured[0].analysis_mode.value == "guided-analysis"
+    assert capsys.readouterr().out
+

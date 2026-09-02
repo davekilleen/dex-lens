@@ -24,6 +24,7 @@ from capability_exchange.diagnosis.mcp_server import (
     build_engine,
     build_mcp_server,
     canonical_result_bytes,
+    canonical_work_bytes,
     main,
 )
 from capability_exchange.diagnosis.run import (
@@ -74,6 +75,9 @@ class FakeStored:
     def dump_for_storage(self) -> dict[str, Any]:
         return self.payload
 
+    def model_dump(self, **kwargs: object) -> dict[str, Any]:
+        return self.payload
+
 
 @dataclass
 class FakeEngine:
@@ -83,6 +87,9 @@ class FakeEngine:
     collection_calls: int = 0
     prepared: list[PrepareDiagnosisRequest] = field(default_factory=list)
     submitted: list[object] = field(default_factory=list)
+    work_calls: list[str] = field(default_factory=list)
+    submitted_work: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
+    next_packet: dict[str, object] | None = None
 
     def prepare(self, request: PrepareDiagnosisRequest) -> DiagnosisRunView:
         self.prepared.append(request)
@@ -119,6 +126,21 @@ class FakeEngine:
         self.submitted.append(proposal)
         return self.status(run_id)
 
+    def work(self, run_id: str) -> FakeStored | None:
+        self.work_calls.append(run_id)
+        if self.next_packet is None:
+            return None
+        return FakeStored(self.next_packet)
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView:
+        self.submitted_work.append((packet_id, proposals))
+        return self.status(run_id)
+
     def result(self, run_id: str) -> FakeStored:
         if run_id != RUN_ID:
             raise DiagnosisStateError("unknown diagnosis run")
@@ -141,6 +163,17 @@ def _tool_payload(result: object) -> dict[str, Any]:
             if isinstance(loaded, dict):
                 return loaded
     raise AssertionError(f"tool result had no JSON object payload: {result!r}")
+
+
+@pytest.mark.anyio
+async def test_mcp_exposes_exactly_six_read_only_diagnosis_tools() -> None:
+    server = build_mcp_server(fake_engine())
+    async with Client(server, raise_exceptions=True) as client:
+        tools = await client.list_tools()
+    assert {tool.name for tool in tools.tools} == EXPECTED_TOOLS
+    for name in EXPECTED_TOOLS:
+        lowered = name.lower()
+        assert all(token not in lowered for token in FORBIDDEN_TOOL_SUBSTRINGS)
 
 
 @pytest.mark.anyio
@@ -183,15 +216,19 @@ async def test_secret_canaries_and_absolute_paths_are_refused() -> None:
 
         canary = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": CANARY}},
+            {"run_id": RUN_ID, "packet_id": "packet:sha256:" + "a" * 64, "proposals": [{"note": CANARY}]},
         )
         path = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": HOSTILE_ROOT}},
+            {"run_id": RUN_ID, "packet_id": "packet:sha256:" + "a" * 64, "proposals": [{"note": HOSTILE_ROOT}]},
         )
         extra = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": "ok", "invented": 1}},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": "ok", "invented": 1}],
+            },
         )
     assert canary.is_error
     assert path.is_error
@@ -275,18 +312,54 @@ def test_specialist_proposal_validates_the_engine_schema() -> None:
 
 
 @pytest.mark.anyio
-async def test_submit_forwards_a_typed_engine_proposal() -> None:
+async def test_get_diagnosis_work_returns_canonical_packet_bytes() -> None:
+    packet = {
+        "packet_id": "packet:sha256:" + "d" * 64,
+        "packet_digest": "sha256:" + "e" * 64,
+        "role": SpecialistRole.TOOLS_AND_INTEGRATIONS.value,
+        "run_id": RUN_ID,
+        "fingerprint_digest": "sha256:" + "b" * 64,
+        "catalogue_digest": "sha256:" + "c" * 64,
+        "evidence_ids": [],
+        "catalogue_ids": ["daily-planning"],
+        "capability_ids": ["planning"],
+        "observation_ids": [],
+        "family_ids": [],
+        "workflow_ids": [],
+        "question": "What tools and integrations matter here?",
+        "max_attempts": 2,
+        "max_proposals": 24,
+    }
+    engine = fake_engine()
+    engine.next_packet = packet
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
+    payload = _tool_payload(result)
+    assert canonical_work_bytes(payload) == canonical_work_bytes({"packet": packet})
+    assert engine.work_calls == [RUN_ID]
+
+
+@pytest.mark.anyio
+async def test_submit_forwards_packet_bound_engine_proposals() -> None:
     engine = fake_engine()
     server = build_mcp_server(engine)
     async with Client(server, raise_exceptions=True) as client:
         result = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": _VALID_PROPOSAL},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [_VALID_PROPOSAL],
+            },
         )
     assert not result.is_error
-    assert len(engine.submitted) == 1
-    assert isinstance(engine.submitted[0], EngineProposal)
-    assert engine.submitted[0].capability_id == "planning"
+    assert len(engine.submitted_work) == 1
+    packet_id, proposals = engine.submitted_work[0]
+    assert packet_id == "packet:sha256:" + "a" * 64
+    assert len(proposals) == 1
+    assert isinstance(proposals[0], EngineProposal)
+    assert proposals[0].capability_id == "planning"
 
 
 _STDIO_SMOKE = r"""
@@ -313,6 +386,10 @@ class Engine:
         return self.prepare(None)
     def advance(self, run_id):
         raise DiagnosisStateError("approve the exact scope")
+    def work(self, run_id):
+        return None
+    def submit_work(self, run_id, packet_id, proposals=()):
+        return self.status(run_id)
     def submit(self, run_id, proposal):
         return self.status(run_id)
     def result(self, run_id):
@@ -328,7 +405,6 @@ build_mcp_server(Engine()).run(transport="stdio")
 def _stdio_env() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(_SRC)
-    environment["PYTHONNOUSERSITE"] = "1"
     environment["LENS_TEST_CANARY"] = CANARY
     return environment
 
