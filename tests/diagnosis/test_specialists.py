@@ -13,6 +13,7 @@ from capability_exchange.diagnosis.comparison import Disposition
 from capability_exchange.diagnosis.ranking import RecommendationFactors
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
+    CandidateBaseline,
     ProposalContext,
     ProposalKind,
     SpecialistProposal,
@@ -30,8 +31,8 @@ from capability_exchange.diagnosis.specialists import (
 RUN_ID = "run:" + "a" * 16
 FINGERPRINT_DIGEST = "sha256:" + "b" * 64
 CATALOGUE_DIGEST = "sha256:" + "c" * 64
-PACKET_ID = "packet:sha256:" + "d" * 64
 PACKET_DIGEST = "sha256:" + "e" * 64
+PACKET_ID = "packet:" + PACKET_DIGEST
 DEFAULT_CATALOGUE_ID = "daily-planning"
 DEFAULT_CAPABILITY_ID = "planning"
 CURRENT_EVIDENCE = "current:evidence"
@@ -53,6 +54,7 @@ def proposal_context(
     packet_digest: str | None = None,
     packet_role: SpecialistRole | None = None,
     accepted_candidate_ids: tuple[str, ...] = (),
+    accepted_candidates: tuple[CandidateBaseline, ...] = (),
 ) -> ProposalContext:
     known_catalogue = catalogue_ids
     if known_catalogue is None:
@@ -75,6 +77,7 @@ def proposal_context(
         packet_digest=packet_digest,
         packet_role=packet_role,
         accepted_candidate_ids=accepted_candidate_ids,
+        accepted_candidates=accepted_candidates,
     )
 
 
@@ -113,6 +116,36 @@ def recommendation(
     }
     values.update(overrides)
     return proposal(**values)
+
+
+def candidate_baseline(
+    *,
+    kind: ProposalKind = ProposalKind.RECOMMENDATION,
+    catalogue_id: str = DEFAULT_CATALOGUE_ID,
+    capability_id: str = DEFAULT_CAPABILITY_ID,
+    original_disposition: Disposition = Disposition.WORTH_BORROWING,
+    recommendation_factors: RecommendationFactors | None = None,
+    evidence_ids: tuple[str, ...] = (CURRENT_EVIDENCE,),
+    observation_ids: tuple[str, ...] = (),
+) -> CandidateBaseline:
+    if recommendation_factors is None and kind is ProposalKind.RECOMMENDATION:
+        recommendation_factors = RecommendationFactors(
+            reliability_risk=1,
+            job_relevance=2,
+            workflow_leverage=2,
+            evidence_strength=2,
+            adoption_effort=2,
+        )
+    return CandidateBaseline(
+        candidate_id=candidate_id_for(kind, catalogue_id, capability_id),
+        kind=kind,
+        catalogue_id=catalogue_id,
+        capability_id=capability_id,
+        original_disposition=original_disposition,
+        recommendation_factors=recommendation_factors,
+        evidence_ids=evidence_ids,
+        observation_ids=observation_ids,
+    )
 
 
 def test_proposal_cannot_reference_another_run() -> None:
@@ -480,7 +513,7 @@ def test_guided_proposal_must_match_packet_identity_and_digest() -> None:
     )
     item = recommendation(
         DEFAULT_CATALOGUE_ID,
-        packet_id=PACKET_ID,
+        packet_id="packet:sha256:" + "0" * 64,
         packet_digest="sha256:" + "0" * 64,
         candidate_id=candidate_id_for(
             ProposalKind.RECOMMENDATION,
@@ -489,7 +522,7 @@ def test_guided_proposal_must_match_packet_identity_and_digest() -> None:
         ),
     )
 
-    with pytest.raises(SpecialistProposalError, match="packet digest"):
+    with pytest.raises(SpecialistProposalError, match="packet identity"):
         validate_proposal(item, context)
 
 
@@ -544,6 +577,10 @@ def test_bound_and_unbound_proposals_cannot_cross_contexts() -> None:
 
 
 def test_guided_proposal_role_must_match_issued_packet() -> None:
+    baseline = candidate_baseline(
+        kind=ProposalKind.MAPPING,
+        original_disposition=Disposition.SHARED,
+    )
     normal_context = proposal_context(
         analysis_mode="guided-analysis",
         packet_id=PACKET_ID,
@@ -568,9 +605,8 @@ def test_guided_proposal_role_must_match_issued_packet() -> None:
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
         packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
-        accepted_candidate_ids=(
-            candidate_id_for(ProposalKind.MAPPING, DEFAULT_CATALOGUE_ID, DEFAULT_CAPABILITY_ID),
-        ),
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
     )
     normal_item = proposal(
         packet_id=PACKET_ID,
@@ -626,19 +662,15 @@ def test_guided_recommendations_require_factors_and_non_recommendations_strip_th
 
 
 def test_sceptical_role_cannot_add_a_new_positive_claim() -> None:
+    baseline = candidate_baseline()
     context = proposal_context(
-        catalogue_ids=("cap-new",),
+        catalogue_ids=(DEFAULT_CATALOGUE_ID, "cap-new"),
         analysis_mode="guided-analysis",
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
         packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
-        accepted_candidate_ids=(
-            candidate_id_for(
-                ProposalKind.RECOMMENDATION,
-                DEFAULT_CATALOGUE_ID,
-                DEFAULT_CAPABILITY_ID,
-            ),
-        ),
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
     )
     item = recommendation(
         "cap-new",
@@ -657,56 +689,48 @@ def test_sceptical_role_cannot_add_a_new_positive_claim() -> None:
 
 
 def test_sceptical_role_can_review_an_existing_candidate() -> None:
+    baseline = candidate_baseline(catalogue_id="cap-one")
     context = proposal_context(
         catalogue_ids=("cap-one",),
         analysis_mode="guided-analysis",
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
         packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
-        accepted_candidate_ids=(
-            candidate_id_for(ProposalKind.RECOMMENDATION, "cap-one", DEFAULT_CAPABILITY_ID),
-        ),
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
     )
     item = recommendation(
         "cap-one",
         role=SpecialistRole.SCEPTICAL_RECONCILER,
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
-        candidate_id=candidate_id_for(
-            ProposalKind.RECOMMENDATION,
-            "cap-one",
-            DEFAULT_CAPABILITY_ID,
-        ),
+        candidate_id=baseline.candidate_id,
+        recommendation_factors=baseline.recommendation_factors,
+        evidence_ids=baseline.evidence_ids,
+        observation_ids=baseline.observation_ids,
     )
 
     accepted = validate_proposal(item, context)
-    assert accepted.candidate_id == candidate_id_for(
-        ProposalKind.RECOMMENDATION,
-        "cap-one",
-        DEFAULT_CAPABILITY_ID,
-    )
+    assert accepted.candidate_id == baseline.candidate_id
 
 
 def test_accepted_candidate_ids_are_canonical() -> None:
+    baseline_z = candidate_baseline(catalogue_id="z")
+    baseline_a = candidate_baseline(catalogue_id="a")
     context = proposal_context(
         analysis_mode="guided-analysis",
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
         packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
         accepted_candidate_ids=(
-            candidate_id_for(ProposalKind.MAPPING, "z", DEFAULT_CAPABILITY_ID),
-            candidate_id_for(ProposalKind.MAPPING, "a", DEFAULT_CAPABILITY_ID),
+            baseline_z.candidate_id,
+            baseline_a.candidate_id,
         ),
+        accepted_candidates=(baseline_z, baseline_a),
     )
-    expected = tuple(
-        sorted(
-            (
-                candidate_id_for(ProposalKind.MAPPING, "z", DEFAULT_CAPABILITY_ID),
-                candidate_id_for(ProposalKind.MAPPING, "a", DEFAULT_CAPABILITY_ID),
-            )
-        )
-    )
+    expected = tuple(sorted((baseline_z.candidate_id, baseline_a.candidate_id)))
     assert context.accepted_candidate_ids == expected
+    assert tuple(item.candidate_id for item in context.accepted_candidates) == expected
 
 
 def test_packet_binding_tampering_is_revalidated_on_copy_and_construct() -> None:
@@ -736,9 +760,8 @@ def test_packet_binding_tampering_is_revalidated_on_copy_and_construct() -> None
             DEFAULT_CAPABILITY_ID,
         ),
     )
-    tampered = item.model_copy(update={"packet_id": "packet:sha256:" + "0" * 64})
-    with pytest.raises(SpecialistProposalError, match="packet"):
-        validate_proposal(tampered, context)
+    with pytest.raises(ValidationError, match="packet"):
+        item.model_copy(update={"packet_id": "packet:sha256:" + "0" * 64})
 
 
 def test_candidate_id_for_is_a_stable_digest() -> None:
@@ -845,14 +868,37 @@ def test_context_analysis_mode_closes_packet_and_candidate_bindings() -> None:
             accepted_candidate_ids=("candidate-one",),
         )
 
+    with pytest.raises(ValidationError, match="baseline"):
+        proposal_context(
+            analysis_mode="guided-analysis",
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+            accepted_candidate_ids=("candidate-z", "candidate-a"),
+        )
+
+    baseline_z = candidate_baseline(catalogue_id="z")
+    baseline_a = candidate_baseline(catalogue_id="a")
     sceptical = proposal_context(
         analysis_mode="guided-analysis",
         packet_id=PACKET_ID,
         packet_digest=PACKET_DIGEST,
         packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
-        accepted_candidate_ids=("candidate-z", "candidate-a"),
+        accepted_candidate_ids=(baseline_z.candidate_id, baseline_a.candidate_id),
+        accepted_candidates=(baseline_z, baseline_a),
     )
-    assert sceptical.accepted_candidate_ids == ("candidate-a", "candidate-z")
+    expected = tuple(sorted((baseline_z.candidate_id, baseline_a.candidate_id)))
+    assert sceptical.accepted_candidate_ids == expected
+    assert tuple(item.candidate_id for item in sceptical.accepted_candidates) == expected
+    with pytest.raises(ValidationError, match="baseline candidate IDs"):
+        sceptical.model_copy(update={"accepted_candidate_ids": ()})
+    with pytest.raises(ValidationError, match="baseline candidate IDs"):
+        ProposalContext.model_construct(
+            **{
+                **sceptical.model_dump(),
+                "accepted_candidate_ids": (),
+            }
+        )
 
 
 def test_unbound_sceptical_proposals_are_refused() -> None:
@@ -900,3 +946,264 @@ def test_sceptical_candidate_substitution_is_rejected() -> None:
             packet_digest=PACKET_DIGEST,
             candidate_id=candidate_id,
         )
+
+
+def test_packet_id_must_equal_packet_digest_on_every_model_route() -> None:
+    candidate_id = candidate_id_for(
+        ProposalKind.MAPPING,
+        DEFAULT_CATALOGUE_ID,
+        DEFAULT_CAPABILITY_ID,
+    )
+    wrong_packet_id = "packet:sha256:" + "f" * 64
+    with pytest.raises(ValidationError, match="packet_id"):
+        proposal(
+            packet_id=wrong_packet_id,
+            packet_digest=PACKET_DIGEST,
+            candidate_id=candidate_id,
+        )
+
+    valid = proposal(
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        candidate_id=candidate_id,
+    )
+    with pytest.raises(ValidationError, match="packet_id"):
+        valid.model_copy(update={"packet_id": wrong_packet_id})
+    with pytest.raises(ValidationError, match="packet_id"):
+        SpecialistProposal.model_construct(
+            **{
+                **valid.model_dump(),
+                "packet_id": wrong_packet_id,
+            }
+        )
+
+    with pytest.raises(ValidationError, match="packet_id"):
+        proposal_context(
+            analysis_mode="guided-analysis",
+            packet_id=wrong_packet_id,
+            packet_digest=PACKET_DIGEST,
+            packet_role=SpecialistRole.TOOLS_AND_INTEGRATIONS,
+        )
+    valid_context = proposal_context(
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.TOOLS_AND_INTEGRATIONS,
+    )
+    with pytest.raises(ValidationError, match="packet_id"):
+        valid_context.model_copy(update={"packet_id": wrong_packet_id})
+    with pytest.raises(ValidationError, match="packet_id"):
+        ProposalContext.model_construct(
+            **{
+                **valid_context.model_dump(),
+                "packet_id": wrong_packet_id,
+            }
+        )
+
+    validated = validate_proposal(valid, valid_context)
+    with pytest.raises(ValidationError, match="packet_id"):
+        validated.model_copy(update={"packet_id": wrong_packet_id})
+    with pytest.raises(ValidationError, match="packet_id"):
+        ValidatedProposal.model_construct(
+            **{
+                **validated.model_dump(),
+                "packet_id": wrong_packet_id,
+            }
+        )
+
+
+def test_candidate_baseline_is_deterministic_and_factor_closed() -> None:
+    baseline = candidate_baseline(
+        kind=ProposalKind.MAPPING,
+        original_disposition=Disposition.STRONG_HERE,
+    )
+    assert baseline.candidate_id == candidate_id_for(
+        ProposalKind.MAPPING,
+        DEFAULT_CATALOGUE_ID,
+        DEFAULT_CAPABILITY_ID,
+    )
+    with pytest.raises(ValidationError, match="candidate_id"):
+        CandidateBaseline(
+            candidate_id="candidate:sha256:" + "0" * 64,
+            kind=baseline.kind,
+            catalogue_id=baseline.catalogue_id,
+            capability_id=baseline.capability_id,
+            original_disposition=baseline.original_disposition,
+            evidence_ids=baseline.evidence_ids,
+            observation_ids=baseline.observation_ids,
+        )
+    with pytest.raises(ValidationError, match="candidate_id"):
+        baseline.model_copy(update={"candidate_id": "candidate:sha256:" + "0" * 64})
+    with pytest.raises(ValidationError, match="candidate_id"):
+        CandidateBaseline.model_construct(
+            **{
+                **baseline.model_dump(),
+                "candidate_id": "candidate:sha256:" + "0" * 64,
+            }
+        )
+    with pytest.raises(ValidationError, match="recommendation factors"):
+        CandidateBaseline(
+            candidate_id=baseline.candidate_id,
+            kind=baseline.kind,
+            catalogue_id=baseline.catalogue_id,
+            capability_id=baseline.capability_id,
+            original_disposition=baseline.original_disposition,
+            recommendation_factors=RecommendationFactors(
+                reliability_risk=1,
+                job_relevance=2,
+                workflow_leverage=2,
+                evidence_strength=2,
+                adoption_effort=2,
+            ),
+            evidence_ids=baseline.evidence_ids,
+            observation_ids=baseline.observation_ids,
+        )
+    with pytest.raises(ValidationError, match="recommendation factors"):
+        CandidateBaseline(
+            candidate_id=candidate_id_for(
+                ProposalKind.RECOMMENDATION,
+                DEFAULT_CATALOGUE_ID,
+                DEFAULT_CAPABILITY_ID,
+            ),
+            kind=ProposalKind.RECOMMENDATION,
+            catalogue_id=DEFAULT_CATALOGUE_ID,
+            capability_id=DEFAULT_CAPABILITY_ID,
+            original_disposition=Disposition.WORTH_BORROWING,
+            evidence_ids=baseline.evidence_ids,
+            observation_ids=baseline.observation_ids,
+        )
+
+
+def test_guided_sceptical_context_rejects_candidate_ids_without_baselines() -> None:
+    candidate_id = candidate_id_for(
+        ProposalKind.RECOMMENDATION,
+        DEFAULT_CATALOGUE_ID,
+        DEFAULT_CAPABILITY_ID,
+    )
+    with pytest.raises(ValidationError, match="baseline"):
+        proposal_context(
+            analysis_mode="guided-analysis",
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+            accepted_candidate_ids=(candidate_id,),
+        )
+
+    baseline = candidate_baseline()
+    with pytest.raises(ValidationError, match="baseline"):
+        proposal_context(
+            analysis_mode="guided-analysis",
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+            accepted_candidate_ids=(),
+            accepted_candidates=(baseline,),
+        )
+    with pytest.raises(ValidationError, match="candidate IDs"):
+        proposal_context(
+            analysis_mode="guided-analysis",
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+            accepted_candidate_ids=("candidate:sha256:" + "0" * 64,),
+            accepted_candidates=(baseline,),
+        )
+
+
+def test_sceptical_accept_and_downgrade_are_bound_to_the_baseline() -> None:
+    baseline = candidate_baseline(
+        evidence_ids=(CURRENT_EVIDENCE,),
+        observation_ids=("observation:baseline",),
+    )
+    context = proposal_context(
+        evidence_ids=(CURRENT_EVIDENCE, "current:other"),
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
+    ).model_copy(update={"observation_ids": ("observation:baseline", "observation:other")})
+    unchanged = recommendation(
+        DEFAULT_CATALOGUE_ID,
+        role=SpecialistRole.SCEPTICAL_RECONCILER,
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        candidate_id=baseline.candidate_id,
+        evidence_ids=baseline.evidence_ids,
+        observation_ids=baseline.observation_ids,
+        recommendation_factors=baseline.recommendation_factors,
+    )
+    accepted = validate_proposal(unchanged, context)
+    assert accepted.evidence_ids == baseline.evidence_ids
+    assert accepted.observation_ids == baseline.observation_ids
+
+    with pytest.raises(SpecialistProposalError, match="baseline evidence"):
+        validate_proposal(
+            unchanged.model_copy(update={"evidence_ids": ("current:other",)}),
+            context,
+        )
+
+    downgraded = unchanged.model_copy(
+        update={
+            "disposition": Disposition.FRAGILE_OR_CONTRADICTORY,
+            "evidence_ids": ("current:other",),
+            "observation_ids": ("observation:other",),
+        }
+    )
+    downgraded_result = validate_proposal(downgraded, context)
+    assert downgraded_result.disposition is Disposition.FRAGILE_OR_CONTRADICTORY
+    assert downgraded_result.evidence_ids == ("current:other",)
+    assert downgraded_result.observation_ids == ("observation:other",)
+
+
+def test_sceptical_cannot_substitute_strong_here_or_inflate_factors() -> None:
+    strong_baseline = candidate_baseline(
+        kind=ProposalKind.MAPPING,
+        original_disposition=Disposition.STRONG_HERE,
+    )
+    recommendation_baseline = candidate_baseline(
+        recommendation_factors=RecommendationFactors(
+            reliability_risk=1,
+            job_relevance=1,
+            workflow_leverage=1,
+            evidence_strength=1,
+            adoption_effort=3,
+        )
+    )
+    context = proposal_context(
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+        accepted_candidate_ids=(strong_baseline.candidate_id, recommendation_baseline.candidate_id),
+        accepted_candidates=(strong_baseline, recommendation_baseline),
+    )
+    with pytest.raises(SpecialistProposalError, match="disposition"):
+        validate_proposal(
+            proposal(
+                role=SpecialistRole.SCEPTICAL_RECONCILER,
+                packet_id=PACKET_ID,
+                packet_digest=PACKET_DIGEST,
+                candidate_id=strong_baseline.candidate_id,
+                disposition=Disposition.SHARED,
+            ),
+            context,
+        )
+
+    inflated = recommendation(
+        DEFAULT_CATALOGUE_ID,
+        role=SpecialistRole.SCEPTICAL_RECONCILER,
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        candidate_id=recommendation_baseline.candidate_id,
+        recommendation_factors=RecommendationFactors(
+            reliability_risk=3,
+            job_relevance=3,
+            workflow_leverage=3,
+            evidence_strength=3,
+            adoption_effort=1,
+        ),
+    )
+    with pytest.raises(SpecialistProposalError, match="factors"):
+        validate_proposal(inflated, context)

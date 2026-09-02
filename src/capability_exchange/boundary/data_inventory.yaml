@@ -2265,6 +2265,86 @@ fields:
     deletion: not-stored
     audit: "ephemeral grouping identities"
 
+  CandidateBaseline.candidate_id:
+    description: "deterministic identity for one candidate before sceptical review"
+    collection: "derived from the candidate kind, catalogue identity, and capability identity"
+    derivation: "candidate_id_for canonical sha256 identity"
+    display: "joins sceptical decisions to the exact accepted candidate"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate baseline identity"
+
+  CandidateBaseline.kind:
+    description: "closed proposal kind retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "prevents sceptical proposals changing the semantic claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate claim kind"
+
+  CandidateBaseline.catalogue_id:
+    description: "catalogue identity retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "bounded signed-catalogue identity"
+    display: "prevents sceptical proposals switching the candidate entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  CandidateBaseline.capability_id:
+    description: "capability identity retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "bounded capability identity"
+    display: "prevents sceptical proposals switching the candidate capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  CandidateBaseline.original_disposition:
+    description: "original accepted disposition before sceptical review"
+    collection: "copied from the accepted normal proposal"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "limits sceptical review to acceptance or a bounded downgrade"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral pre-review disposition"
+
+  CandidateBaseline.recommendation_factors:
+    description: "original ranking factors retained for the candidate"
+    collection: "copied from the accepted recommendation proposal when applicable"
+    derivation: "validated RecommendationFactors; required for recommendations"
+    display: "prevents sceptical factor inflation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate ranking factors"
+
+  CandidateBaseline.evidence_ids:
+    description: "canonical evidence identities supporting the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "unique bounded evidence tokens sorted canonically"
+    display: "supports unchanged sceptical evidence retention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate evidence tokens"
+
+  CandidateBaseline.observation_ids:
+    description: "canonical observation identities supporting the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "unique bounded observation identities sorted canonically"
+    display: "supports unchanged sceptical observation retention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate observation identities"
+
   SpecialistProposal.role:
     description: "closed specialist role that authored this untrusted proposal"
     collection: "declared by the submitting adapter or host assistant"
@@ -2514,6 +2594,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral sceptical reconciliation allowlist"
+
+  ProposalContext.accepted_candidates:
+    description: "canonical baseline state for candidates accepted before sceptical review"
+    collection: "assembled by the engine from validated normal proposals"
+    derivation: "unique CandidateBaseline values sorted by candidate identity"
+    display: "gives sceptical review the exact semantic and evidence baseline"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical candidate baseline state"
 
   ProposalContext.held_ids:
     description: "catalogue identities that are not available to recommend"

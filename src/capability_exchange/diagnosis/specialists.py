@@ -26,6 +26,7 @@ from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_j
 
 __all__ = [
     "DISAGREEMENT_REASON",
+    "CandidateBaseline",
     "MAX_EVIDENCE_IDS",
     "MAX_REASON_LENGTH",
     "MAX_RECOMMENDATIONS",
@@ -102,6 +103,20 @@ def _is_recommendation_values(kind: ProposalKind, disposition: Disposition) -> b
     return kind is ProposalKind.RECOMMENDATION or disposition is Disposition.WORTH_BORROWING
 
 
+def _validate_recommendation_factors(
+    *,
+    kind: ProposalKind,
+    disposition: Disposition,
+    recommendation_factors: RecommendationFactors | None,
+    require_for_recommendation: bool = False,
+) -> None:
+    recommendation = _is_recommendation_values(kind, disposition)
+    if not recommendation and recommendation_factors is not None:
+        raise ValueError("recommendation factors are only valid on recommendation proposals")
+    if require_for_recommendation and recommendation and recommendation_factors is None:
+        raise ValueError("recommendation proposals require recommendation factors")
+
+
 def _validate_model_bindings(
     *,
     packet_id: str | None,
@@ -119,6 +134,8 @@ def _validate_model_bindings(
     if packet_bound and (packet_id is None or packet_digest is None):
         raise ValueError("packet_id and packet_digest must be provided together")
     if packet_bound:
+        if packet_id != f"packet:{packet_digest}":
+            raise ValueError("packet_id must equal packet: plus packet_digest")
         if candidate_id is None:
             raise ValueError("bound proposals require candidate_id")
         expected_candidate_id = candidate_id_for(kind, catalogue_id, capability_id)
@@ -126,8 +143,11 @@ def _validate_model_bindings(
             raise ValueError("bound proposal candidate_id must match candidate_id_for")
     elif candidate_id is not None:
         raise ValueError("candidate_id is only valid on bound proposals")
-    if not _is_recommendation_values(kind, disposition) and recommendation_factors is not None:
-        raise ValueError("recommendation factors are only valid on recommendation proposals")
+    _validate_recommendation_factors(
+        kind=kind,
+        disposition=disposition,
+        recommendation_factors=recommendation_factors,
+    )
 
 
 def _unique_identities(values: tuple[str, ...], label: str) -> tuple[str, ...]:
@@ -153,6 +173,48 @@ def _unique_tokens(
         if not value.strip():
             raise ValueError(f"{label} must be non-empty")
     return values
+
+
+class CandidateBaseline(_ValidatedInventoried):
+    """Engine-owned state for one candidate before sceptical review."""
+
+    candidate_id: str = Field(pattern=_ID.pattern)
+    kind: ProposalKind
+    catalogue_id: str = Field(pattern=_ID.pattern)
+    capability_id: str = Field(pattern=_ID.pattern)
+    original_disposition: Disposition
+    recommendation_factors: RecommendationFactors | None = None
+    evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
+    observation_ids: tuple[str, ...] = ()
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(_unique_tokens(values, "candidate baseline evidence tokens")))
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted(_unique_identities(values, "candidate baseline observation identities"))
+        )
+
+    @model_validator(mode="after")
+    def _baseline_is_closed(self) -> Self:
+        expected_candidate_id = candidate_id_for(
+            self.kind,
+            self.catalogue_id,
+            self.capability_id,
+        )
+        if self.candidate_id != expected_candidate_id:
+            raise ValueError("candidate_id must match candidate_id_for")
+        _validate_recommendation_factors(
+            kind=self.kind,
+            disposition=self.original_disposition,
+            recommendation_factors=self.recommendation_factors,
+            require_for_recommendation=True,
+        )
+        return self
 
 
 class SpecialistShard(_ValidatedInventoried):
@@ -255,6 +317,7 @@ class ProposalContext(_ValidatedInventoried):
     catalogue_ids: tuple[str, ...]
     capability_ids: tuple[str, ...]
     accepted_candidate_ids: tuple[str, ...] = ()
+    accepted_candidates: tuple[CandidateBaseline, ...] = ()
     held_ids: tuple[str, ...] = ()
     collapsed_provenance_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
@@ -300,6 +363,17 @@ class ProposalContext(_ValidatedInventoried):
     ) -> tuple[str, ...]:
         return tuple(sorted(_unique_identities(values, "accepted candidate identities")))
 
+    @field_validator("accepted_candidates")
+    @classmethod
+    def _accepted_candidates_are_canonical(
+        cls,
+        values: tuple[CandidateBaseline, ...],
+    ) -> tuple[CandidateBaseline, ...]:
+        candidate_ids = tuple(item.candidate_id for item in values)
+        if len(set(candidate_ids)) != len(candidate_ids):
+            raise ValueError("accepted candidate baselines must be unique")
+        return tuple(sorted(values, key=lambda item: item.candidate_id))
+
     @model_validator(mode="after")
     def _context_bindings_are_closed(self) -> Self:
         bound = (self.packet_id, self.packet_digest, self.packet_role)
@@ -307,19 +381,27 @@ class ProposalContext(_ValidatedInventoried):
             value is not None for value in bound
         ):
             raise ValueError("packet_id, packet_digest, and packet_role must be provided together")
+        if self.packet_id is not None and self.packet_id != f"packet:{self.packet_digest}":
+            raise ValueError("packet_id must equal packet: plus packet_digest")
         if self.analysis_mode == "inventory-only":
             if any(value is not None for value in bound):
                 raise ValueError("inventory-only context must be unbound")
-            if self.accepted_candidate_ids:
-                raise ValueError("inventory-only context cannot include candidate IDs")
+            if self.accepted_candidate_ids or self.accepted_candidates:
+                raise ValueError("inventory-only context cannot include candidate IDs or baselines")
         elif not all(value is not None for value in bound):
             raise ValueError(
                 "guided-analysis context must include packet_id, packet_digest, and packet_role"
             )
-        if self.accepted_candidate_ids and (
-            self.packet_role is not SpecialistRole.SCEPTICAL_RECONCILER
-        ):
-            raise ValueError("accepted candidate IDs are only valid for a guided sceptical packet")
+        baseline_ids = tuple(item.candidate_id for item in self.accepted_candidates)
+        if self.packet_role is SpecialistRole.SCEPTICAL_RECONCILER:
+            if self.analysis_mode != "guided-analysis":
+                raise ValueError("accepted candidates are only valid for guided sceptical analysis")
+            if self.accepted_candidate_ids != baseline_ids:
+                raise ValueError(
+                    "guided sceptical accepted candidate IDs must match baseline candidate IDs"
+                )
+        elif self.accepted_candidate_ids or self.accepted_candidates:
+            raise ValueError("accepted candidates are only valid for a guided sceptical packet")
         return self
 
 
@@ -432,8 +514,13 @@ def validate_proposal(
         raise SpecialistProposalError(
             "proposal catalogue digest does not match the verified catalogue"
         )
+    if proposal.packet_id is not None and proposal.packet_id != f"packet:{proposal.packet_digest}":
+        raise SpecialistProposalError("proposal packet_id must equal packet: plus packet_digest")
+    if context.packet_id is not None and context.packet_id != f"packet:{context.packet_digest}":
+        raise SpecialistProposalError("context packet_id must equal packet: plus packet_digest")
     proposal_bound = proposal.packet_id is not None or proposal.packet_digest is not None
     context_bound = context.analysis_mode == "guided-analysis"
+    baseline: CandidateBaseline | None = None
     if context_bound:
         if proposal.packet_id is None or proposal.packet_digest is None:
             raise SpecialistProposalError(
@@ -447,6 +534,27 @@ def validate_proposal(
             raise SpecialistProposalError("proposal packet digest does not match the issued packet")
         if proposal.role is not context.packet_role:
             raise SpecialistProposalError("proposal role does not match the issued packet role")
+        if context.packet_role is SpecialistRole.SCEPTICAL_RECONCILER:
+            baseline_ids = tuple(item.candidate_id for item in context.accepted_candidates)
+            if context.accepted_candidate_ids != baseline_ids:
+                raise SpecialistProposalError(
+                    "guided sceptical accepted candidate IDs must match baseline candidate IDs"
+                )
+            baselines = {item.candidate_id: item for item in context.accepted_candidates}
+            baseline = baselines.get(proposal.candidate_id or "")
+            if baseline is None:
+                raise SpecialistProposalError(
+                    "sceptical proposals may only accept or downgrade an existing "
+                    "candidate baseline"
+                )
+            if (
+                proposal.kind is not baseline.kind
+                or proposal.catalogue_id != baseline.catalogue_id
+                or proposal.capability_id != baseline.capability_id
+            ):
+                raise SpecialistProposalError(
+                    "sceptical proposal identity does not match its candidate baseline"
+                )
         expected_candidate_id = candidate_id_for(
             proposal.kind,
             proposal.catalogue_id,
@@ -467,13 +575,30 @@ def validate_proposal(
             "a guided recommendation proposal requires recommendation factors "
             "(RecommendationFactors)"
         )
-    if (
-        context.packet_role is SpecialistRole.SCEPTICAL_RECONCILER
-        and proposal.candidate_id not in set(context.accepted_candidate_ids)
-    ):
-        raise SpecialistProposalError(
-            "sceptical proposals may only accept or downgrade an existing candidate"
-        )
+    if baseline is not None:
+        if proposal.recommendation_factors != baseline.recommendation_factors:
+            raise SpecialistProposalError(
+                "sceptical recommendation factors must match the candidate baseline"
+            )
+        allowed_dispositions = {
+            baseline.original_disposition,
+            Disposition.NOT_ASSESSED,
+            Disposition.NOT_RELEVANT,
+            Disposition.FRAGILE_OR_CONTRADICTORY,
+        }
+        if proposal.disposition not in allowed_dispositions:
+            raise SpecialistProposalError(
+                "sceptical disposition must preserve or downgrade the candidate baseline"
+            )
+        if proposal.disposition is baseline.original_disposition:
+            if tuple(sorted(proposal.evidence_ids)) != baseline.evidence_ids:
+                raise SpecialistProposalError(
+                    "unchanged sceptical decisions must retain baseline evidence identities"
+                )
+            if tuple(sorted(proposal.observation_ids)) != baseline.observation_ids:
+                raise SpecialistProposalError(
+                    "unchanged sceptical decisions must retain baseline observation identities"
+                )
     allowed_evidence = set(context.evidence_ids)
     allowed_observations = set(context.observation_ids)
     collapsed = set(context.collapsed_provenance_ids)
