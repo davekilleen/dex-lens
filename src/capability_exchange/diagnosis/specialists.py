@@ -57,9 +57,12 @@ class SpecialistRole(StrEnum):
 
     TOOLS_AND_INTEGRATIONS = "tools-and-integrations"
     AUTOMATIONS_AND_LIVE_STATE = "automations-and-live-state"
+    PEOPLE_AND_WORK_CONTINUITY = "people-and-work-continuity"
+    OPERATING_RHYTHM_AND_MEMORY = "operating-rhythm-and-memory"
     STRENGTH_AND_RECIPROCAL = "strength-and-reciprocal"
     CONTRADICTIONS_AND_RELIABILITY = "contradictions-and-reliability"
     RELEASE_DISTANCE = "release-distance"
+    WORKFLOW_SYNTHESIS = "workflow-synthesis"
     SCEPTICAL_RECONCILER = "sceptical-reconciler"
 
 

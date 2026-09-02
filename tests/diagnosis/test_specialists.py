@@ -117,9 +117,12 @@ def test_specialist_roles_are_closed() -> None:
     assert [role.value for role in SpecialistRole] == [
         "tools-and-integrations",
         "automations-and-live-state",
+        "people-and-work-continuity",
+        "operating-rhythm-and-memory",
         "strength-and-reciprocal",
         "contradictions-and-reliability",
         "release-distance",
+        "workflow-synthesis",
         "sceptical-reconciler",
     ]
 

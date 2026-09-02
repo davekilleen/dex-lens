@@ -9240,3 +9240,303 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral validated observation mapping"
+
+  WorkPacket.packet_id:
+    description: "opaque identity of one engine-issued specialist work packet"
+    collection: "derived from the canonical packet role and allowed identities"
+    derivation: "packet digest prefixed with packet"
+    display: "used to request and submit exactly one bounded assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity; contains no raw private content"
+
+  WorkPacket.packet_digest:
+    description: "SHA-256 binding of the exact work packet content"
+    collection: "computed by the diagnosis engine when the packet is issued"
+    derivation: "canonical JSON digest over role, run, catalogue, and allowed identities"
+    display: "used to refuse stale or substituted packet responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral integrity binding for specialist work"
+
+  WorkPacket.role:
+    description: "closed specialist role assigned to one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "one of the eight normal roles or the sceptical reconciler"
+    display: "explains the bounded question the host assistant must answer"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed work assignment"
+
+  WorkPacket.run_id:
+    description: "diagnosis run identity bound into one work packet"
+    collection: "copied from the current diagnosis run"
+    derivation: "opaque run identity; raw scope paths are excluded"
+    display: "used to keep specialist work within one diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run binding"
+
+  WorkPacket.fingerprint_digest:
+    description: "captured fingerprint digest bound into one work packet"
+    collection: "copied from the verified diagnosis fingerprint"
+    derivation: "SHA-256 identity of the approved structural evidence set"
+    display: "used to reject work for a changed inspected system"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding"
+
+  WorkPacket.catalogue_digest:
+    description: "verified Dex catalogue digest bound into one work packet"
+    collection: "copied from the exact signed catalogue used by the run"
+    derivation: "SHA-256 identity of the verified catalogue bytes"
+    display: "used to reject work for a changed catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public-catalogue binding"
+
+  WorkPacket.evidence_ids:
+    description: "engine-issued evidence tokens available to one specialist"
+    collection: "copied from the exact captured diagnosis fingerprint"
+    derivation: "unique canonical evidence tokens; raw content is not included"
+    display: "limits which evidence a specialist response may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound work identities"
+
+  WorkPacket.catalogue_ids:
+    description: "Dex catalogue identities available to one specialist"
+    collection: "copied from the verified catalogue slice for this run"
+    derivation: "unique canonical catalogue identities"
+    display: "limits which Dex capabilities a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public capability identities"
+
+  WorkPacket.capability_ids:
+    description: "human capability identities available to one specialist"
+    collection: "copied from the confirmed capability context"
+    derivation: "unique canonical capability identities"
+    display: "limits which person methods a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded capability identities"
+
+  WorkPacket.observation_ids:
+    description: "local observation identities available to one specialist"
+    collection: "copied from the exact captured fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "limits which local observations a specialist may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identities"
+
+  WorkPacket.family_ids:
+    description: "workflow family identities available to one specialist"
+    collection: "copied from the deterministic family assessment context"
+    derivation: "unique canonical family identities; omitted when unavailable"
+    display: "limits which capability families a specialist may discuss"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded family identities"
+
+  WorkPacket.workflow_ids:
+    description: "workflow identities available to one specialist"
+    collection: "copied from the deterministic workflow graph context"
+    derivation: "unique canonical workflow identities; omitted when unavailable"
+    display: "limits which reconstructed workflows a specialist may discuss"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded workflow identities"
+
+  WorkPacket.question:
+    description: "closed bounded question assigned to one specialist role"
+    collection: "authored by the diagnosis engine role manifest"
+    derivation: "fixed plain-language question for the closed role"
+    display: "shown to the chosen host assistant for one packet"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral protocol instruction; no private prompt content"
+
+  WorkPacket.max_proposals:
+    description: "maximum proposal count accepted for one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "bounded integer ceiling of twenty-four"
+    display: "limits specialist response size"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral abuse-prevention limit"
+
+  WorkReceipt.packet_id:
+    description: "packet identity acknowledged by one specialist response"
+    collection: "copied from the engine-issued work packet"
+    derivation: "must identify a pending packet in the current queue"
+    display: "joins a response to exactly one assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response routing identity"
+
+  WorkReceipt.packet_digest:
+    description: "packet digest acknowledged by one specialist response"
+    collection: "copied from the engine-issued work packet"
+    derivation: "must exactly match the current packet digest"
+    display: "proves the response is not stale or substituted"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response integrity binding"
+
+  WorkReceipt.response_digest:
+    description: "SHA-256 binding of one bounded specialist response"
+    collection: "computed by the host adapter over the typed response"
+    derivation: "canonical response digest supplied with the receipt"
+    display: "supports idempotent replay and conflicting-response refusal"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted response integrity binding"
+
+  WorkReceipt.status:
+    description: "closed outcome status recorded for one work packet"
+    collection: "returned by the host assistant through the typed protocol"
+    derivation: "pending, completed, insufficient, or unresolved"
+    display: "shows whether the packet produced useful output or an honest gap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded specialist outcome"
+
+  WorkReceipt.submission_route:
+    description: "closed route through which one packet response was submitted"
+    collection: "assigned by the engine work-packet submission path"
+    derivation: "always engine-work-packet for this queue"
+    display: "supports provenance checks against manually seeded conclusions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response provenance marker"
+
+  WorkReceipt.proposal_count:
+    description: "number of typed proposals carried by one packet response"
+    collection: "counted by the engine from the bounded response tuple"
+    derivation: "non-negative integer no greater than the packet limit"
+    display: "shown in packet audit totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response-size audit fact"
+
+  WorkQueue.mode:
+    description: "analysis mode governing one immutable specialist queue"
+    collection: "copied from the diagnosis request"
+    derivation: "inventory-only or guided-analysis"
+    display: "explains whether semantic specialist work was requested"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral queue mode"
+
+  WorkQueue.packets:
+    description: "ordered immutable packets issued by the diagnosis engine"
+    collection: "created deterministically from the run context and role manifest"
+    derivation: "eight normal packets followed by one locked sceptical packet in guided mode"
+    display: "drives the host assistant work loop"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded specialist checklist"
+
+  WorkQueue.receipts:
+    description: "immutable response receipts reconciled into one work queue"
+    collection: "appended only after packet and digest validation"
+    derivation: "at most one receipt per issued packet"
+    display: "drives completion and unresolved-work status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral specialist completion audit"
+
+  WorkQueue.sceptical_packet_id:
+    description: "identity of the mandatory sceptical reconciliation packet"
+    collection: "assigned when guided work is issued"
+    derivation: "the packet identity whose role is sceptical-reconciler"
+    display: "shows which final challenge remains locked until normal work completes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical-pass gate"
+
+  WorkAudit.mode:
+    description: "analysis mode recorded in the specialist work audit"
+    collection: "copied from the reconciled work queue"
+    derivation: "closed queue mode vocabulary"
+    display: "shown in run audit diagnostics"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work audit metadata"
+
+  WorkAudit.packet_count:
+    description: "number of packets issued by one specialist work queue"
+    collection: "counted from the immutable queue packet tuple"
+    derivation: "non-negative deterministic count"
+    display: "shown in exact run work totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work audit count"
+
+  WorkAudit.completed_count:
+    description: "number of issued packets with a response receipt"
+    collection: "counted from the immutable queue receipt tuple"
+    derivation: "non-negative count including explicit insufficient or unresolved outcomes"
+    display: "shown in exact run work totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work completion audit count"
+
+  WorkAudit.unresolved_count:
+    description: "number of packet receipts recorded as unresolved"
+    collection: "counted from typed receipt statuses"
+    derivation: "status equals unresolved"
+    display: "shown so missing semantic coverage stays visible"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest-gap audit count"
+
+  WorkAudit.manual_submission_count:
+    description: "number of packet responses submitted outside the engine route"
+    collection: "counted from typed receipt provenance markers"
+    derivation: "zero for the closed engine-work-packet route"
+    display: "used by the Wow Gate to refuse manually seeded conclusions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral provenance audit count"
+
+  WorkAudit.receipts:
+    description: "receipts retained in the specialist work audit"
+    collection: "copied from the reconciled immutable work queue"
+    derivation: "ordered typed receipts with packet and response digests"
+    display: "supports exact packet-level audit review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral specialist response audit"
