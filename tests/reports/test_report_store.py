@@ -258,6 +258,52 @@ class TestSaveResult:
         stored = saved.result_path.read_text(encoding="utf-8")
         assert canonical_ledger_digest(ledger) in stored
 
+    def test_unsorted_valid_ledger_round_trips_through_appendix_self_check(
+        self, store: LensReportStore
+    ) -> None:
+        from tests.diagnosis.test_report_model import ranked_ledger, run_identity
+
+        from capability_exchange.diagnosis.comparison import ComparisonLedger
+        from capability_exchange.diagnosis.orchestrator import DiagnosisResult
+        from capability_exchange.diagnosis.report import (
+            ReportModel,
+            canonical_ledger_digest,
+            ledger_appendix_errors,
+        )
+
+        base = ranked_ledger()
+        unsorted_entry = base.entries[0].model_copy(
+            update={"evidence_references": ("evidence:z", "evidence:a")}
+        )
+        matching_recommendation = base.ranked_recommendations[0].model_copy(
+            update={"evidence_ids": ("evidence:a", "evidence:z")}
+        )
+        ledger = base.model_copy(
+            update={
+                "entries": (unsorted_entry, *base.entries[1:]),
+                "ranked_recommendations": (
+                    matching_recommendation,
+                    *base.ranked_recommendations[1:],
+                ),
+            }
+        )
+        result = DiagnosisResult(
+            report=ReportModel.from_result(
+                run_identity=run_identity(),
+                ledger=ledger,
+                ledger_sha256=canonical_ledger_digest(ledger),
+            ),
+            ledger=ledger,
+        )
+
+        saved = store.save_result(result, label="vault", now=NOW)
+        reloaded = ComparisonLedger.model_validate(
+            json.loads(saved.ledger_path.read_text(encoding="utf-8"))
+        )
+
+        assert canonical_ledger_digest(reloaded) == canonical_ledger_digest(ledger)
+        assert ledger_appendix_errors(saved.path.read_text(encoding="utf-8"), reloaded) == ()
+
     def test_it_refuses_arbitrary_markdown_without_a_typed_result(
         self, store: LensReportStore
     ) -> None:

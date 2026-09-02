@@ -581,7 +581,7 @@ def _appendix_catalogue_row(item: object) -> dict[str, object]:
         "catalogue_id": item.catalogue_id,
         "capability_id": item.capability_id,
         "disposition": item.disposition.value,
-        "evidence_references": list(item.evidence_references),
+        "evidence_references": sorted(item.evidence_references),
         "method_compared": item.method_compared,
         "reason": item.reason,
     }
