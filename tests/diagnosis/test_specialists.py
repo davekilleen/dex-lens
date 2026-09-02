@@ -248,6 +248,56 @@ def test_recommendation_factors_are_retained_only_for_recommendations() -> None:
     assert accepted_mapping.recommendation_factors is None
 
 
+def test_specialist_and_validated_reasons_cannot_be_whitespace_only() -> None:
+    with pytest.raises(ValidationError, match="non-empty"):
+        proposal(reason="   ")
+
+    with pytest.raises(ValidationError, match="non-empty"):
+        ValidatedProposal(
+            kind=ProposalKind.MAPPING,
+            catalogue_id=DEFAULT_CATALOGUE_ID,
+            capability_id=DEFAULT_CAPABILITY_ID,
+            disposition=Disposition.SHARED,
+            evidence_ids=(CURRENT_EVIDENCE,),
+            reason="   ",
+        )
+
+
+def test_conflicting_recommendation_factors_remain_unresolved() -> None:
+    context = proposal_context(evidence_ids=("current:first", "current:second"))
+    first = recommendation(DEFAULT_CATALOGUE_ID).model_copy(
+        update={
+            "evidence_ids": ("current:first",),
+            "recommendation_factors": RecommendationFactors(
+                reliability_risk=1,
+                job_relevance=2,
+                workflow_leverage=2,
+                evidence_strength=2,
+                adoption_effort=2,
+            ),
+        }
+    )
+    second = recommendation(DEFAULT_CATALOGUE_ID).model_copy(
+        update={
+            "role": SpecialistRole.SCEPTICAL_RECONCILER,
+            "evidence_ids": ("current:second",),
+            "recommendation_factors": RecommendationFactors(
+                reliability_risk=3,
+                job_relevance=2,
+                workflow_leverage=2,
+                evidence_strength=2,
+                adoption_effort=2,
+            ),
+        }
+    )
+
+    reconciled = reconcile_proposals((first, second), context=context)
+
+    assert reconciled[0].disposition is Disposition.NOT_ASSESSED
+    assert reconciled[0].reason == DISAGREEMENT_REASON
+    assert reconciled[0].recommendation_factors is None
+
+
 def test_release_distance_without_family_contract_is_refused() -> None:
     usable = proposal(
         role=SpecialistRole.RELEASE_DISTANCE,

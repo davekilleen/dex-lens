@@ -39,6 +39,7 @@ from capability_exchange.diagnosis.ranking import (
     RankedRecommendation,
     rank_recommendations,
 )
+from capability_exchange.diagnosis.run import _ValidatedInventoried
 from capability_exchange.diagnosis.significant_families import (
     ComponentMatchBasis,
     FamilyAssessmentDisposition,
@@ -613,7 +614,7 @@ def _model_validation_error(message: str, input_value: object) -> ValidationErro
     )
 
 
-class ComparisonLedger(InventoriedModel):
+class ComparisonLedger(_ValidatedInventoried):
     """Complete accounting for the verified catalogue and reciprocal value."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -642,10 +643,14 @@ class ComparisonLedger(InventoriedModel):
             item.disposition is Disposition.WORTH_BORROWING for item in self.entries
         )
         if recommendations > MAX_RECOMMENDATIONS:
-            raise ValueError("a report may recommend at most 10 Dex additions")
+            raise ValueError(
+                f"a report may recommend at most {MAX_RECOMMENDATIONS} Dex additions"
+            )
         ranked = self.ranked_recommendations
         if len(ranked) > MAX_RECOMMENDATIONS:
-            raise ValueError("a report may recommend at most 10 Dex additions")
+            raise ValueError(
+                f"a report may recommend at most {MAX_RECOMMENDATIONS} Dex additions"
+            )
         if ranked:
             ranked_ids = tuple(item.catalogue_id for item in ranked)
             if len(ranked_ids) != len(set(ranked_ids)):
@@ -671,6 +676,18 @@ class ComparisonLedger(InventoriedModel):
                 if recommendation.capability_id != entry.capability_id:
                     raise ValueError(
                         "ranked recommendation capability identity must match its ledger entry"
+                    )
+                if recommendation.evidence_ids != entry.evidence_references:
+                    raise ValueError(
+                        "ranked recommendation evidence IDs must match its ledger entry"
+                    )
+                if recommendation.reason != entry.reason:
+                    raise ValueError(
+                        "ranked recommendation reason must match its ledger entry"
+                    )
+                if recommendation.observation_ids:
+                    raise ValueError(
+                        "ranked recommendation observation IDs require a safe ledger source"
                     )
             expected_ranked = rank_recommendations(ranked)
             if expected_ranked != ranked:

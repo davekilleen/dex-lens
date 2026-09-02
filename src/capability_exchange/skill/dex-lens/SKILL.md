@@ -618,10 +618,9 @@ capability up under the jobs it serves. Then, for that job, ask:
    where the core-tier gaps are.
 
 Reject most of what Dex has. Its full surface is far larger than a shortlist —
-dozens of skills, plus its tools, its automations and its engine. Recommend at
-most three capabilities out of all of that. More means you have listed rather
-than compared. Three good suggestions with real reasons beat twenty hedged
-ones.
+dozens of skills, plus its tools, its automations and its engine. Recommend up
+to ten capabilities out of all of that. More means you have listed rather than
+compared. Useful suggestions with real reasons beat a long list of hedged ones.
 
 ### Never claim a version match you have not earned
 

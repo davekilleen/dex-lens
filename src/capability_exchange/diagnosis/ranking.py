@@ -68,16 +68,18 @@ class RecommendationCandidate(_ValidatedInventoried):
     @field_validator("evidence_ids")
     @classmethod
     def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return _unique_tokens(values, "recommendation evidence tokens")
+        return tuple(sorted(_unique_tokens(values, "recommendation evidence tokens")))
 
     @field_validator("observation_ids")
     @classmethod
     def _observation_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return _unique_identities(values, "recommendation observation identities")
+        return tuple(sorted(_unique_identities(values, "recommendation observation identities")))
 
     @field_validator("reason")
     @classmethod
     def _reason_is_one_safe_line(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("a recommendation reason must be non-empty")
         if _CONTROL.search(value):
             raise ValueError("a recommendation reason must be one bounded line")
         return value
@@ -105,8 +107,12 @@ def rank_recommendations(
             item.catalogue_id,
         ),
     )
+    if len({item.catalogue_id for item in ordered}) != len(ordered):
+        raise ValueError("recommendation candidates must have unique catalogue identities")
     if len(ordered) > MAX_RECOMMENDATIONS:
-        raise ValueError("a diagnosis may recommend at most 10 Dex additions")
+        raise ValueError(
+            f"a diagnosis may recommend at most {MAX_RECOMMENDATIONS} Dex additions"
+        )
     ranked: list[RankedRecommendation] = []
     for index, item in enumerate(ordered, start=1):
         values = item.model_dump()

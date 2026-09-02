@@ -162,6 +162,8 @@ class SpecialistProposal(_ValidatedInventoried):
     @field_validator("reason")
     @classmethod
     def _reason_is_one_safe_line(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("a proposal reason must be non-empty")
         if _CONTROL.search(value):
             raise ValueError("a proposal reason must be one bounded line")
         return value
@@ -239,6 +241,8 @@ class ValidatedProposal(_ValidatedInventoried):
     @field_validator("reason")
     @classmethod
     def _reason_is_one_safe_line(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("a validated reason must be non-empty")
         if _CONTROL.search(value):
             raise ValueError("a validated reason must be one bounded line")
         return value
@@ -358,7 +362,7 @@ def _group_key(proposal: ValidatedProposal) -> tuple[str, str, str]:
 def _coalesced_recommendation_factors(
     group: list[ValidatedProposal],
 ) -> RecommendationFactors | None:
-    """Select one stable factor record when agreeing recommendations coalesce."""
+    """Retain factors only when every agreeing recommendation supplied the same tuple."""
 
     factors = [
         item.recommendation_factors
@@ -367,16 +371,22 @@ def _coalesced_recommendation_factors(
     ]
     if not factors:
         return None
-    return sorted(
-        factors,
-        key=lambda item: (
-            -item.reliability_risk,
-            -item.job_relevance,
-            -item.workflow_leverage,
-            -item.evidence_strength,
-            item.adoption_effort,
-        ),
-    )[0]
+    return factors[0] if len(set(factors)) == 1 else None
+
+
+def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
+    """Detect conflicting complete factor tuples without choosing a winner."""
+
+    factors = [
+        item.recommendation_factors
+        for item in group
+        if _is_recommendation(item)
+    ]
+    return (
+        len(factors) > 1
+        and all(item is not None for item in factors)
+        and len(set(factors)) > 1
+    )
 
 
 def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
@@ -388,7 +398,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
             f"coalesced proposals may cite at most {MAX_EVIDENCE_IDS} evidence tokens"
         )
     sample = group[0]
-    if len(dispositions) == 1:
+    if len(dispositions) == 1 and not _recommendation_factors_conflict(group):
         reasons = sorted(item.reason for item in group)
         return ValidatedProposal(
             kind=sample.kind,
@@ -415,7 +425,9 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
 def _enforce_recommendation_cap(proposals: Iterable[ValidatedProposal]) -> None:
     recommended = [item for item in proposals if _is_recommendation(item)]
     if len(recommended) > MAX_RECOMMENDATIONS:
-        raise SpecialistProposalError("a diagnosis may recommend at most 10 Dex additions")
+        raise SpecialistProposalError(
+            f"a diagnosis may recommend at most {MAX_RECOMMENDATIONS} Dex additions"
+        )
 
 
 def reconcile_proposals(

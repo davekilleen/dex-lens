@@ -30,6 +30,14 @@ def test_skill_requires_praise_reciprocity_and_ten_or_fewer() -> None:
     assert "repeat the best strength" in text
 
 
+def test_skill_has_no_stale_three_recommendation_cap() -> None:
+    text = SKILL.read_text(encoding="utf-8").lower()
+
+    assert "at most three" not in text
+    assert "no more than three" not in text
+    assert "three good suggestions" not in text
+
+
 def test_skill_requires_engine_owned_catalogue_completeness() -> None:
     text = SKILL.read_text(encoding="utf-8")
 

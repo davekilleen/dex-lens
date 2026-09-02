@@ -77,6 +77,24 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             }
             for item in sorted(ledger.entries, key=lambda item: item.catalogue_id)
         ],
+        "ranked_recommendations": [
+            {
+                "catalogue_id": item.catalogue_id,
+                "capability_id": item.capability_id,
+                "factors": {
+                    "reliability_risk": item.factors.reliability_risk,
+                    "job_relevance": item.factors.job_relevance,
+                    "workflow_leverage": item.factors.workflow_leverage,
+                    "evidence_strength": item.factors.evidence_strength,
+                    "adoption_effort": item.factors.adoption_effort,
+                },
+                "evidence_ids": list(item.evidence_ids),
+                "observation_ids": list(item.observation_ids),
+                "reason": item.reason,
+                "rank": item.rank,
+            }
+            for item in ledger.ranked_recommendations
+        ],
         "mcp_tools_by_server": [
             {
                 "declared_tool_count": item.declared_tool_count,

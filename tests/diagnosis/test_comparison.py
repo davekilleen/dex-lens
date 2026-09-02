@@ -119,6 +119,107 @@ def test_ledger_preserves_the_exact_ranked_recommendation_tuple() -> None:
     assert ledger.ranked_recommendations == ranked
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("evidence_ids", ("path-token:other",), "evidence"),
+        ("reason", "A different reason.", "reason"),
+        ("observation_ids", ("arbitrary-observation",), "observation"),
+    ),
+)
+def test_ranked_recommendation_is_bound_to_ledger_evidence_and_reason(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:item-0",),
+        method_compared=True,
+    )
+    candidate_values: dict[str, object] = {
+        "catalogue_id": entry.catalogue_id,
+        "capability_id": entry.capability_id,
+        "factors": RecommendationFactors(
+            reliability_risk=3,
+            job_relevance=2,
+            workflow_leverage=1,
+            evidence_strength=2,
+            adoption_effort=1,
+        ),
+        "evidence_ids": ("path-token:item-0",),
+        "reason": entry.reason,
+    }
+    if field == "observation_ids":
+        candidate_values[field] = value
+    else:
+        candidate_values[field] = value
+    ranked = rank_recommendations((RecommendationCandidate(**candidate_values),))
+
+    with pytest.raises(ValidationError, match=message):
+        ComparisonLedger(
+            catalogue_version=5,
+            catalogue_sha256=CATALOGUE_SHA,
+            capabilities=(_human(entry.catalogue_id),),
+            entries=(entry,),
+            ranked_recommendations=ranked,
+            reciprocal_answer="No transferable method cleared the evidence bar.",
+        )
+
+
+def test_ledger_ranked_recommendations_reject_validation_bypasses() -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:item-0",),
+        method_compared=True,
+    )
+    ranked = rank_recommendations(
+        (
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                factors=RecommendationFactors(
+                    reliability_risk=3,
+                    job_relevance=2,
+                    workflow_leverage=1,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=entry.evidence_references,
+                reason=entry.reason,
+            ),
+        )
+    )
+    values = {
+        "catalogue_version": 5,
+        "catalogue_sha256": CATALOGUE_SHA,
+        "capabilities": (_human(entry.catalogue_id),),
+        "entries": (entry,),
+        "ranked_recommendations": (
+            {
+                **ranked[0].model_dump(),
+                "rank": 11,
+            },
+        ),
+        "reciprocal_answer": "No transferable method cleared the evidence bar.",
+    }
+
+    ledger = ComparisonLedger(
+        catalogue_version=5,
+        catalogue_sha256=CATALOGUE_SHA,
+        capabilities=(_human(entry.catalogue_id),),
+        entries=(entry,),
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
+    with pytest.raises(ValidationError):
+        ledger.model_copy(update={"ranked_recommendations": values["ranked_recommendations"]})
+    with pytest.raises(ValidationError):
+        ComparisonLedger.model_construct(**values)
+
+
 def test_same_name_without_method_evidence_cannot_be_shared() -> None:
     with pytest.raises(ValidationError, match="method evidence"):
         _disposition(

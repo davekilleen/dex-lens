@@ -68,6 +68,45 @@ def test_recommendations_have_one_stable_explainable_order() -> None:
     assert not any("percent" in field_name for field_name in RankedRecommendation.model_fields)
 
 
+def test_duplicate_catalogue_ids_are_refused_and_reversed_input_is_stable() -> None:
+    candidates = (
+        candidate("first", relevance=2),
+        candidate("second", relevance=1),
+    )
+
+    forward = rank_recommendations(candidates)
+    reversed_input = rank_recommendations(tuple(reversed(candidates)))
+
+    assert [item.catalogue_id for item in forward] == ["first", "second"]
+    assert [item.catalogue_id for item in reversed_input] == ["first", "second"]
+    assert len({item.catalogue_id for item in forward}) == len(forward)
+
+    with pytest.raises(ValueError, match="unique catalogue"):
+        rank_recommendations((candidate("duplicate"), candidate("duplicate")))
+
+
+def test_candidate_identity_lists_are_canonical_under_permutation() -> None:
+    first = candidate("permutation").model_copy(
+        update={
+            "evidence_ids": ("evidence:z", "evidence:a"),
+            "observation_ids": ("observation:z", "observation:a"),
+        }
+    )
+    second = candidate("permutation").model_copy(
+        update={
+            "evidence_ids": ("evidence:a", "evidence:z"),
+            "observation_ids": ("observation:a", "observation:z"),
+        }
+    )
+
+    assert first.evidence_ids == second.evidence_ids == ("evidence:a", "evidence:z")
+    assert first.observation_ids == second.observation_ids == (
+        "observation:a",
+        "observation:z",
+    )
+    assert rank_recommendations((first,)) == rank_recommendations((second,))
+
+
 def test_recommendation_factors_and_candidates_are_bounded() -> None:
     with pytest.raises(ValidationError):
         RecommendationFactors(
@@ -99,6 +138,8 @@ def test_recommendation_factors_and_candidates_are_bounded() -> None:
             evidence_ids=tuple(f"evidence:{index}" for index in range(9)),
             reason="This available capability addresses a grounded gap.",
         )
+    with pytest.raises(ValidationError, match="non-empty"):
+        candidate("blank-reason",).model_copy(update={"reason": "   "})
 
 
 def test_ranking_models_reject_copy_and_construct_bypasses() -> None:

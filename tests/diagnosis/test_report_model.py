@@ -16,7 +16,17 @@ from tests.evals.real_session_fixture import (
 )
 from tests.evals.test_real_session_replay import expected_contract
 
-from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis.comparison import (
+    CatalogueDisposition,
+    ComparisonLedger,
+    Disposition,
+    HumanCapability,
+)
+from capability_exchange.diagnosis.ranking import (
+    RecommendationCandidate,
+    RecommendationFactors,
+    rank_recommendations,
+)
 from capability_exchange.diagnosis.receipts import (
     DecisionState,
     DestinationClass,
@@ -34,6 +44,53 @@ from capability_exchange.diagnosis.run import ENGINE_VERSION, INPUT_SCHEMA_VERSI
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 
 FALSE_COVERAGE_CLAIM = "93 capabilities are already covered"
+
+
+def ranked_ledger() -> ComparisonLedger:
+    entries = tuple(
+        CatalogueDisposition(
+            catalogue_id=f"recommendation-{index}",
+            capability_id=f"capability-{index}",
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_references=(f"evidence:{index}",),
+            method_compared=True,
+            reason=f"Reason {index}.",
+        )
+        for index in range(2)
+    )
+    candidates = tuple(
+        RecommendationCandidate(
+            catalogue_id=entry.catalogue_id,
+            capability_id=entry.capability_id,
+            factors=RecommendationFactors(
+                reliability_risk=2 - index,
+                job_relevance=2,
+                workflow_leverage=2,
+                evidence_strength=2,
+                adoption_effort=1,
+            ),
+            evidence_ids=entry.evidence_references,
+            reason=entry.reason,
+        )
+        for index, entry in enumerate(entries)
+    )
+    return ComparisonLedger(
+        catalogue_version=1,
+        catalogue_sha256="a" * 64,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=f"capability-{index}",
+                title=f"Capability {index}",
+                job_ids=(),
+                catalogue_ids=(f"recommendation-{index}",),
+                person_observation_ids=(),
+            )
+            for index in range(2)
+        ),
+        entries=entries,
+        ranked_recommendations=rank_recommendations(candidates),
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
 
 
 def run_identity() -> RunIdentity:
@@ -110,6 +167,41 @@ def test_canonical_ledger_digest_is_stable_and_content_bound() -> None:
     )
 
     assert canonical_ledger_digest(drifted) != digest
+
+
+@pytest.mark.parametrize("change", ("rank", "factors", "evidence_ids", "reason"))
+def test_canonical_ledger_digest_binds_ranked_recommendation_details(change: str) -> None:
+    ledger = ranked_ledger()
+    digest = canonical_ledger_digest(ledger)
+    first = ledger.ranked_recommendations[0]
+    if change == "rank":
+        updated = first.model_copy(update={"rank": 2})
+    elif change == "factors":
+        updated = first.model_copy(
+            update={
+                "factors": RecommendationFactors(
+                    reliability_risk=1,
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                )
+            }
+        )
+    elif change == "evidence_ids":
+        updated = first.model_copy(update={"evidence_ids": ("evidence:changed",)})
+    else:
+        updated = first.model_copy(update={"reason": "Changed ranked reason."})
+    changed = ledger.model_copy()
+    # Simulate bytes tampered after validation: the digest must still bind the
+    # ranked payload even when a hostile caller bypasses model validation.
+    object.__setattr__(
+        changed,
+        "ranked_recommendations",
+        (updated, *ledger.ranked_recommendations[1:]),
+    )
+
+    assert canonical_ledger_digest(changed) != digest
 
 
 def test_canonical_fact_block_is_exact_ledger_projection() -> None:
