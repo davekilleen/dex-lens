@@ -52,7 +52,7 @@ def test_interrupted_run_resumes_to_the_same_canonical_bytes(
     stage: DiagnosisStage, tmp_path: Path
 ) -> None:
     replay = real_session_replay(ordering="forward")
-    uninterrupted = run_direct(replay)
+    uninterrupted = run_direct(replay, analysis_mode=AnalysisMode.GUIDED)
     harness = ReplayHarness(
         replay,
         tmp_path / stage.value,

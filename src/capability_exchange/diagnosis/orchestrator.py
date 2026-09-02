@@ -243,6 +243,7 @@ class DeterministicDiagnosisEngine:
             run_id=view.run_id,
             engine_version=ENGINE_VERSION,
             input_schema_version=INPUT_SCHEMA_VERSION,
+            analysis_mode=analysis_mode.value,
             created_at=now,
         )
         identity = canonical_json_digest(
@@ -555,6 +556,18 @@ class DeterministicDiagnosisEngine:
             raise DiagnosisStateError("stored diagnosis input identity is invalid")
         return diagnosis_input
 
+    def _run_identity(self, checkpoint: DiagnosisCheckpoint) -> RunIdentity:
+        payload = self._find_kind(checkpoint, "run-identity")
+        if not isinstance(payload, dict):
+            raise DiagnosisStateError("run identity is missing from this diagnosis checkpoint")
+        try:
+            from capability_exchange.diagnosis.run import upgrade_stored_run_identity_payload
+
+            upgraded = upgrade_stored_run_identity_payload(payload)
+            return RunIdentity.model_validate(upgraded)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored run identity is unreadable") from exc
+
     def _analysis_mode(self, checkpoint: DiagnosisCheckpoint) -> AnalysisMode:
         """Return the persisted mode, migrating old inputs conservatively."""
 
@@ -564,16 +577,23 @@ class DeterministicDiagnosisEngine:
         # tampered state cannot be silently reinterpreted as compatibility.
         if self._has_kind(checkpoint, "diagnosis-input"):
             return AnalysisMode(self._diagnosis_input(checkpoint).analysis_mode)
-        # The candidate-scope sidecar is the durable mode authority before
-        # job confirmation materialises ``diagnosis-input``.  This keeps a new
-        # guided run packet-bound even at CATALOGUE_VERIFIED.
+        identity_mode = AnalysisMode(self._run_identity(checkpoint).analysis_mode)
+        # The candidate-scope sidecar mirrors the digest-chain mode authority
+        # before job confirmation materialises ``diagnosis-input``.  A missing
+        # or contradictory sidecar must fail closed rather than downgrade a
+        # guided run back to inventory-only semantics.
         candidate_scope = self._runs.load_candidate_scope(checkpoint.run_id)
-        if candidate_scope is not None:
-            return candidate_scope.analysis_mode
-        # A genuine pre-mode checkpoint may not carry either a diagnosis input
-        # artifact or a candidate-scope sidecar.  Such a run is legacy and
-        # retains inventory-only semantics.
-        return AnalysisMode.INVENTORY_ONLY
+        if candidate_scope is None:
+            if identity_mode is AnalysisMode.GUIDED:
+                raise DiagnosisStateError(
+                    "candidate scope is missing for this guided diagnosis run"
+                )
+            return identity_mode
+        if candidate_scope.analysis_mode is not identity_mode:
+            raise DiagnosisStateError(
+                "stored candidate scope analysis mode does not match this run"
+            )
+        return identity_mode
 
     def _require_receipt(self, checkpoint: DiagnosisCheckpoint) -> ApprovedScopeReceipt:
         receipt = self._consent.receipt_for(checkpoint.run_id)
@@ -676,12 +696,7 @@ class DeterministicDiagnosisEngine:
         receipt = self._require_receipt(checkpoint)
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
-        candidate_scope = self._runs.load_candidate_scope(checkpoint.run_id)
-        analysis_mode = (
-            candidate_scope.analysis_mode
-            if candidate_scope is not None
-            else AnalysisMode.INVENTORY_ONLY
-        )
+        analysis_mode = self._analysis_mode(checkpoint)
         diagnosis_input = DiagnosisInput(
             run_id=checkpoint.run_id,
             engine_version=ENGINE_VERSION,

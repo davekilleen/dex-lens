@@ -2915,6 +2915,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "product schema marker only"
 
+  RunIdentity.analysis_mode:
+    description: "digest-chain analysis mode chosen at prepare time"
+    collection: "copied from the prepare request before any read"
+    derivation: "closed inventory-only or guided-analysis value"
+    display: "never shown directly; binds guided runs before diagnosis input exists"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "pre-confirmation mode authority bound into the run identity artifact"
+
   RunIdentity.created_at:
     description: "timezone-aware moment the run identity was created"
     collection: "recorded when prepare allocates the run"

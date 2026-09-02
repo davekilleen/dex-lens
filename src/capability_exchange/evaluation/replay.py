@@ -417,14 +417,18 @@ def canonical_replay_bytes(result: DiagnosisResult) -> bytes:
     return canonical_result_bytes(result.dump_for_storage())
 
 
-def run_direct(replay: ReplayBundle) -> bytes:
+def run_direct(
+    replay: ReplayBundle,
+    *,
+    analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
+) -> bytes:
     """Drive the engine interface with no adapter translation."""
 
     with TemporaryDirectory(prefix="lens-replay-direct-") as tmp:
         harness = ReplayHarness(
             replay,
             Path(tmp),
-            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+            analysis_mode=analysis_mode,
         )
         return canonical_replay_bytes(harness.run_to_closed())
 

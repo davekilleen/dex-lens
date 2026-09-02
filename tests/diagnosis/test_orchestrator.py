@@ -436,6 +436,42 @@ def test_submit_validates_via_task_7_and_cannot_alter_evidence(
     assert engine.collector.calls == collector_calls_before
 
 
+def test_guided_run_fails_closed_when_candidate_sidecar_is_missing(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.CATALOGUE_VERIFIED)
+    candidate_path = engine.run_store._candidate_path_for(prepared.run_id)  # noqa: SLF001
+    assert candidate_path.is_file()
+    candidate_path.unlink()
+
+    with pytest.raises(DiagnosisStateError, match="candidate scope"):
+        engine.advance(prepared.run_id)
+    with pytest.raises(DiagnosisStateError, match="candidate scope"):
+        engine.submit(prepared.run_id, {})
+
+
+def test_guided_run_fails_closed_when_candidate_sidecar_mode_is_tampered(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.CATALOGUE_VERIFIED)
+    candidate_path = engine.run_store._candidate_path_for(prepared.run_id)  # noqa: SLF001
+    payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+    payload["analysis_mode"] = AnalysisMode.INVENTORY_ONLY.value
+    candidate_path.write_text(
+        json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DiagnosisStateError, match="analysis mode"):
+        engine.advance(prepared.run_id)
+
+
 def test_guided_run_refuses_legacy_submit_before_input_is_materialised(
     engine: EngineHarness,
 ) -> None:

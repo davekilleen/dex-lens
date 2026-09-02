@@ -234,6 +234,7 @@ class RunIdentity(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     engine_version: str = Field(min_length=1, max_length=64)
     input_schema_version: str = Field(min_length=1, max_length=16)
+    analysis_mode: Literal["inventory-only", "guided-analysis"] = "inventory-only"
     created_at: datetime
 
     @field_validator("created_at")
@@ -267,6 +268,20 @@ class DiagnosisInput(_ValidatedInventoried):
         """Digest that changes when scope, catalogue, fingerprint or engine changes."""
 
         return canonical_json_digest(self.dump_for_storage())
+
+
+def upgrade_stored_run_identity_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Upgrade a stored run identity without changing legacy semantics.
+
+  ``analysis_mode`` was introduced after the original durable identity shape.
+  Old checkpoints did not issue semantic work, so a missing field is
+  deliberately upgraded to ``inventory-only`` rather than inheriting the guided
+  default used for newly-created product runs.
+    """
+
+    upgraded = dict(payload)
+    upgraded.setdefault("analysis_mode", "inventory-only")
+    return upgraded
 
 
 def upgrade_stored_input_payload(payload: Mapping[str, object]) -> dict[str, object]:
