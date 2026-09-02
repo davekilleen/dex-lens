@@ -254,6 +254,9 @@ class WorkReceipt(_ValidatedInventoried):
                 raise ValueError("a pending work receipt must be the first attempt")
             if self.proposal_count != 0:
                 raise ValueError("a pending work receipt cannot carry proposals")
+        elif self.status is WorkStatus.UNRESOLVED:
+            if self.attempt_count != MAX_ATTEMPTS_PER_PACKET:
+                raise ValueError("an unresolved work receipt requires the exhausted retry")
         elif self.attempt_count not in (1, MAX_ATTEMPTS_PER_PACKET):
             raise ValueError("a final work receipt must use attempt one or two")
         return self

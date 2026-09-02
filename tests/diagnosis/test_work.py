@@ -181,6 +181,46 @@ def test_pending_receipts_do_not_unlock_sceptical_or_complete_queue() -> None:
         )
 
 
+def test_unresolved_requires_exhausted_retry_across_validation_routes() -> None:
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    packet = queue.pending_packets()[0]
+
+    with pytest.raises(ValidationError, match="unresolved"):
+        response_receipt(
+            packet,
+            response_digest="sha256:" + "a" * 64,
+            status=WorkStatus.UNRESOLVED,
+            attempt_count=1,
+        )
+
+    pending = response_receipt(
+        packet,
+        response_digest="sha256:" + "b" * 64,
+        status=WorkStatus.PENDING,
+        attempt_count=1,
+    )
+    queue = queue.record(pending)
+    exhausted = pending.model_copy(
+        update={
+            "response_digest": "sha256:" + "c" * 64,
+            "status": WorkStatus.UNRESOLVED,
+            "attempt_count": MAX_ATTEMPTS_PER_PACKET,
+        }
+    )
+    queue = queue.record(exhausted)
+    assert queue.audit().unresolved_count == 1
+
+    with pytest.raises(ValidationError, match="unresolved"):
+        exhausted.model_copy(update={"attempt_count": 1})
+    with pytest.raises(ValidationError, match="unresolved"):
+        WorkReceipt.model_construct(
+            **{
+                **exhausted.model_dump(),
+                "attempt_count": 1,
+            }
+        )
+
+
 def test_sceptical_receipt_requires_final_normal_receipts() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     sceptical = queue.packets[-1]
@@ -326,11 +366,19 @@ def test_work_models_are_immutable_and_statuses_are_closed() -> None:
 def test_work_audit_counts_unresolved_receipts() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     packet = queue.packets[0]
+    pending = response_receipt(
+        packet,
+        response_digest="sha256:" + "a" * 64,
+        status=WorkStatus.PENDING,
+    )
+    queue = queue.record(pending)
     queue = queue.record(
-        response_receipt(
-            packet,
-            response_digest="sha256:" + "a" * 64,
-            status=WorkStatus.UNRESOLVED,
+        pending.model_copy(
+            update={
+                "response_digest": "sha256:" + "b" * 64,
+                "status": WorkStatus.UNRESOLVED,
+                "attempt_count": MAX_ATTEMPTS_PER_PACKET,
+            }
         )
     )
 
