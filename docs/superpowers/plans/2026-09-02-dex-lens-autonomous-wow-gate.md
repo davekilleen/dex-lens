@@ -383,7 +383,7 @@ git commit -m "feat: add engine-owned Lens work packets"
 - Modify: tests/diagnosis/test_specialists.py
 - Modify: src/capability_exchange/boundary/data_inventory.yaml
 
-- [ ] **Step 1: Write failing packet-binding tests**
+- [x] **Step 1: Write failing packet-binding tests**
 
 ~~~python
 def test_guided_proposal_must_match_packet_identity_and_digest() -> None:
@@ -405,14 +405,14 @@ def test_sceptical_role_cannot_add_a_new_positive_claim() -> None:
         validate_proposal(proposal, proposal_context(packet=packet))
 ~~~
 
-- [ ] **Step 2: Observe the failures**
+- [x] **Step 2: Observe the failures**
 
 Run: python3 -m pytest tests/diagnosis/test_specialists.py -q
 
 Expected: the new tests fail because validation knows only run, fingerprint,
 and catalogue context.
 
-- [ ] **Step 3: Extend the closed proposal contract**
+- [x] **Step 3: Extend the closed proposal contract**
 
 Add these fields to SpecialistProposal and ValidatedProposal:
 
@@ -439,7 +439,13 @@ factors for recommendations, and allow the sceptical role only to accept,
 downgrade, or reject an existing candidate. Retain unbound proposals only for
 inventory-only stored-run compatibility.
 
-- [ ] **Step 4: Run specialists and inventory checks**
+The reviewed implementation additionally assigns each guided proposal a
+deterministic candidate identity and supplies the sceptical pass with immutable
+candidate baselines. That prevents it from reusing a valid ID while changing a
+positive claim or inflating its ranking factors, while still allowing a
+factor-free evidence-backed downgrade.
+
+- [x] **Step 4: Run specialists and inventory checks**
 
 ~~~bash
 python3 scripts/check_inventory.py
@@ -448,7 +454,7 @@ python3 -m pytest tests/diagnosis/test_specialists.py -q
 
 Expected: all pass, including model-copy/construct bypass tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git add src/capability_exchange/diagnosis/specialists.py \
