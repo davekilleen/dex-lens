@@ -211,7 +211,7 @@ git commit -m "feat: rank up to ten Lens recommendations"
 - Modify: src/capability_exchange/diagnosis/specialists.py
 - Modify: src/capability_exchange/boundary/data_inventory.yaml
 
-- [ ] **Step 1: Write failing packet and receipt tests**
+- [x] **Step 1: Write failing packet and receipt tests**
 
 ~~~python
 def test_guided_queue_issues_normal_roles_before_sceptical_review() -> None:
@@ -232,13 +232,13 @@ def test_same_response_is_idempotent_but_changed_response_is_refused() -> None:
         once.record(response_receipt(packet, response_digest="sha256:" + "b" * 64))
 ~~~
 
-- [ ] **Step 2: Run the test and observe the missing module**
+- [x] **Step 2: Run the test and observe the missing module**
 
 Run: python3 -m pytest tests/diagnosis/test_work.py -q
 
 Expected: collection fails because diagnosis.work is absent.
 
-- [ ] **Step 3: Implement immutable work types**
+- [x] **Step 3: Implement immutable work types**
 
 ~~~python
 class AnalysisMode(StrEnum):
@@ -350,7 +350,13 @@ the eight normal roles followed by one locked sceptical packet. Add the three
 new role names in NORMAL_ROLES to SpecialistRole; the existing role values
 remain unchanged.
 
-- [ ] **Step 4: Run inventory and work tests**
+The reviewed implementation also binds the closed role question, preserves the
+full two-attempt history for the one permitted retry, keeps pending attempts
+non-terminal, enforces one shared queue context across every construction path,
+accepts only bounded engine-minted evidence tokens, and makes receipts and work
+audits order-independent.
+
+- [x] **Step 4: Run inventory and work tests**
 
 ~~~bash
 python3 scripts/check_inventory.py
@@ -359,7 +365,7 @@ python3 -m pytest tests/diagnosis/test_work.py -q
 
 Expected: both pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git add src/capability_exchange/diagnosis/work.py \
