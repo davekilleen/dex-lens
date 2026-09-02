@@ -476,7 +476,7 @@ git commit -m "feat: bind Lens proposals to issued work"
 - Modify: tests/evals/test_interrupted_run.py
 - Modify: src/capability_exchange/boundary/data_inventory.yaml
 
-- [ ] **Step 1: Write failing guided-state tests**
+- [x] **Step 1: Write failing guided-state tests**
 
 ~~~python
 def test_guided_run_refuses_comparison_until_work_is_reconciled(
@@ -494,7 +494,7 @@ def test_resumed_run_returns_the_same_next_packet(engine: EngineHarness) -> None
     assert engine.reopen().work(run_id) == first
 ~~~
 
-- [ ] **Step 2: Observe state-machine failures**
+- [x] **Step 2: Observe state-machine failures**
 
 ~~~bash
 python3 -m pytest tests/diagnosis/test_run.py \
@@ -504,7 +504,7 @@ python3 -m pytest tests/diagnosis/test_run.py \
 
 Expected: failures for absent stages, mode, and work method.
 
-- [ ] **Step 3: Add stages, mode, and engine methods**
+- [x] **Step 3: Add stages, mode, and engine methods**
 
 Add ANALYSIS_PLANNED and ANALYSIS_COMPLETED between JOBS_CONFIRMED and
 COMPARED. Add analysis_mode to DiagnosisInput and PrepareDiagnosisRequest,
@@ -549,7 +549,7 @@ JOBS_CONFIRMED to ANALYSIS_PLANNED stores graph, automatic candidates, and
 queue. ANALYSIS_PLANNED to ANALYSIS_COMPLETED refuses until every normal and
 sceptical receipt exists. ANALYSIS_COMPLETED to COMPARED builds the ledger.
 
-- [ ] **Step 4: Prove checkpoint and resume behaviour**
+- [x] **Step 4: Prove checkpoint and resume behaviour**
 
 ~~~bash
 python3 scripts/check_inventory.py
@@ -560,7 +560,7 @@ python3 -m pytest tests/diagnosis/test_run.py \
 
 Expected: all pass; resuming never duplicates a packet or response.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git add src/capability_exchange/diagnosis/run.py \
@@ -571,6 +571,14 @@ git add src/capability_exchange/diagnosis/run.py \
   tests/diagnosis/test_orchestrator.py tests/evals/test_interrupted_run.py
 git commit -m "feat: make guided Lens analysis engine-owned"
 ~~~
+
+The reviewed implementation also closes three state-machine edge cases found by
+the independent specification review: guided runs cannot briefly accept legacy
+unbound proposals before their diagnosis input exists; disputed recommendation
+factors remain honestly not-assessed without blocking the sceptical pass; and a
+tampered diagnosis input fails closed without consuming a specialist retry.
+Specification review passed at `8171907`. A separate code-quality review remains
+the first action at the Cursor Cloud handoff checkpoint.
 
 ## Task 5: Expose the same work protocol through MCP and CLI
 
