@@ -1207,3 +1207,61 @@ def test_sceptical_cannot_substitute_strong_here_or_inflate_factors() -> None:
     )
     with pytest.raises(SpecialistProposalError, match="factors"):
         validate_proposal(inflated, context)
+
+
+def test_non_recommendation_downgrade_may_drop_baseline_factors() -> None:
+    factors = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+    baseline = candidate_baseline(
+        kind=ProposalKind.RELEASE_DISTANCE,
+        original_disposition=Disposition.WORTH_BORROWING,
+        recommendation_factors=factors,
+    )
+    context = proposal_context(
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
+        family_contract_present=True,
+    )
+    accepted = proposal(
+        role=SpecialistRole.SCEPTICAL_RECONCILER,
+        kind=ProposalKind.RELEASE_DISTANCE,
+        disposition=Disposition.WORTH_BORROWING,
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        candidate_id=baseline.candidate_id,
+        recommendation_factors=factors,
+    )
+    assert validate_proposal(accepted, context).recommendation_factors == factors
+
+    downgraded = accepted.model_copy(
+        update={
+            "disposition": Disposition.FRAGILE_OR_CONTRADICTORY,
+            "recommendation_factors": None,
+        }
+    )
+    result = validate_proposal(downgraded, context)
+    assert result.disposition is Disposition.FRAGILE_OR_CONTRADICTORY
+    assert result.recommendation_factors is None
+
+    inflated = accepted.model_copy(
+        update={
+            "recommendation_factors": RecommendationFactors(
+                reliability_risk=3,
+                job_relevance=3,
+                workflow_leverage=3,
+                evidence_strength=3,
+                adoption_effort=1,
+            )
+        }
+    )
+    with pytest.raises(SpecialistProposalError, match="factors"):
+        validate_proposal(inflated, context)

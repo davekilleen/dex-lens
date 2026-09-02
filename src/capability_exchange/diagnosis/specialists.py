@@ -576,9 +576,14 @@ def validate_proposal(
             "(RecommendationFactors)"
         )
     if baseline is not None:
-        if proposal.recommendation_factors != baseline.recommendation_factors:
+        if _is_recommendation(proposal):
+            if proposal.recommendation_factors != baseline.recommendation_factors:
+                raise SpecialistProposalError(
+                    "sceptical recommendation factors must match the candidate baseline"
+                )
+        elif proposal.recommendation_factors is not None:
             raise SpecialistProposalError(
-                "sceptical recommendation factors must match the candidate baseline"
+                "non-recommendation sceptical downgrades cannot carry recommendation factors"
             )
         allowed_dispositions = {
             baseline.original_disposition,
