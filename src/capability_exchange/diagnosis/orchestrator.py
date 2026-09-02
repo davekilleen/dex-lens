@@ -308,6 +308,7 @@ class DeterministicDiagnosisEngine:
             )
         if (
             checkpoint.stage in {
+                DiagnosisStage.CATALOGUE_VERIFIED,
                 DiagnosisStage.JOBS_CONFIRMED,
                 DiagnosisStage.ANALYSIS_PLANNED,
                 DiagnosisStage.ANALYSIS_COMPLETED,
@@ -560,8 +561,15 @@ class DeterministicDiagnosisEngine:
         try:
             return AnalysisMode(self._diagnosis_input(checkpoint).analysis_mode)
         except DiagnosisStateError:
-            # A pre-mode checkpoint may not carry a diagnosis-input artifact
-            # until the job-confirmation transition.  Such a run is legacy.
+            # The candidate-scope sidecar is the durable mode authority before
+            # job confirmation materialises ``diagnosis-input``.  This keeps a
+            # new guided run packet-bound even at CATALOGUE_VERIFIED.
+            candidate_scope = self._runs.load_candidate_scope(checkpoint.run_id)
+            if candidate_scope is not None:
+                return candidate_scope.analysis_mode
+            # A genuine pre-mode checkpoint may not carry either a diagnosis
+            # input artifact or a candidate-scope sidecar.  Such a run is
+            # legacy and retains inventory-only semantics.
             payload = self._find_kind(checkpoint, "diagnosis-input")
             if payload is None:
                 return AnalysisMode.INVENTORY_ONLY

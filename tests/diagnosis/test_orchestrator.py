@@ -435,6 +435,24 @@ def test_submit_validates_via_task_7_and_cannot_alter_evidence(
     assert engine.collector.calls == collector_calls_before
 
 
+def test_guided_run_refuses_legacy_submit_before_input_is_materialised(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.CATALOGUE_VERIFIED)
+    persisted = engine.run_store.load_candidate_scope(prepared.run_id)
+    assert persisted is not None
+    assert persisted.analysis_mode is AnalysisMode.GUIDED
+
+    with pytest.raises(DiagnosisStateError, match="submit_work"):
+        engine.submit(prepared.run_id, {})
+
+    checkpoint = engine.run_store.load(prepared.run_id)
+    assert engine.engine._proposal_payloads(checkpoint) == []  # noqa: SLF001
+
+
 def test_save_consumes_report_model_via_save_result(engine: EngineHarness) -> None:
     prepared = engine.prepare(prepare_request())
     engine.run_to(prepared.run_id, DiagnosisStage.SAVED)
