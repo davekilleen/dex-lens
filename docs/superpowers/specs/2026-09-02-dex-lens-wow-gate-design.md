@@ -1,9 +1,8 @@
 # Dex Lens autonomous Wow Gate design
 
 **Date:** 2026-09-02
-**Status:** Proposed for Dave's review. The direction (Engine + MCP, autonomous
-specialists, and up to ten ranked recommendations) is approved; implementation
-must not begin until this written contract is reviewed.
+**Status:** Approved by Dave on 2026-09-02. Implementation may proceed through
+green draft PRs only.
 **Builds on:** `2026-08-27-dex-lens-deterministic-diagnosis-engine-design.md`
 and the green Lens/Core significant-capability draft PRs.
 **Delivery boundary:** Draft PRs only. This design does not authorise merge,
@@ -325,7 +324,8 @@ A candidate recommendation survives only when all of these are true:
 
 - the Dex capability is currently available to the person;
 - the inspected system does not already provide an equal or stronger method;
-- the finding is relevant to a confirmed user job or a proved reliability
+- the finding is relevant to a confirmed user job, an evidence-supported
+  workflow already present in the inspected system, or a proved reliability
   risk;
 - its rationale cites exact evidence IDs;
 - the expected benefit and adoption effort can be explained plainly;
@@ -517,7 +517,9 @@ registry or generators.
 - Replacing evidence with release-note prose or hard-coded feature counts.
 - Filling ten recommendation slots for presentation symmetry.
 
-## Decision requested
+## Approval
 
-Approve this written contract as the implementation boundary, or request
-changes before the test-first implementation plan is written.
+Dave approved this written contract on 2026-09-02, including the Engine + MCP
+architecture, autonomous specialist workflow, no-help private evaluation, and
+the ceiling of ten ranked recommendations. Merge, release, publication and
+deployment remain separately held.
