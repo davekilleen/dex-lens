@@ -951,6 +951,7 @@ class DeterministicDiagnosisEngine:
                 )
                 for item in normal
                 if item.candidate_id is not None
+                and item.disposition is not Disposition.NOT_ASSESSED
             )
             accepted_ids = tuple(item.candidate_id for item in accepted)
         return base.model_copy(

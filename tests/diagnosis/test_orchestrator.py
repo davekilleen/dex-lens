@@ -28,6 +28,7 @@ from capability_exchange.diagnosis.orchestrator import (
     VerifiedCatalogueSlice,
     fingerprint_digest_for,
 )
+from capability_exchange.diagnosis.ranking import RecommendationFactors
 from capability_exchange.diagnosis.report import ReportModel, canonical_fact_block
 from capability_exchange.diagnosis.run import (
     NEXT_ACTION,
@@ -676,3 +677,82 @@ def test_guided_normal_and_sceptical_proposals_reconcile_from_stored_work(
         engine.comparer.calls[-1]["proposals"][0].disposition
         is Disposition.FRAGILE_OR_CONTRADICTORY
     )
+
+
+def test_disputed_guided_recommendation_keeps_sceptical_work_resumable(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+
+    candidate_id = candidate_id_for(
+        ProposalKind.RECOMMENDATION,
+        CATALOGUE_ID,
+        CAPABILITY_ID,
+    )
+    evidence_id = first.evidence_ids[0]
+    observation_id = first.observation_ids[0]
+    factors_a = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+    factors_b = factors_a.model_copy(update={"job_relevance": 3})
+
+    def recommendation_for(packet: object, factors: RecommendationFactors) -> SpecialistProposal:
+        return SpecialistProposal(
+            role=packet.role,
+            kind=ProposalKind.RECOMMENDATION,
+            run_id=packet.run_id,
+            fingerprint_digest=packet.fingerprint_digest,
+            catalogue_digest=packet.catalogue_digest,
+            packet_id=packet.packet_id,
+            packet_digest=packet.packet_digest,
+            catalogue_id=CATALOGUE_ID,
+            capability_id=CAPABILITY_ID,
+            candidate_id=candidate_id,
+            disposition=Disposition.WORTH_BORROWING,
+            recommendation_factors=factors,
+            evidence_ids=(evidence_id,),
+            observation_ids=(observation_id,),
+            reason="The approved evidence supports this bounded Dex addition.",
+        )
+
+    engine.engine.submit_work(
+        prepared.run_id,
+        first.packet_id,
+        (recommendation_for(first, factors_a),),
+    )
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    engine.engine.submit_work(
+        prepared.run_id,
+        second.packet_id,
+        (recommendation_for(second, factors_b),),
+    )
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            sceptical = packet
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    engine.engine.submit_work(prepared.run_id, sceptical.packet_id, ())
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+
+    engine.advance(prepared.run_id)
+    disputed = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert disputed.disposition is Disposition.NOT_ASSESSED
+    assert disputed.recommendation_factors is None
