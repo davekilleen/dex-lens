@@ -141,13 +141,32 @@ You explain. The engine keeps the books.
 Start or resume a run, then do only the next action the engine names:
 
 ```
-dex-lens diagnosis prepare --root <folder>
+dex-lens diagnosis prepare --root <folder> --mode guided-analysis
 dex-lens diagnosis approve --run <id>
 dex-lens diagnosis status --run <id> --json
 dex-lens diagnosis advance --run <id> --json
-dex-lens diagnosis submit --run <id> --proposal <json-file>
+dex-lens diagnosis work --run <id> --json
+dex-lens diagnosis submit --run <id> --packet <id> --proposal <json-file>
 dex-lens diagnosis result --run <id> --format markdown
 ```
+
+MCP exposes the same engine-owned loop through read-only tools. Use
+`get_diagnosis_work` when the engine asks for specialist work, and submit the
+specialist response unchanged through `submit_specialist_proposal`.
+
+After scope approval, keep following the engine until it closes:
+
+1. Read status; never maintain a separate checklist or total.
+2. If the engine asks for work, fetch the next packet and process every engine-issued packet.
+3. If this host supports sub-agents, run independent packets in parallel.
+   Otherwise process the same packets sequentially in this conversation.
+4. Give each worker only the packet. Submit the specialist response unchanged.
+5. When no packet remains, advance the engine and repeat.
+6. Stop only for a real person decision, an explicit engine error, or closed.
+Never ask the person to prompt the next diagnosis stage.
+
+The engine may recommend up to ten Dex additions. Rank them in the order the
+engine returns; do not pad the list for presentation.
 
 `prepare` reads nothing. It gives you a run id and names the exact folders.
 Show those folders in plain words. Wait for a clear yes in this chat. Then
