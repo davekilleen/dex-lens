@@ -12,7 +12,7 @@ import re
 from collections.abc import Iterable
 from enum import StrEnum
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from capability_exchange.diagnosis.comparison import Disposition
 from capability_exchange.diagnosis.ranking import (
@@ -44,6 +44,7 @@ __all__ = [
 DISAGREEMENT_REASON = "Specialist proposals disagreed; the comparison remains Unknown."
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PACKET_ID = re.compile(r"^packet:sha256:[0-9a-f]{64}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,159}$")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -144,8 +145,11 @@ class SpecialistProposal(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     fingerprint_digest: str = Field(pattern=_SHA256.pattern)
     catalogue_digest: str = Field(pattern=_SHA256.pattern)
+    packet_id: str | None = Field(default=None, pattern=_PACKET_ID.pattern)
+    packet_digest: str | None = Field(default=None, pattern=_SHA256.pattern)
     catalogue_id: str = Field(pattern=_ID.pattern)
     capability_id: str = Field(pattern=_ID.pattern)
+    candidate_id: str | None = Field(default=None, pattern=_ID.pattern)
     disposition: Disposition
     recommendation_factors: RecommendationFactors | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
@@ -178,9 +182,13 @@ class ProposalContext(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     fingerprint_digest: str = Field(pattern=_SHA256.pattern)
     catalogue_digest: str = Field(pattern=_SHA256.pattern)
+    packet_id: str | None = Field(default=None, pattern=_PACKET_ID.pattern)
+    packet_digest: str | None = Field(default=None, pattern=_SHA256.pattern)
+    packet_role: SpecialistRole | None = None
     evidence_ids: tuple[str, ...]
     catalogue_ids: tuple[str, ...]
     capability_ids: tuple[str, ...]
+    accepted_candidate_ids: tuple[str, ...] = ()
     held_ids: tuple[str, ...] = ()
     collapsed_provenance_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
@@ -218,6 +226,23 @@ class ProposalContext(_ValidatedInventoried):
     def _collapsed_tokens_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_tokens(values, "collapsed provenance tokens")
 
+    @field_validator("accepted_candidate_ids")
+    @classmethod
+    def _accepted_candidate_ids_are_bounded(
+        cls,
+        values: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        return tuple(sorted(_unique_identities(values, "accepted candidate identities")))
+
+    @model_validator(mode="after")
+    def _packet_binding_fields_are_all_or_none(self) -> ProposalContext:
+        bound = (self.packet_id, self.packet_digest, self.packet_role)
+        if any(value is not None for value in bound) and not all(
+            value is not None for value in bound
+        ):
+            raise ValueError("packet_id, packet_digest, and packet_role must be provided together")
+        return self
+
 
 class ValidatedProposal(_ValidatedInventoried):
     """A proposal that cleared validation or a deterministic coalesced result."""
@@ -225,6 +250,9 @@ class ValidatedProposal(_ValidatedInventoried):
     kind: ProposalKind
     catalogue_id: str = Field(pattern=_ID.pattern)
     capability_id: str = Field(pattern=_ID.pattern)
+    packet_id: str | None = Field(default=None, pattern=_PACKET_ID.pattern)
+    packet_digest: str | None = Field(default=None, pattern=_SHA256.pattern)
+    candidate_id: str | None = Field(default=None, pattern=_ID.pattern)
     disposition: Disposition
     recommendation_factors: RecommendationFactors | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
@@ -314,6 +342,35 @@ def validate_proposal(
         raise SpecialistProposalError(
             "proposal catalogue digest does not match the verified catalogue"
         )
+    proposal_bound = proposal.packet_id is not None or proposal.packet_digest is not None
+    context_bound = context.packet_id is not None
+    if context_bound:
+        if proposal.packet_id is None or proposal.packet_digest is None:
+            raise SpecialistProposalError(
+                "bound proposal must include its packet ID and packet digest"
+            )
+        if proposal.packet_id != context.packet_id:
+            raise SpecialistProposalError(
+                "proposal packet identity does not match the issued packet"
+            )
+        if proposal.packet_digest != context.packet_digest:
+            raise SpecialistProposalError("proposal packet digest does not match the issued packet")
+        if proposal.role is not context.packet_role:
+            raise SpecialistProposalError("proposal role does not match the issued packet role")
+    elif proposal_bound:
+        raise SpecialistProposalError("a bound proposal cannot be accepted in an unbound context")
+    if context_bound and _is_recommendation(proposal) and proposal.recommendation_factors is None:
+        raise SpecialistProposalError(
+            "a guided recommendation proposal requires recommendation factors "
+            "(RecommendationFactors)"
+        )
+    if (
+        context.packet_role is SpecialistRole.SCEPTICAL_RECONCILER
+        and proposal.candidate_id not in set(context.accepted_candidate_ids)
+    ):
+        raise SpecialistProposalError(
+            "sceptical proposals may only accept or downgrade an existing candidate"
+        )
     allowed_evidence = set(context.evidence_ids)
     allowed_observations = set(context.observation_ids)
     collapsed = set(context.collapsed_provenance_ids)
@@ -341,13 +398,15 @@ def validate_proposal(
         raise SpecialistProposalError("proposal capability identity is not in the issued shard")
     if _claims_usable_family_distance(proposal) and not context.family_contract_present:
         raise SpecialistProposalError(
-            "release-distance analysis is disabled until a signed "
-            "capability-family contract exists"
+            "release-distance analysis is disabled until a signed capability-family contract exists"
         )
     return ValidatedProposal(
         kind=proposal.kind,
         catalogue_id=proposal.catalogue_id,
         capability_id=proposal.capability_id,
+        packet_id=proposal.packet_id,
+        packet_digest=proposal.packet_digest,
+        candidate_id=proposal.candidate_id,
         disposition=proposal.disposition,
         recommendation_factors=(
             proposal.recommendation_factors if _is_recommendation(proposal) else None
@@ -358,8 +417,13 @@ def validate_proposal(
     )
 
 
-def _group_key(proposal: ValidatedProposal) -> tuple[str, str, str]:
-    return (proposal.kind.value, proposal.catalogue_id, proposal.capability_id)
+def _group_key(proposal: ValidatedProposal) -> tuple[str, str, str, str]:
+    return (
+        proposal.kind.value,
+        proposal.catalogue_id,
+        proposal.capability_id,
+        proposal.candidate_id or "",
+    )
 
 
 def _coalesced_recommendation_factors(
@@ -368,9 +432,7 @@ def _coalesced_recommendation_factors(
     """Retain factors only when every agreeing recommendation supplied the same tuple."""
 
     recommendation_factors = [
-        item.recommendation_factors
-        for item in group
-        if _is_recommendation(item)
+        item.recommendation_factors for item in group if _is_recommendation(item)
     ]
     factors = [item for item in recommendation_factors if item is not None]
     if not factors:
@@ -383,11 +445,7 @@ def _coalesced_recommendation_factors(
 def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
     """Detect conflicting complete factor tuples without choosing a winner."""
 
-    factors = [
-        item.recommendation_factors
-        for item in group
-        if _is_recommendation(item)
-    ]
+    factors = [item.recommendation_factors for item in group if _is_recommendation(item)]
     present = [item for item in factors if item is not None]
     return (
         len(factors) > 1
@@ -411,6 +469,9 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
             kind=sample.kind,
             catalogue_id=sample.catalogue_id,
             capability_id=sample.capability_id,
+            packet_id=sample.packet_id,
+            packet_digest=sample.packet_digest,
+            candidate_id=sample.candidate_id,
             disposition=sample.disposition,
             recommendation_factors=_coalesced_recommendation_factors(group),
             evidence_ids=evidence_ids,
@@ -421,6 +482,9 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         kind=sample.kind,
         catalogue_id=sample.catalogue_id,
         capability_id=sample.capability_id,
+        packet_id=sample.packet_id,
+        packet_digest=sample.packet_digest,
+        candidate_id=sample.candidate_id,
         disposition=Disposition.NOT_ASSESSED,
         recommendation_factors=None,
         evidence_ids=evidence_ids,
@@ -445,12 +509,9 @@ def reconcile_proposals(
     """Coalesce agreeing proposals and refuse to break ties with confidence."""
 
     validated = [validate_proposal(item, context) for item in proposals]
-    grouped: dict[tuple[str, str, str], list[ValidatedProposal]] = {}
+    grouped: dict[tuple[str, str, str, str], list[ValidatedProposal]] = {}
     for item in validated:
         grouped.setdefault(_group_key(item), []).append(item)
-    reconciled = tuple(
-        _coalesce_group(grouped[key])
-        for key in sorted(grouped)
-    )
+    reconciled = tuple(_coalesce_group(grouped[key]) for key in sorted(grouped))
     _enforce_recommendation_cap(reconciled)
     return reconciled

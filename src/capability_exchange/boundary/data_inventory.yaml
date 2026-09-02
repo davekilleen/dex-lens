@@ -2315,6 +2315,26 @@ fields:
     deletion: not-stored
     audit: "ephemeral public catalogue digest"
 
+  SpecialistProposal.packet_id:
+    description: "opaque issued work-packet identity this proposal answers"
+    collection: "copied from the engine-issued specialist packet"
+    derivation: "packet digest prefixed with packet"
+    display: "used to refuse proposals for another assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity"
+
+  SpecialistProposal.packet_digest:
+    description: "work-packet digest this proposal claims to answer"
+    collection: "copied from the engine-issued specialist packet"
+    derivation: "must match the exact issued packet digest"
+    display: "used to refuse stale or substituted packet responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet integrity binding"
+
   SpecialistProposal.catalogue_id:
     description: "one signed catalogue identity this proposal is about"
     collection: "selected from the issued shard"
@@ -2334,6 +2354,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral grouping identity"
+
+  SpecialistProposal.candidate_id:
+    description: "opaque candidate identity this proposal accepts or challenges"
+    collection: "copied from the engine's accepted candidate set when present"
+    derivation: "bounded candidate identity"
+    display: "joins a sceptical proposal to an existing candidate"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate provenance identity"
 
   SpecialistProposal.disposition:
     description: "proposed closed comparison answer; untrusted until reconciled"
@@ -2405,6 +2435,36 @@ fields:
     deletion: not-stored
     audit: "ephemeral public catalogue digest"
 
+  ProposalContext.packet_id:
+    description: "opaque issued packet identity required for guided proposals"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "packet digest prefixed with packet"
+    display: "binds proposals to exactly one issued assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided packet routing identity"
+
+  ProposalContext.packet_digest:
+    description: "issued packet digest required for guided proposals"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "SHA-256 binding of the packet content"
+    display: "binds every allowed identity set to the assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided packet integrity binding"
+
+  ProposalContext.packet_role:
+    description: "closed role assigned to the current guided packet"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "validated through SpecialistRole"
+    display: "refuses role masquerading across packet assignments"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed packet role"
+
   ProposalContext.evidence_ids:
     description: "engine-owned evidence tokens valid for this fingerprint"
     collection: "minted by the engine from the current fingerprint"
@@ -2434,6 +2494,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral grouping identities"
+
+  ProposalContext.accepted_candidate_ids:
+    description: "canonical candidate identities accepted before sceptical review"
+    collection: "assembled by the engine from validated normal proposals"
+    derivation: "unique bounded identities sorted canonically"
+    display: "limits sceptical review to existing candidates"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical reconciliation allowlist"
 
   ProposalContext.held_ids:
     description: "catalogue identities that are not available to recommend"
@@ -2494,6 +2564,36 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral grouping identity"
+
+  ValidatedProposal.packet_id:
+    description: "issued packet identity retained on one validated proposal"
+    collection: "copied from the validated specialist proposal"
+    derivation: "must match the guided ProposalContext packet when present"
+    display: "supports packet-level proposal reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity"
+
+  ValidatedProposal.packet_digest:
+    description: "issued packet digest retained on one validated proposal"
+    collection: "copied from the validated specialist proposal"
+    derivation: "must match the guided ProposalContext packet digest when present"
+    display: "supports stale-response refusal and audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet integrity binding"
+
+  ValidatedProposal.candidate_id:
+    description: "candidate identity retained on one validated proposal"
+    collection: "copied from the validated specialist proposal when present"
+    derivation: "bounded candidate identity"
+    display: "supports deterministic sceptical reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate provenance identity"
 
   ValidatedProposal.disposition:
     description: "accepted disposition, or not-assessed when specialists disagreed"
