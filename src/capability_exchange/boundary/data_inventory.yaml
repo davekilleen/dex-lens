@@ -2415,6 +2415,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral run handle"
 
+  ProposalContext.analysis_mode:
+    description: "closed mode governing whether semantic packet work is enabled"
+    collection: "copied from the diagnosis request or stored-run compatibility mode"
+    derivation: "inventory-only or guided-analysis"
+    display: "explains whether packet-bound specialist work is required"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed proposal-context mode"
+
   ProposalContext.fingerprint_digest:
     description: "current fingerprint digest proposals may cite"
     collection: "copied from the captured evidence fingerprint"

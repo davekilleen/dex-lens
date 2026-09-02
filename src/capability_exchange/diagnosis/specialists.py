@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from enum import StrEnum
+from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -35,6 +36,7 @@ __all__ = [
     "SpecialistRole",
     "SpecialistShard",
     "ValidatedProposal",
+    "candidate_id_for",
     "issue_shard",
     "mint_evidence_token",
     "reconcile_proposals",
@@ -77,6 +79,55 @@ class ProposalKind(StrEnum):
     FRAGILITY = "fragility"
     RECOMMENDATION = "recommendation"
     RELEASE_DISTANCE = "release-distance"
+
+
+def candidate_id_for(
+    kind: ProposalKind | str,
+    catalogue_id: str,
+    capability_id: str,
+) -> str:
+    """Return the deterministic identity for one semantic proposal candidate."""
+
+    proposal_kind = ProposalKind(kind)
+    return "candidate:" + canonical_json_digest(
+        {
+            "capability_id": capability_id,
+            "catalogue_id": catalogue_id,
+            "kind": proposal_kind.value,
+        }
+    )
+
+
+def _is_recommendation_values(kind: ProposalKind, disposition: Disposition) -> bool:
+    return kind is ProposalKind.RECOMMENDATION or disposition is Disposition.WORTH_BORROWING
+
+
+def _validate_model_bindings(
+    *,
+    packet_id: str | None,
+    packet_digest: str | None,
+    candidate_id: str | None,
+    kind: ProposalKind,
+    catalogue_id: str,
+    capability_id: str,
+    disposition: Disposition,
+    recommendation_factors: RecommendationFactors | None,
+) -> None:
+    """Keep packet, candidate, and recommendation fields closed on every model route."""
+
+    packet_bound = packet_id is not None or packet_digest is not None
+    if packet_bound and (packet_id is None or packet_digest is None):
+        raise ValueError("packet_id and packet_digest must be provided together")
+    if packet_bound:
+        if candidate_id is None:
+            raise ValueError("bound proposals require candidate_id")
+        expected_candidate_id = candidate_id_for(kind, catalogue_id, capability_id)
+        if candidate_id != expected_candidate_id:
+            raise ValueError("bound proposal candidate_id must match candidate_id_for")
+    elif candidate_id is not None:
+        raise ValueError("candidate_id is only valid on bound proposals")
+    if not _is_recommendation_values(kind, disposition) and recommendation_factors is not None:
+        raise ValueError("recommendation factors are only valid on recommendation proposals")
 
 
 def _unique_identities(values: tuple[str, ...], label: str) -> tuple[str, ...]:
@@ -175,10 +226,25 @@ class SpecialistProposal(_ValidatedInventoried):
             raise ValueError("a proposal reason must be one bounded line")
         return value
 
+    @model_validator(mode="after")
+    def _bindings_are_closed(self) -> Self:
+        _validate_model_bindings(
+            packet_id=self.packet_id,
+            packet_digest=self.packet_digest,
+            candidate_id=self.candidate_id,
+            kind=self.kind,
+            catalogue_id=self.catalogue_id,
+            capability_id=self.capability_id,
+            disposition=self.disposition,
+            recommendation_factors=self.recommendation_factors,
+        )
+        return self
+
 
 class ProposalContext(_ValidatedInventoried):
     """Engine-owned facts a proposal may cite for the current fingerprint."""
 
+    analysis_mode: Literal["inventory-only", "guided-analysis"] = "inventory-only"
     run_id: str = Field(pattern=_RUN_ID.pattern)
     fingerprint_digest: str = Field(pattern=_SHA256.pattern)
     catalogue_digest: str = Field(pattern=_SHA256.pattern)
@@ -235,12 +301,25 @@ class ProposalContext(_ValidatedInventoried):
         return tuple(sorted(_unique_identities(values, "accepted candidate identities")))
 
     @model_validator(mode="after")
-    def _packet_binding_fields_are_all_or_none(self) -> ProposalContext:
+    def _context_bindings_are_closed(self) -> Self:
         bound = (self.packet_id, self.packet_digest, self.packet_role)
         if any(value is not None for value in bound) and not all(
             value is not None for value in bound
         ):
             raise ValueError("packet_id, packet_digest, and packet_role must be provided together")
+        if self.analysis_mode == "inventory-only":
+            if any(value is not None for value in bound):
+                raise ValueError("inventory-only context must be unbound")
+            if self.accepted_candidate_ids:
+                raise ValueError("inventory-only context cannot include candidate IDs")
+        elif not all(value is not None for value in bound):
+            raise ValueError(
+                "guided-analysis context must include packet_id, packet_digest, and packet_role"
+            )
+        if self.accepted_candidate_ids and (
+            self.packet_role is not SpecialistRole.SCEPTICAL_RECONCILER
+        ):
+            raise ValueError("accepted candidate IDs are only valid for a guided sceptical packet")
         return self
 
 
@@ -278,6 +357,20 @@ class ValidatedProposal(_ValidatedInventoried):
             raise ValueError("a validated reason must be one bounded line")
         return value
 
+    @model_validator(mode="after")
+    def _bindings_are_closed(self) -> Self:
+        _validate_model_bindings(
+            packet_id=self.packet_id,
+            packet_digest=self.packet_digest,
+            candidate_id=self.candidate_id,
+            kind=self.kind,
+            catalogue_id=self.catalogue_id,
+            capability_id=self.capability_id,
+            disposition=self.disposition,
+            recommendation_factors=self.recommendation_factors,
+        )
+        return self
+
 
 def mint_evidence_token(
     *,
@@ -312,10 +405,7 @@ def issue_shard(role: SpecialistRole, *, context: ProposalContext) -> Specialist
 
 
 def _is_recommendation(proposal: SpecialistProposal | ValidatedProposal) -> bool:
-    return (
-        proposal.kind is ProposalKind.RECOMMENDATION
-        or proposal.disposition is Disposition.WORTH_BORROWING
-    )
+    return _is_recommendation_values(proposal.kind, proposal.disposition)
 
 
 def _claims_usable_family_distance(proposal: SpecialistProposal) -> bool:
@@ -343,7 +433,7 @@ def validate_proposal(
             "proposal catalogue digest does not match the verified catalogue"
         )
     proposal_bound = proposal.packet_id is not None or proposal.packet_digest is not None
-    context_bound = context.packet_id is not None
+    context_bound = context.analysis_mode == "guided-analysis"
     if context_bound:
         if proposal.packet_id is None or proposal.packet_digest is None:
             raise SpecialistProposalError(
@@ -357,8 +447,21 @@ def validate_proposal(
             raise SpecialistProposalError("proposal packet digest does not match the issued packet")
         if proposal.role is not context.packet_role:
             raise SpecialistProposalError("proposal role does not match the issued packet role")
+        expected_candidate_id = candidate_id_for(
+            proposal.kind,
+            proposal.catalogue_id,
+            proposal.capability_id,
+        )
+        if proposal.candidate_id != expected_candidate_id:
+            raise SpecialistProposalError(
+                "proposal candidate ID does not match its semantic candidate"
+            )
     elif proposal_bound:
         raise SpecialistProposalError("a bound proposal cannot be accepted in an unbound context")
+    elif proposal.candidate_id is not None:
+        raise SpecialistProposalError("an unbound proposal cannot carry a candidate ID")
+    elif proposal.role is SpecialistRole.SCEPTICAL_RECONCILER:
+        raise SpecialistProposalError("unbound sceptical proposals are not accepted")
     if context_bound and _is_recommendation(proposal) and proposal.recommendation_factors is None:
         raise SpecialistProposalError(
             "a guided recommendation proposal requires recommendation factors "
