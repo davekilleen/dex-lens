@@ -20,6 +20,7 @@ from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_j
 from capability_exchange.diagnosis.specialists import SpecialistRole
 
 __all__ = [
+    "MAX_ATTEMPTS_PER_PACKET",
     "MAX_PROPOSALS_PER_PACKET",
     "NORMAL_ROLES",
     "AnalysisMode",
@@ -43,6 +44,11 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # the specialist proposal ceiling and prevents an oversized response from
 # becoming an unbounded input to reconciliation.
 MAX_PROPOSALS_PER_PACKET = 24
+
+# One initial response plus one bounded retry is the complete work protocol.
+# The value is part of every packet's canonical identity so changing the
+# retry contract cannot make an old packet appear current.
+MAX_ATTEMPTS_PER_PACKET = 2
 
 
 class AnalysisMode(StrEnum):
@@ -118,6 +124,14 @@ _ROLE_QUESTIONS: dict[SpecialistRole, str] = {
     ),
 }
 
+_FINAL_STATUSES = frozenset(
+    {
+        WorkStatus.COMPLETED,
+        WorkStatus.INSUFFICIENT,
+        WorkStatus.UNRESOLVED,
+    }
+)
+
 
 def _bounded_ids(values: tuple[str, ...], label: str) -> tuple[str, ...]:
     if len(set(values)) != len(values):
@@ -153,6 +167,7 @@ class WorkPacket(_ValidatedInventoried):
     family_ids: tuple[str, ...]
     workflow_ids: tuple[str, ...]
     question: str = Field(min_length=1, max_length=600)
+    max_attempts: Literal[2] = MAX_ATTEMPTS_PER_PACKET
     max_proposals: int = Field(ge=0, le=MAX_PROPOSALS_PER_PACKET)
 
     @field_validator("evidence_ids")
@@ -202,6 +217,7 @@ class WorkPacket(_ValidatedInventoried):
             "evidence_ids": list(self.evidence_ids),
             "family_ids": list(self.family_ids),
             "fingerprint_digest": self.fingerprint_digest,
+            "max_attempts": self.max_attempts,
             "max_proposals": self.max_proposals,
             "observation_ids": list(self.observation_ids),
             "question": self.question,
@@ -228,7 +244,19 @@ class WorkReceipt(_ValidatedInventoried):
     response_digest: str = Field(pattern=_SHA256.pattern)
     status: WorkStatus
     submission_route: Literal["engine-work-packet"] = "engine-work-packet"
+    attempt_count: int = Field(ge=1, le=MAX_ATTEMPTS_PER_PACKET)
     proposal_count: int = Field(ge=0, le=MAX_PROPOSALS_PER_PACKET)
+
+    @model_validator(mode="after")
+    def _attempt_status_is_bounded(self) -> Self:
+        if self.status is WorkStatus.PENDING:
+            if self.attempt_count != 1:
+                raise ValueError("a pending work receipt must be the first attempt")
+            if self.proposal_count != 0:
+                raise ValueError("a pending work receipt cannot carry proposals")
+        elif self.attempt_count not in (1, MAX_ATTEMPTS_PER_PACKET):
+            raise ValueError("a final work receipt must use attempt one or two")
+        return self
 
 
 class WorkQueue(_ValidatedInventoried):
@@ -244,6 +272,18 @@ class WorkQueue(_ValidatedInventoried):
         packet_ids = tuple(item.packet_id for item in self.packets)
         if len(set(packet_ids)) != len(packet_ids):
             raise ValueError("work packet identities must be unique")
+        expected_roles = (*NORMAL_ROLES, SpecialistRole.SCEPTICAL_RECONCILER)
+        if self.mode is AnalysisMode.INVENTORY_ONLY:
+            if self.packets or self.receipts or self.sceptical_packet_id is not None:
+                raise ValueError("inventory-only work queue must contain no packets")
+            return self
+        if tuple(item.role for item in self.packets) != expected_roles:
+            raise ValueError(
+                "guided work queue must contain the exact normal roles followed by "
+                "one sceptical packet"
+            )
+        if self.sceptical_packet_id != self.packets[-1].packet_id:
+            raise ValueError("guided work queue sceptical packet ID is incorrect")
         receipt_ids = tuple(item.packet_id for item in self.receipts)
         if len(set(receipt_ids)) != len(receipt_ids):
             raise ValueError("work receipts must be unique per packet")
@@ -256,16 +296,25 @@ class WorkQueue(_ValidatedInventoried):
                 raise ValueError("work receipt packet digest does not match issued work")
             if receipt.proposal_count > packet.max_proposals:
                 raise ValueError("work receipt exceeds the packet proposal limit")
-        if self.sceptical_packet_id is not None:
-            sceptical = packets_by_id.get(self.sceptical_packet_id)
-            if sceptical is None or sceptical.role is not SpecialistRole.SCEPTICAL_RECONCILER:
-                raise ValueError("sceptical_packet_id must identify the sceptical packet")
+        final_ids = {
+            receipt.packet_id for receipt in self.receipts if receipt.status in _FINAL_STATUSES
+        }
+        normal_ids = {
+            packet.packet_id
+            for packet in self.packets
+            if packet.role is not SpecialistRole.SCEPTICAL_RECONCILER
+        }
+        receipt_ids_set = set(receipt_ids)
+        if self.sceptical_packet_id in receipt_ids_set and not normal_ids <= final_ids:
+            raise ValueError("sceptical receipt requires final normal receipts")
         return self
 
     def pending_packets(self) -> tuple[WorkPacket, ...]:
         """Return legal next packets, keeping sceptical work locked."""
 
-        completed = {item.packet_id for item in self.receipts}
+        completed = {
+            item.packet_id for item in self.receipts if item.status in _FINAL_STATUSES
+        }
         normal = tuple(
             item
             for item in self.packets
@@ -287,12 +336,18 @@ class WorkQueue(_ValidatedInventoried):
         matches = tuple(item for item in self.packets if item.packet_id == packet_id)
         if len(matches) != 1:
             raise WorkQueueError("packet is not in this work queue")
-        if packet_id in {item.packet_id for item in self.receipts}:
+        existing = tuple(item for item in self.receipts if item.packet_id == packet_id)
+        if existing and existing[0].status in _FINAL_STATUSES:
             raise WorkQueueError("packet already has a response")
         packet = matches[0]
         if packet.role is SpecialistRole.SCEPTICAL_RECONCILER and any(
             item.role is not SpecialistRole.SCEPTICAL_RECONCILER
-            and item.packet_id not in {receipt.packet_id for receipt in self.receipts}
+            and item.packet_id
+            not in {
+                receipt.packet_id
+                for receipt in self.receipts
+                if receipt.status in _FINAL_STATUSES
+            }
             for item in self.packets
         ):
             raise WorkQueueError("sceptical packet is locked until normal work is complete")
@@ -305,7 +360,26 @@ class WorkQueue(_ValidatedInventoried):
         if existing:
             if existing == (receipt,):
                 return self
+            previous = existing[0]
+            if (
+                previous.status is WorkStatus.PENDING
+                and previous.attempt_count == 1
+                and receipt.status in _FINAL_STATUSES
+                and receipt.attempt_count == MAX_ATTEMPTS_PER_PACKET
+            ):
+                packet = self.require_pending(receipt.packet_id)
+                if receipt.packet_digest != packet.packet_digest:
+                    raise WorkQueueError("response packet digest does not match issued work")
+                if receipt.proposal_count > packet.max_proposals:
+                    raise WorkQueueError("response exceeds the packet proposal limit")
+                replaced = tuple(
+                    receipt if item.packet_id == receipt.packet_id else item
+                    for item in self.receipts
+                )
+                return self.model_copy(update={"receipts": replaced})
             raise WorkQueueError("packet already has a different response")
+        if receipt.status in _FINAL_STATUSES and receipt.attempt_count != 1:
+            raise WorkQueueError("a first final response must use attempt one")
         packet = self.require_pending(receipt.packet_id)
         if receipt.packet_digest != packet.packet_digest:
             raise WorkQueueError("response packet digest does not match issued work")
@@ -319,9 +393,14 @@ class WorkQueue(_ValidatedInventoried):
         return WorkAudit(
             mode=self.mode,
             packet_count=len(self.packets),
-            completed_count=len(self.receipts),
+            completed_count=sum(
+                1 for receipt in self.receipts if receipt.status in _FINAL_STATUSES
+            ),
             unresolved_count=sum(
-                1 for receipt in self.receipts if receipt.status is WorkStatus.UNRESOLVED
+                1
+                for receipt in self.receipts
+                if receipt.status is WorkStatus.UNRESOLVED
+                and receipt.status in _FINAL_STATUSES
             ),
             manual_submission_count=sum(
                 1
@@ -341,6 +420,43 @@ class WorkAudit(_ValidatedInventoried):
     unresolved_count: int = Field(ge=0)
     manual_submission_count: int = Field(ge=0)
     receipts: tuple[WorkReceipt, ...]
+
+    @model_validator(mode="after")
+    def _audit_counts_match_receipts(self) -> Self:
+        expected_packet_count = (
+            0
+            if self.mode is AnalysisMode.INVENTORY_ONLY
+            else len(NORMAL_ROLES) + 1
+        )
+        if self.packet_count != expected_packet_count:
+            raise ValueError("packet_count must match the queue mode")
+        receipt_ids = tuple(receipt.packet_id for receipt in self.receipts)
+        if len(set(receipt_ids)) != len(receipt_ids):
+            raise ValueError("receipts must be unique per packet")
+        if len(self.receipts) > self.packet_count:
+            raise ValueError("receipts cannot exceed packet_count")
+        if self.mode is AnalysisMode.INVENTORY_ONLY and self.receipts:
+            raise ValueError("inventory-only audits must contain no receipts")
+        expected_completed = sum(
+            1 for receipt in self.receipts if receipt.status in _FINAL_STATUSES
+        )
+        expected_unresolved = sum(
+            1
+            for receipt in self.receipts
+            if receipt.status is WorkStatus.UNRESOLVED
+        )
+        expected_manual = sum(
+            1
+            for receipt in self.receipts
+            if receipt.submission_route != "engine-work-packet"
+        )
+        if self.completed_count != expected_completed:
+            raise ValueError("completed_count must match final receipts")
+        if self.unresolved_count != expected_unresolved:
+            raise ValueError("unresolved_count must match unresolved receipts")
+        if self.manual_submission_count != expected_manual:
+            raise ValueError("manual_submission_count must match receipts")
+        return self
 
 
 def audit_work_queue(queue: WorkQueue) -> WorkAudit:
@@ -383,6 +499,7 @@ def _packet_for_role(
         "family_ids": _context_tuple(context, "family_ids"),
         "workflow_ids": _context_tuple(context, "workflow_ids"),
         "question": _ROLE_QUESTIONS[role],
+        "max_attempts": MAX_ATTEMPTS_PER_PACKET,
         "max_proposals": MAX_PROPOSALS_PER_PACKET,
     }
     # Canonicalise every allowed identity before minting the content-bound
@@ -403,6 +520,7 @@ def _packet_for_role(
         "evidence_ids": list(values["evidence_ids"]),
         "family_ids": list(values["family_ids"]),
         "fingerprint_digest": values["fingerprint_digest"],
+        "max_attempts": values["max_attempts"],
         "max_proposals": values["max_proposals"],
         "observation_ids": list(values["observation_ids"]),
         "question": values["question"],

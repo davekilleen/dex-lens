@@ -9371,6 +9371,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral protocol instruction; no private prompt content"
 
+  WorkPacket.max_attempts:
+    description: "maximum response attempts accepted for one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "fixed integer ceiling of two including the initial attempt"
+    display: "limits retries for malformed or unavailable specialist responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral retry-abuse prevention limit"
+
   WorkPacket.max_proposals:
     description: "maximum proposal count accepted for one work packet"
     collection: "assigned by the deterministic diagnosis queue"
@@ -9430,6 +9440,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral response provenance marker"
+
+  WorkReceipt.attempt_count:
+    description: "one-based response attempt number for a work packet"
+    collection: "returned by the host assistant through the typed protocol"
+    derivation: "bounded to the initial attempt and one retry"
+    display: "shows whether a response used the one permitted retry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded retry audit fact"
 
   WorkReceipt.proposal_count:
     description: "number of typed proposals carried by one packet response"
