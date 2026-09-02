@@ -656,7 +656,7 @@ are often the part that proves you read their work.
 ## Phase 6: show the shortlist
 
 The shortlist is whatever the engine result earned, not a private list you
-kept on the side. Recommend at most three. For each thing you are
+kept on the side. Recommend up to ten. For each thing you are
 suggesting, give them one short paragraph:
 
 - what it does, in their language
@@ -776,7 +776,7 @@ Why I thought of it for you:
 > — `<path>`
 Yours versus Dex's: <for a skill, the verdict on the six checks with a quote for each side; for a tool set, automation or engine capability, what it is, its impact, and what of it is Unknown>
 What it would cost: <time, overlap, what it duplicates>
-(Recommend no more than three. If none clears the evidence bar, write:
+(Recommend no more than ten. If none clears the evidence bar, write:
 "No Dex addition cleared the evidence bar this time.")
 
 ## Considered and rejected

@@ -31,6 +31,7 @@ from capability_exchange.catalogue.subscription import (
     default_lens_app_storage,
     require_app_storage_outside_roots,
 )
+from capability_exchange.diagnosis.ranking import MAX_RECOMMENDATIONS
 
 __all__ = [
     "DEFAULT_LABEL",
@@ -693,9 +694,9 @@ def missing_report_requirements(markdown: str) -> list[str]:
         for heading in _HEADING.finditer(body)
         if heading.group(1) == "###"
     )
-    if recommendation_count > 3:
+    if recommendation_count > MAX_RECOMMENDATIONS:
         problems.append(
-            f"recommend at most three Dex additions; this report contains "
+            f"recommend at most {MAX_RECOMMENDATIONS} Dex additions; this report contains "
             f"{recommendation_count}."
         )
 

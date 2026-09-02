@@ -34,6 +34,11 @@ from capability_exchange.diagnosis.observations import (
     observation_id_for,
     upgrade_stored_observation_payload,
 )
+from capability_exchange.diagnosis.ranking import (
+    MAX_RECOMMENDATIONS,
+    RankedRecommendation,
+    rank_recommendations,
+)
 from capability_exchange.diagnosis.significant_families import (
     ComponentMatchBasis,
     FamilyAssessmentDisposition,
@@ -51,6 +56,8 @@ __all__ = [
     "HumanCapability",
     "LocalObservationDisposition",
     "McpToolInventory",
+    "MAX_RECOMMENDATIONS",
+    "RankedRecommendation",
     "VersionDistance",
     "family_entries_from_assessments",
 ]
@@ -615,6 +622,7 @@ class ComparisonLedger(InventoriedModel):
     catalogue_sha256: str = Field(pattern=_HEX_SHA256_PATTERN)
     capabilities: tuple[HumanCapability, ...]
     entries: tuple[CatalogueDisposition, ...] = Field(min_length=1)
+    ranked_recommendations: tuple[RankedRecommendation, ...] = ()
     mcp_tools_by_server: tuple[McpToolInventory, ...] = ()
     family_entries: tuple[FamilyLedgerEntry, ...] = ()
     version_distance: VersionDistance | None = None
@@ -633,8 +641,40 @@ class ComparisonLedger(InventoriedModel):
         recommendations = sum(
             item.disposition is Disposition.WORTH_BORROWING for item in self.entries
         )
-        if recommendations > 3:
-            raise ValueError("a report may recommend at most three Dex additions")
+        if recommendations > MAX_RECOMMENDATIONS:
+            raise ValueError("a report may recommend at most 10 Dex additions")
+        ranked = self.ranked_recommendations
+        if len(ranked) > MAX_RECOMMENDATIONS:
+            raise ValueError("a report may recommend at most 10 Dex additions")
+        if ranked:
+            ranked_ids = tuple(item.catalogue_id for item in ranked)
+            if len(ranked_ids) != len(set(ranked_ids)):
+                raise ValueError("ranked recommendations must have unique catalogue identities")
+            if tuple(item.rank for item in ranked) != tuple(range(1, len(ranked) + 1)):
+                raise ValueError("ranked recommendations must use consecutive ranks from 1")
+            entries_by_id = {item.catalogue_id: item for item in self.entries}
+            expected_recommendation_ids = {
+                item.catalogue_id
+                for item in self.entries
+                if item.disposition is Disposition.WORTH_BORROWING
+            }
+            if set(ranked_ids) != expected_recommendation_ids:
+                raise ValueError(
+                    "ranked recommendations must equal the ledger recommendation identities"
+                )
+            for recommendation in ranked:
+                entry = entries_by_id.get(recommendation.catalogue_id)
+                if entry is None or entry.disposition is not Disposition.WORTH_BORROWING:
+                    raise ValueError(
+                        "ranked recommendations must reference worth-borrowing ledger entries"
+                    )
+                if recommendation.capability_id != entry.capability_id:
+                    raise ValueError(
+                        "ranked recommendation capability identity must match its ledger entry"
+                    )
+            expected_ranked = rank_recommendations(ranked)
+            if expected_ranked != ranked:
+                raise ValueError("ranked recommendations must be in deterministic order")
         entry_ids = [item.catalogue_id for item in self.entries]
         if len(entry_ids) != len(set(entry_ids)):
             raise ValueError("comparison ledger contains a duplicate catalogue identity")
@@ -679,6 +719,7 @@ class ComparisonLedger(InventoriedModel):
         catalogue_sha256: str,
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
+        ranked_recommendations: tuple[RankedRecommendation, ...] | None = None,
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
         version_distance: VersionDistance | None = None,
@@ -700,6 +741,7 @@ class ComparisonLedger(InventoriedModel):
                 catalogue_sha256=catalogue_sha256,
                 capabilities=capabilities,
                 entries=entries,
+                ranked_recommendations=ranked_recommendations,
                 mcp_tools_by_server=mcp_tools_by_server,
                 family_entries=family_entries,
                 version_distance=version_distance,
@@ -794,6 +836,7 @@ class ComparisonLedger(InventoriedModel):
             catalogue_sha256=catalogue_sha256,
             capabilities=capabilities,
             entries=entries,
+            ranked_recommendations=ranked_recommendations or (),
             mcp_tools_by_server=exact_mcp_tools,
             family_entries=exact_family_entries,
             version_distance=version_distance,
@@ -811,6 +854,7 @@ class ComparisonLedger(InventoriedModel):
         catalogue_sha256: str,
         capabilities: tuple[HumanCapability, ...],
         entries: tuple[CatalogueDisposition, ...],
+        ranked_recommendations: tuple[RankedRecommendation, ...] | None = None,
         mcp_tools_by_server: tuple[McpToolInventory, ...] | None = None,
         family_entries: tuple[FamilyLedgerEntry, ...] | None = None,
         version_distance: VersionDistance | None = None,
@@ -837,6 +881,7 @@ class ComparisonLedger(InventoriedModel):
             catalogue_sha256=catalogue_sha256,
             capabilities=capabilities,
             entries=entries,
+            ranked_recommendations=ranked_recommendations,
             mcp_tools_by_server=mcp_tools_by_server,
             family_entries=assessed_family_entries,
             version_distance=version_distance,
@@ -908,6 +953,7 @@ class ComparisonLedger(InventoriedModel):
             catalogue_sha256=base.catalogue_sha256,
             capabilities=base.capabilities,
             entries=base.entries,
+            ranked_recommendations=base.ranked_recommendations,
             mcp_tools_by_server=base.mcp_tools_by_server,
             family_entries=base.family_entries,
             version_distance=base.version_distance,

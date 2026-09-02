@@ -12,6 +12,11 @@ from capability_exchange.diagnosis.comparison import (
     Disposition,
     HumanCapability,
 )
+from capability_exchange.diagnosis.ranking import (
+    RecommendationCandidate,
+    RecommendationFactors,
+    rank_recommendations,
+)
 
 CATALOGUE_SHA = "a" * 64
 
@@ -57,7 +62,7 @@ def test_ledger_requires_one_disposition_per_catalogue_entry() -> None:
         )
 
 
-def test_ledger_refuses_more_than_three_recommendations() -> None:
+def test_ledger_refuses_more_than_ten_recommendations() -> None:
     entries = tuple(
         _disposition(
             f"catalogue-item-{index}",
@@ -65,10 +70,10 @@ def test_ledger_refuses_more_than_three_recommendations() -> None:
             evidence=(f"path-token:item-{index}",),
             method_compared=True,
         )
-        for index in range(4)
+        for index in range(11)
     )
 
-    with pytest.raises(ValidationError, match="at most three"):
+    with pytest.raises(ValidationError, match="at most 10"):
         ComparisonLedger(
             catalogue_version=5,
             catalogue_sha256=CATALOGUE_SHA,
@@ -76,6 +81,42 @@ def test_ledger_refuses_more_than_three_recommendations() -> None:
             entries=entries,
             reciprocal_answer="No transferable method cleared the evidence bar.",
         )
+
+
+def test_ledger_preserves_the_exact_ranked_recommendation_tuple() -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:item-0",),
+        method_compared=True,
+    )
+    ranked = rank_recommendations(
+        (
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                factors=RecommendationFactors(
+                    reliability_risk=3,
+                    job_relevance=2,
+                    workflow_leverage=1,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=("path-token:item-0",),
+                reason=entry.reason,
+            ),
+        )
+    )
+    ledger = ComparisonLedger(
+        catalogue_version=5,
+        catalogue_sha256=CATALOGUE_SHA,
+        capabilities=(_human(entry.catalogue_id),),
+        entries=(entry,),
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
+
+    assert ledger.ranked_recommendations == ranked
 
 
 def test_same_name_without_method_evidence_cannot_be_shared() -> None:

@@ -15,6 +15,12 @@ from enum import StrEnum
 from pydantic import Field, field_validator
 
 from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis.ranking import (
+    MAX_EVIDENCE_IDS,
+    MAX_REASON_LENGTH,
+    MAX_RECOMMENDATIONS,
+    RecommendationFactors,
+)
 from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_json_digest
 
 __all__ = [
@@ -36,10 +42,6 @@ __all__ = [
 ]
 
 DISAGREEMENT_REASON = "Specialist proposals disagreed; the comparison remains Unknown."
-MAX_EVIDENCE_IDS = 8
-MAX_REASON_LENGTH = 600
-MAX_RECOMMENDATIONS = 3
-
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,159}$")
@@ -142,6 +144,7 @@ class SpecialistProposal(_ValidatedInventoried):
     catalogue_id: str = Field(pattern=_ID.pattern)
     capability_id: str = Field(pattern=_ID.pattern)
     disposition: Disposition
+    recommendation_factors: RecommendationFactors | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     observation_ids: tuple[str, ...] = ()
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
@@ -218,6 +221,7 @@ class ValidatedProposal(_ValidatedInventoried):
     catalogue_id: str = Field(pattern=_ID.pattern)
     capability_id: str = Field(pattern=_ID.pattern)
     disposition: Disposition
+    recommendation_factors: RecommendationFactors | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
     observation_ids: tuple[str, ...] = ()
@@ -338,6 +342,9 @@ def validate_proposal(
         catalogue_id=proposal.catalogue_id,
         capability_id=proposal.capability_id,
         disposition=proposal.disposition,
+        recommendation_factors=(
+            proposal.recommendation_factors if _is_recommendation(proposal) else None
+        ),
         evidence_ids=tuple(sorted(proposal.evidence_ids)),
         reason=proposal.reason,
         observation_ids=tuple(sorted(proposal.observation_ids)),
@@ -346,6 +353,30 @@ def validate_proposal(
 
 def _group_key(proposal: ValidatedProposal) -> tuple[str, str, str]:
     return (proposal.kind.value, proposal.catalogue_id, proposal.capability_id)
+
+
+def _coalesced_recommendation_factors(
+    group: list[ValidatedProposal],
+) -> RecommendationFactors | None:
+    """Select one stable factor record when agreeing recommendations coalesce."""
+
+    factors = [
+        item.recommendation_factors
+        for item in group
+        if _is_recommendation(item) and item.recommendation_factors is not None
+    ]
+    if not factors:
+        return None
+    return sorted(
+        factors,
+        key=lambda item: (
+            -item.reliability_risk,
+            -item.job_relevance,
+            -item.workflow_leverage,
+            -item.evidence_strength,
+            item.adoption_effort,
+        ),
+    )[0]
 
 
 def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
@@ -364,6 +395,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
             catalogue_id=sample.catalogue_id,
             capability_id=sample.capability_id,
             disposition=sample.disposition,
+            recommendation_factors=_coalesced_recommendation_factors(group),
             evidence_ids=evidence_ids,
             reason=reasons[0],
             observation_ids=observation_ids,
@@ -373,6 +405,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         catalogue_id=sample.catalogue_id,
         capability_id=sample.capability_id,
         disposition=Disposition.NOT_ASSESSED,
+        recommendation_factors=None,
         evidence_ids=evidence_ids,
         reason=DISAGREEMENT_REASON,
         observation_ids=observation_ids,
@@ -382,7 +415,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
 def _enforce_recommendation_cap(proposals: Iterable[ValidatedProposal]) -> None:
     recommended = [item for item in proposals if _is_recommendation(item)]
     if len(recommended) > MAX_RECOMMENDATIONS:
-        raise SpecialistProposalError("a diagnosis may recommend at most three Dex additions")
+        raise SpecialistProposalError("a diagnosis may recommend at most 10 Dex additions")
 
 
 def reconcile_proposals(

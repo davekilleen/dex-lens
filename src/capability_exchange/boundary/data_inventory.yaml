@@ -1345,6 +1345,196 @@ fields:
     deletion: not-stored
     audit: "ephemeral complete comparison ledger"
 
+  ComparisonLedger.ranked_recommendations:
+    description: "deterministically ordered recommendation candidates with one-based ranks"
+    collection: "derived locally from validated recommendation factors"
+    derivation: "sorted by reliability risk, job relevance, workflow leverage, evidence strength, adoption effort, then catalogue identity"
+    display: "drives the explainable recommendation order in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral ranked recommendation tuple; no pseudo-percentage"
+
+  RecommendationFactors.reliability_risk:
+    description: "bounded urgency factor for a proved reliability or continuity risk"
+    collection: "assigned locally from evidence-bound diagnosis findings"
+    derivation: "integer from 0 through 3"
+    display: "explains recommendation urgency"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.job_relevance:
+    description: "bounded relevance factor for the person's confirmed jobs"
+    collection: "assigned locally from confirmed job evidence"
+    derivation: "integer from 0 through 3"
+    display: "explains recommendation fit to the person's work"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.workflow_leverage:
+    description: "bounded expected leverage across reconstructed workflows"
+    collection: "assigned locally from evidence-bound workflow analysis"
+    derivation: "integer from 0 through 3"
+    display: "explains the expected breadth of recommendation benefit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.evidence_strength:
+    description: "bounded strength of the evidence supporting a recommendation"
+    collection: "assigned locally from cited engine-owned evidence"
+    derivation: "integer from 1 through 3"
+    display: "explains how strongly the recommendation is grounded"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.adoption_effort:
+    description: "bounded effort factor for adopting the recommended capability"
+    collection: "assigned locally from the signed capability method"
+    derivation: "integer from 1 through 3; lower values sort first"
+    display: "explains the relative adoption effort"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationCandidate.catalogue_id:
+    description: "signed catalogue identity of one recommendation candidate"
+    collection: "selected from the verified catalogue"
+    derivation: "bounded catalogue identity"
+    display: "names the Dex capability being recommended"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  RecommendationCandidate.capability_id:
+    description: "human capability identity associated with one recommendation candidate"
+    collection: "selected from the local comparison grouping"
+    derivation: "bounded capability identity"
+    display: "groups the recommendation with the person's job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral capability grouping identity"
+
+  RecommendationCandidate.factors:
+    description: "closed ranking factors explaining one recommendation candidate"
+    collection: "assembled locally from bounded diagnosis evidence"
+    derivation: "validated RecommendationFactors record"
+    display: "shows the factors behind the deterministic rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral explainable ranking structure"
+
+  RecommendationCandidate.evidence_ids:
+    description: "engine-owned evidence tokens supporting one recommendation candidate"
+    collection: "selected from the current evidence fingerprint"
+    derivation: "one through eight unique opaque evidence tokens"
+    display: "shows the facts grounding the recommendation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence identities; raw content is unrepresentable"
+
+  RecommendationCandidate.observation_ids:
+    description: "optional local observation identities supporting one recommendation candidate"
+    collection: "selected from the current evidence fingerprint"
+    derivation: "unique bounded observation identities"
+    display: "links the recommendation to observed local facts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identities"
+
+  RecommendationCandidate.reason:
+    description: "bounded one-line explanation for one recommendation candidate"
+    collection: "authored locally from the comparison evidence"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "explains why the recommendation cleared the evidence bar"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  RankedRecommendation.rank:
+    description: "one-based deterministic recommendation rank"
+    collection: "derived locally after candidate ordering"
+    derivation: "integer from 1 through 10"
+    display: "shows the recommendation position in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic rank; no pseudo-percentage"
+
+  RankedRecommendation.catalogue_id:
+    description: "signed catalogue identity of one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "bounded catalogue identity"
+    display: "names the Dex capability at this rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  RankedRecommendation.capability_id:
+    description: "human capability identity associated with one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "bounded capability identity"
+    display: "groups the ranked recommendation with the person's job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral capability grouping identity"
+
+  RankedRecommendation.factors:
+    description: "closed ranking factors retained on one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "validated RecommendationFactors record"
+    display: "explains the deterministic rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral explainable ranking structure"
+
+  RankedRecommendation.evidence_ids:
+    description: "engine-owned evidence tokens supporting one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "one through eight unique opaque evidence tokens"
+    display: "shows the facts grounding the ranked recommendation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence identities; raw content is unrepresentable"
+
+  RankedRecommendation.observation_ids:
+    description: "optional local observation identities supporting one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "unique bounded observation identities"
+    display: "links the rank to observed local facts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identities"
+
+  RankedRecommendation.reason:
+    description: "bounded one-line explanation for one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "explains why the ranked recommendation cleared the evidence bar"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
   ComparisonLedger.local_entries:
     description: "one explicit disposition for every captured local observation"
     collection: "assembled locally from the fingerprint and validated specialist mappings"
@@ -2175,6 +2365,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral local explanation"
 
+  SpecialistProposal.recommendation_factors:
+    description: "optional closed ranking factors attached to a recommendation proposal"
+    collection: "assigned by the specialist from bounded diagnosis evidence"
+    derivation: "validated RecommendationFactors; absent for non-recommendation claims"
+    display: "kept as untrusted ranking rationale until proposal validation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted ranking structure"
+
   ProposalContext.run_id:
     description: "current diagnosis run a proposal must bind to"
     collection: "copied from the active run identity"
@@ -2324,6 +2524,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral local explanation"
+
+  ValidatedProposal.recommendation_factors:
+    description: "closed ranking factors retained on an accepted recommendation proposal"
+    collection: "copied from a validated recommendation proposal"
+    derivation: "validated RecommendationFactors; absent for non-recommendation claims"
+    display: "makes the recommendation's deterministic rank explainable"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated ranking structure"
 
   PersistedScopeApproval.run_id:
     description: "run identity for a locally persisted scope approval"

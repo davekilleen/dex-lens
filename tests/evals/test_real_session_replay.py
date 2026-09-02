@@ -94,7 +94,7 @@ class RealSessionExpectedContract(StrictExpectedModel):
     forbidden_claims: tuple[Literal["93 capabilities are already covered"], ...]
     required_provenance_classes: tuple[ExpectedProvenanceClass, ...]
     required_clean_close_fields: tuple[ExpectedCleanCloseField, ...]
-    max_recommendations: Literal[3]
+    max_recommendations: Literal[10]
     requires_strength: Literal[True]
     requires_reciprocal_answer: Literal[True]
 

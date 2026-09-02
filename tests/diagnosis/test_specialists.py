@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from capability_exchange.catalogue.v2 import CapabilityAvailabilityV2
 from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis.ranking import RecommendationFactors
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
     ProposalContext,
@@ -86,6 +87,13 @@ def recommendation(catalogue_id: str) -> SpecialistProposal:
         kind=ProposalKind.RECOMMENDATION,
         catalogue_id=catalogue_id,
         disposition=Disposition.WORTH_BORROWING,
+        recommendation_factors=RecommendationFactors(
+            reliability_risk=1,
+            job_relevance=2,
+            workflow_leverage=2,
+            evidence_strength=2,
+            adoption_effort=2,
+        ),
     )
 
 
@@ -199,33 +207,45 @@ def test_no_confidence_score_breaks_a_tie() -> None:
 
 
 def test_recommendation_cap_is_enforced_at_set_level() -> None:
-    catalogue_ids = tuple(f"borrow-{index}" for index in range(4))
+    catalogue_ids = tuple(f"borrow-{index}" for index in range(11))
     context = proposal_context(catalogue_ids=catalogue_ids)
-    proposals = tuple(recommendation(catalogue_id) for catalogue_id in catalogue_ids)
+    proposals = tuple(recommendation(catalogue_id) for catalogue_id in catalogue_ids[:10])
 
-    validate_proposal(proposals[0], context=context)
-    validate_proposal(proposals[1], context=context)
-    validate_proposal(proposals[2], context=context)
+    assert len(reconcile_proposals(proposals, context=context)) == 10
 
-    with pytest.raises(SpecialistProposalError, match="at most three"):
-        reconcile_proposals(proposals, context=context)
+    with pytest.raises(SpecialistProposalError, match="at most 10"):
+        reconcile_proposals(
+            (*proposals, recommendation("borrow-10")),
+            context=context,
+        )
 
-    two_specialists = (
-        recommendation("borrow-0").model_copy(
-            update={"role": SpecialistRole.TOOLS_AND_INTEGRATIONS}
-        ),
-        recommendation("borrow-1").model_copy(
-            update={"role": SpecialistRole.STRENGTH_AND_RECIPROCAL}
-        ),
-        recommendation("borrow-2").model_copy(
-            update={"role": SpecialistRole.AUTOMATIONS_AND_LIVE_STATE}
-        ),
-        recommendation("borrow-3").model_copy(
-            update={"role": SpecialistRole.SCEPTICAL_RECONCILER}
-        ),
+    roles = (
+        SpecialistRole.TOOLS_AND_INTEGRATIONS,
+        SpecialistRole.STRENGTH_AND_RECIPROCAL,
+        SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+        SpecialistRole.SCEPTICAL_RECONCILER,
     )
-    with pytest.raises(SpecialistProposalError, match="at most three"):
+    two_specialists = tuple(
+        recommendation(f"borrow-{index}").model_copy(
+            update={"role": roles[index % len(roles)]}
+        )
+        for index in range(11)
+    )
+    with pytest.raises(SpecialistProposalError, match="at most 10"):
         reconcile_proposals(two_specialists, context=context)
+
+
+def test_recommendation_factors_are_retained_only_for_recommendations() -> None:
+    context = proposal_context()
+    accepted_recommendation = validate_proposal(
+        recommendation(DEFAULT_CATALOGUE_ID),
+        context=context,
+    )
+    accepted_mapping = validate_proposal(proposal(), context=context)
+
+    assert accepted_recommendation.recommendation_factors is not None
+    assert accepted_recommendation.recommendation_factors.job_relevance == 2
+    assert accepted_mapping.recommendation_factors is None
 
 
 def test_release_distance_without_family_contract_is_refused() -> None:

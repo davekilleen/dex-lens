@@ -17,6 +17,7 @@ from capability_exchange.diagnosis.observations import (
     RuntimeState,
     observation_id_for,
 )
+from capability_exchange.diagnosis.ranking import MAX_RECOMMENDATIONS
 from capability_exchange.diagnosis.report import (
     ledger_appendix_errors,
     ledger_derived_fact_errors,
@@ -263,7 +264,7 @@ def grade_significant_coverage(
         for item in ledger.entries
         if item.disposition is Disposition.WORTH_BORROWING
     }
-    recommendation_score = 5 if 1 <= len(recommendations) <= 3 else 0
+    recommendation_score = 5 if 1 <= len(recommendations) <= MAX_RECOMMENDATIONS else 0
     if recommendations and not recommendations & set(unavailable_catalogue_ids):
         recommendation_score += 5
 
