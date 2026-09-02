@@ -667,6 +667,9 @@ class ComparisonLedger(_ValidatedInventoried):
                 raise ValueError(
                     "ranked recommendations must equal the ledger recommendation identities"
                 )
+            capabilities_by_id = {
+                capability.capability_id: capability for capability in self.capabilities
+            }
             for recommendation in ranked:
                 entry = entries_by_id.get(recommendation.catalogue_id)
                 if entry is None or entry.disposition is not Disposition.WORTH_BORROWING:
@@ -677,7 +680,7 @@ class ComparisonLedger(_ValidatedInventoried):
                     raise ValueError(
                         "ranked recommendation capability identity must match its ledger entry"
                     )
-                if recommendation.evidence_ids != entry.evidence_references:
+                if recommendation.evidence_ids != tuple(sorted(entry.evidence_references)):
                     raise ValueError(
                         "ranked recommendation evidence IDs must match its ledger entry"
                     )
@@ -685,9 +688,16 @@ class ComparisonLedger(_ValidatedInventoried):
                     raise ValueError(
                         "ranked recommendation reason must match its ledger entry"
                     )
-                if recommendation.observation_ids:
+                capability = capabilities_by_id.get(recommendation.capability_id)
+                if capability is None:
                     raise ValueError(
-                        "ranked recommendation observation IDs require a safe ledger source"
+                        "ranked recommendation capability identity must match a human capability"
+                    )
+                if not set(recommendation.observation_ids).issubset(
+                    capability.person_observation_ids
+                ):
+                    raise ValueError(
+                        "ranked recommendation observation IDs must match its human capability"
                     )
             expected_ranked = rank_recommendations(ranked)
             if expected_ranked != ranked:

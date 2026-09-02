@@ -298,6 +298,26 @@ def test_conflicting_recommendation_factors_remain_unresolved() -> None:
     assert reconciled[0].recommendation_factors is None
 
 
+def test_missing_and_present_recommendation_factors_remain_unresolved() -> None:
+    context = proposal_context(evidence_ids=("current:first", "current:second"))
+    first = recommendation(DEFAULT_CATALOGUE_ID).model_copy(
+        update={"evidence_ids": ("current:first",)}
+    )
+    second = recommendation(DEFAULT_CATALOGUE_ID).model_copy(
+        update={
+            "role": SpecialistRole.SCEPTICAL_RECONCILER,
+            "evidence_ids": ("current:second",),
+            "recommendation_factors": None,
+        }
+    )
+
+    reconciled = reconcile_proposals((first, second), context=context)
+
+    assert reconciled[0].disposition is Disposition.NOT_ASSESSED
+    assert reconciled[0].reason == DISAGREEMENT_REASON
+    assert reconciled[0].recommendation_factors is None
+
+
 def test_release_distance_without_family_contract_is_refused() -> None:
     usable = proposal(
         role=SpecialistRole.RELEASE_DISTANCE,

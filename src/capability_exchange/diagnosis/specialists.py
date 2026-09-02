@@ -364,14 +364,17 @@ def _coalesced_recommendation_factors(
 ) -> RecommendationFactors | None:
     """Retain factors only when every agreeing recommendation supplied the same tuple."""
 
-    factors = [
+    recommendation_factors = [
         item.recommendation_factors
         for item in group
-        if _is_recommendation(item) and item.recommendation_factors is not None
+        if _is_recommendation(item)
     ]
+    factors = [item for item in recommendation_factors if item is not None]
     if not factors:
         return None
-    return factors[0] if len(set(factors)) == 1 else None
+    if len(factors) != len(recommendation_factors) or len(set(factors)) != 1:
+        return None
+    return factors[0]
 
 
 def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
@@ -382,10 +385,11 @@ def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
         for item in group
         if _is_recommendation(item)
     ]
+    present = [item for item in factors if item is not None]
     return (
         len(factors) > 1
-        and all(item is not None for item in factors)
-        and len(set(factors)) > 1
+        and bool(present)
+        and (len(present) != len(factors) or len(set(present)) > 1)
     )
 
 

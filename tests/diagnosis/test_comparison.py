@@ -119,6 +119,122 @@ def test_ledger_preserves_the_exact_ranked_recommendation_tuple() -> None:
     assert ledger.ranked_recommendations == ranked
 
 
+def test_ranked_recommendation_accepts_matching_capability_observation_ids() -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:item-0",),
+        method_compared=True,
+    )
+    human = _human(entry.catalogue_id)
+    ranked = rank_recommendations(
+        (
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                factors=RecommendationFactors(
+                    reliability_risk=3,
+                    job_relevance=2,
+                    workflow_leverage=1,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=entry.evidence_references,
+                observation_ids=human.person_observation_ids,
+                reason=entry.reason,
+            ),
+        )
+    )
+
+    ledger = ComparisonLedger(
+        catalogue_version=5,
+        catalogue_sha256=CATALOGUE_SHA,
+        capabilities=(human,),
+        entries=(entry,),
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
+
+    assert ledger.ranked_recommendations[0].observation_ids == human.person_observation_ids
+
+
+def test_ranked_recommendation_rejects_observation_outside_matching_capability() -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:item-0",),
+        method_compared=True,
+    )
+    ranked = rank_recommendations(
+        (
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                factors=RecommendationFactors(
+                    reliability_risk=3,
+                    job_relevance=2,
+                    workflow_leverage=1,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=entry.evidence_references,
+                observation_ids=("arbitrary-observation",),
+                reason=entry.reason,
+            ),
+        )
+    )
+
+    with pytest.raises(ValidationError, match="observation IDs"):
+        ComparisonLedger(
+            catalogue_version=5,
+            catalogue_sha256=CATALOGUE_SHA,
+            capabilities=(_human(entry.catalogue_id),),
+            entries=(entry,),
+            ranked_recommendations=ranked,
+            reciprocal_answer="No transferable method cleared the evidence bar.",
+        )
+
+
+def test_ranked_recommendation_accepts_unsorted_catalogue_evidence_references() -> None:
+    entry = _disposition(
+        "catalogue-item-0",
+        Disposition.WORTH_BORROWING,
+        evidence=("path-token:z", "path-token:a"),
+        method_compared=True,
+    )
+    ranked = rank_recommendations(
+        (
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                factors=RecommendationFactors(
+                    reliability_risk=3,
+                    job_relevance=2,
+                    workflow_leverage=1,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=entry.evidence_references,
+                reason=entry.reason,
+            ),
+        )
+    )
+
+    ledger = ComparisonLedger(
+        catalogue_version=5,
+        catalogue_sha256=CATALOGUE_SHA,
+        capabilities=(_human(entry.catalogue_id),),
+        entries=(entry,),
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
+
+    assert ledger.ranked_recommendations[0].evidence_ids == (
+        "path-token:a",
+        "path-token:z",
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     (
@@ -151,10 +267,7 @@ def test_ranked_recommendation_is_bound_to_ledger_evidence_and_reason(
         "evidence_ids": ("path-token:item-0",),
         "reason": entry.reason,
     }
-    if field == "observation_ids":
-        candidate_values[field] = value
-    else:
-        candidate_values[field] = value
+    candidate_values[field] = value
     ranked = rank_recommendations((RecommendationCandidate(**candidate_values),))
 
     with pytest.raises(ValidationError, match=message):

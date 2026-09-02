@@ -10,11 +10,13 @@ from tests.catalogue.test_v2_verifier import NOW, sign_envelope, unsigned_envelo
 
 from capability_exchange.catalogue.agent import render_catalogue_ledger_template
 from capability_exchange.catalogue.v2 import KeyRing, verify_catalogue_envelope
+from capability_exchange.diagnosis.comparison import ComparisonLedger
 from capability_exchange.diagnosis.observations import (
     ConfigurationState,
     HealthState,
     RuntimeState,
 )
+from capability_exchange.diagnosis.report import canonical_ledger_digest
 from capability_exchange.reports import cli
 from capability_exchange.reports.ledger import load_and_validate_ledger
 
@@ -100,6 +102,60 @@ def test_revalidation_preserves_stored_local_rows(tmp_path: Path) -> None:
     assert len(ledger.local_entries) == 1
     assert ledger.local_entries[0].runtime_state is RuntimeState.RECENTLY_RUN
     assert ledger.local_entries[0].health_state is HealthState.BROKEN
+
+
+def test_canonical_json_rebind_preserves_rankings_and_digest(tmp_path: Path) -> None:
+    verified = _verified_catalogue()
+    payload = json.loads(render_catalogue_ledger_template(verified))
+    catalogue_id = verified.catalogue.capabilities[0].capability_id
+    evidence_id = "file-token:ranked-recommendation.md"
+    payload["capabilities"] = [
+        {
+            "capability_id": "human-memory",
+            "title": "Remember important context",
+            "job_ids": ["remember-what-matters"],
+            "catalogue_ids": [catalogue_id],
+            "person_observation_ids": [],
+        }
+    ]
+    payload["entries"] = [
+        {
+            "catalogue_id": catalogue_id,
+            "disposition": "worth-borrowing",
+            "capability_id": "human-memory",
+            "evidence_references": [evidence_id],
+            "method_compared": True,
+            "reason": "The capability addresses a grounded memory gap.",
+        }
+    ]
+    payload["ranked_recommendations"] = [
+        {
+            "catalogue_id": catalogue_id,
+            "capability_id": "human-memory",
+            "factors": {
+                "reliability_risk": 3,
+                "job_relevance": 2,
+                "workflow_leverage": 2,
+                "evidence_strength": 2,
+                "adoption_effort": 1,
+            },
+            "evidence_ids": [evidence_id],
+            "observation_ids": [],
+            "reason": "The capability addresses a grounded memory gap.",
+            "rank": 1,
+        }
+    ]
+    source = ComparisonLedger.model_validate(payload)
+    expected_digest = canonical_ledger_digest(source)
+    path = tmp_path / "ledger.json"
+    path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+    rebound, problems = load_and_validate_ledger(path, verified)
+
+    assert problems == []
+    assert rebound is not None
+    assert rebound.ranked_recommendations == source.ranked_recommendations
+    assert canonical_ledger_digest(rebound) == expected_digest
 
 
 def test_report_command_requires_a_ledger() -> None:
