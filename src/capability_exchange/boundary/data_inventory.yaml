@@ -9521,6 +9521,26 @@ fields:
     deletion: not-stored
     audit: "ephemeral work audit count"
 
+  WorkAudit.packet_ids:
+    description: "ordered packet identities included in one work audit"
+    collection: "copied from the deterministic work queue packet tuple"
+    derivation: "unique packet digest identities in role issuance order"
+    display: "binds the audit to exactly the packets issued by the engine"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet identity audit"
+
+  WorkAudit.queue_digest:
+    description: "SHA-256 binding of queue mode and ordered packet identities"
+    collection: "computed by the diagnosis engine when the work audit is built"
+    derivation: "canonical JSON digest over analysis mode and packet IDs"
+    display: "supports exact queue and audit reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral queue integrity binding"
+
   WorkAudit.completed_count:
     description: "number of issued packets with a response receipt"
     collection: "counted from the immutable queue receipt tuple"

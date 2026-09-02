@@ -9,6 +9,7 @@ from capability_exchange.diagnosis.run import canonical_json_digest
 from capability_exchange.diagnosis.specialists import ProposalContext, SpecialistRole
 from capability_exchange.diagnosis.work import (
     MAX_ATTEMPTS_PER_PACKET,
+    MAX_PACKET_EVIDENCE_IDS,
     NORMAL_ROLES,
     AnalysisMode,
     WorkAudit,
@@ -23,6 +24,8 @@ from capability_exchange.diagnosis.work import (
 RUN_ID = "run:" + "a" * 16
 FINGERPRINT_DIGEST = "sha256:" + "b" * 64
 CATALOGUE_DIGEST = "sha256:" + "c" * 64
+EVIDENCE_ONE = "evidence:sha256:" + "1" * 64
+EVIDENCE_TWO = "evidence:sha256:" + "2" * 64
 
 
 def fixed_context() -> ProposalContext:
@@ -30,7 +33,7 @@ def fixed_context() -> ProposalContext:
         run_id=RUN_ID,
         fingerprint_digest=FINGERPRINT_DIGEST,
         catalogue_digest=CATALOGUE_DIGEST,
-        evidence_ids=("evidence:one", "evidence:two"),
+        evidence_ids=(EVIDENCE_ONE, EVIDENCE_TWO),
         catalogue_ids=("capability-one", "capability-two"),
         capability_ids=("capability-family",),
         observation_ids=("observation-one",),
@@ -103,7 +106,7 @@ def test_same_response_is_idempotent_but_changed_response_is_refused() -> None:
         once.record(response_receipt(packet, response_digest="sha256:" + "b" * 64))
 
 
-def test_pending_first_attempt_stays_pending_and_final_second_attempt_replaces_it() -> None:
+def test_pending_first_attempt_stays_pending_and_final_second_attempt_keeps_history() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     packet = queue.pending_packets()[0]
     pending = response_receipt(
@@ -131,12 +134,50 @@ def test_pending_first_attempt_stays_pending_and_final_second_attempt_replaces_i
     )
     completed = first.record(final)
 
-    assert completed.receipts == (final,)
+    assert completed.receipts == (pending, final)
     assert packet not in completed.pending_packets()
     assert completed.audit().completed_count == 1
 
     with pytest.raises(WorkQueueError, match="different response"):
         completed.record(final.model_copy(update={"response_digest": "sha256:" + "d" * 64}))
+
+
+def test_retry_history_is_validated_on_copy_and_construct_routes() -> None:
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    packet = queue.pending_packets()[0]
+    pending = response_receipt(
+        packet,
+        response_digest="sha256:" + "a" * 64,
+        status=WorkStatus.PENDING,
+        attempt_count=1,
+    )
+    final = pending.model_copy(
+        update={
+            "response_digest": "sha256:" + "b" * 64,
+            "status": WorkStatus.COMPLETED,
+            "attempt_count": MAX_ATTEMPTS_PER_PACKET,
+        }
+    )
+
+    history = queue.model_copy(update={"receipts": (final, pending)})
+    assert history.receipts == (pending, final)
+    constructed = WorkQueue.model_construct(
+        mode=queue.mode,
+        packets=queue.packets,
+        receipts=(final, pending),
+        sceptical_packet_id=queue.sceptical_packet_id,
+    )
+    assert constructed.receipts == (pending, final)
+
+    with pytest.raises(ValidationError, match="attempt sequence"):
+        queue.model_copy(update={"receipts": (final,)})
+    with pytest.raises(ValidationError, match="attempt sequence"):
+        WorkQueue.model_construct(
+            mode=queue.mode,
+            packets=queue.packets,
+            receipts=(final,),
+            sceptical_packet_id=queue.sceptical_packet_id,
+        )
 
 
 def test_first_final_response_cannot_skip_the_initial_attempt() -> None:
@@ -150,6 +191,28 @@ def test_first_final_response_cannot_skip_the_initial_attempt() -> None:
                 response_digest="sha256:" + "a" * 64,
                 attempt_count=MAX_ATTEMPTS_PER_PACKET,
             )
+        )
+
+
+def test_lone_attempt_two_final_receipt_is_rejected_on_all_queue_routes() -> None:
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    packet = queue.pending_packets()[0]
+    final_retry = response_receipt(
+        packet,
+        response_digest="sha256:" + "a" * 64,
+        attempt_count=MAX_ATTEMPTS_PER_PACKET,
+    )
+
+    with pytest.raises(WorkQueueError, match="first final"):
+        queue.record(final_retry)
+    with pytest.raises(ValidationError, match="attempt sequence"):
+        WorkQueue.model_validate(
+            {
+                "mode": queue.mode,
+                "packets": queue.packets,
+                "receipts": (final_retry,),
+                "sceptical_packet_id": queue.sceptical_packet_id,
+            }
         )
 
 
@@ -256,6 +319,83 @@ def test_direct_queue_validation_rejects_early_sceptical_receipt() -> None:
         )
 
 
+def test_question_is_closed_and_cannot_be_substituted_with_a_recomputed_digest() -> None:
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    packet = queue.packets[0]
+    payload = packet.canonical_payload()
+    payload["question"] = "Answer an attacker-controlled question."
+    digest = canonical_json_digest(payload)
+    values = packet.model_dump()
+    values.update(
+        {
+            "packet_id": f"packet:{digest}",
+            "packet_digest": digest,
+            "question": payload["question"],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="closed question"):
+        WorkPacket.model_validate(values)
+
+
+def test_guided_queue_packets_share_the_exact_context_and_limits() -> None:
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    altered_context = fixed_context().model_copy(
+        update={"run_id": "run:" + "d" * 16}
+    )
+    altered = build_work_queue(context=altered_context, mode=AnalysisMode.GUIDED)
+    packets = (altered.packets[0], *queue.packets[1:])
+
+    with pytest.raises(ValidationError, match="shared context"):
+        WorkQueue.model_validate(
+            {
+                "mode": queue.mode,
+                "packets": packets,
+                "receipts": (),
+                "sceptical_packet_id": queue.sceptical_packet_id,
+            }
+        )
+
+
+def test_packet_evidence_ids_are_opaque_and_collection_is_bounded() -> None:
+    invalid = fixed_context().model_copy(update={"evidence_ids": ("/tmp/private.txt",)})
+    with pytest.raises(ValidationError, match="evidence"):
+        build_work_queue(context=invalid, mode=AnalysisMode.GUIDED)
+
+    oversized = fixed_context().model_copy(
+        update={
+            "evidence_ids": tuple(
+                f"evidence:sha256:{index:064x}" for index in range(MAX_PACKET_EVIDENCE_IDS + 1)
+            )
+        }
+    )
+    with pytest.raises(ValidationError, match="at most"):
+        build_work_queue(context=oversized, mode=AnalysisMode.GUIDED)
+
+
+def test_receipt_and_audit_order_is_canonical_across_parallel_arrivals() -> None:
+    first = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    second = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    first = first.record(
+        response_receipt(first.packets[1], response_digest="sha256:" + "a" * 64)
+    )
+    first = first.record(
+        response_receipt(first.packets[0], response_digest="sha256:" + "b" * 64)
+    )
+    second = second.record(
+        response_receipt(second.packets[0], response_digest="sha256:" + "b" * 64)
+    )
+    second = second.record(
+        response_receipt(second.packets[1], response_digest="sha256:" + "a" * 64)
+    )
+
+    assert first.receipts == second.receipts
+    assert first.model_dump(mode="json") == second.model_dump(mode="json")
+    assert first.audit() == second.audit()
+    assert first.audit().packet_ids == tuple(packet.packet_id for packet in first.packets)
+    assert first.audit().queue_digest.startswith("sha256:")
+
+
 def test_attempt_count_and_packet_max_attempts_are_bounded() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     packet = queue.packets[0]
@@ -323,6 +463,13 @@ def test_work_audit_counts_and_receipts_are_cross_field_bound() -> None:
         audit.model_copy(update={"packet_count": 8})
     with pytest.raises(ValidationError, match="receipts"):
         audit.model_copy(update={"receipts": ()})
+    with pytest.raises(ValidationError, match="queue_digest"):
+        WorkAudit.model_construct(
+            **{
+                **audit.model_dump(),
+                "queue_digest": "sha256:" + "f" * 64,
+            }
+        )
 
 
 def test_packet_mismatch_is_refused() -> None:
