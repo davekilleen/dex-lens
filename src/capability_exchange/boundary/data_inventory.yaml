@@ -9816,3 +9816,133 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral specialist response audit"
+
+  WorkflowNode.node_id:
+    description: "closed structural identity for one workflow node"
+    collection: "derived from reviewed observation structure"
+    derivation: "bounded node identity without raw paths or prose"
+    display: "anchors evidence-bound workflow reconstruction"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural workflow identity"
+
+  WorkflowNode.kind:
+    description: "closed node kind for one workflow vertex"
+    collection: "assigned by deterministic workflow reconstruction"
+    derivation: "one of the closed NodeKind values"
+    display: "explains what structural role the node plays"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow node classification"
+
+  WorkflowNode.configuration_state:
+    description: "configuration axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed ConfigurationState vocabulary"
+    display: "states what configuration is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest configuration axis"
+
+  WorkflowNode.runtime_state:
+    description: "runtime axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed RuntimeState vocabulary"
+    display: "states what runtime behaviour is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest runtime axis"
+
+  WorkflowNode.health_state:
+    description: "health axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed HealthState vocabulary"
+    display: "states what health outcome is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest health axis"
+
+  WorkflowNode.evidence_ids:
+    description: "evidence identities supporting one workflow node"
+    collection: "bound from exact observation identities"
+    derivation: "one to eight unique bounded evidence tokens"
+    display: "limits node claims to cited evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding for workflow nodes"
+
+  WorkflowEdge.workflow_id:
+    description: "stable identity for one workflow edge"
+    collection: "derived from source, target, and edge kind"
+    derivation: "canonical digest over closed edge identity"
+    display: "joins specialist work to one reconstructed path"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge identity"
+
+  WorkflowEdge.source_id:
+    description: "source node identity for one workflow edge"
+    collection: "copied from reconstructed workflow nodes"
+    derivation: "bounded node identity"
+    display: "anchors the start of one proved relationship"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge source"
+
+  WorkflowEdge.target_id:
+    description: "target node identity for one workflow edge"
+    collection: "copied from reconstructed workflow nodes"
+    derivation: "bounded node identity"
+    display: "anchors the end of one proved relationship"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge target"
+
+  WorkflowEdge.kind:
+    description: "closed relationship kind for one workflow edge"
+    collection: "assigned by reviewed structural detectors"
+    derivation: "one of the closed EdgeKind values"
+    display: "explains how two nodes are related"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow relationship classification"
+
+  WorkflowEdge.evidence_ids:
+    description: "evidence identities supporting one workflow edge"
+    collection: "bound from at least two independent observations"
+    derivation: "two to eight unique bounded evidence tokens"
+    display: "refuses single-evidence cross-surface claims"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding for workflow edges"
+
+  WorkflowGraph.nodes:
+    description: "nodes in one reconstructed workflow graph"
+    collection: "assembled from deterministic detectors"
+    derivation: "sorted unique WorkflowNode tuple"
+    display: "supports cross-surface workflow insights"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow nodes"
+
+  WorkflowGraph.edges:
+    description: "edges in one reconstructed workflow graph"
+    collection: "assembled from deterministic detectors"
+    derivation: "sorted unique WorkflowEdge tuple"
+    display: "supports cross-surface workflow insights"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow edges"

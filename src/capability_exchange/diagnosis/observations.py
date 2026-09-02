@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Self
 
-from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.provenance import SourceClass, SourceProvenance
@@ -53,6 +53,32 @@ _SAFE_ATTRIBUTE_KEYS = frozenset(
         "variant-count",
         "receipt-age",
         "live-state-match",
+        "trigger-kind",
+        "action-kind",
+        "output-kind",
+        "target-kind",
+        "guard-kind",
+    }
+)
+_STRUCTURAL_KIND_VALUES = frozenset(
+    {
+        "meeting",
+        "task",
+        "person",
+        "company",
+        "memory",
+        "backup",
+        "health",
+        "external-task",
+    }
+)
+_STRUCTURAL_ATTRIBUTE_KEYS = frozenset(
+    {
+        "trigger-kind",
+        "action-kind",
+        "output-kind",
+        "target-kind",
+        "guard-kind",
     }
 )
 _SECRET_SHAPED_MARKERS = ("token", "secret", "password", "credential")
@@ -313,12 +339,15 @@ class SafeAttribute(InventoriedModel):
 
     @field_validator("value")
     @classmethod
-    def _single_safe_line(cls, value: str) -> str:
+    def _single_safe_line(cls, value: str, info: ValidationInfo) -> str:
         lowered = value.lower()
         if any(marker in lowered for marker in _SECRET_SHAPED_MARKERS):
             raise ValueError("attribute values may not carry secret-shaped material")
         if "\n" in value or "\r" in value:
             raise ValueError("attribute values are one bounded line")
+        key = info.data.get("key")
+        if key in _STRUCTURAL_ATTRIBUTE_KEYS and value not in _STRUCTURAL_KIND_VALUES:
+            raise ValueError("structural attribute values must use the closed vocabulary")
         return value
 
     def copy(self, **kwargs: object) -> Self:
