@@ -43,8 +43,10 @@ from capability_exchange.diagnosis.specialists import (
     SpecialistProposalError,
     SpecialistRole,
     ValidatedProposal,
+    candidate_id_for,
     mint_evidence_token,
 )
+from capability_exchange.diagnosis.work import AnalysisMode, WorkStatus
 from capability_exchange.reports.store import LensReportStore
 
 NOW = datetime(2026, 8, 27, 16, 0, tzinfo=UTC)
@@ -214,9 +216,11 @@ class EngineHarness:
         return view
 
 
-def prepare_request() -> PrepareDiagnosisRequest:
+def prepare_request(
+    *, mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY
+) -> PrepareDiagnosisRequest:
     assert _ROOT is not None
-    return PrepareDiagnosisRequest(roots=(_ROOT,))
+    return PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=mode)
 
 
 def approved_scope_snapshot() -> ScopeSnapshot:
@@ -298,6 +302,9 @@ def test_prepare_accepts_string_or_path_roots(engine: EngineHarness) -> None:
     view = engine.prepare(StringRoots(roots=(str(engine.root),)))
     assert view.stage is DiagnosisStage.CREATED
     assert engine.collector.calls == []
+    persisted = engine.run_store.load_candidate_scope(view.run_id)
+    assert persisted is not None
+    assert persisted.analysis_mode is AnalysisMode.INVENTORY_ONLY
 
 
 def test_each_stage_calls_exactly_its_lawful_dependency(engine: EngineHarness) -> None:
@@ -512,3 +519,142 @@ def test_catalogue_slice_does_not_invent_held_availability() -> None:
     )
     assert "held" not in json.dumps(slice_.__dict__)
     assert slice_.unavailable_ids == ("parked-capability",)
+
+
+def test_guided_run_refuses_comparison_until_work_is_reconciled(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.JOBS_CONFIRMED)
+
+    planned = engine.advance(prepared.run_id)
+    assert planned.stage is DiagnosisStage.ANALYSIS_PLANNED
+    with pytest.raises(DiagnosisStateError, match="specialist work remains"):
+        engine.advance(prepared.run_id)
+
+
+def test_guided_work_packet_is_stable_across_engine_reopen(engine: EngineHarness) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+
+    reopened = DeterministicDiagnosisEngine(
+        run_store=engine.run_store,
+        consent_authority=engine.consent_authority,
+        collector=engine.collector,
+        catalogue_loader=engine.catalogue_loader,
+        comparer=engine.comparer,
+        report_store=engine.report_store,
+        clock=lambda: NOW,
+    )
+
+    assert reopened.work(prepared.run_id) == first
+
+
+def test_guided_work_validation_failure_is_bounded_and_recorded(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packet = engine.engine.work(prepared.run_id)
+    assert packet is not None
+
+    with pytest.raises(SpecialistProposalError, match="one retry remains"):
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ({},))
+    first_queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    assert first_queue.receipts[0].status is WorkStatus.PENDING
+    assert first_queue.receipts[0].attempt_count == 1
+    assert engine.engine.work(prepared.run_id) == packet
+
+    with pytest.raises(SpecialistProposalError, match="unresolved"):
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ({},))
+    second_queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    history = tuple(item for item in second_queue.receipts if item.packet_id == packet.packet_id)
+    assert [item.status for item in history] == [WorkStatus.PENDING, WorkStatus.UNRESOLVED]
+    assert [item.attempt_count for item in history] == [1, 2]
+
+
+def test_guided_work_does_not_turn_stored_context_failure_into_a_retry(
+    engine: EngineHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packet = engine.engine.work(prepared.run_id)
+    assert packet is not None
+
+    def invalid_context(*args: object, **kwargs: object) -> object:
+        raise DiagnosisStateError("stored specialist context is invalid")
+
+    monkeypatch.setattr(engine.engine, "_proposal_context_for_packet", invalid_context)
+    with pytest.raises(DiagnosisStateError, match="stored specialist context"):
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    assert queue.receipts == ()
+
+
+def test_guided_normal_and_sceptical_proposals_reconcile_from_stored_work(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    normal = engine.engine.work(prepared.run_id)
+    assert normal is not None
+    proposal = SpecialistProposal(
+        role=normal.role,
+        kind=ProposalKind.STRENGTH,
+        run_id=normal.run_id,
+        fingerprint_digest=normal.fingerprint_digest,
+        catalogue_digest=normal.catalogue_digest,
+        packet_id=normal.packet_id,
+        packet_digest=normal.packet_digest,
+        catalogue_id=normal.catalogue_ids[0],
+        capability_id=normal.capability_ids[0],
+        candidate_id=candidate_id_for(
+            ProposalKind.STRENGTH,
+            normal.catalogue_ids[0],
+            normal.capability_ids[0],
+        ),
+        disposition=Disposition.STRONG_HERE,
+        evidence_ids=(normal.evidence_ids[0],),
+        observation_ids=(normal.observation_ids[0],),
+        reason="The approved evidence shows a distinctive reliable method.",
+    )
+    engine.engine.submit_work(prepared.run_id, normal.packet_id, (proposal,))
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role.value == "sceptical-reconciler":
+            sceptical = packet
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    downgrade = proposal.model_copy(
+        update={
+            "role": sceptical.role,
+            "packet_id": sceptical.packet_id,
+            "packet_digest": sceptical.packet_digest,
+            "disposition": Disposition.FRAGILE_OR_CONTRADICTORY,
+            "reason": "The evidence is real but the method has a material contradiction.",
+        }
+    )
+    engine.engine.submit_work(prepared.run_id, sceptical.packet_id, (downgrade,))
+
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    compared = engine.advance(prepared.run_id)
+    assert compared.stage is DiagnosisStage.COMPARED
+    assert (
+        engine.comparer.calls[-1]["proposals"][0].disposition
+        is Disposition.FRAGILE_OR_CONTRADICTORY
+    )

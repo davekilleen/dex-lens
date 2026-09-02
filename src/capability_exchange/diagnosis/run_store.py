@@ -20,6 +20,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
 )
+from capability_exchange.diagnosis.work import AnalysisMode
 
 __all__ = [
     "DiagnosisInputDrift",
@@ -48,6 +49,7 @@ class PersistedCandidateScope(InventoriedModel):
     run_id: str = Field(pattern=r"^run:[a-z0-9]{16,64}$")
     candidate_roots: tuple[str, ...] = Field(min_length=1)
     locators: tuple[str, ...] = Field(min_length=1)
+    analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY
 
 
 def _checkpoint_name(run_id: str) -> str:
@@ -136,6 +138,7 @@ class DiagnosisRunStore:
         *,
         candidate_roots: tuple[str, ...],
         locators: tuple[str, ...],
+        analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
     ) -> PersistedCandidateScope:
         if len(candidate_roots) != len(locators):
             raise DiagnosisStateError("candidate roots and locators must be the same length")
@@ -143,6 +146,7 @@ class DiagnosisRunStore:
             run_id=run_id,
             candidate_roots=candidate_roots,
             locators=locators,
+            analysis_mode=AnalysisMode(analysis_mode),
         )
         self._write_atomic(
             self._candidate_path_for(run_id),

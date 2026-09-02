@@ -55,6 +55,7 @@ from capability_exchange.diagnosis.run import (
     canonical_json_digest,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
+from capability_exchange.diagnosis.work import AnalysisMode
 from capability_exchange.reports.store import LensReportStore
 
 __all__ = [
@@ -169,9 +170,16 @@ class _IntegrityReportStore(LensReportStore):
 class ReplayHarness:
     """One engine, one store, and the sanitised dependencies for a replay."""
 
-    def __init__(self, bundle: ReplayBundle, directory: Path) -> None:
+    def __init__(
+        self,
+        bundle: ReplayBundle,
+        directory: Path,
+        *,
+        analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
+    ) -> None:
         self.bundle = bundle
         self.directory = Path(directory)
+        self.analysis_mode = AnalysisMode(analysis_mode)
         self.root = self.directory / "invented-vault"
         self.root.mkdir(parents=True)
         (self.root / "README.md").write_text("invented\n", encoding="utf-8")
@@ -207,7 +215,12 @@ class ReplayHarness:
         return self.engine
 
     def prepare(self) -> DiagnosisRunView:
-        return self.engine.prepare(PrepareDiagnosisRequest.from_roots((self.root,)))
+        return self.engine.prepare(
+            PrepareDiagnosisRequest(
+                roots=(self.root,),
+                analysis_mode=self.analysis_mode,
+            )
+        )
 
     def approve(self) -> ApprovedScopeReceipt:
         return self.consent.approve_from_local_session(
@@ -234,8 +247,19 @@ class ReplayHarness:
                 and not self._proposals_submitted
             ):
                 self.submit_proposals()
+            if view.stage is DiagnosisStage.ANALYSIS_PLANNED:
+                self.complete_guided_work()
             view = self.engine.advance(self.bundle.run_id)
         return view
+
+    def complete_guided_work(self) -> None:
+        """Submit explicit empty responses for every replay work packet."""
+
+        while True:
+            packet = self.engine.work(self.bundle.run_id)
+            if packet is None:
+                return
+            self.engine.submit_work(self.bundle.run_id, packet.packet_id, ())
 
     def run_to_closed(self) -> DiagnosisResult:
         self.prepare()
@@ -397,7 +421,11 @@ def run_direct(replay: ReplayBundle) -> bytes:
     """Drive the engine interface with no adapter translation."""
 
     with TemporaryDirectory(prefix="lens-replay-direct-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+        )
         return canonical_replay_bytes(harness.run_to_closed())
 
 
@@ -405,7 +433,11 @@ def run_cli(replay: ReplayBundle) -> bytes:
     """Drive ``diagnosis_main`` against the same injected engine factory."""
 
     with TemporaryDirectory(prefix="lens-replay-cli-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+        )
         diagnosis_cli.bind_consent_surface(_SilentSession(), _SilentServer())
         try:
             with patch.object(diagnosis_cli, "build_engine", lambda: harness.engine):
@@ -419,6 +451,8 @@ def run_cli(replay: ReplayBundle) -> bytes:
                         and not harness._proposals_submitted
                     ):
                         _cli_submit(replay, harness)
+                    if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
+                        harness.complete_guided_work()
                     view = _cli_json(["advance", "--run", replay.run_id, "--json"])
                 payload = _cli_json(["result", "--run", replay.run_id, "--format", "json"])
         finally:
@@ -436,7 +470,11 @@ def run_mcp(replay: ReplayBundle, *, discover: DiscoverOrder = "listed") -> byte
     """Drive the MCP adapter with an in-process client over the same engine."""
 
     with TemporaryDirectory(prefix="lens-replay-mcp-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+        )
         return anyio.run(_drive_mcp, harness, discover)
 
 
@@ -467,6 +505,8 @@ async def _drive_mcp(harness: ReplayHarness, discover: DiscoverOrder) -> bytes:
                 and not harness._proposals_submitted
             ):
                 harness.submit_proposals()
+            if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
+                harness.complete_guided_work()
             view = _tool_payload(
                 await client.call_tool(
                     "advance_diagnosis",

@@ -26,6 +26,7 @@ from capability_exchange.diagnosis.run import (
     canonical_json_digest,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisInputDrift
+from capability_exchange.diagnosis.work import AnalysisMode
 from capability_exchange.evaluation.replay import (
     NON_TERMINAL_STAGES,
     ReplayHarness,
@@ -52,7 +53,11 @@ def test_interrupted_run_resumes_to_the_same_canonical_bytes(
 ) -> None:
     replay = real_session_replay(ordering="forward")
     uninterrupted = run_direct(replay)
-    harness = ReplayHarness(replay, tmp_path / stage.value)
+    harness = ReplayHarness(
+        replay,
+        tmp_path / stage.value,
+        analysis_mode=AnalysisMode.GUIDED,
+    )
     harness.prepare()
     harness.run_to(stage)
     harness.rebuild_engine()

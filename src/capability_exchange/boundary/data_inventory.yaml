@@ -3035,6 +3035,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "nested inventoried contracts; no unconfirmed drafts"
 
+  DiagnosisInput.analysis_mode:
+    description: "closed analysis mode selected for the diagnosis run"
+    collection: "copied from the prepare request when jobs are confirmed"
+    derivation: "guided-analysis for new product runs; inventory-only for explicit compatibility or migrated legacy inputs"
+    display: "controls whether engine-issued semantic work is required"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed mode marker; never inferred from collected evidence"
+
   DiagnosisInput.assessed_at:
     description: "timezone-aware assessment instant fixed for this run"
     collection: "recorded when the execution input is materialised"
@@ -3214,6 +3226,18 @@ fields:
     sharing: never
     deletion: delete-diagnosis-run-state
     audit: "local URL only; no token query string"
+
+  PersistedCandidateScope.analysis_mode:
+    description: "closed analysis mode carried from prepare into the durable run input"
+    collection: "copied from the diagnosis prepare request"
+    derivation: "guided-analysis for new runs; inventory-only when omitted by legacy stored state"
+    display: "controls whether specialist work packets are issued after job confirmation"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local mode marker only; no private path or content"
 
   SafeAttribute.key:
     description: "closed allowlisted name for one privacy-safe observation attribute"

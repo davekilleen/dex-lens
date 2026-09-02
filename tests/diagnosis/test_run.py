@@ -20,7 +20,9 @@ from capability_exchange.diagnosis.run import (
     RunIdentity,
     advance_to,
     canonical_json_digest,
+    upgrade_stored_input_payload,
 )
+from capability_exchange.diagnosis.work import AnalysisMode
 
 NOW = datetime(2026, 8, 27, 16, 0, tzinfo=UTC)
 RUN_ID = "run:" + "a" * 16
@@ -76,6 +78,8 @@ def test_stage_order_is_closed() -> None:
         DiagnosisStage.CAPTURED,
         DiagnosisStage.CATALOGUE_VERIFIED,
         DiagnosisStage.JOBS_CONFIRMED,
+        DiagnosisStage.ANALYSIS_PLANNED,
+        DiagnosisStage.ANALYSIS_COMPLETED,
         DiagnosisStage.COMPARED,
         DiagnosisStage.RENDERED,
         DiagnosisStage.CHECKED,
@@ -134,3 +138,20 @@ def test_checkpoint_and_receipt_are_storage_bound() -> None:
     assert checkpoint.dump_for_storage()["stage"] == DiagnosisStage.CREATED.value
     assert "vault" not in receipt.model_dump_json()
     assert "/Users/" not in checkpoint.model_dump_json()
+
+
+def test_guided_stages_are_inserted_between_jobs_and_comparison() -> None:
+    assert DiagnosisStage.ANALYSIS_PLANNED in tuple(DiagnosisStage)
+    assert DiagnosisStage.ANALYSIS_COMPLETED in tuple(DiagnosisStage)
+    assert NEXT_STAGE[DiagnosisStage.JOBS_CONFIRMED] is DiagnosisStage.ANALYSIS_PLANNED
+    assert NEXT_STAGE[DiagnosisStage.ANALYSIS_PLANNED] is DiagnosisStage.ANALYSIS_COMPLETED
+    assert NEXT_STAGE[DiagnosisStage.ANALYSIS_COMPLETED] is DiagnosisStage.COMPARED
+
+
+def test_legacy_input_payload_is_explicitly_upgraded_to_inventory_only() -> None:
+    payload = diagnosis_input().dump_for_storage()
+    payload.pop("analysis_mode", None)
+
+    upgraded = upgrade_stored_input_payload(payload)
+
+    assert upgraded["analysis_mode"] == AnalysisMode.INVENTORY_ONLY.value
