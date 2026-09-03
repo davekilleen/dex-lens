@@ -19,6 +19,7 @@ from capability_exchange.catalogue.subscription import (
 )
 from capability_exchange.catalogue.v2 import (
     CatalogueVerificationError,
+    KeyRing,
     LegacySkillCapabilityEntryV2,
     VerifiedCatalogueStore,
     capability_availability_of,
@@ -232,14 +233,20 @@ def _verified_store(store: VerifiedCatalogueStore | None) -> VerifiedCatalogueSt
     return VerifiedCatalogueStore(default_lens_app_storage())
 
 
+def _keyring_or_default(keyring: KeyRing | None) -> KeyRing:
+    if keyring is not None:
+        return keyring
+    return default_keyring()
+
+
 def _signed_digest(envelope: object) -> str:
     signed = getattr(envelope, "_signed_json", None) or envelope.model_dump_json()
     return hashlib.sha256(signed.encode("utf-8")).hexdigest()
 
 
-def _load_verified(store: VerifiedCatalogueStore) -> object:
+def _load_verified(store: VerifiedCatalogueStore, keyring: KeyRing | None = None) -> object:
     try:
-        return store.load_last_verified(keyring=default_keyring())
+        return store.load_last_verified(keyring=_keyring_or_default(keyring))
     except CatalogueVerificationError as exc:
         raise DiagnosisStateError(
             "verify the Dex catalogue first with dex-lens catalogue"
@@ -272,10 +279,12 @@ def _load_bundled_reference(*, now: datetime | None = None) -> object:
     return envelope
 
 
-def _load_diagnosis_envelope(store: VerifiedCatalogueStore) -> object:
+def _load_diagnosis_envelope(
+    store: VerifiedCatalogueStore, keyring: KeyRing | None = None
+) -> object:
     """Choose one complete verified envelope without overlaying catalogue truth."""
 
-    current = _load_verified(store)
+    current = _load_verified(store, keyring)
     entries = tuple(current.catalogue.capabilities)
     classes = {capability_class_of(item) for item in current.catalogue.capabilities}
     legacy_entries = tuple(
@@ -600,14 +609,25 @@ class ConsentBoundCollector:
 
 
 class CachedCatalogueLoader:
-    """Load the last signature-verified catalogue. Do not fetch here."""
+    """Load the last signature-verified catalogue. Do not fetch here.
 
-    def __init__(self, store: VerifiedCatalogueStore | None = None) -> None:
+    ``keyring`` defaults to the pinned production Dex Core keys. Tests inject
+    an invented keyring so the complete verification path — signature, schema,
+    expiry and rollback — is exercised with keys that exist only in the test.
+    """
+
+    def __init__(
+        self,
+        store: VerifiedCatalogueStore | None = None,
+        *,
+        keyring: KeyRing | None = None,
+    ) -> None:
         self._store = _verified_store(store)
+        self._keyring = keyring
 
     def load(self, *, run_id: str, fingerprint_digest: str) -> VerifiedCatalogueSlice:
         del run_id, fingerprint_digest
-        envelope = _load_diagnosis_envelope(self._store)
+        envelope = _load_diagnosis_envelope(self._store, self._keyring)
         catalogue = envelope.catalogue
         unavailable = tuple(
             item.capability_id
@@ -628,8 +648,14 @@ class CachedCatalogueLoader:
 class UnknownUntilProposedComparer:
     """Complete ledger: every catalogue identity starts as not-assessed."""
 
-    def __init__(self, store: VerifiedCatalogueStore | None = None) -> None:
+    def __init__(
+        self,
+        store: VerifiedCatalogueStore | None = None,
+        *,
+        keyring: KeyRing | None = None,
+    ) -> None:
         self._store = _verified_store(store)
+        self._keyring = keyring
 
     def compare(
         self,
@@ -641,7 +667,7 @@ class UnknownUntilProposedComparer:
         work_audit: WorkAudit | None = None,
     ) -> ComparisonLedger:
         del jobs
-        envelope = _load_diagnosis_envelope(self._store)
+        envelope = _load_diagnosis_envelope(self._store, self._keyring)
         digest = _signed_digest(envelope)
         if digest != catalogue.sha256:
             raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
