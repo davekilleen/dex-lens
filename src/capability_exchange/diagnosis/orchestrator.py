@@ -815,11 +815,15 @@ class DeterministicDiagnosisEngine:
         work_audit = None
         if mode is AnalysisMode.GUIDED:
             audit_payload = self._find_kind(checkpoint, "work-audit")
-            if audit_payload is not None:
-                try:
-                    work_audit = WorkAudit.model_validate(audit_payload)
-                except (TypeError, ValueError) as exc:
-                    raise DiagnosisStateError("stored work audit is unreadable") from exc
+            if audit_payload is None:
+                # Closing without it scored the run's autonomy as zero and
+                # silently stopped the incomplete-packets gate from firing, so
+                # a run with unanswered packets graded as clean.
+                raise DiagnosisStateError("guided analysis cannot close without its work audit")
+            try:
+                work_audit = WorkAudit.model_validate(audit_payload)
+            except (TypeError, ValueError) as exc:
+                raise DiagnosisStateError("stored work audit is unreadable") from exc
         ledger = self._compare.compare(
             fingerprint=fingerprint,
             catalogue=catalogue,

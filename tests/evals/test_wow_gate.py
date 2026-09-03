@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
+
+import pytest
 
 from capability_exchange.diagnosis.comparison import (
     CatalogueDisposition,
@@ -79,7 +80,9 @@ def _ranked(count: int = 3) -> tuple[RankedRecommendation, ...]:
     )
 
 
-def _ledger(*, rich: bool = False) -> ComparisonLedger:
+def _ledger(*, rich: bool = False, audit: WorkAudit | None = None) -> ComparisonLedger:
+    """A closed ledger carrying the audit it was closed with, as the engine does."""
+
     ranked = _ranked(3)
     entries = tuple(
         CatalogueDisposition(
@@ -171,6 +174,7 @@ def _ledger(*, rich: bool = False) -> ComparisonLedger:
         workflow_insights=workflow_insights,
         workflow_graph=graph,
         family_entries=(),
+        work_audit=audit if audit is not None else autonomous_audit(),
     )
 
 
@@ -199,31 +203,12 @@ def autonomous_audit() -> WorkAudit:
     )
 
 
-def audit_with_manual_submission() -> WorkAudit:
-    audit = autonomous_audit()
-    return SimpleNamespace(
-        mode=audit.mode,
-        packet_count=audit.packet_count,
-        completed_count=audit.completed_count,
-        unresolved_count=audit.unresolved_count,
-        manual_submission_count=1,
-        receipts=audit.receipts,
-    )
-
-
 def high_quality_result() -> ComparisonLedger:
     return _ledger(rich=True)
 
 
 def rich_result() -> ComparisonLedger:
     return _ledger(rich=True)
-
-
-def test_high_score_with_manual_proposal_is_a_hard_failure() -> None:
-    grade = grade_wow_run(high_quality_result(), audit_with_manual_submission())
-    assert grade.score >= 90
-    assert grade.passed is False
-    assert "manual-proposal" in grade.hard_failures
 
 
 def test_rich_run_needs_all_expectations_and_a_surprise() -> None:
@@ -233,8 +218,21 @@ def test_rich_run_needs_all_expectations_and_a_surprise() -> None:
     assert grade.passed is True
 
 
+def inventory_only_audit() -> WorkAudit:
+    return WorkAudit(
+        mode=AnalysisMode.INVENTORY_ONLY,
+        packet_count=0,
+        packet_ids=(),
+        queue_digest=queue_digest_for(AnalysisMode.INVENTORY_ONLY, ()),
+        completed_count=0,
+        unresolved_count=0,
+        manual_submission_count=0,
+        receipts=(),
+    )
+
+
 def test_inventory_only_audit_scores_zero_autonomy_points() -> None:
-    grade = grade_wow_run(_ledger(), None)
+    grade = grade_wow_run(_ledger(audit=inventory_only_audit()))
     assert grade.autonomy_and_clarity == 0
 
 
@@ -358,6 +356,7 @@ def _fabricated_ledger() -> ComparisonLedger:
             ),
         ),
         family_entries=(),
+        work_audit=autonomous_audit(),
     )
 
 
@@ -409,3 +408,51 @@ def test_repeating_one_evidence_pair_is_a_single_corroboration() -> None:
         }
     )
     assert grade_wow_run(repeated, audit=autonomous_audit()).workflow_quality == one_edge
+
+
+def test_grading_uses_the_audit_bound_into_the_ledger() -> None:
+    """The audit that counts is the one the ledger was closed with.
+
+    A separate file is not evidence about this run: it can be another run's
+    audit, or hand-written. The ledger carries its audit inside the canonical
+    payload and the digest, so that is the one to grade.
+    """
+
+    bound = autonomous_audit()
+    ledger = _ledger(rich=True).model_copy(update={"work_audit": bound})
+    assert grade_wow_run(ledger).autonomy_and_clarity == 5
+
+
+def _another_runs_audit() -> WorkAudit:
+    """A valid audit from a different run: different packets, same shape."""
+
+    packet_ids = tuple(f"packet:sha256:{index + 100:064x}" for index in range(9))
+    receipts = tuple(
+        WorkReceipt(
+            packet_id=packet_id,
+            packet_digest=f"sha256:{index + 110:064x}",
+            response_digest=f"sha256:{index + 120:064x}",
+            status=WorkStatus.COMPLETED,
+            attempt_count=1,
+            proposal_count=1,
+        )
+        for index, packet_id in enumerate(packet_ids)
+    )
+    return WorkAudit(
+        mode=AnalysisMode.GUIDED,
+        packet_count=9,
+        packet_ids=packet_ids,
+        queue_digest=queue_digest_for(AnalysisMode.GUIDED, packet_ids),
+        completed_count=9,
+        unresolved_count=0,
+        manual_submission_count=0,
+        receipts=receipts,
+    )
+
+
+def test_grading_refuses_an_audit_that_is_not_this_ledgers() -> None:
+    """Grading run A's ledger against run B's clean audit must not be possible."""
+
+    ledger = _ledger(rich=True).model_copy(update={"work_audit": autonomous_audit()})
+    with pytest.raises(ValueError, match="does not belong"):
+        grade_wow_run(ledger, audit=_another_runs_audit())

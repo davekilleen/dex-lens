@@ -198,8 +198,10 @@ def _hard_failures(
     ledger: ComparisonLedger, audit: WorkAudit | None, held: frozenset[str]
 ) -> tuple[str, ...]:
     failures: list[str] = []
-    if audit is not None and audit.manual_submission_count > 0:
-        failures.append("manual-proposal")
+    # `manual-proposal` and `digest-drift` are deliberately absent. Both
+    # restated invariants WorkAudit already enforces on itself, so neither
+    # could ever fire; `_audit_for` asks the question the model cannot, which
+    # is whether this audit belongs to this ledger.
     if audit is not None and audit.mode is AnalysisMode.GUIDED:
         if audit.completed_count < audit.packet_count:
             failures.append("incomplete-packets")
@@ -227,9 +229,34 @@ def _hard_failures(
     return tuple(failures)
 
 
+def _audit_for(ledger: ComparisonLedger, supplied: WorkAudit | None) -> WorkAudit | None:
+    """The audit this ledger was closed with, refusing any other.
+
+    A separate audit file is not evidence about this run: it can be another
+    run's, or hand-written. The ledger carries its own audit inside the
+    canonical payload and the digest, so that is what grades. A supplied audit
+    is accepted only as a cross-check, and only when it agrees.
+
+    This replaces two hard failures that could never fire. ``manual-proposal``
+    and ``digest-drift`` both restated invariants ``WorkAudit`` already
+    enforces on itself, so neither could catch anything. Whether the audit
+    belongs to the ledger is the question the model cannot answer alone.
+    """
+
+    bound = ledger.work_audit
+    if supplied is None:
+        return bound
+    if bound is None:
+        raise ValueError("audit does not belong to this ledger: the ledger carries none")
+    if supplied != bound:
+        raise ValueError("audit does not belong to this ledger")
+    return bound
+
+
 def grade_wow_run(ledger: ComparisonLedger, audit: WorkAudit | None = None) -> WowGrade:
     """Score one closed diagnosis from typed ledger and audit fields only."""
 
+    audit = _audit_for(ledger, audit)
     held = ledger_evidence_identities(ledger)
     hard_failures = _hard_failures(ledger, audit, held)
     return WowGrade(

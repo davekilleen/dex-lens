@@ -208,21 +208,21 @@ python3 -m pytest -q tests/evals/test_wow_gate.py tests/diagnosis/test_expectati
 **Acceptance:** the evaluation loop can be run end to end from shipped commands,
 and a ledger cannot be graded against an audit that is not its own.
 
-- [ ] Red test: `grade_wow_run` refuses when the supplied audit disagrees with
+- [x] Red test: `grade_wow_run` refuses when the supplied audit disagrees with
       `ledger.work_audit`.
-- [ ] Red test: a guided run whose `work-audit` artifact is missing fails closed
+- [x] Red test: a guided run whose `work-audit` artifact is missing fails closed
       instead of closing with `work_audit = None`.
-- [ ] Grade from `ledger.work_audit`, which is already bound into the canonical
+- [x] Grade from `ledger.work_audit`, which is already bound into the canonical
       payload and the digest. Make `--audit` optional; when supplied, cross-check
       it and refuse on disagreement.
-- [ ] Remove the `audit=None` default path that skips both provenance gates
+- [x] Remove the `audit=None` default path that skips both provenance gates
       while still returning a score.
-- [ ] `orchestrator.py:815-821` must refuse to complete a guided comparison when
+- [x] `orchestrator.py:815-821` must refuse to complete a guided comparison when
       the work-audit artifact is absent.
 - [ ] Emit the audit from a shipped surface so the loop needs no hand-extraction:
       include it in `dex-lens diagnosis result --format json`, and add
       `get_diagnosis_result`'s equivalent on the MCP side. Keep both read-only.
-- [ ] Create `tests/evals/test_run_wow_gate.py`: the script runs, discriminates,
+- [x] Create `tests/evals/test_run_wow_gate.py`: the script runs, discriminates,
       refuses a mismatched audit, and its output JSON carries only aggregates.
 
 ```bash
