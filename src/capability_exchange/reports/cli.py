@@ -15,6 +15,7 @@ means the request itself was wrong.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -192,6 +193,42 @@ def _gate(
     return problems
 
 
+#: The ledger digest a saved report records about itself, exactly as the
+#: canonical fact block writes it. A report that carries this line has named
+#: the one ledger it accounts for, so the ledger offered beside it has to be
+#: that ledger — byte for byte, over every field the digest binds.
+_RECORDED_LEDGER_DIGEST = re.compile(
+    r"^- Ledger digest: (sha256:[0-9a-f]{64})\s*$", re.MULTILINE
+)
+
+
+def _ledger_binding_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether the supplied ledger is the one this report says it accounts for.
+
+    Validating the ledger against the catalogue proves the catalogue-owned
+    rows, but the run-derived rows — insights, expectations, the work audit —
+    have no external truth to re-derive them from. The report's own recorded
+    digest is what binds them, so when the report records one, it is held. A
+    hand-written report that records no digest has made no such claim, and
+    nothing new is demanded of it.
+    """
+    if ledger is None:
+        return []
+    recorded = set(_RECORDED_LEDGER_DIGEST.findall(markdown))
+    if not recorded:
+        return []
+    from capability_exchange.diagnosis.report import canonical_ledger_digest
+
+    if recorded != {canonical_ledger_digest(ledger)}:
+        return [
+            "the supplied ledger does not match the ledger digest this report "
+            "records: the saved ledger or the report changed after the "
+            "diagnosis wrote them. Re-run the diagnosis rather than editing "
+            "either file."
+        ]
+    return []
+
+
 def _ledger_gate(path: Path | None) -> tuple[ComparisonLedger | None, list[str]]:
     """Validate a supplied ledger against the last locally verified catalogue."""
     if path is None:
@@ -247,7 +284,8 @@ def _check(args: argparse.Namespace) -> int:
         return 2
 
     label = args.label or DEFAULT_LABEL
-    _ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
     problems = _gate(markdown, store.last(label=label), ledger_problems)
     if problems:
         _report_problems(problems)
@@ -296,6 +334,7 @@ def _save(args: argparse.Namespace) -> int:
     # that exists. A rule that lives only in the skill's prose holds until the
     # run is long and the assistant is tired.
     ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
     problems = _gate(markdown, previous, ledger_problems)
     if problems:
         _report_problems(problems)

@@ -792,12 +792,23 @@ class ComparisonLedger(_ValidatedInventoried):
         version_distance: VersionDistance | None = None,
         local_entries: tuple[LocalObservationDisposition, ...] | None = None,
         reciprocal_answer: str = _NO_TRANSFERABLE_METHOD,
+        workflow_graph: WorkflowGraph | None = None,
+        work_audit: WorkAudit | None = None,
+        expectations: tuple[SignificantExpectation, ...] | None = None,
+        strengths: tuple[GroundedInsight, ...] | None = None,
+        reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
+        workflow_insights: tuple[GroundedInsight, ...] | None = None,
     ) -> ComparisonLedger:
         """Validate a ledger against the exact verified catalogue identity set.
 
         ``for_catalogue`` remains a small compatibility wrapper for family-free
         tests and old stored fixtures.  New production code must pass a
         fingerprint, which routes to :meth:`for_catalogue_and_fingerprint`.
+
+        Every field :func:`canonical_ledger_digest` binds is accepted here and
+        carried through unchanged. A reload path that reconstructed a ledger
+        through this method used to lose the run-derived fields silently, so a
+        tampered saved ledger re-validated as if it were intact.
         """
 
         if fingerprint is not None:
@@ -814,6 +825,12 @@ class ComparisonLedger(_ValidatedInventoried):
                 version_distance=version_distance,
                 local_entries=local_entries,
                 reciprocal_answer=reciprocal_answer,
+                workflow_graph=workflow_graph,
+                work_audit=work_audit,
+                expectations=expectations,
+                strengths=strengths,
+                reciprocal_lessons=reciprocal_lessons,
+                workflow_insights=workflow_insights,
             )
         expected = {item.capability_id for item in catalogue.capabilities}
         actual = [item.catalogue_id for item in entries]
@@ -909,6 +926,12 @@ class ComparisonLedger(_ValidatedInventoried):
             version_distance=version_distance,
             local_entries=local_entries or (),
             reciprocal_answer=reciprocal_answer,
+            workflow_graph=workflow_graph or WorkflowGraph(nodes=(), edges=()),
+            work_audit=work_audit,
+            expectations=expectations or (),
+            strengths=strengths or (),
+            reciprocal_lessons=reciprocal_lessons or (),
+            workflow_insights=workflow_insights or (),
         )
 
     @classmethod

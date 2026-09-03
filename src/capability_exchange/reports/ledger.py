@@ -81,9 +81,37 @@ def load_and_validate_ledger(
             ),
             local_entries=ledger.local_entries,
             reciprocal_answer=ledger.reciprocal_answer,
+            workflow_graph=ledger.workflow_graph,
+            work_audit=ledger.work_audit,
+            expectations=ledger.expectations,
+            strengths=ledger.strengths,
+            reciprocal_lessons=ledger.reciprocal_lessons,
+            workflow_insights=ledger.workflow_insights,
         )
     except ValidationError as exc:
         return None, [f"the comparison ledger is incomplete: {exc.errors()[0]['msg']}"]
+    # Fail closed on an unfaithful round-trip. Re-validation must return the
+    # same ledger the file holds — every field the canonical digest binds. A
+    # projection that quietly drops a field would make every later digest
+    # comparison vouch for content nobody re-checked, which is exactly how a
+    # tampered saved ledger once passed `report check`. The two catalogue-owned
+    # inventories are the one legitimate difference: an older ledger that never
+    # recorded them is filled in from the verified catalogue itself.
+    from capability_exchange.diagnosis.report import canonical_ledger_digest
+
+    expected = ledger
+    filled_in = {
+        field: getattr(rebound, field)
+        for field in ("mcp_tools_by_server", "family_entries")
+        if field not in payload
+    }
+    if filled_in:
+        expected = expected.model_copy(update=filled_in)
+    if canonical_ledger_digest(rebound) != canonical_ledger_digest(expected):
+        return None, [
+            "the comparison ledger could not be re-validated faithfully: a field "
+            "the ledger digest binds was lost on reload"
+        ]
     if (
         ledger.version_distance is not None
         and ledger.version_distance.current_version
