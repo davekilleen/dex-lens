@@ -203,9 +203,217 @@ After every engine step, run `dex-lens diagnosis status`. Do what it says
 next. Do not keep a private checklist, and do not skip ahead to a shortlist
 because you think you already know.
 
-`submit` is optional. Use it only to offer specialist proposals that point at
-evidence the engine already holds. They can sharpen judgement. They cannot
-author counts, close the run, or write the report.
+In a guided run, `submit --packet` is how you answer each packet the engine
+issues — it is the work itself, not an optional extra. The next four
+subsections show exactly what a packet gives you and what to send back.
+Proposals sharpen judgement; they never author counts, close the run, or
+write the report. (`submit` without `--packet` is a separate legacy route
+for one unbound proposal; in a guided run, always answer through the
+packet.)
+
+### What a work packet gives you
+
+`dex-lens diagnosis work --run <id> --json` returns the next packet, or
+`{"packet": null}` when none is waiting. A packet is one closed assignment.
+Everything a proposal may reference is already inside it:
+
+- `packet_id` and `packet_digest` — the identity of this exact assignment.
+  Copy both into every proposal you submit for it.
+- `role` — which specialist this packet asks you to be. Every proposal for
+  the packet carries this same role.
+- `run_id`, `fingerprint_digest`, `catalogue_digest` — the run's identity.
+  Copy all three unchanged.
+- `question` — the one question this packet asks. Answer it, not another.
+- `evidence_ids` and `observation_ids` — the only tokens a proposal may
+  cite. They are opaque digests on purpose; the legend below says what each
+  one means.
+- `catalogue_ids` and `capability_ids` — the only Dex entries a proposal
+  may name.
+- `max_proposals` — the most proposals one submission may carry.
+- `max_attempts` — always 2: one submission, then one retry if the first
+  is refused.
+
+The `work` payload also carries an `evidence_legend`: one row per
+observation, sorted by `evidence_id`. Each row gives `evidence_id`,
+`observation_id`, `kind`, `identity`, `label`, `relative_reference`, and
+`source_class`. The legend is how you know which token denotes which
+observed thing — which row is their daily-plan skill, which is a scheduled
+job, which is an instruction file. Read the legend first, every packet.
+Do not go digging in Lens's own installed code to decode the tokens; the
+legend is the decoder, and it is already in your hands.
+
+### The proposal, field by field
+
+A proposal is one JSON object in one file. Here is a complete one — a
+recommendation, the only kind that carries every field. All values here are
+invented; yours come from the packet you are answering:
+
+```json
+{
+  "role": "tools-and-integrations",
+  "kind": "recommendation",
+  "run_id": "run:acba25512100f80b56fc3ccd14c65be5",
+  "fingerprint_digest": "sha256:44863b03e9909b7100e05b02526909a346fd7455183f6619e0fe6198c89981e0",
+  "catalogue_digest": "sha256:d2504e52b8b07484a2b690e7ffaedeabe91320c09012844d0f7c81c2ec72e882",
+  "packet_id": "packet:sha256:7426afc489d0eef99a0b438def226ad139f752350c25cf2c04900281afbb79e0",
+  "packet_digest": "sha256:7426afc489d0eef99a0b438def226ad139f752350c25cf2c04900281afbb79e0",
+  "catalogue_id": "relationship-radar",
+  "capability_id": "relationship-radar",
+  "candidate_id": "candidate:sha256:c48d17c1cb3b64ed1ae781154590701fea7b832384743b2c2ac88044bc532235",
+  "disposition": "worth-borrowing",
+  "recommendation_factors": {
+    "reliability_risk": 1,
+    "job_relevance": 3,
+    "workflow_leverage": 2,
+    "evidence_strength": 2,
+    "adoption_effort": 2
+  },
+  "evidence_ids": [
+    "evidence:sha256:b0c82a3ade3497964cb8034be915da179459287823d92b5717e6d642784c50e6",
+    "evidence:sha256:1248b7c394ca668965c78ca5d6f28406098181e5d99ea9424f39c4d7cbacf376"
+  ],
+  "observation_ids": [
+    "observation:sha256:dcb229817486f995e507b3135b2ca0fc3406453c27c69c05c2dec959276847c7"
+  ],
+  "reason": "Their people notes are rich and current, but nothing watches for a contact going quiet; no automation in the legend serves that job."
+}
+```
+
+Where each field comes from:
+
+- `role` — the packet's `role`, exactly.
+- `kind` — what sort of claim this is: `mapping`, `method-comparison`,
+  `strength`, `reciprocal`, `fragility`, `recommendation`, or
+  `release-distance`.
+- `run_id`, `fingerprint_digest`, `catalogue_digest` — copied from the
+  packet, unchanged.
+- `packet_id`, `packet_digest` — copied from the packet, unchanged.
+- `catalogue_id`, `capability_id` — picked from the packet's
+  `catalogue_ids` and `capability_ids` lists. They are often the same
+  string.
+- `candidate_id` — computed, never guessed: `candidate:` plus the engine's
+  digest of the kind, catalogue id and capability id. Compute it with the
+  engine's own rule:
+
+  ```
+  python3 -c "from capability_exchange.diagnosis.specialists import candidate_id_for; print(candidate_id_for('recommendation', 'relationship-radar', 'relationship-radar'))"
+  ```
+
+- `disposition` — the verdict: `strong-here`, `shared`, `worth-borrowing`,
+  `dex-should-learn`, `fragile-or-contradictory`, `not-relevant`, or
+  `not-assessed`.
+- `evidence_ids` — one to eight tokens, every one from the packet's
+  `evidence_ids`, chosen through the legend. A token from anywhere else is
+  refused.
+- `observation_ids` — from the packet's `observation_ids`, through the
+  same legend rows as the evidence you cite.
+- `reason` — one line, at most 600 characters. No file contents, no
+  absolute paths: the reason travels on the wire, and the wire refuses
+  both.
+- `recommendation_factors` — required whenever `kind` is `recommendation`
+  or `disposition` is `worth-borrowing`; forbidden on every other
+  proposal. Five whole numbers: `reliability_risk` (0–3), `job_relevance`
+  (0–3), `workflow_leverage` (0–3), `evidence_strength` (1–3), and
+  `adoption_effort` (1–3).
+
+Two more worked examples, correctly shaped. A strength:
+
+```json
+{
+  "role": "strength-and-reciprocal",
+  "kind": "strength",
+  "run_id": "run:acba25512100f80b56fc3ccd14c65be5",
+  "fingerprint_digest": "sha256:44863b03e9909b7100e05b02526909a346fd7455183f6619e0fe6198c89981e0",
+  "catalogue_digest": "sha256:d2504e52b8b07484a2b690e7ffaedeabe91320c09012844d0f7c81c2ec72e882",
+  "packet_id": "packet:sha256:6d99d29946f1ca7bb2a5a6c4f3830efe2e76b4675454fa2c86d931dc777da334",
+  "packet_digest": "sha256:6d99d29946f1ca7bb2a5a6c4f3830efe2e76b4675454fa2c86d931dc777da334",
+  "catalogue_id": "meeting-capture",
+  "capability_id": "meeting-capture",
+  "candidate_id": "candidate:sha256:518e2a6839cfc84a3edf62a005663fbabd4c0871301dcfebcb57b330787cb3b0",
+  "disposition": "strong-here",
+  "evidence_ids": [
+    "evidence:sha256:fdf5ccb269a3aa419efdca65c4fac01a6cfe85d897de938d27e673762f497f1c"
+  ],
+  "observation_ids": [
+    "observation:sha256:a29a69fa02d8720de5426f2d37a6c88987ca24d3bacc1e82acd2ff18b9fb3237"
+  ],
+  "reason": "Their meeting skill closes its loop: it captures, extracts commitments, and reads the page back to confirm they landed."
+}
+```
+
+And a fragility:
+
+```json
+{
+  "role": "contradictions-and-reliability",
+  "kind": "fragility",
+  "run_id": "run:acba25512100f80b56fc3ccd14c65be5",
+  "fingerprint_digest": "sha256:44863b03e9909b7100e05b02526909a346fd7455183f6619e0fe6198c89981e0",
+  "catalogue_digest": "sha256:d2504e52b8b07484a2b690e7ffaedeabe91320c09012844d0f7c81c2ec72e882",
+  "packet_id": "packet:sha256:d94ccc822fc11385d8afa4bae084aa2def071640f1fe05878be00112b8fd1bb8",
+  "packet_digest": "sha256:d94ccc822fc11385d8afa4bae084aa2def071640f1fe05878be00112b8fd1bb8",
+  "catalogue_id": "daily-plan",
+  "capability_id": "daily-plan",
+  "candidate_id": "candidate:sha256:281eb3caa33f0f3e1c00b925f971450d602dbc2542327d4b30a72dbe5eec8f74",
+  "disposition": "fragile-or-contradictory",
+  "evidence_ids": [
+    "evidence:sha256:ed8c033fe2b4cf0aaa5c47f03c927cf8d6329a5536834c9a83ab7caafe959c11",
+    "evidence:sha256:b82e000cbef9d5a19b63c28407727eddf49fcd1dd9682568423c2ad3cbb477a6"
+  ],
+  "observation_ids": [
+    "observation:sha256:23236e821a40c003a0d3dd3d123e88c1b83c62aead11f6bb4f09c209021347ee"
+  ],
+  "reason": "The top instruction file bans the local calendar tool and the daily-plan skill still calls it by name."
+}
+```
+
+### How to work one packet
+
+1. Fetch it: `dex-lens diagnosis work --run <id> --json`. Read the
+   question and the legend.
+2. Decide, from the legend and from the person's files you actually read,
+   which observations bear on which catalogue entries. This is the
+   judgement the packet is asking for; nothing else supplies it.
+3. Write up to `max_proposals` proposals, one JSON file each, and submit
+   them together, once:
+
+   ```
+   dex-lens diagnosis submit --run <id> --packet <id> --proposal a.json --proposal b.json
+   ```
+
+4. If the submission is refused, read the refusal. A file that is not the
+   exact shape above — a missing field, an extra field, a wrong type — is
+   refused as "not a closed typed payload" before the engine sees it, and
+   costs nothing: fix the shape and submit again. A refusal from the
+   engine names the rule the proposal broke — a candidate id that does not
+   match, evidence not in the packet, missing recommendation factors. Fix
+   exactly that field and resubmit. That resubmission is your one retry:
+   each packet allows two attempts in total, and after two the packet
+   closes as unresolved.
+
+### When a packet earns no proposal
+
+Submitting a packet with no proposals — `submit --run <id> --packet <id>`
+and no `--proposal` — is the honest "I could not tell", and it is final
+for that packet. It is a conclusion you are allowed to reach only after
+reading the legend and the person's files and finding nothing that bears
+on this packet's question. It is never a way past the work. Never loop
+empty submissions through the packets: a run answered that way reports
+nothing, tells the person nothing about the system they built, and is
+worse than no run at all, because it looks like a diagnosis.
+
+### The sceptical packet, last of all
+
+The final packet's role is `sceptical-reconciler`, and it unlocks only
+after every other packet has an answer. Its job is narrower than the
+others: it may only preserve or downgrade the candidates already accepted
+from the earlier packets. It cannot add anything new. For each candidate:
+keep it, or move its disposition down to `not-assessed`, `not-relevant`,
+or `fragile-or-contradictory`. A decision you leave unchanged must keep
+the baseline's exact evidence and observation identities — same tokens,
+same observations, and for a recommendation the same factors. Only a
+downgrade may cite different evidence, and it still cites only tokens
+from the packet.
 
 Do not calculate or rewrite catalogue totals. The engine owns the ledger.
 Every signed catalogue entry has one disposition there. Unavailable entries
@@ -603,9 +811,9 @@ Do not repair the gap with remembered facts or a manual checklist. Ask
 
 Do not keep your own comparison checklist. Ask `dex-lens diagnosis status`
 after every engine step and do the next action it names. Advance when it
-says advance. Offer a specialist proposal with `dex-lens diagnosis submit`
-only when you have evidence the engine already holds. Then wait for
-`status` again.
+says advance. When it asks for work, answer each packet the way "How to
+work one packet" above describes — proposals cite only evidence the
+engine already holds. Then wait for `status` again.
 
 The engine owns the ledger. Do not calculate or rewrite catalogue totals.
 Unavailable entries cannot be recommended.
@@ -1068,7 +1276,8 @@ the person who built the thing.
 | `dex-lens diagnosis approve --run <id>` | Records their yes in this chat. Do not run it before they say yes. |
 | `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |
 | `dex-lens diagnosis advance --run <id>` | The next lawful step. Do not invent the next step yourself. |
-| `dex-lens diagnosis submit --run <id> --proposal <file>` | Optional specialist help. Evidence-referenced proposals only. They do not author counts. |
+| `dex-lens diagnosis work --run <id>` | The next engine-issued packet with its evidence legend, or a typed empty result when none is waiting. |
+| `dex-lens diagnosis submit --run <id> --packet <id> --proposal <file>` | Your answer to one packet. Repeat `--proposal` for each proposal; omit it entirely for the honest empty answer. Proposals do not author counts. |
 | `dex-lens diagnosis result --run <id>` | The closed result. Speak this close. Do not rewrite it. |
 | `dex-lens inventory <folder> --out <file>` | The declared shape of the system, duplicates folded, housekeeping findings at the end. |
 | `dex-lens inventory <folder> --names <text>` | The same, listing only items whose name contains that text — for a second look at what the last report flagged. Counts still describe the whole folder. |
