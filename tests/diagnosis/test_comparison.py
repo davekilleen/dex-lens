@@ -408,3 +408,137 @@ def test_comparison_ledger_resolves_without_importing_work_first() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Signed MCP tool inventories: complete must be reachable, sampled must stay
+# honest.  The first real evaluation reported "0 complete MCP inventories;
+# 11 sampled" because the live v6 catalogue predates the complete-tools
+# channel and publishes at most five example tools per server — and Lens
+# additionally marked a server "sampled" even when its signed examples
+# provably were its whole inventory (examples == declared tool_count).
+# ---------------------------------------------------------------------------
+
+
+def _mcp_catalogue(mcp_entry: dict[str, object]) -> object:
+    from tests.catalogue.test_significant_contract import _catalogue as _significant_catalogue
+
+    from capability_exchange.catalogue.v2 import CatalogueV2
+
+    return CatalogueV2.model_validate(_significant_catalogue(capabilities=[mcp_entry]))
+
+
+def _sampled_shape_mcp(*, declared: int, examples: list[str]) -> dict[str, object]:
+    """An mcp-server entry in the live v6 shape: count + examples only."""
+    from tests.catalogue.test_significant_contract import _mcp as _significant_mcp
+
+    entry = _significant_mcp()
+    entry.pop("tools")
+    entry.pop("tool_inventory")
+    entry["tool_count"] = declared
+    entry["example_tools"] = examples
+    return entry
+
+
+def _inventory_ledger(catalogue) -> ComparisonLedger:  # type: ignore[no-untyped-def]
+    return ComparisonLedger.for_catalogue(
+        catalogue,
+        catalogue_version=6,
+        catalogue_sha256=CATALOGUE_SHA,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=item.capability_id,
+                title=item.title,
+                job_ids=tuple(item.jobs),
+                catalogue_ids=(item.capability_id,),
+                person_observation_ids=(),
+            )
+            for item in catalogue.capabilities
+        ),
+        entries=tuple(
+            CatalogueDisposition(
+                catalogue_id=item.capability_id,
+                disposition=Disposition.NOT_ASSESSED,
+                capability_id=item.capability_id,
+                reason="Not assessed.",
+            )
+            for item in catalogue.capabilities
+        ),
+    )
+
+
+def test_exhaustive_signed_sample_is_a_complete_inventory() -> None:
+    """Examples that equal the declared count ARE the whole inventory.
+
+    The live catalogue's ``dex-analytics`` declares 4 tools and publishes 4
+    distinct examples; reporting it "sampled" understates signed truth. The
+    derivation uses signed fields only, so it cannot overreach: a smaller
+    sample stays sampled (next test).
+    """
+    from capability_exchange.diagnosis.report import canonical_fact_block
+
+    catalogue = _mcp_catalogue(
+        _sampled_shape_mcp(
+            declared=4,
+            examples=["list_tasks", "add_note", "close_task", "reopen_task"],
+        )
+    )
+    ledger = _inventory_ledger(catalogue)
+
+    (inventory,) = ledger.mcp_tools_by_server
+    assert inventory.inventory_status == "complete"
+    assert inventory.declared_tool_count == 4
+    assert set(inventory.tools) == {"list_tasks", "add_note", "close_task", "reopen_task"}
+
+    facts = canonical_fact_block(ledger)
+    assert "1 complete inventory; 0 sampled inventories" in facts
+    assert "remaining tool identities Unknown" not in facts
+
+
+def test_partial_signed_sample_stays_honestly_sampled() -> None:
+    """A sample below the declared count must never be promoted to complete."""
+    from capability_exchange.diagnosis.report import canonical_fact_block
+
+    catalogue = _mcp_catalogue(
+        _sampled_shape_mcp(
+            declared=15,
+            examples=["list_tasks", "add_note", "close_task", "reopen_task", "plan_day"],
+        )
+    )
+    ledger = _inventory_ledger(catalogue)
+
+    (inventory,) = ledger.mcp_tools_by_server
+    assert inventory.inventory_status == "sampled"
+    assert inventory.declared_tool_count == 15
+    assert len(inventory.tools) == 5
+
+    facts = canonical_fact_block(ledger)
+    assert "0 complete inventories; 1 sampled inventory" in facts
+    assert "5 published examples; remaining tool identities Unknown" in facts
+
+
+def test_ordinary_thirteen_tool_server_inventories_completely() -> None:
+    """An ordinary real server (13 declared tools) reaches ``complete``.
+
+    Five examples can never cover it, so the signed ``tools`` channel — the
+    contract bounds it at 500 tools per server, more than ten times the
+    largest real Dex server's 47 — is what carries the full inventory
+    end-to-end into the ledger and the report fact block.
+    """
+    from tests.catalogue.test_significant_contract import _mcp as _significant_mcp
+
+    from capability_exchange.diagnosis.report import canonical_fact_block
+
+    tools = [f"tool_{index}" for index in range(13)]
+    entry = _significant_mcp(tools=tools, examples=tools[:5])
+    catalogue = _mcp_catalogue(entry)
+    ledger = _inventory_ledger(catalogue)
+
+    (inventory,) = ledger.mcp_tools_by_server
+    assert inventory.inventory_status == "complete"
+    assert inventory.declared_tool_count == 13
+    assert tuple(inventory.tools) == tuple(tools)
+
+    facts = canonical_fact_block(ledger)
+    assert "13 declared tools across 1 server; 1 complete inventory" in facts
+    assert "remaining tool identities Unknown" not in facts

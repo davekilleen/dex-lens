@@ -121,13 +121,27 @@ class CollectionBounds:
     exists to inspect, and one real vault carries 6,421 files the probes
     declare an interest in — under a third of which fitted. The capture then
     described an arbitrary slice of the approved scope. Those 6,421 files
-    total 50.9 MB, inside the byte bound, so the count is raised until bytes
-    are once again what binds.
+    total 50.9 MB, inside the byte bound, so the count was raised to 16384
+    so that bytes are what binds.
+
+    Bytes then bound too low. The first real evaluation (2026-09-03) read a
+    ~6,800-file vault and still truncated: a vault of that scale is not only
+    the small files the probes want — at a realistic personal-vault size mix
+    (mostly 2–20 KB notes with a tail of long-form documents, every file
+    under the per-file bound) ~6,800 files total ~170 MB, and a 64 MiB
+    ``max_total_bytes`` left the majority of admitted files unread
+    (observed: 4,023 of 6,800 unread, every one ``total-bytes-bound-reached``;
+    neither the count nor the per-file bound ever bit). So the byte bound is
+    sized from that reference scale with margin: ~170 MB × 1.5 ≈ 256 MiB.
+    It stays finite because it is the memory ceiling of one capture; the
+    count bound keeps 16384 (~2.4 × the reference file count) as the runaway
+    backstop, and a capture past either bound still reports itself
+    incomplete rather than extrapolating.
     """
 
     max_file_count: int = 16384
     max_file_bytes: int = 1 * 1024 * 1024
-    max_total_bytes: int = 64 * 1024 * 1024
+    max_total_bytes: int = 256 * 1024 * 1024
 
     def as_payload(self) -> dict[str, int]:
         return {

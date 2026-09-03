@@ -484,6 +484,182 @@ class TestFilesThatWereNotRead:
         assert any(unread.token in item.reference for item in snapshot.exclusions)
 
 
+def _build_reference_scale_vault(root: Path) -> int:
+    """A synthetic vault at the documented reference scale. All content invented.
+
+    The first real evaluation (2026-09-03) read a ~6,800-file vault and
+    truncated. This reconstruction matches that scale: thousands of small
+    markdown notes and skill files with a realistic size mix — mostly 2-20 KB
+    notes, a tail of long-form documents, every file far under the 1 MiB
+    per-file bound — totalling ~166 MiB. The mix is deterministic so two runs
+    build byte-identical trees.
+    """
+    filler = (
+        "This invented note line carries ordinary prose about a project, a "
+        "habit, or a meeting, none of it real, purely synthetic fixture text.\n"
+    )
+    count = 0
+
+    def write(path: Path, size: int) -> None:
+        nonlocal count
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = (filler * (size // len(filler) + 1))[:size]
+        path.write_text("# Invented note\n\n" + body)
+        count += 1
+
+    write(root / "CLAUDE.md", 4_000)
+    write(root / "AGENTS.md", 3_000)
+    (root / ".mcp.json").write_text('{"mcpServers": {"notes": {"command": "runner"}}}')
+    count += 1
+    for index in range(240):
+        write(root / ".claude" / "skills" / f"skill-{index:03d}" / "SKILL.md", 2_500)
+
+    area = 0
+    while count < 6_800:
+        area_dir = root / f"Areas/{area // 40:02d}/topic-{area % 40:02d}"
+        for note in range(min(8, 6_800 - count)):
+            cycle = (area * 8 + note) % 100
+            if cycle < 55:
+                size = 2_000 + cycle * 100  # short notes, 2-7.5 KB
+            elif cycle < 85:
+                size = 8_000 + cycle * 150  # medium notes, ~17-20 KB
+            elif cycle < 97:
+                size = 60_000 + cycle * 300  # long-form notes
+            else:
+                size = 220_000 + cycle * 500  # exported documents
+            write(area_dir / f"note-{note}.md", size)
+        area += 1
+    return count
+
+
+@pytest.fixture(scope="module")
+def reference_scale_vault(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("reference-scale") / "vault"
+    root.mkdir()
+    total = _build_reference_scale_vault(root)
+    assert total == 6_800
+    return root
+
+
+@pytest.fixture(scope="module")
+def reference_scale_snapshot(reference_scale_vault: Path):  # type: ignore[no-untyped-def]
+    """One default-bounds capture of the reference tree, shared read-only."""
+    return snapshot_of(reference_scale_vault)
+
+
+class TestReferenceScaleCapture:
+    """The capture must fit a real vault, and stay honest when it cannot.
+
+    RISK-BOUNDED-CAPTURE-ABSENCE history is load-bearing here: a bounded
+    capture must never report absence for what it did not read. These tests
+    hold both directions on one reference-scale tree — a vault of the
+    documented real-evaluation scale captures *completely* under the default
+    bounds, and the same tree under a bound it exceeds stays incomplete with
+    every guarantee intact (diagnostic files captured first, unread files
+    named, presence probes saying could-not-check instead of absent).
+    """
+
+    OLD_TOTAL_BYTES_BOUND = 64 * 1024 * 1024
+
+    def test_reference_scale_vault_captures_completely_under_default_bounds(
+        self, reference_scale_snapshot  # type: ignore[no-untyped-def]
+    ) -> None:
+        """The 2026-09-03 evaluation's failure mode: bytes bound too low.
+
+        Observed on the unchanged tree before the fix: 4,023 of 6,800 files
+        unread, every one ``total-bytes-bound-reached`` — the 64 MiB
+        ``max_total_bytes`` bound bit while the count (6,800 < 16,384) and
+        per-file (all < 1 MiB) bounds never did. A complete capture of the
+        reference scale is the fix, with the bound still finite.
+        """
+        snapshot = reference_scale_snapshot
+
+        assert snapshot.complete, (
+            "a vault at the documented reference scale must capture completely; "
+            f"unread reasons: {sorted({item.reason for item in snapshot.unread_files})}"
+        )
+        assert len(snapshot.canonical_paths()) == 6_800
+        assert snapshot.unread_files == ()
+
+        from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+
+        limits = discover_fingerprint(snapshot, collected_at=snapshot.taken_at).limits
+        assert not any("only partly captured" in line for line in limits)
+
+    def test_reference_scale_vault_over_bound_capture_stays_honest(
+        self, reference_scale_vault: Path
+    ) -> None:
+        """A genuinely over-bound capture keeps every honesty guarantee.
+
+        The same reference tree under the previous 64 MiB byte bound is the
+        still-over-bound fixture: it must say which bound bit, name the
+        unread files, have spent the bound on diagnostic material first, and
+        never let a presence probe claim absence for the unread remainder.
+        """
+        from capability_exchange.adapter.envelope import InstrumentHealth
+        from capability_exchange.adapters.claude_code.collector import EvidenceCollector
+        from capability_exchange.adapters.claude_code.contract import claude_code_contract
+        from capability_exchange.adapters.claude_code.discovery import discover_fingerprint
+
+        snapshot = snapshot_of(
+            reference_scale_vault,
+            bounds=CollectionBounds(max_total_bytes=self.OLD_TOTAL_BYTES_BOUND),
+        )
+
+        # The bound bit, honestly: incomplete, and every unread file is named
+        # with the byte-bound reason (never the count or per-file bounds).
+        assert not snapshot.complete
+        assert snapshot.unread_files
+        assert {item.reason for item in snapshot.unread_files} == {"total-bytes-bound-reached"}
+        assert all(item.relative_path for item in snapshot.unread_files)
+
+        # Diagnostic basenames were captured before the bound bit (the
+        # RISK-BOUNDED-CAPTURE-ABSENCE ordering fix must not regress).
+        captured_names = {Path(path).name for path in snapshot.canonical_paths()}
+        assert "CLAUDE.md" in captured_names
+        assert ".mcp.json" in captured_names
+        assert len(snapshot.entries_named("SKILL.md")) == 240
+
+        # Presence probes on the incomplete capture say could-not-check with
+        # blocked evidence for anything not captured — never absent.
+        contract = claude_code_contract([str(reference_scale_vault)])
+        envelope = EvidenceCollector(contract, snapshot).collect()
+        probes = {probe.probe_id: probe for probe in envelope.probes}
+        settings_probe = probes["settings-present"]
+        assert settings_probe.health is InstrumentHealth.COULD_NOT_CHECK
+        assert "absence cannot be claimed" in settings_probe.detail
+        assert all(item.state is EvidenceState.BLOCKED for item in settings_probe.evidence)
+        assert probes["collection-exclusions"].health is InstrumentHealth.COULD_NOT_CHECK
+
+        # And the discovery limits disclose the truncation to the report.
+        limits = discover_fingerprint(snapshot, collected_at=snapshot.taken_at).limits
+        assert any("only partly captured" in line for line in limits)
+
+    def test_complete_reference_capture_may_claim_absence(
+        self,
+        reference_scale_vault: Path,
+        reference_scale_snapshot,  # type: ignore[no-untyped-def]
+    ) -> None:
+        """Absence is claimable exactly when the whole scope was read.
+
+        The vault genuinely holds no ``settings.json``. Under the over-bound
+        capture that fact is unknowable (could-not-check above); under the
+        complete capture it is provable and reported as honest absence.
+        """
+        from capability_exchange.adapter.envelope import InstrumentHealth
+        from capability_exchange.adapters.claude_code.collector import EvidenceCollector
+        from capability_exchange.adapters.claude_code.contract import claude_code_contract
+
+        snapshot = reference_scale_snapshot
+        assert snapshot.complete
+
+        contract = claude_code_contract([str(reference_scale_vault)])
+        envelope = EvidenceCollector(contract, snapshot).collect()
+        settings_probe = {probe.probe_id: probe for probe in envelope.probes}["settings-present"]
+        assert settings_probe.health is InstrumentHealth.HEALTHY
+        assert [item.state for item in settings_probe.evidence] == [EvidenceState.ABSENT]
+
+
 class TestFailClosed:
     def test_ambiguous_survey_decision_aborts_capture(
         self, claude_root: Path, monkeypatch: pytest.MonkeyPatch

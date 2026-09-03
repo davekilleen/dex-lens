@@ -1178,20 +1178,50 @@ def _seed_local_entries(
     )
 
 
-def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
-    """Copy every signed MCP inventory and preserve whether it is sampled."""
+def _signed_tool_inventory(
+    entry: McpServerCapabilityEntryV2,
+) -> tuple[Literal["sampled", "complete"], tuple[str, ...]]:
+    """The provable inventory status and tool identities, from signed fields only.
 
-    return tuple(
-        McpToolInventory(
-            server_id=entry.capability_id,
-            server_name=entry.server_name,
-            inventory_status=entry.tool_inventory,
-            declared_tool_count=entry.tool_count,
-            tools=(entry.tools if entry.tool_inventory == "complete" else entry.example_tools),
+    A catalogue that opts into the complete channel (``tool_inventory:
+    "complete"`` with the full ``tools`` tuple, bounded at 500 per server by
+    the contract) is complete by declaration. A sampled entry can still be
+    provably complete by arithmetic on the same signed envelope: its
+    ``example_tools`` are unique names drawn from the server's tools, so when
+    their number equals the signed ``tool_count`` the sample *is* the whole
+    inventory. Nothing is inferred from unsigned data, and the derivation
+    cannot overreach — a sample smaller than the declared count stays
+    ``sampled``, honestly. (This is how the live v6 catalogue, which predates
+    the complete channel and publishes at most five examples per server, was
+    reported as "0 complete MCP inventories" even for a server whose four
+    examples were all four of its declared tools.)
+    """
+
+    if entry.tool_inventory == "complete":
+        return "complete", entry.tools
+    if len(entry.example_tools) == entry.tool_count:
+        return "complete", entry.example_tools
+    return "sampled", entry.example_tools
+
+
+def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
+    """Copy every signed MCP inventory; sampled stays sampled unless proven."""
+
+    inventories: list[McpToolInventory] = []
+    for entry in sorted(catalogue.capabilities, key=lambda item: item.capability_id):
+        if not isinstance(entry, McpServerCapabilityEntryV2):
+            continue
+        inventory_status, tools = _signed_tool_inventory(entry)
+        inventories.append(
+            McpToolInventory(
+                server_id=entry.capability_id,
+                server_name=entry.server_name,
+                inventory_status=inventory_status,
+                declared_tool_count=entry.tool_count,
+                tools=tools,
+            )
         )
-        for entry in sorted(catalogue.capabilities, key=lambda item: item.capability_id)
-        if isinstance(entry, McpServerCapabilityEntryV2)
-    )
+    return tuple(inventories)
 
 
 def ledger_evidence_identities(ledger: ComparisonLedger) -> frozenset[str]:
