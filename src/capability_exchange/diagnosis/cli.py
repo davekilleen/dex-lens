@@ -614,14 +614,20 @@ def _result(argv: list[str]) -> int:
     result = build_engine().result(args.run)
     if args.format == "json":
         return _write_guarded_canonical_json(result.dump_for_storage())
-    # markdown is deliberately unguarded: the rendered report footer prints
-    # the report location, and whether to keep, relativise, or exempt it is a
-    # founder decision under WO-022 (see the Task 4 plan section).
     render = getattr(result, "render_markdown", None)
     if not callable(render):
         print("dex-lens: this result has no canonical markdown.", file=sys.stderr)
         return 2
-    sys.stdout.write(str(render()))
+    # WO-022, decided 2026-09-03: the footer now renders its location
+    # home-relative, so the rendered report carries no account name and the
+    # markdown surface is guarded like every other outbound surface.
+    rendered = str(render())
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    sys.stdout.write(rendered)
     return 0
 
 

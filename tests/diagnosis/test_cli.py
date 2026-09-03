@@ -675,3 +675,39 @@ def test_a_failed_crash_log_write_still_prints_only_the_fixed_sentence(
     assert captured.err == cli._CRASH_SENTENCE + "\n"
     for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
         assert planted not in captured.err
+
+
+def test_result_markdown_refuses_planted_content(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With the footer home-relative (WO-022, decided), markdown is outbound
+    wire like every other surface: what MCP would refuse, markdown must too."""
+
+    result = FakeResult(
+        {"stage": "closed"},
+        markdown=f"# Diagnosis\n\nplanted {PLANTED_CANARY} in a rendered reason\n",
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "markdown"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+def test_result_markdown_still_prints_a_clean_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The guard must not refuse Lens's own clean output."""
+
+    result = FakeResult({"stage": "closed"}, markdown="# Diagnosis\n\nclosed\n")
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "markdown"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == "# Diagnosis\n\nclosed\n"
+    assert captured.err == ""

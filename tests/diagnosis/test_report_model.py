@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 
 import pytest
 from tests.diagnosis.test_receipts import RESPONSE_DIGEST, SESSION, decision_receipt
@@ -24,6 +25,7 @@ from capability_exchange.diagnosis.comparison import (
     HumanCapability,
     InsightKind,
 )
+from capability_exchange.diagnosis.payload_guard import refuse_hostile_payload
 from capability_exchange.diagnosis.ranking import (
     RecommendationCandidate,
     RecommendationFactors,
@@ -601,3 +603,43 @@ def test_report_refuses_an_insight_citing_evidence_the_ledger_does_not_hold() ->
             ledger_sha256=canonical_ledger_digest(tampered),
             findings=(),
         )
+
+
+def test_report_location_under_home_renders_home_relative(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WO-022, decided 2026-09-03: the footer renders the location relative.
+
+    The footer lives in the most shareable artifact Lens produces, and an
+    absolute home path carries the account name. The invented home below is
+    /Users/-shaped on purpose: rendered absolute, it is exactly what the
+    outbound guards refuse everywhere else.
+    """
+
+    invented_home = tmp_path / "Users" / "invented-owner"
+    saved = invented_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md"
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    assert "invented-owner" not in markdown
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_outside_home_is_rendered_as_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only a home-rooted location is rewritten; anywhere else stays exact."""
+
+    invented_home = tmp_path / "Users" / "invented-owner"
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    saved = tmp_path / "shared-drive" / "lens-look.md"
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert f"- Report location: `{saved}`." in markdown

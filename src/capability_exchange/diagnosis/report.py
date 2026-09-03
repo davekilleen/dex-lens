@@ -67,6 +67,21 @@ def _insight_row(item: GroundedInsight) -> dict[str, object]:
     }
 
 
+def _home_relative_location(location: str) -> str:
+    """Render a report location without naming the account that owns it.
+
+    WO-022, decided 2026-09-03: the footer lives in the most shareable
+    artifact Lens produces, and an absolute home path carries the person's
+    username. A location under the home directory renders as ``~/…``;
+    anywhere else is rendered as written.
+    """
+
+    try:
+        return "~/" + Path(location).relative_to(Path.home()).as_posix()
+    except ValueError:
+        return location
+
+
 def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
     """Return the one stable structured payload used by digest and storage."""
 
@@ -534,7 +549,7 @@ class ReportModel(InventoriedModel):
         else:
             first_move = "No first move cleared the bar."
         report_location = (
-            f"`{self._report_location}`."
+            f"`{_home_relative_location(self._report_location)}`."
             if self._report_location is not None
             else "This report will be saved before the run closes."
         )

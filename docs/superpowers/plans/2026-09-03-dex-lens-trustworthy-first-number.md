@@ -287,13 +287,17 @@ adapter would refuse, and an unexpected crash cannot print vault text.
       `dex-lens diagnosis result --format json` stdout.
 - [x] Apply `payload_guard.refuse_hostile_payload` to the diagnosis payload
       outputs: `work`, `submit`, and `result --format json`.
-- [ ] **Founder decision required — do not choose unilaterally.** The rendered
+- [x] **Founder decision required — do not choose unilaterally.** The rendered
       report footer (`report.py:531-541`) prints the report location, which
       contains the owner's username, inside the most shareable artifact Lens
       produces. A blanket guard on markdown would refuse Lens's own output. The
       options are to drop the footer line, to render it relative, or to exempt it
       explicitly and guard everything else. This is tester-visible copy and
-      belongs to the founder under WO-022.
+      belongs to the founder under WO-022. **Decided by the founder,
+      2026-09-03: render it relative.** `_render_close` renders a home-rooted
+      location as `~/…`; a location outside home renders as written. With no
+      account name left in the render, the markdown output is guarded like
+      every other outbound surface.
 - [x] Wire `boundary/crashlog.py` into `diagnosis_main` and
       `scripts/run_wow_gate.py`: catch `Exception`, write the redacted log, print
       a fixed sentence. This is the module's first caller in `src/`.
@@ -308,10 +312,13 @@ python3 -m ruff check .
 
 **Decisions recorded (2026-09-03):**
 
-1. The report-footer question stays open for the founder under WO-022. The
-   markdown output (`result --format markdown`) is deliberately unguarded and
-   `report.py` untouched until that decision lands: drop the footer line,
-   render it relative, or exempt it explicitly and guard everything else.
+1. The report-footer question was put to the founder under WO-022 and
+   **resolved the same day: render it relative.** `report.py` now renders a
+   home-rooted location as `~/…` (`_home_relative_location`), and
+   `result --format markdown` passes through `refuse_hostile_payload` like
+   every other outbound surface. Both were demonstrated red-first: the
+   /Users/-shaped footer reached the rendered markdown, and a canary-bearing
+   markdown reached CLI stdout at exit 0, before the change.
 2. Consequence of parity guarding to surface before the first real run:
    the guard vocabulary treats any `/Users/` string as hostile, so a stored
    result that carried `report.report_location` would be refused by
@@ -339,7 +346,7 @@ before any release, whatever the evaluation says.
 | **critical** — guided compare trusts the stored `reconciled-proposals` artifact instead of re-deriving it; 20 forged recommendations citing an unminted evidence token were accepted against a cap of 10 | `orchestrator.py:797-805` | Does not affect an honest run's score; blocks release |
 | **critical** — aggregate limits enforced only after every receipt is final, so eight specialists each citing two tokens wedges the run with no exit | `orchestrator.py:1218, 1238` | Will be hit by a real run; if the evaluation wedges, fix this first |
 | **critical** — `for_catalogue` omits the six new fields, so a tampered saved ledger passes `report check` | `comparison.py:780-795`, `reports/ledger.py:66-84` | Affects reload, not the first grade |
-| Task 6 is not finished: discovery never emits `trigger-kind`/`action-kind`/`target-kind`, so the workflow graph is empty on any real vault | `3eca587` did not touch `adapters/claude_code/discovery.py` | This is build work, not a repair. The first number will show a thin graph — that is an honest result, and informative |
+| Task 6 is not finished: discovery never emits `trigger-kind`/`action-kind`/`target-kind`, so the workflow graph is empty on any real vault | `3eca587` did not touch `adapters/claude_code/discovery.py` | This is build work, not a repair. The first number will show a thin graph — that is an honest result, and informative. **Founder decision, 2026-09-03: dropped for now** — revisit only if the first real number shows the workflow dimension is where the value lives |
 | The person-entity node copies runtime and health from the *skill* observation | `workflows.py:179-184` | Fabrication, but Task 1's evidence scoring reduces its reward |
 | Appendix never extended for the new sections, so "exact references are in the appendix" is not kept | `report.py:1097-1167` | Task 1 checks evidence resolves; the appendix rendering is separate |
 | Recommendations and fragility warnings render under "Connections Lens noticed" | `comparison.py:1121-1132` | Report copy; founder call |
