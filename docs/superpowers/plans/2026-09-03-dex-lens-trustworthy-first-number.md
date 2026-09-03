@@ -283,9 +283,9 @@ python3 scripts/check_inventory.py
 **Acceptance:** the CLI cannot print inspected-system content that the MCP
 adapter would refuse, and an unexpected crash cannot print vault text.
 
-- [ ] Red test: a canary or absolute path in a ledger reason does not reach
+- [x] Red test: a canary or absolute path in a ledger reason does not reach
       `dex-lens diagnosis result --format json` stdout.
-- [ ] Apply `payload_guard.refuse_hostile_payload` to the diagnosis payload
+- [x] Apply `payload_guard.refuse_hostile_payload` to the diagnosis payload
       outputs: `work`, `submit`, and `result --format json`.
 - [ ] **Founder decision required — do not choose unilaterally.** The rendered
       report footer (`report.py:531-541`) prints the report location, which
@@ -294,10 +294,10 @@ adapter would refuse, and an unexpected crash cannot print vault text.
       options are to drop the footer line, to render it relative, or to exempt it
       explicitly and guard everything else. This is tester-visible copy and
       belongs to the founder under WO-022.
-- [ ] Wire `boundary/crashlog.py` into `diagnosis_main` and
+- [x] Wire `boundary/crashlog.py` into `diagnosis_main` and
       `scripts/run_wow_gate.py`: catch `Exception`, write the redacted log, print
       a fixed sentence. This is the module's first caller in `src/`.
-- [ ] Leave the consent surface alone. `cli.py:196-201, 255-260` prints approved
+- [x] Leave the consent surface alone. `cli.py:196-201, 255-260` prints approved
       root paths and the local token by design; that is the person's own screen
       before any reading happens.
 
@@ -305,6 +305,26 @@ adapter would refuse, and an unexpected crash cannot print vault text.
 python3 -m pytest -q tests/diagnosis/test_cli.py tests/evals/
 python3 -m ruff check .
 ```
+
+**Decisions recorded (2026-09-03):**
+
+1. The report-footer question stays open for the founder under WO-022. The
+   markdown output (`result --format markdown`) is deliberately unguarded and
+   `report.py` untouched until that decision lands: drop the footer line,
+   render it relative, or exempt it explicitly and guard everything else.
+2. Consequence of parity guarding to surface before the first real run:
+   the guard vocabulary treats any `/Users/` string as hostile, so a stored
+   result that carried `report.report_location` would be refused by
+   `result --format json` on the CLI exactly as by `get_diagnosis_result` on
+   MCP already today. Verified while recording this note: the bound location
+   is a `PrivateAttr`, excluded from `model_dump`, so on the current tree it
+   reaches **only the rendered markdown footer** — precisely the surface left
+   unguarded pending this decision — and never the JSON dump. The location
+   decision must still land before the first real evaluation run: until it
+   does, the footer prints the owner's username inside the most shareable
+   artifact Lens produces, and any resolution that moves or guards the
+   location (a blanket markdown guard, or surfacing the location in the
+   dump) makes Lens refuse a real macOS run's own output.
 
 ---
 

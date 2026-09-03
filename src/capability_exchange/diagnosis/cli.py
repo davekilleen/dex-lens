@@ -21,6 +21,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
+from capability_exchange.boundary.crashlog import write_crash_log
 from capability_exchange.diagnosis.payload_guard import (
     REMOVE_ABSOLUTE_PATH,
     REMOVE_SECRET,
@@ -250,6 +251,33 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         code = 0 if exc.code in {None, True} else (1 if exc.code is False else int(exc.code))
         return code
+    except Exception as exc:  # crash boundary — KeyboardInterrupt passes through
+        # First caller of boundary/crashlog.py in src/: the record keeps
+        # structure only. The message is never printed or stored, because a
+        # message is interpolated from runtime values and can carry vault
+        # content — that is the whole point of the module.
+        _record_crash(exc)
+        print(_CRASH_SENTENCE, file=sys.stderr)
+        return 70
+
+
+#: Fixed by design: no exception text, no path, ever. A crash on this surface
+#: must not become a second way for inspected-system content to reach a screen.
+_CRASH_SENTENCE = (
+    "dex-lens: this command stopped on an unexpected error; "
+    "only a redacted crash log is kept locally."
+)
+
+
+def _record_crash(exc: Exception) -> None:
+    """Write the redacted crash record; a failed write forfeits only the log."""
+
+    try:
+        from capability_exchange.catalogue.subscription import default_lens_app_storage
+
+        write_crash_log(exc, default_lens_app_storage() / "crash-logs")
+    except Exception:  # the crash boundary never propagates
+        pass
 
 
 def _parser(prog: str, description: str) -> argparse.ArgumentParser:
@@ -265,6 +293,25 @@ def _write_canonical_json(payload: object) -> None:
             sort_keys=True,
         )
     )
+
+
+def _write_guarded_canonical_json(payload: object) -> int:
+    """Screen an outbound diagnosis payload exactly as the MCP adapter does.
+
+    ``mcp_server._dump``/``_dump_work`` and the work tool refuse these payloads
+    on the MCP wire; the CLI prints the same payloads, so it must refuse the
+    same ones. The refusal never echoes the offending value. The consent
+    surface prints are deliberately not routed through here: approved roots
+    and the local token are the person's own screen before any reading.
+    """
+
+    try:
+        refuse_hostile_payload(payload)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    _write_canonical_json(payload)
+    return 0
 
 
 def _existing_roots(paths: Sequence[Path]) -> tuple[Path, ...] | None:
@@ -504,8 +551,7 @@ def _work(argv: list[str]) -> int:
         if packet is None
         else getattr(packet, "model_dump", lambda **_: packet)(mode="json")
     }
-    _write_canonical_json(payload)
-    return 0
+    return _write_guarded_canonical_json(payload)
 
 
 def _submit(argv: list[str]) -> int:
@@ -549,8 +595,7 @@ def _submit(argv: list[str]) -> int:
         if proposal is None:
             return 2
         view = engine.submit(args.run, proposal)
-    _write_canonical_json(view.dump_for_storage())
-    return 0
+    return _write_guarded_canonical_json(view.dump_for_storage())
 
 
 def _result(argv: list[str]) -> int:
@@ -568,8 +613,10 @@ def _result(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     result = build_engine().result(args.run)
     if args.format == "json":
-        _write_canonical_json(result.dump_for_storage())
-        return 0
+        return _write_guarded_canonical_json(result.dump_for_storage())
+    # markdown is deliberately unguarded: the rendered report footer prints
+    # the report location, and whether to keep, relativise, or exempt it is a
+    # founder decision under WO-022 (see the Task 4 plan section).
     render = getattr(result, "render_markdown", None)
     if not callable(render):
         print("dex-lens: this result has no canonical markdown.", file=sys.stderr)

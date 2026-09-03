@@ -9,11 +9,13 @@ inspected system.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from tests.evals.test_wow_gate import (
     _another_runs_audit,
     _fabricated_ledger,
@@ -119,3 +121,94 @@ def test_an_unreadable_result_is_refused_without_repeating_it(tmp_path: Path) ->
 
     assert code == 2
     assert canary not in stderr
+
+
+# ---------------------------------------------------------------------------
+# Crash boundary: an unexpected exception never prints the inspected system.
+# ---------------------------------------------------------------------------
+
+PLANTED_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
+PLANTED_PATH = "/Users/invented-owner/vault/note.md"
+
+
+def _load_gate_module():
+    spec = importlib.util.spec_from_file_location("run_wow_gate_under_test", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _crash_log_dir(state_home: Path) -> Path:
+    return state_home / "dex-lens" / "capability-bridge" / "crash-logs"
+
+
+def test_an_unexpected_crash_prints_a_fixed_sentence_and_a_redacted_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    module = _load_gate_module()
+
+    def explode(*args: object, **kwargs: object) -> object:
+        raise RuntimeError(f"boom {PLANTED_CANARY} while reading {PLANTED_PATH}")
+
+    monkeypatch.setattr(module, "grade_wow_run", explode)
+    result = _write_result(tmp_path, _ledger(rich=True))
+
+    code = module.main(["--result", str(result), "--output", str(tmp_path / "grade.json")])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == module._CRASH_SENTENCE + "\n"
+    logs = sorted(_crash_log_dir(state_home).glob("crashlog-*.json"))
+    assert len(logs) == 1
+    raw = logs[0].read_text(encoding="utf-8")
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err
+        assert planted not in raw
+    assert "RuntimeError" in raw
+
+
+def test_keyboard_interrupt_escapes_the_crash_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    module = _load_gate_module()
+
+    def interrupt(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module, "grade_wow_run", interrupt)
+    result = _write_result(tmp_path, _ledger(rich=True))
+
+    with pytest.raises(KeyboardInterrupt):
+        module.main(["--result", str(result), "--output", str(tmp_path / "grade.json")])
+
+    assert not _crash_log_dir(state_home).exists()
+
+
+def test_a_failed_crash_log_write_still_prints_only_the_fixed_sentence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the state directory should be", encoding="utf-8")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocked))
+    module = _load_gate_module()
+
+    def explode(*args: object, **kwargs: object) -> object:
+        raise RuntimeError(f"boom {PLANTED_CANARY} while reading {PLANTED_PATH}")
+
+    monkeypatch.setattr(module, "grade_wow_run", explode)
+    result = _write_result(tmp_path, _ledger(rich=True))
+
+    code = module.main(["--result", str(result), "--output", str(tmp_path / "grade.json")])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == module._CRASH_SENTENCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err

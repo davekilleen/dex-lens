@@ -8,9 +8,17 @@ import json
 import sys
 from pathlib import Path
 
+from capability_exchange.boundary.crashlog import write_crash_log
 from capability_exchange.diagnosis.comparison import ComparisonLedger
 from capability_exchange.diagnosis.work import WorkAudit
 from capability_exchange.diagnosis.wow_gate import grade_wow_run
+
+#: Fixed by design: no exception text, no path, ever. A crash while grading
+#: must not become a way for the inspected system's content to reach a screen.
+_CRASH_SENTENCE = (
+    "run-wow-gate: grading stopped on an unexpected error; "
+    "only a redacted crash log is kept locally."
+)
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -18,6 +26,24 @@ def _load_json(path: Path) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _graded_main(argv)
+    except Exception as exc:  # crash boundary — KeyboardInterrupt passes through
+        # Wired to boundary/crashlog.py alongside its first src/ caller
+        # (diagnosis_main): the record keeps structure only. The message is
+        # never printed or stored, because a message is interpolated from
+        # runtime values and can carry the inspected system's content.
+        try:
+            from capability_exchange.catalogue.subscription import default_lens_app_storage
+
+            write_crash_log(exc, default_lens_app_storage() / "crash-logs")
+        except Exception:  # a failed write forfeits only the log, never propagates
+            pass
+        print(_CRASH_SENTENCE, file=sys.stderr)
+        return 70
+
+
+def _graded_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Grade one closed Lens Wow Gate run.")
     parser.add_argument("--result", required=True, help="closed result JSON path")
     parser.add_argument(

@@ -492,3 +492,186 @@ def test_cli_reports_a_work_queue_error_without_a_traceback(
     )
     assert code == 2
     assert "packet is not in this work queue" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Outbound guard: the CLI must refuse to print what the MCP adapter refuses.
+# ---------------------------------------------------------------------------
+
+PLANTED_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
+PLANTED_PATH = "/Users/invented-owner/vault/note.md"
+SECRET_GUIDANCE = "dex-lens: secret material is not retained on the diagnosis wire."
+PATH_GUIDANCE = "dex-lens: absolute paths are not retained on the diagnosis wire."
+
+
+class CanaryWorkEngine(FixedEngine):
+    def work(self, run_id: str) -> dict[str, object] | None:
+        packet = super().work(run_id)
+        assert packet is not None
+        packet["question"] = f"planted {PLANTED_CANARY} in an engine packet"
+        return packet
+
+
+class PathWorkEngine(FixedEngine):
+    def work(self, run_id: str) -> dict[str, object] | None:
+        packet = super().work(run_id)
+        assert packet is not None
+        packet["question"] = f"seen in {PLANTED_PATH}"
+        return packet
+
+
+def test_work_refuses_a_packet_carrying_the_session_canary(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "build_engine", lambda: CanaryWorkEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+def test_work_refuses_a_packet_carrying_an_absolute_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "build_engine", lambda: PathWorkEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == PATH_GUIDANCE + "\n"
+    assert PLANTED_PATH not in captured.out
+    assert PLANTED_PATH not in captured.err
+
+
+def test_submit_refuses_a_returned_view_dump_carrying_planted_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The view dump is outbound wire: what MCP submit_work refuses, submit must too."""
+
+    hostile = FakeResult(
+        {
+            "note": f"planted {PLANTED_CANARY} in a stored view",
+            "location": PLANTED_PATH,
+        }
+    )
+
+    class HostileSubmitEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            return hostile  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli, "build_engine", lambda: HostileSubmitEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, _valid_proposal("an ordinary reason"))
+
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH):
+        assert planted not in captured.out
+        assert planted not in captured.err
+
+
+def test_result_json_refuses_a_dump_carrying_planted_content(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A canary or absolute path in a ledger reason never reaches result --format json."""
+
+    result = FakeResult(
+        {
+            "reason": f"planted {PLANTED_CANARY} in a ledger reason",
+            "location": PLANTED_PATH,
+        }
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH):
+        assert planted not in captured.out
+        assert planted not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Crash boundary: an unexpected exception never prints vault text.
+# ---------------------------------------------------------------------------
+
+
+class CrashingEngine(FixedEngine):
+    def status(self, run_id: str) -> DiagnosisRunView:
+        raise RuntimeError(f"boom {PLANTED_CANARY} while reading {PLANTED_PATH}")
+
+
+class InterruptedEngine(FixedEngine):
+    def status(self, run_id: str) -> DiagnosisRunView:
+        raise KeyboardInterrupt
+
+
+def _crash_log_dir(state_home: Path) -> Path:
+    return state_home / "dex-lens" / "capability-bridge" / "crash-logs"
+
+
+def test_an_unexpected_crash_prints_a_fixed_sentence_and_a_redacted_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_engine", lambda: CrashingEngine(view=CAPTURED_VIEW))
+
+    code = diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == cli._CRASH_SENTENCE + "\n"
+    logs = sorted(_crash_log_dir(state_home).glob("crashlog-*.json"))
+    assert len(logs) == 1
+    raw = logs[0].read_text(encoding="utf-8")
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err
+        assert planted not in raw
+    assert "RuntimeError" in raw
+
+
+def test_keyboard_interrupt_escapes_the_crash_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_engine", lambda: InterruptedEngine(view=CAPTURED_VIEW))
+
+    with pytest.raises(KeyboardInterrupt):
+        diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert not _crash_log_dir(state_home).exists()
+
+
+def test_a_failed_crash_log_write_still_prints_only_the_fixed_sentence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the state directory should be", encoding="utf-8")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocked))
+    monkeypatch.setattr(cli, "build_engine", lambda: CrashingEngine(view=CAPTURED_VIEW))
+
+    code = diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == cli._CRASH_SENTENCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err
