@@ -59,11 +59,12 @@ from capability_exchange.diagnosis.run import ApprovedScopeReceipt, DiagnosisSta
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.significant_families import assess_significant_families
 from capability_exchange.diagnosis.specialists import (
-    DISAGREEMENT_REASON,
     MAX_RECOMMENDATIONS,
     ProposalKind,
     SpecialistProposalError,
     ValidatedProposal,
+    disagreement_reason,
+    is_disagreement_reason,
 )
 from capability_exchange.diagnosis.work import WorkAudit
 from capability_exchange.diagnosis.workflows import WorkflowGraph, build_workflow_graph
@@ -323,7 +324,7 @@ def _entry_for(capability_id: str, group: list[ValidatedProposal]) -> CatalogueD
             capability_id=capability_id,
             reason=_NO_PROPOSAL,
         )
-    disagreement = next((item for item in group if item.reason == DISAGREEMENT_REASON), None)
+    disagreement = next((item for item in group if is_disagreement_reason(item.reason)), None)
     chosen = disagreement or _agreed_or_unknown(capability_id, group)
     method_compared = chosen.kind is ProposalKind.METHOD_COMPARISON
     return CatalogueDisposition(
@@ -351,7 +352,7 @@ def _agreed_or_unknown(
         capability_id=ordered[0].capability_id,
         disposition=Disposition.NOT_ASSESSED,
         evidence_ids=evidence or ordered[0].evidence_ids,
-        reason=DISAGREEMENT_REASON,
+        reason=disagreement_reason(dispositions),
         observation_ids=tuple(
             sorted({token for item in ordered for token in item.observation_ids})
         ),

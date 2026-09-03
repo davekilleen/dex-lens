@@ -127,8 +127,14 @@ def candidate_baseline(
     recommendation_factors: RecommendationFactors | None = None,
     evidence_ids: tuple[str, ...] = (CURRENT_EVIDENCE,),
     observation_ids: tuple[str, ...] = (),
+    disputed_dispositions: tuple[Disposition, ...] = (),
+    disputed_recommendation_factors: tuple[RecommendationFactors, ...] = (),
 ) -> CandidateBaseline:
-    if recommendation_factors is None and kind is ProposalKind.RECOMMENDATION:
+    if (
+        recommendation_factors is None
+        and kind is ProposalKind.RECOMMENDATION
+        and not disputed_dispositions
+    ):
         recommendation_factors = RecommendationFactors(
             reliability_risk=1,
             job_relevance=2,
@@ -145,6 +151,8 @@ def candidate_baseline(
         recommendation_factors=recommendation_factors,
         evidence_ids=evidence_ids,
         observation_ids=observation_ids,
+        disputed_dispositions=disputed_dispositions,
+        disputed_recommendation_factors=disputed_recommendation_factors,
     )
 
 
@@ -245,9 +253,13 @@ def test_conflicting_dispositions_become_not_assessed() -> None:
 
     assert len(reconciled) == 1
     assert reconciled[0].disposition is Disposition.NOT_ASSESSED
-    assert reconciled[0].reason == DISAGREEMENT_REASON
+    # Evolved from the fixed DISAGREEMENT_REASON: the reason now names the
+    # disposition set (closed vocabulary, sorted values only) so the dispute
+    # stays visible instead of reading as a blank Unknown.
     assert reconciled[0].reason == (
-        "Specialist proposals disagreed; the comparison remains Unknown."
+        "Specialist proposals disagreed between fragile-or-contradictory and "
+        "strong-here; the sceptical review did not adjudicate, so the "
+        "comparison remains Unknown."
     )
 
 
@@ -281,7 +293,11 @@ def test_no_confidence_score_breaks_a_tie() -> None:
 
     assert sceptical_first == praise_first
     assert sceptical_first[0].disposition is Disposition.NOT_ASSESSED
-    assert sceptical_first[0].reason == DISAGREEMENT_REASON
+    assert sceptical_first[0].reason == (
+        "Specialist proposals disagreed between not-relevant and strong-here; "
+        "the sceptical review did not adjudicate, so the comparison remains "
+        "Unknown."
+    )
 
 
 def test_recommendation_cap_is_enforced_at_set_level() -> None:
@@ -370,7 +386,11 @@ def test_conflicting_recommendation_factors_remain_unresolved() -> None:
     reconciled = reconcile_proposals((first, second), context=context)
 
     assert reconciled[0].disposition is Disposition.NOT_ASSESSED
-    assert reconciled[0].reason == DISAGREEMENT_REASON
+    assert reconciled[0].reason == (
+        "Specialist proposals agreed on worth-borrowing but disagreed on "
+        "recommendation factors; the sceptical review did not adjudicate, so "
+        "the comparison remains Unknown."
+    )
     assert reconciled[0].recommendation_factors is None
 
 
@@ -390,8 +410,156 @@ def test_missing_and_present_recommendation_factors_remain_unresolved() -> None:
     reconciled = reconcile_proposals((first, second), context=context)
 
     assert reconciled[0].disposition is Disposition.NOT_ASSESSED
-    assert reconciled[0].reason == DISAGREEMENT_REASON
+    assert reconciled[0].reason == (
+        "Specialist proposals agreed on worth-borrowing but disagreed on "
+        "recommendation factors; the sceptical review did not adjudicate, so "
+        "the comparison remains Unknown."
+    )
     assert reconciled[0].recommendation_factors is None
+
+
+def test_disagreement_reason_constant_remains_the_generic_fallback() -> None:
+    assert DISAGREEMENT_REASON == (
+        "Specialist proposals disagreed; the comparison remains Unknown."
+    )
+
+
+def test_disputed_baseline_carries_the_proposed_disposition_set() -> None:
+    baseline = candidate_baseline(
+        kind=ProposalKind.STRENGTH,
+        original_disposition=Disposition.NOT_ASSESSED,
+        disputed_dispositions=(
+            Disposition.STRONG_HERE,
+            Disposition.FRAGILE_OR_CONTRADICTORY,
+        ),
+    )
+
+    # Canonical: sorted by disposition value, deduplicated.
+    assert baseline.disputed_dispositions == (
+        Disposition.FRAGILE_OR_CONTRADICTORY,
+        Disposition.STRONG_HERE,
+    )
+    assert baseline.disputed_recommendation_factors == ()
+
+    with pytest.raises(ValidationError, match="not-assessed"):
+        candidate_baseline(
+            kind=ProposalKind.STRENGTH,
+            original_disposition=Disposition.STRONG_HERE,
+            disputed_dispositions=(
+                Disposition.STRONG_HERE,
+                Disposition.FRAGILE_OR_CONTRADICTORY,
+            ),
+        )
+    with pytest.raises(ValidationError, match="factor tuples"):
+        candidate_baseline(
+            kind=ProposalKind.RECOMMENDATION,
+            original_disposition=Disposition.NOT_ASSESSED,
+            disputed_dispositions=(
+                Disposition.WORTH_BORROWING,
+                Disposition.NOT_RELEVANT,
+            ),
+        )
+    with pytest.raises(ValidationError, match="disputed"):
+        candidate_baseline(
+            kind=ProposalKind.STRENGTH,
+            original_disposition=Disposition.STRONG_HERE,
+            disputed_recommendation_factors=(
+                RecommendationFactors(
+                    reliability_risk=1,
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=2,
+                ),
+            ),
+        )
+
+
+def _disputed_strength_context() -> tuple[CandidateBaseline, ProposalContext]:
+    baseline = candidate_baseline(
+        kind=ProposalKind.STRENGTH,
+        original_disposition=Disposition.NOT_ASSESSED,
+        disputed_dispositions=(
+            Disposition.STRONG_HERE,
+            Disposition.FRAGILE_OR_CONTRADICTORY,
+        ),
+    )
+    context = proposal_context(
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
+    )
+    return baseline, context
+
+
+def test_sceptical_adjudication_selects_only_a_proposed_disposition() -> None:
+    baseline, context = _disputed_strength_context()
+
+    def sceptical_item(disposition: Disposition) -> SpecialistProposal:
+        return proposal(
+            role=SpecialistRole.SCEPTICAL_RECONCILER,
+            kind=ProposalKind.STRENGTH,
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            candidate_id=baseline.candidate_id,
+            disposition=disposition,
+            reason="The contradiction claim does not survive the evidence.",
+        )
+
+    adjudicated = validate_proposal(sceptical_item(Disposition.STRONG_HERE), context)
+    assert adjudicated.disposition is Disposition.STRONG_HERE
+
+    downgraded = validate_proposal(sceptical_item(Disposition.NOT_RELEVANT), context)
+    assert downgraded.disposition is Disposition.NOT_RELEVANT
+
+    # `shared` was never proposed by any specialist: the sceptical reconciler
+    # may adjudicate the dispute, never invent a third position.
+    with pytest.raises(SpecialistProposalError, match="proposed"):
+        validate_proposal(sceptical_item(Disposition.SHARED), context)
+
+
+def test_disputed_recommendation_adjudication_uses_only_proposed_factor_tuples() -> None:
+    factors_a = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+    factors_b = factors_a.model_copy(update={"job_relevance": 3})
+    baseline = candidate_baseline(
+        original_disposition=Disposition.NOT_ASSESSED,
+        disputed_dispositions=(Disposition.WORTH_BORROWING,),
+        disputed_recommendation_factors=(factors_a, factors_b),
+    )
+    context = proposal_context(
+        analysis_mode="guided-analysis",
+        packet_id=PACKET_ID,
+        packet_digest=PACKET_DIGEST,
+        packet_role=SpecialistRole.SCEPTICAL_RECONCILER,
+        accepted_candidate_ids=(baseline.candidate_id,),
+        accepted_candidates=(baseline,),
+    )
+
+    def sceptical_item(factors: RecommendationFactors) -> SpecialistProposal:
+        return recommendation(
+            DEFAULT_CATALOGUE_ID,
+            role=SpecialistRole.SCEPTICAL_RECONCILER,
+            packet_id=PACKET_ID,
+            packet_digest=PACKET_DIGEST,
+            candidate_id=baseline.candidate_id,
+            recommendation_factors=factors,
+        )
+
+    adjudicated = validate_proposal(sceptical_item(factors_b), context)
+    assert adjudicated.recommendation_factors == factors_b
+
+    invented = factors_a.model_copy(update={"workflow_leverage": 3})
+    with pytest.raises(SpecialistProposalError, match="proposed factor tuples"):
+        validate_proposal(sceptical_item(invented), context)
 
 
 def test_release_distance_without_family_contract_is_refused() -> None:

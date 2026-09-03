@@ -38,6 +38,8 @@ __all__ = [
     "SpecialistShard",
     "ValidatedProposal",
     "candidate_id_for",
+    "disagreement_reason",
+    "is_disagreement_reason",
     "issue_shard",
     "mint_evidence_token",
     "reconcile_proposals",
@@ -45,6 +47,46 @@ __all__ = [
 ]
 
 DISAGREEMENT_REASON = "Specialist proposals disagreed; the comparison remains Unknown."
+_DISAGREEMENT_PREFIX = "Specialist proposals "
+_DISAGREEMENT_SUFFIX = "the comparison remains Unknown."
+
+
+def disagreement_reason(dispositions: Iterable[Disposition | str]) -> str:
+    """Name a specialist dispute deterministically, dispositions only.
+
+    Dispositions are a closed vocabulary, so their sorted values are safe to
+    render; proposal text never enters the sentence.  One disposition means
+    the specialists agreed on the answer but disagreed on its recommendation
+    factors.  With no dispositions the generic fallback is returned.
+    """
+
+    values = sorted({Disposition(item).value for item in dispositions})
+    if not values:
+        return DISAGREEMENT_REASON
+    if len(values) == 1:
+        return (
+            f"Specialist proposals agreed on {values[0]} but disagreed on "
+            "recommendation factors; the sceptical review did not adjudicate, "
+            "so the comparison remains Unknown."
+        )
+    named = ", ".join(values[:-1]) + f" and {values[-1]}"
+    return (
+        f"Specialist proposals disagreed between {named}; the sceptical "
+        "review did not adjudicate, so the comparison remains Unknown."
+    )
+
+
+def is_disagreement_reason(reason: str) -> bool:
+    """True for any reason a deterministic disagreement coalesce produced.
+
+    Matches the legacy fixed sentence and every named form emitted by
+    :func:`disagreement_reason`, so stored ledgers written before the reasons
+    named their dispositions still read as disagreements.
+    """
+
+    return reason == DISAGREEMENT_REASON or (
+        reason.startswith(_DISAGREEMENT_PREFIX) and reason.endswith(_DISAGREEMENT_SUFFIX)
+    )
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PACKET_ID = re.compile(r"^packet:sha256:[0-9a-f]{64}$")
@@ -175,8 +217,28 @@ def _unique_tokens(
     return values
 
 
+def _recommendation_factors_sort_key(
+    factors: RecommendationFactors,
+) -> tuple[int, int, int, int, int]:
+    return (
+        factors.reliability_risk,
+        factors.job_relevance,
+        factors.workflow_leverage,
+        factors.evidence_strength,
+        factors.adoption_effort,
+    )
+
+
 class CandidateBaseline(_ValidatedInventoried):
-    """Engine-owned state for one candidate before sceptical review."""
+    """Engine-owned state for one candidate before sceptical review.
+
+    An undisputed baseline carries the accepted disposition.  A disputed one
+    — conflicting dispositions or conflicting complete factor tuples across
+    normal packets — coalesces to ``not-assessed`` and instead carries the
+    bounded set of proposed dispositions (and, for recommendations, the
+    proposed factor tuples), so the fact of the dispute reaches the sceptical
+    review rather than vanishing before it.
+    """
 
     candidate_id: str = Field(pattern=_ID.pattern)
     kind: ProposalKind
@@ -186,6 +248,12 @@ class CandidateBaseline(_ValidatedInventoried):
     recommendation_factors: RecommendationFactors | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     observation_ids: tuple[str, ...] = ()
+    disputed_dispositions: tuple[Disposition, ...] = Field(
+        default=(), max_length=len(Disposition)
+    )
+    disputed_recommendation_factors: tuple[RecommendationFactors, ...] = Field(
+        default=(), max_length=len(SpecialistRole)
+    )
 
     @field_validator("evidence_ids")
     @classmethod
@@ -199,6 +267,26 @@ class CandidateBaseline(_ValidatedInventoried):
             sorted(_unique_identities(values, "candidate baseline observation identities"))
         )
 
+    @field_validator("disputed_dispositions")
+    @classmethod
+    def _disputed_dispositions_are_canonical(
+        cls,
+        values: tuple[Disposition, ...],
+    ) -> tuple[Disposition, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("disputed dispositions must be unique")
+        return tuple(sorted(values, key=lambda item: item.value))
+
+    @field_validator("disputed_recommendation_factors")
+    @classmethod
+    def _disputed_factors_are_canonical(
+        cls,
+        values: tuple[RecommendationFactors, ...],
+    ) -> tuple[RecommendationFactors, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("disputed recommendation factor tuples must be unique")
+        return tuple(sorted(values, key=_recommendation_factors_sort_key))
+
     @model_validator(mode="after")
     def _baseline_is_closed(self) -> Self:
         expected_candidate_id = candidate_id_for(
@@ -208,6 +296,30 @@ class CandidateBaseline(_ValidatedInventoried):
         )
         if self.candidate_id != expected_candidate_id:
             raise ValueError("candidate_id must match candidate_id_for")
+        if self.disputed_dispositions:
+            if self.original_disposition is not Disposition.NOT_ASSESSED:
+                raise ValueError("a disputed candidate baseline must coalesce to not-assessed")
+            if self.recommendation_factors is not None:
+                raise ValueError(
+                    "a disputed candidate baseline cannot carry coalesced "
+                    "recommendation factors"
+                )
+            disputed_recommendation = (
+                self.kind is ProposalKind.RECOMMENDATION
+                or Disposition.WORTH_BORROWING in self.disputed_dispositions
+            )
+            if disputed_recommendation and not self.disputed_recommendation_factors:
+                raise ValueError(
+                    "a disputed recommendation baseline must carry the proposed "
+                    "factor tuples"
+                )
+            if not disputed_recommendation and self.disputed_recommendation_factors:
+                raise ValueError(
+                    "disputed factor tuples are only valid for disputed recommendations"
+                )
+            return self
+        if self.disputed_recommendation_factors:
+            raise ValueError("disputed factor tuples require a disputed disposition set")
         _validate_recommendation_factors(
             kind=self.kind,
             disposition=self.original_disposition,
@@ -575,7 +687,37 @@ def validate_proposal(
             "a guided recommendation proposal requires recommendation factors "
             "(RecommendationFactors)"
         )
-    if baseline is not None:
+    if baseline is not None and baseline.disputed_dispositions:
+        # A disputed candidate: normal packets conflicted on disposition or on
+        # complete factor tuples.  The sceptical reconciler may adjudicate
+        # only by selecting one of the proposed dispositions (or the ordinary
+        # downgrades), with evidence from the packet — it never invents a
+        # position nobody proposed, and ties are still never broken with
+        # confidence.
+        allowed_dispositions = {
+            *baseline.disputed_dispositions,
+            Disposition.NOT_ASSESSED,
+            Disposition.NOT_RELEVANT,
+            Disposition.FRAGILE_OR_CONTRADICTORY,
+        }
+        if proposal.disposition not in allowed_dispositions:
+            raise SpecialistProposalError(
+                "sceptical adjudication must select a disposition the specialists "
+                "proposed or downgrade the disputed candidate"
+            )
+        if _is_recommendation(proposal):
+            if proposal.recommendation_factors not in set(
+                baseline.disputed_recommendation_factors
+            ):
+                raise SpecialistProposalError(
+                    "sceptical adjudication factors must be one of the proposed "
+                    "factor tuples"
+                )
+        elif proposal.recommendation_factors is not None:
+            raise SpecialistProposalError(
+                "non-recommendation sceptical downgrades cannot carry recommendation factors"
+            )
+    elif baseline is not None:
         if _is_recommendation(proposal):
             if proposal.recommendation_factors != baseline.recommendation_factors:
                 raise SpecialistProposalError(
@@ -725,7 +867,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         disposition=Disposition.NOT_ASSESSED,
         recommendation_factors=None,
         evidence_ids=evidence_ids,
-        reason=DISAGREEMENT_REASON,
+        reason=disagreement_reason(dispositions),
         observation_ids=observation_ids,
     )
 

@@ -28,6 +28,7 @@ from capability_exchange.diagnosis.payload_guard import (
     refuse_hostile_payload,
 )
 from capability_exchange.diagnosis.provenance import SourceClass
+from capability_exchange.diagnosis.ranking import RecommendationFactors
 from capability_exchange.diagnosis.report import (
     ReportModel,
     canonical_fact_block,
@@ -57,7 +58,6 @@ from capability_exchange.diagnosis.run import (
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
-    DISAGREEMENT_REASON,
     MAX_EVIDENCE_IDS,
     MAX_RECOMMENDATIONS,
     CandidateBaseline,
@@ -65,6 +65,7 @@ from capability_exchange.diagnosis.specialists import (
     SpecialistProposal,
     SpecialistProposalError,
     ValidatedProposal,
+    disagreement_reason,
     mint_evidence_token,
     reconcile_proposals,
     validate_proposal,
@@ -107,6 +108,19 @@ def fingerprint_digest_for(fingerprint: EvidenceFingerprint) -> str:
     """Stable sha256: digest of one fingerprint payload."""
 
     return "sha256:" + payload_digest(fingerprint.model_dump(mode="json"))
+
+
+@dataclass(frozen=True)
+class _CandidateDispute:
+    """The facts of one specialist dispute, kept for the sceptical baseline.
+
+    Internal reconciliation state, never persisted: the sorted set of
+    dispositions the normal packets proposed for one candidate, and — for a
+    disputed recommendation — the complete factor tuples they proposed.
+    """
+
+    dispositions: tuple[Disposition, ...]
+    recommendation_factor_tuples: tuple[RecommendationFactors, ...]
 
 
 @dataclass(frozen=True)
@@ -1135,7 +1149,12 @@ class DeterministicDiagnosisEngine:
         accepted: tuple[CandidateBaseline, ...] = ()
         accepted_ids: tuple[str, ...] = ()
         if packet.role.value == "sceptical-reconciler":
-            normal = self._normal_reconciled_proposals(checkpoint, queue)
+            normal, disputes = self._normal_reconciliation(checkpoint, queue)
+            # A disputed candidate coalesces to not-assessed, but the fact of
+            # the dispute is signal: it still reaches the sceptical packet as
+            # a baseline carrying the proposed disposition set, so the
+            # sceptical review can adjudicate it with evidence.  Candidates
+            # every specialist honestly left not-assessed stay excluded.
             accepted = tuple(
                 CandidateBaseline(
                     candidate_id=item.candidate_id or "",
@@ -1146,10 +1165,23 @@ class DeterministicDiagnosisEngine:
                     recommendation_factors=item.recommendation_factors,
                     evidence_ids=item.evidence_ids,
                     observation_ids=item.observation_ids,
+                    disputed_dispositions=(
+                        disputes[item.candidate_id].dispositions
+                        if item.candidate_id in disputes
+                        else ()
+                    ),
+                    disputed_recommendation_factors=(
+                        disputes[item.candidate_id].recommendation_factor_tuples
+                        if item.candidate_id in disputes
+                        else ()
+                    ),
                 )
                 for item in normal
                 if item.candidate_id is not None
-                and item.disposition is not Disposition.NOT_ASSESSED
+                and (
+                    item.disposition is not Disposition.NOT_ASSESSED
+                    or item.candidate_id in disputes
+                )
             )
             accepted_ids = tuple(item.candidate_id for item in accepted)
         return base.model_copy(
@@ -1370,6 +1402,23 @@ class DeterministicDiagnosisEngine:
     ) -> tuple[ValidatedProposal, ...]:
         """Reconcile final normal responses before sceptical review."""
 
+        reconciled, _disputes = self._normal_reconciliation(checkpoint, queue)
+        return reconciled
+
+    def _normal_reconciliation(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        queue: WorkQueue,
+    ) -> tuple[tuple[ValidatedProposal, ...], dict[str, _CandidateDispute]]:
+        """Reconcile final normal responses, keeping each dispute's facts.
+
+        Returns the coalesced proposal set plus, for every disputed candidate
+        (conflicting dispositions or conflicting complete factor tuples), the
+        set of dispositions and factor tuples the specialists actually
+        proposed — so the dispute can reach the sceptical packet as a
+        baseline instead of silently collapsing to a bare Unknown.
+        """
+
         packets = {packet.packet_id: packet for packet in queue.packets}
         validated: list[ValidatedProposal] = []
         for record in self._response_records(checkpoint):
@@ -1404,6 +1453,7 @@ class DeterministicDiagnosisEngine:
             )
             groups.setdefault(key, []).append(item)
         reconciled: list[ValidatedProposal] = []
+        disputes: dict[str, _CandidateDispute] = {}
         for key in sorted(groups):
             group = sorted(groups[key], key=lambda item: (item.packet_id or "", item.reason))
             sample = group[0]
@@ -1416,7 +1466,29 @@ class DeterministicDiagnosisEngine:
             ):
                 disposition = Disposition.NOT_ASSESSED
                 recommendation_factors = None
-                reason = DISAGREEMENT_REASON
+                reason = disagreement_reason(dispositions)
+                if sample.candidate_id is not None:
+                    disputes[sample.candidate_id] = _CandidateDispute(
+                        dispositions=tuple(
+                            sorted(dispositions, key=lambda item: item.value)
+                        ),
+                        recommendation_factor_tuples=tuple(
+                            sorted(
+                                {
+                                    item
+                                    for item in factors
+                                    if item is not None
+                                },
+                                key=lambda item: (
+                                    item.reliability_risk,
+                                    item.job_relevance,
+                                    item.workflow_leverage,
+                                    item.evidence_strength,
+                                    item.adoption_effort,
+                                ),
+                            )
+                        ),
+                    )
             else:
                 disposition = sample.disposition
                 reason = sorted(item.reason for item in group)[0]
@@ -1458,7 +1530,7 @@ class DeterministicDiagnosisEngine:
             raise SpecialistProposalError(
                 f"a diagnosis may recommend at most {MAX_RECOMMENDATIONS} Dex additions"
             )
-        return tuple(reconciled)
+        return tuple(reconciled), disputes
 
     def _sceptical_reconciled_proposals(
         self,

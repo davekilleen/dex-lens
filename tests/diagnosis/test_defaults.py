@@ -36,7 +36,6 @@ from capability_exchange.diagnosis.orchestrator import DeterministicDiagnosisEng
 from capability_exchange.diagnosis.run import DiagnosisStateError, canonical_json_digest
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
-    DISAGREEMENT_REASON,
     ProposalKind,
     SpecialistProposalError,
     ValidatedProposal,
@@ -213,7 +212,34 @@ def test_conflicting_kinds_for_one_id_remain_unknown() -> None:
         ),
     )
     assert entries[0].disposition is Disposition.NOT_ASSESSED
-    assert entries[0].reason == DISAGREEMENT_REASON
+    # Evolved from the fixed DISAGREEMENT_REASON: the Unknown entry now names
+    # the disagreeing dispositions so the dispute stays visible in the report.
+    assert entries[0].reason == (
+        "Specialist proposals disagreed between fragile-or-contradictory and "
+        "strong-here; the sceptical review did not adjudicate, so the "
+        "comparison remains Unknown."
+    )
+
+
+def test_reconciled_disagreement_reason_still_outranks_an_agreed_claim() -> None:
+    named_disagreement = (
+        "Specialist proposals disagreed between fragile-or-contradictory and "
+        "strong-here; the sceptical review did not adjudicate, so the "
+        "comparison remains Unknown."
+    )
+    entries = dispositions_from_proposals(
+        ("cap-one",),
+        (
+            _proposal(),
+            _proposal(
+                kind=ProposalKind.FRAGILITY,
+                disposition=Disposition.NOT_ASSESSED,
+                reason=named_disagreement,
+            ),
+        ),
+    )
+    assert entries[0].disposition is Disposition.NOT_ASSESSED
+    assert entries[0].reason == named_disagreement
 
 
 def test_forged_validated_proposal_cannot_cite_an_unknown_observation() -> None:

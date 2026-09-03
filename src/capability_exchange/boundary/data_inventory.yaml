@@ -2585,6 +2585,26 @@ fields:
     deletion: not-stored
     audit: "ephemeral candidate observation identities"
 
+  CandidateBaseline.disputed_dispositions:
+    description: "closed disposition set the normal packets proposed for a disputed candidate"
+    collection: "derived from conflicting accepted normal proposals for one candidate"
+    derivation: "unique closed Disposition values sorted canonically; empty when undisputed"
+    display: "limits sceptical adjudication to a proposed disposition or a bounded downgrade"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral disputed disposition set"
+
+  CandidateBaseline.disputed_recommendation_factors:
+    description: "complete factor tuples the normal packets proposed for a disputed recommendation"
+    collection: "derived from conflicting accepted recommendation proposals for one candidate"
+    derivation: "unique validated RecommendationFactors tuples sorted canonically; empty when undisputed"
+    display: "limits sceptical adjudication factors to a proposed tuple"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral disputed factor tuples"
+
   SpecialistProposal.role:
     description: "closed specialist role that authored this untrusted proposal"
     collection: "declared by the submitting adapter or host assistant"

@@ -877,6 +877,255 @@ def test_disputed_guided_recommendation_keeps_sceptical_work_resumable(
     )
     assert disputed.disposition is Disposition.NOT_ASSESSED
     assert disputed.recommendation_factors is None
+    # Evolved from the fixed DISAGREEMENT_REASON: an unadjudicated factor
+    # dispute now names the agreed disposition and the disagreeing factors.
+    assert disputed.reason == (
+        "Specialist proposals agreed on worth-borrowing but disagreed on "
+        "recommendation factors; the sceptical review did not adjudicate, so "
+        "the comparison remains Unknown."
+    )
+
+
+def _drive_disputed_strength_run(engine: EngineHarness) -> tuple[str, WorkPacket, str]:
+    """Real guided run where two normal packets disagree on one candidate.
+
+    Packet one claims ``strong-here``; packet two claims
+    ``fragile-or-contradictory`` for the same STRENGTH candidate.  Returns the
+    run, the issued sceptical packet, and the disputed candidate identity.
+    """
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    candidate_id = candidate_id_for(ProposalKind.STRENGTH, CATALOGUE_ID, CAPABILITY_ID)
+
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+    engine.engine.submit_work(
+        prepared.run_id,
+        first.packet_id,
+        (
+            _bound_proposal(
+                first,
+                kind=ProposalKind.STRENGTH,
+                catalogue_id=CATALOGUE_ID,
+                capability_id=CAPABILITY_ID,
+                disposition=Disposition.STRONG_HERE,
+                evidence_ids=(first.evidence_ids[0],),
+                reason="The approved evidence shows a distinctive reliable method.",
+            ),
+        ),
+    )
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    engine.engine.submit_work(
+        prepared.run_id,
+        second.packet_id,
+        (
+            _bound_proposal(
+                second,
+                kind=ProposalKind.STRENGTH,
+                catalogue_id=CATALOGUE_ID,
+                capability_id=CAPABILITY_ID,
+                disposition=Disposition.FRAGILE_OR_CONTRADICTORY,
+                evidence_ids=(second.evidence_ids[0],),
+                reason="The same approved evidence shows a material contradiction.",
+            ),
+        ),
+    )
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            return prepared.run_id, packet, candidate_id
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+
+def test_disputed_candidate_reaches_the_sceptical_packet_as_a_disputed_baseline(
+    engine: EngineHarness,
+) -> None:
+    """Two specialists agreeing a capability matters, differing on degree, is
+    signal: the disputed candidate must reach the sceptical review as a
+    baseline that carries the fact of the dispute and the proposed set.
+    """
+
+    run_id, sceptical, candidate_id = _drive_disputed_strength_run(engine)
+
+    checkpoint = engine.run_store.load(run_id)
+    queue = engine.engine._work_queue(checkpoint)  # noqa: SLF001
+    packet = next(item for item in queue.packets if item.packet_id == sceptical.packet_id)
+    context = engine.engine._proposal_context_for_packet(  # noqa: SLF001
+        checkpoint, packet, queue
+    )
+
+    baseline = next(
+        (item for item in context.accepted_candidates if item.candidate_id == candidate_id),
+        None,
+    )
+    assert baseline is not None, "disputed candidate never reached the sceptical packet"
+    assert baseline.original_disposition is Disposition.NOT_ASSESSED
+    assert baseline.disputed_dispositions == (
+        Disposition.FRAGILE_OR_CONTRADICTORY,
+        Disposition.STRONG_HERE,
+    )
+    assert baseline.disputed_recommendation_factors == ()
+
+
+def test_sceptical_review_adjudicates_a_dispute_only_to_a_proposed_disposition(
+    engine: EngineHarness,
+) -> None:
+    run_id, sceptical, candidate_id = _drive_disputed_strength_run(engine)
+
+    def sceptical_resolution(disposition: Disposition, reason: str) -> SpecialistProposal:
+        return _bound_proposal(
+            sceptical,
+            kind=ProposalKind.STRENGTH,
+            catalogue_id=CATALOGUE_ID,
+            capability_id=CAPABILITY_ID,
+            disposition=disposition,
+            evidence_ids=(sceptical.evidence_ids[0],),
+            reason=reason,
+        )
+
+    # `shared` was never proposed for this candidate: adjudication may select
+    # only a proposed disposition or the ordinary downgrades, so the invented
+    # position is refused and burns the bounded attempt.
+    with pytest.raises(SpecialistProposalError, match="one retry remains"):
+        engine.engine.submit_work(
+            run_id,
+            sceptical.packet_id,
+            (
+                sceptical_resolution(
+                    Disposition.SHARED,
+                    "An adjudication position nobody proposed must be refused.",
+                ),
+            ),
+        )
+
+    engine.engine.submit_work(
+        run_id,
+        sceptical.packet_id,
+        (
+            sceptical_resolution(
+                Disposition.STRONG_HERE,
+                "The contradiction claim does not survive the approved evidence.",
+            ),
+        ),
+    )
+
+    completed = engine.advance(run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    compared = engine.advance(run_id)
+    assert compared.stage is DiagnosisStage.COMPARED
+    adjudicated = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert adjudicated.disposition is Disposition.STRONG_HERE
+    assert adjudicated.reason == (
+        "The contradiction claim does not survive the approved evidence."
+    )
+
+    closed = engine.run_to(run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def test_sceptical_review_resolves_a_factor_dispute_to_one_proposed_tuple(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    candidate_id = candidate_id_for(
+        ProposalKind.RECOMMENDATION, CATALOGUE_ID, CAPABILITY_ID
+    )
+    factors_a = _RECOMMENDATION_FACTORS
+    factors_b = factors_a.model_copy(update={"job_relevance": 3})
+
+    def recommendation_for(
+        packet: WorkPacket, factors: RecommendationFactors
+    ) -> SpecialistProposal:
+        return _bound_proposal(
+            packet,
+            kind=ProposalKind.RECOMMENDATION,
+            catalogue_id=CATALOGUE_ID,
+            capability_id=CAPABILITY_ID,
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_ids=(packet.evidence_ids[0],),
+            reason="The approved evidence supports this bounded Dex addition.",
+            recommendation_factors=factors,
+        )
+
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+    engine.engine.submit_work(
+        prepared.run_id, first.packet_id, (recommendation_for(first, factors_a),)
+    )
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    engine.engine.submit_work(
+        prepared.run_id, second.packet_id, (recommendation_for(second, factors_b),)
+    )
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            sceptical = packet
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    # A factor tuple nobody proposed is refused; one of the proposed tuples,
+    # with evidence, adjudicates the dispute.
+    invented = factors_a.model_copy(update={"workflow_leverage": 3})
+    with pytest.raises(SpecialistProposalError, match="one retry remains"):
+        engine.engine.submit_work(
+            prepared.run_id,
+            sceptical.packet_id,
+            (recommendation_for(sceptical, invented),),
+        )
+    engine.engine.submit_work(
+        prepared.run_id,
+        sceptical.packet_id,
+        (recommendation_for(sceptical, factors_b),),
+    )
+
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    engine.advance(prepared.run_id)
+    adjudicated = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert adjudicated.disposition is Disposition.WORTH_BORROWING
+    assert adjudicated.recommendation_factors == factors_b
+
+
+def test_unadjudicated_dispute_names_both_dispositions_in_the_reason(
+    engine: EngineHarness,
+) -> None:
+    run_id, sceptical, candidate_id = _drive_disputed_strength_run(engine)
+
+    # The sceptical review answers with nothing for the disputed candidate.
+    engine.engine.submit_work(run_id, sceptical.packet_id, ())
+    completed = engine.advance(run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    engine.advance(run_id)
+
+    disputed = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert disputed.disposition is Disposition.NOT_ASSESSED
+    assert disputed.reason == (
+        "Specialist proposals disagreed between fragile-or-contradictory and "
+        "strong-here; the sceptical review did not adjudicate, so the "
+        "comparison remains Unknown."
+    )
 
 
 def _wedge_fingerprint(observation_count: int = 10) -> EvidenceFingerprint:
