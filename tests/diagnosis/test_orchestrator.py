@@ -1065,3 +1065,168 @@ def test_guided_run_refuses_recommendation_overflow_at_submit_and_still_closes(
 
     closed = engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
     assert closed.stage is DiagnosisStage.CLOSED
+
+
+def _replace_stored_artifact(
+    engine: EngineHarness, run_id: str, kind: str, payload: object
+) -> DiagnosisCheckpoint:
+    """Replace one digest-addressed artifact, as run-store tampering would."""
+
+    checkpoint = engine.run_store.load(run_id)
+    kept = tuple(
+        digest
+        for digest in checkpoint.artifact_digests
+        if engine.engine._get(digest).get("kind") != kind  # noqa: SLF001
+    )
+    replacement = engine.engine._put(kind, payload)  # noqa: SLF001
+    return engine.run_store.save(
+        checkpoint.model_copy(update={"artifact_digests": (*kept, replacement)})
+    )
+
+
+_RECOMMENDATION_FACTORS = RecommendationFactors(
+    reliability_risk=1,
+    job_relevance=2,
+    workflow_leverage=2,
+    evidence_strength=2,
+    adoption_effort=2,
+)
+
+
+def _drive_honest_guided_analysis(engine: EngineHarness) -> str:
+    """Run a real guided diagnosis to ANALYSIS_COMPLETED with two proposals."""
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+    engine.engine.submit_work(
+        prepared.run_id,
+        first.packet_id,
+        (
+            _bound_proposal(
+                first,
+                kind=ProposalKind.STRENGTH,
+                catalogue_id=CATALOGUE_ID,
+                capability_id=CAPABILITY_ID,
+                disposition=Disposition.STRONG_HERE,
+                evidence_ids=(first.evidence_ids[0],),
+                reason="The approved evidence shows a distinctive reliable method.",
+            ),
+        ),
+    )
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    engine.engine.submit_work(
+        prepared.run_id,
+        second.packet_id,
+        (
+            _bound_proposal(
+                second,
+                kind=ProposalKind.RECOMMENDATION,
+                catalogue_id=CATALOGUE_ID,
+                capability_id=CAPABILITY_ID,
+                disposition=Disposition.WORTH_BORROWING,
+                evidence_ids=(second.evidence_ids[0],),
+                reason="The approved evidence supports this bounded Dex addition.",
+                recommendation_factors=_RECOMMENDATION_FACTORS,
+            ),
+        ),
+    )
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    return prepared.run_id
+
+
+def test_guided_compare_refuses_fabricated_reconciled_proposals(
+    engine: EngineHarness,
+) -> None:
+    """RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT: compare must re-derive, not trust.
+
+    Red first: on the unchanged tree this manipulation was accepted — the run
+    compared, closed, and carried all twenty fabricated worth-borrowing
+    recommendations, each citing an evidence token never minted for the run
+    and double the cap of ten, into the ledger.
+    """
+
+    run_id = _drive_honest_guided_analysis(engine)
+    unminted = "evidence:sha256:" + "f" * 64
+    fabricated = [
+        {
+            "kind": ProposalKind.RECOMMENDATION.value,
+            "catalogue_id": f"forged-borrow-{index:02d}",
+            "capability_id": CAPABILITY_ID,
+            "disposition": Disposition.WORTH_BORROWING.value,
+            "recommendation_factors": _RECOMMENDATION_FACTORS.model_dump(mode="json"),
+            "evidence_ids": [unminted],
+            "reason": "Fabricated recommendation the receipts never produced.",
+            "observation_ids": [],
+        }
+        for index in range(20)
+    ]
+    # The hole being guarded: every fabricated entry clears shape validation
+    # alone, so shape validation cannot be what stands between it and the
+    # ledger.
+    for item in fabricated:
+        ValidatedProposal.model_validate(item)
+    _replace_stored_artifact(engine, run_id, "reconciled-proposals", fabricated)
+
+    with pytest.raises(DiagnosisStateError, match="responses this run recorded"):
+        engine.advance(run_id)
+
+    # The refusal happened before comparison: nothing fabricated reached the
+    # comparer and no ledger artifact was written.
+    assert engine.comparer.calls == []
+    checkpoint = engine.run_store.load(run_id)
+    assert checkpoint.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    assert engine.engine._find_kind(checkpoint, "ledger") is None  # noqa: SLF001
+
+
+def test_guided_compare_refuses_a_reconciled_proposals_subset(
+    engine: EngineHarness,
+) -> None:
+    """Dropping a derived proposal from the stored artifact is refused too.
+
+    Red first: on the unchanged tree the truncated artifact was accepted and
+    the run closed having silently lost a conclusion its receipts support.
+    """
+
+    run_id = _drive_honest_guided_analysis(engine)
+    checkpoint = engine.run_store.load(run_id)
+    stored = engine.engine._find_kind(checkpoint, "reconciled-proposals")  # noqa: SLF001
+    assert isinstance(stored, list)
+    assert len(stored) == 2
+    _replace_stored_artifact(engine, run_id, "reconciled-proposals", stored[:1])
+
+    with pytest.raises(DiagnosisStateError, match="responses this run recorded"):
+        engine.advance(run_id)
+
+    assert engine.comparer.calls == []
+    after = engine.run_store.load(run_id)
+    assert after.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    assert engine.engine._find_kind(after, "ledger") is None  # noqa: SLF001
+
+
+def test_honest_guided_run_closes_and_compares_exactly_the_derived_set(
+    engine: EngineHarness,
+) -> None:
+    """The re-derivation guard never touches an honest, untampered run."""
+
+    run_id = _drive_honest_guided_analysis(engine)
+    checkpoint = engine.run_store.load(run_id)
+    stored = engine.engine._find_kind(checkpoint, "reconciled-proposals")  # noqa: SLF001
+    assert isinstance(stored, list)
+
+    closed = engine.run_to(run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+    compared = engine.comparer.calls[-1]["proposals"]
+    assert [item.model_dump(mode="json") for item in compared] == stored

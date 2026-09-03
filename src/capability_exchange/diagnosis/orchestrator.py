@@ -811,25 +811,7 @@ class DeterministicDiagnosisEngine:
                 "specialist work remains before analysis can complete",
                 required_step=RequiredStep.SUBMIT_WORK,
             )
-        normal = self._normal_reconciled_proposals(checkpoint, queue)
-        sceptical = self._sceptical_reconciled_proposals(checkpoint, queue)
-        sceptical_by_candidate = {
-            item.candidate_id: item
-            for item in sceptical
-            if item.candidate_id is not None
-        }
-        final = tuple(
-            sceptical_by_candidate.get(item.candidate_id, item)
-            for item in normal
-        )
-        # A sceptical response may only refer to a baseline issued by normal
-        # work.  Validation already enforces this, but retaining the set check
-        # here makes a forged response log fail closed before comparison.
-        normal_candidate_ids = {candidate.candidate_id for candidate in normal}
-        if any(item.candidate_id not in normal_candidate_ids for item in sceptical):
-            raise DiagnosisStateError(
-                "sceptical work references an unknown normal candidate"
-            )
+        final = self._final_reconciled_proposals(checkpoint, queue)
         proposals_artifact = self._put(
             "reconciled-proposals",
             [item.model_dump(mode="json") for item in final],
@@ -838,6 +820,39 @@ class DeterministicDiagnosisEngine:
             checkpoint,
             DiagnosisStage.ANALYSIS_COMPLETED,
             artifacts=(proposals_artifact,),
+        )
+
+    def _final_reconciled_proposals(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        queue: WorkQueue,
+    ) -> tuple[ValidatedProposal, ...]:
+        """Re-derive the final proposal set from validated response records.
+
+        Normal reconciliation overlaid by locked sceptical results.  This is
+        the one derivation both analysis completion and comparison consume, so
+        the stored ``reconciled-proposals`` artifact can never become an
+        authority the receipts do not support.
+        """
+
+        normal = self._normal_reconciled_proposals(checkpoint, queue)
+        sceptical = self._sceptical_reconciled_proposals(checkpoint, queue)
+        # A sceptical response may only refer to a baseline issued by normal
+        # work.  Validation already enforces this, but retaining the set check
+        # here makes a forged response log fail closed before comparison.
+        normal_candidate_ids = {candidate.candidate_id for candidate in normal}
+        if any(item.candidate_id not in normal_candidate_ids for item in sceptical):
+            raise DiagnosisStateError(
+                "sceptical work references an unknown normal candidate"
+            )
+        sceptical_by_candidate = {
+            item.candidate_id: item
+            for item in sceptical
+            if item.candidate_id is not None
+        }
+        return tuple(
+            sceptical_by_candidate.get(item.candidate_id, item)
+            for item in normal
         )
 
     def _compare_ledger(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
@@ -852,12 +867,20 @@ class DeterministicDiagnosisEngine:
             payload = self._find_kind(checkpoint, "reconciled-proposals")
             if not isinstance(payload, list):
                 raise DiagnosisStateError("reconciled specialist proposals are missing")
-            try:
-                reconciled = tuple(ValidatedProposal.model_validate(item) for item in payload)
-            except (TypeError, ValueError) as exc:
+            # The stored artifact is an audit record, never an authority: only
+            # the set re-derived from the validated response records — the
+            # same derivation analysis completion performed — may reach the
+            # ledger.  Shape validation alone would accept fabricated
+            # recommendations no receipt supports, so any difference from the
+            # re-derived set, added or dropped, is refused before comparison.
+            reconciled = self._final_reconciled_proposals(
+                checkpoint, self._work_queue(checkpoint)
+            )
+            if payload != [item.model_dump(mode="json") for item in reconciled]:
                 raise DiagnosisStateError(
-                    "stored reconciled specialist proposals are unreadable"
-                ) from exc
+                    "stored reconciled proposals do not match the "
+                    "responses this run recorded"
+                )
         else:
             proposals = tuple(
                 SpecialistProposal.model_validate(item)
