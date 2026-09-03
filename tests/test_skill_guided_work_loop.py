@@ -24,6 +24,8 @@ def test_skill_drives_guided_work_without_stage_prompts() -> None:
 
 
 def test_skill_has_parallel_and_sequential_host_routes() -> None:
-    text = SKILL.read_text(encoding="utf-8")
-    assert "run independent packets in parallel" in text.lower()
-    assert "process the same packets sequentially" in text.lower()
+    # Markdown wraps lines, so compare against whitespace-normalised text.
+    text = " ".join(SKILL.read_text(encoding="utf-8").lower().split())
+    assert "fan the independent packets out in parallel" in text
+    assert "parallel is the default whenever the host allows it" in text
+    assert "sequential processing in this conversation is the fallback" in text
