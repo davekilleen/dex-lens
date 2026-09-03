@@ -88,8 +88,10 @@ class FakeEngine:
     prepared: list[PrepareDiagnosisRequest] = field(default_factory=list)
     submitted: list[object] = field(default_factory=list)
     work_calls: list[str] = field(default_factory=list)
+    legend_calls: list[str] = field(default_factory=list)
     submitted_work: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
     next_packet: dict[str, object] | None = None
+    next_legend: tuple[dict[str, object], ...] = ()
 
     def prepare(self, request: PrepareDiagnosisRequest) -> DiagnosisRunView:
         self.prepared.append(request)
@@ -131,6 +133,10 @@ class FakeEngine:
         if self.next_packet is None:
             return None
         return FakeStored(self.next_packet)
+
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        self.legend_calls.append(run_id)
+        return self.next_legend
 
     def submit_work(
         self,
@@ -338,14 +344,39 @@ async def test_get_diagnosis_work_returns_canonical_packet_bytes() -> None:
         "max_attempts": 2,
         "max_proposals": 24,
     }
+    legend = (
+        {
+            "evidence_id": "evidence:sha256:" + "f" * 64,
+            "observation_id": "observation:sha256:" + "a" * 64,
+            "kind": "skill",
+            "identity": "invented-shared-method",
+            "label": "Invented shared method",
+            "relative_reference": "synthetic/invented-shared-method/SKILL.md",
+            "source_class": "vault-authored",
+        },
+    )
     engine = fake_engine()
     engine.next_packet = packet
+    engine.next_legend = legend
     server = build_mcp_server(engine)
     async with Client(server, raise_exceptions=True) as client:
         result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
     payload = _tool_payload(result)
-    assert canonical_work_bytes(payload) == canonical_work_bytes({"packet": packet})
+    assert canonical_work_bytes(payload) == canonical_work_bytes(
+        {"packet": packet, "evidence_legend": list(legend)}
+    )
     assert engine.work_calls == [RUN_ID]
+    assert engine.legend_calls == [RUN_ID]
+
+
+@pytest.mark.anyio
+async def test_get_diagnosis_work_empty_result_carries_no_legend() -> None:
+    engine = fake_engine()
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
+    assert _tool_payload(result) == {"packet": None}
+    assert engine.legend_calls == []
 
 
 @pytest.mark.anyio
@@ -368,6 +399,43 @@ async def test_submit_forwards_packet_bound_engine_proposals() -> None:
     assert len(proposals) == 1
     assert isinstance(proposals[0], EngineProposal)
     assert proposals[0].capability_id == "planning"
+
+
+@pytest.mark.anyio
+async def test_mcp_schema_refusal_names_the_failing_fields_never_their_values() -> None:
+    """The MCP refusal carries field names and fixed rule text, never values.
+
+    One failing value carries the session canary, exactly the material a
+    refusal must not repeat on the wire.
+    """
+
+    engine = fake_engine()
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "submit_specialist_proposal",
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [
+                    {
+                        **_VALID_PROPOSAL,
+                        "reason": f"planted {CANARY}\nacross two lines",
+                        "evidence_ids": [],
+                    }
+                ],
+            },
+        )
+    assert result.is_error
+    rendered = json.dumps(
+        [getattr(block, "text", "") for block in (result.content or ())]
+    )
+    assert (
+        "specialist proposal is not a closed typed payload "
+        "(invalid fields: evidence_ids, reason)"
+    ) in rendered
+    assert CANARY not in rendered
+    assert engine.submitted_work == []
 
 
 _STDIO_SMOKE = r"""

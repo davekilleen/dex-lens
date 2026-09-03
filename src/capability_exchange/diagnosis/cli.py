@@ -63,6 +63,8 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def work(self, run_id: str) -> object: ...
 
+    def work_context(self, run_id: str) -> tuple[object, ...]: ...
+
     def submit_work(
         self,
         run_id: str,
@@ -545,13 +547,28 @@ def _work(argv: list[str]) -> int:
         help="Write the canonical work payload as JSON on stdout.",
     )
     args = parser.parse_args(argv)
-    packet = build_engine().work(args.run)
-    payload = {
-        "packet": None
-        if packet is None
-        else getattr(packet, "model_dump", lambda **_: packet)(mode="json")
-    }
+    engine = build_engine()
+    packet = engine.work(args.run)
+    if packet is None:
+        payload: dict[str, object] = {"packet": None}
+    else:
+        # The legend rides alongside the packet so a host can cite the
+        # packet's opaque evidence/observation tokens without reading engine
+        # source. It never joins the packet's digest-bound identity.
+        payload = {
+            "packet": getattr(packet, "model_dump", lambda **_: packet)(mode="json"),
+            "evidence_legend": [
+                _json_row(row) for row in engine.work_context(args.run)
+            ],
+        }
     return _write_guarded_canonical_json(payload)
+
+
+def _json_row(row: object) -> object:
+    """Dump one typed legend row; already-plain rows pass through."""
+
+    dump = getattr(row, "model_dump", None)
+    return dump(mode="json") if callable(dump) else row
 
 
 def _submit(argv: list[str]) -> int:
@@ -663,7 +680,17 @@ def _typed_proposal(payload: object) -> object | None:
     try:
         typed = parse_specialist_proposal(payload)
     except ValueError as exc:
-        print(f"dex-lens: {exc}", file=sys.stderr)
+        # ``parse_specialist_proposal`` raises plain ValueError carrying only
+        # fixed rule text plus failing field names — never pydantic messages
+        # or submitted values — so exactly that wording is printed verbatim.
+        # Any other ValueError subclass keeps the closed sentence: its text
+        # could interpolate submitted values.
+        message = (
+            str(exc)
+            if type(exc) is ValueError
+            else "specialist proposal is not a closed typed payload"
+        )
+        print(f"dex-lens: {message}", file=sys.stderr)
         return None
     try:
         refuse_hostile_payload(typed.model_dump())

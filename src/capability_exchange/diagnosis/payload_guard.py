@@ -77,15 +77,54 @@ def refuse_hostile_payload(payload: object) -> None:
 
 _PROPOSAL_FIELDS = frozenset(EngineProposal.model_fields)
 
+_SCHEMA_REFUSAL = "specialist proposal is not a closed typed payload"
+
+
+def _invalid_field_names(exc: Exception) -> tuple[str, ...]:
+    """Known proposal field names a validation failure points at.
+
+    Only names already declared on the closed proposal model are ever
+    returned, so a refusal can name what failed without repeating any
+    submitted key or value.
+    """
+
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return ()
+    try:
+        details = errors()
+    except Exception:
+        return ()
+    names: set[str] = set()
+    for item in details:
+        location = item.get("loc") or ()
+        head = location[0] if location else None
+        if isinstance(head, str) and head in _PROPOSAL_FIELDS:
+            names.add(head)
+    return tuple(sorted(names))
+
+
+def _schema_refusal_message(exc: Exception) -> str:
+    """Fixed rule text plus the failing field names — never pydantic's messages.
+
+    Pydantic error strings can embed the submitted input values, so they are
+    deliberately not consulted; only field names from the closed model are.
+    """
+
+    names = _invalid_field_names(exc)
+    if names:
+        return f"{_SCHEMA_REFUSAL} (invalid fields: {', '.join(names)})"
+    return _SCHEMA_REFUSAL
+
 
 def parse_specialist_proposal(payload: object) -> EngineProposal:
     """Refuse unknown wire fields, then validate the typed proposal schema."""
 
     if not isinstance(payload, dict):
-        raise ValueError("specialist proposal is not a closed typed payload")
+        raise ValueError(_SCHEMA_REFUSAL)
     if set(payload) - _PROPOSAL_FIELDS:
         raise ValueError("unknown fields are forbidden on specialist proposals")
     try:
         return EngineProposal.model_validate(payload)
     except Exception as exc:
-        raise ValueError("specialist proposal is not a closed typed payload") from exc
+        raise ValueError(_schema_refusal_message(exc)) from exc

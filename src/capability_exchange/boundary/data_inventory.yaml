@@ -9937,6 +9937,76 @@ fields:
     deletion: not-stored
     audit: "ephemeral response-size audit fact"
 
+  EvidenceLegendRow.evidence_id:
+    description: "engine-minted opaque evidence token one legend row explains"
+    collection: "minted by the engine from the run, fingerprint digest, and observation key"
+    derivation: "digest-shaped token; carries no raw content"
+    display: "lets the local host cite packet evidence tokens without reading engine source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-owned citation token"
+
+  EvidenceLegendRow.observation_id:
+    description: "stable digest identity of the observation one legend row explains"
+    collection: "computed from the observation's kind, identity, and source"
+    derivation: "digest-shaped token; labels and paths never become identity"
+    display: "lets the local host cite packet observation identities"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identity for local citation"
+
+  EvidenceLegendRow.kind:
+    description: "closed observation class for one evidence legend row"
+    collection: "copied from the captured fingerprint observation"
+    derivation: "closed ObservationKind vocabulary"
+    display: "tells the local host what class of fact a token denotes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed classification"
+
+  EvidenceLegendRow.identity:
+    description: "bounded stable identity of the observed capability in one legend row"
+    collection: "copied from the captured fingerprint observation"
+    derivation: "normalised bounded machine identity; no raw payloads"
+    display: "identifies which observed capability a token denotes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral identity shown only on the local work surface"
+
+  EvidenceLegendRow.label:
+    description: "bounded human-readable label for the observation in one legend row"
+    collection: "copied from the captured, privacy-screened fingerprint observation"
+    derivation: "bounded text; commands, arguments, URLs, and raw note content are excluded"
+    display: "shown locally so the host can describe cited evidence to the person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local-only label in the fingerprint trust domain"
+
+  EvidenceLegendRow.relative_reference:
+    description: "bounded source-relative locator for the observation in one legend row"
+    collection: "copied from the captured fingerprint observation provenance"
+    derivation: "non-raw locator; absolute, home, traversal, and secret-shaped values were refused at capture"
+    display: "locates cited local evidence within its opaque approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral non-raw locator in the fingerprint trust domain"
+
+  EvidenceLegendRow.source_class:
+    description: "closed ownership class of the observation source in one legend row"
+    collection: "copied from the captured fingerprint observation provenance"
+    derivation: "closed SourceClass vocabulary"
+    display: "tells the local host which trust domain cited evidence came from"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed provenance class"
+
   WorkQueue.mode:
     description: "analysis mode governing one immutable specialist queue"
     collection: "copied from the diagnosis request"

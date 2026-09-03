@@ -110,6 +110,7 @@ class DiagnosisEngine(Protocol):
     def status(self, run_id: str) -> StoredResult: ...
     def advance(self, run_id: str) -> StoredResult: ...
     def work(self, run_id: str) -> object: ...
+    def work_context(self, run_id: str) -> tuple[object, ...]: ...
     def submit_work(
         self,
         run_id: str,
@@ -118,6 +119,13 @@ class DiagnosisEngine(Protocol):
     ) -> StoredResult: ...
     def submit(self, run_id: str, proposal: object) -> StoredResult: ...
     def result(self, run_id: str) -> StoredResult: ...
+
+
+def _json_row(row: object) -> object:
+    """Dump one typed legend row; already-plain rows pass through."""
+
+    dump = getattr(row, "model_dump", None)
+    return dump(mode="json") if callable(dump) else row
 
 
 def canonical_work_bytes(payload: object) -> bytes:
@@ -174,17 +182,23 @@ def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
         """Return the next engine-issued packet, or a typed empty result."""
         try:
             packet = engine.work(run_id)
+            legend = () if packet is None else tuple(engine.work_context(run_id))
         except DiagnosisStateError as exc:
             raise MCPError(
                 code=INVALID_REQUEST,
                 message=str(exc),
                 data={"required_step": _required_step(exc), "error": type(exc).__name__},
             ) from exc
-        payload = {
-            "packet": None
-            if packet is None
-            else packet.model_dump(mode="json")
-        }
+        if packet is None:
+            payload: dict[str, object] = {"packet": None}
+        else:
+            # The legend rides alongside the packet so a host can cite the
+            # packet's opaque evidence/observation tokens without reading
+            # engine source. It never joins the packet's digest-bound identity.
+            payload = {
+                "packet": packet.model_dump(mode="json"),
+                "evidence_legend": [_json_row(row) for row in legend],
+            }
         _refuse_hostile_payload(payload)
         return payload
 
@@ -200,7 +214,17 @@ def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
         try:
             parsed = tuple(SpecialistProposal.from_mapping(item) for item in proposals)
         except (TypeError, ValueError) as exc:
-            raise ToolError("specialist proposal is not a closed typed payload") from exc
+            # ``parse_specialist_proposal`` raises plain ValueError carrying
+            # only fixed rule text plus failing field names — never pydantic
+            # messages or submitted values — so exactly that wording may be
+            # surfaced verbatim.  Any other exception type keeps the closed
+            # sentence: its text could interpolate submitted values.
+            message = (
+                str(exc)
+                if type(exc) is ValueError
+                else "specialist proposal is not a closed typed payload"
+            )
+            raise ToolError(message) from exc
         for item in parsed:
             _refuse_hostile_payload(item.model_dump())
         return _dump_work(engine.submit_work, run_id, packet_id, parsed)

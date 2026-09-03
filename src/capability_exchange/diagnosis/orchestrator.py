@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from pydantic import Field
+
 from capability_exchange.concierge.consent import (
     LocalScopeConsentAuthority,
     opaque_candidate_locator,
@@ -16,12 +18,16 @@ from capability_exchange.concierge.consent import (
 from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
+    Observation,
+    ObservationKind,
+    observation_key_for,
     upgrade_stored_fingerprint_payload,
 )
 from capability_exchange.diagnosis.payload_guard import (
     HostilePayloadError,
     refuse_hostile_payload,
 )
+from capability_exchange.diagnosis.provenance import SourceClass
 from capability_exchange.diagnosis.report import (
     ReportModel,
     canonical_fact_block,
@@ -43,6 +49,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStateError,
     RequiredStep,
     RunIdentity,
+    _ValidatedInventoried,
     advance_inventory_to_compare,
     advance_to,
     canonical_json_digest,
@@ -79,6 +86,7 @@ __all__ = [
     "ComparisonBuilder",
     "DeterministicDiagnosisEngine",
     "DiagnosisResult",
+    "EvidenceLegendRow",
     "FingerprintCollector",
     "PrepareDiagnosisRequest",
     "VerifiedCatalogueLoader",
@@ -113,6 +121,48 @@ class PrepareDiagnosisRequest:
         if not roots:
             raise DiagnosisStateError("diagnosis prepare requires at least one candidate root")
         return cls(roots=tuple(Path(root) for root in roots))
+
+
+class EvidenceLegendRow(_ValidatedInventoried):
+    """One local legend row binding an engine-minted token to its observation.
+
+    Everything here is drawn from the already privacy-screened fingerprint:
+    labels and relative references are local-only and stay in the same trust
+    domain as the fingerprint artifact on disk.  The legend rides alongside
+    the work packet — it never joins the packet's digest-bound identity.
+    """
+
+    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+    observation_id: str = Field(pattern=r"^observation:sha256:[0-9a-f]{64}$")
+    kind: ObservationKind
+    identity: str
+    label: str = Field(min_length=1, max_length=160)
+    relative_reference: str = Field(min_length=1, max_length=240)
+    source_class: SourceClass
+
+    @classmethod
+    def for_observation(
+        cls,
+        observation: Observation,
+        *,
+        run_id: str,
+        fingerprint_digest: str,
+    ) -> EvidenceLegendRow:
+        """Build the row for one observation with its engine-minted token."""
+
+        return cls(
+            evidence_id=mint_evidence_token(
+                run_id=run_id,
+                fingerprint_digest=fingerprint_digest,
+                observation_key=observation_key_for(observation),
+            ),
+            observation_id=observation.observation_id,
+            kind=observation.kind,
+            identity=observation.identity,
+            label=observation.label,
+            relative_reference=observation.provenance.relative_reference,
+            source_class=observation.provenance.source_class,
+        )
 
 
 @dataclass(frozen=True)
@@ -369,6 +419,36 @@ class DeterministicDiagnosisEngine:
         queue = self._work_queue(checkpoint)
         pending = queue.pending_packets()
         return pending[0] if pending else None
+
+    def work_context(self, run_id: str) -> tuple[EvidenceLegendRow, ...]:
+        """Return the evidence legend for this run's guided queue.
+
+        One row per fingerprint observation, sorted by evidence token, so a
+        host can cite the opaque ``evidence:``/``observation:`` identities a
+        packet carries without reverse-engineering how they are minted.  The
+        rows are derived from the same privacy-screened fingerprint the queue
+        was issued against; inventory-only runs expose no semantic work and
+        therefore no legend.
+        """
+
+        checkpoint = self._load(run_id)
+        if self._analysis_mode(checkpoint) is AnalysisMode.INVENTORY_ONLY:
+            return ()
+        if checkpoint.stage is not DiagnosisStage.ANALYSIS_PLANNED:
+            raise DiagnosisStateError(
+                "specialist work is available only after analysis planning"
+            )
+        fingerprint = self._fingerprint(checkpoint)
+        digest = fingerprint_digest_for(fingerprint)
+        rows = tuple(
+            EvidenceLegendRow.for_observation(
+                item,
+                run_id=checkpoint.run_id,
+                fingerprint_digest=digest,
+            )
+            for item in fingerprint.observations
+        )
+        return tuple(sorted(rows, key=lambda row: row.evidence_id))
 
     def submit_work(
         self,

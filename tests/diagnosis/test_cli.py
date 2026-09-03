@@ -89,6 +89,19 @@ class FixedEngine:
             "max_proposals": 24,
         }
 
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        return (
+            {
+                "evidence_id": "evidence:sha256:" + "e" * 64,
+                "observation_id": "observation:sha256:" + "f" * 64,
+                "kind": "skill",
+                "identity": "invented-shared-method",
+                "label": "Invented shared method",
+                "relative_reference": "synthetic/invented-shared-method/SKILL.md",
+                "source_class": "vault-authored",
+            },
+        )
+
     def submit_work(
         self,
         run_id: str,
@@ -356,6 +369,30 @@ def test_work_prints_only_canonical_json(
     assert payload["packet"]["packet_id"] == "packet:sha256:" + "a" * 64
 
 
+def test_work_json_includes_the_evidence_legend_beside_the_packet(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A work payload carries the engine's evidence legend, not only opaque tokens."""
+
+    engine = fake_engine(CAPTURED_VIEW)
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["evidence_legend"] == list(engine.work_context(RUN_ID))
+
+
+def test_work_json_empty_result_carries_no_legend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class DrainedEngine(FixedEngine):
+        def work(self, run_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "build_engine", lambda: DrainedEngine(view=CAPTURED_VIEW))
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"packet": None}
+
+
 def test_prepare_accepts_guided_analysis_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -450,6 +487,47 @@ def test_cli_refuses_an_unknown_proposal_field_before_the_engine_sees_it(
     assert "unknown fields are forbidden" in captured.err
 
 
+def test_cli_schema_refusal_names_the_failing_fields_never_their_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A schema refusal says which fields failed so a host can repair them.
+
+    The failing values themselves are never echoed: one of them carries the
+    session canary, exactly the material a refusal must not repeat.
+    """
+
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    proposal = _valid_proposal("an ordinary reason")
+    proposal["reason"] = (
+        "planted INVENTED_SESSION_CANARY_NEVER_RETAIN\nacross two lines"
+    )
+    proposal["evidence_ids"] = []
+    path = _write_proposal(tmp_path, proposal)
+
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (
+        "specialist proposal is not a closed typed payload "
+        "(invalid fields: evidence_ids, reason)"
+    ) in captured.err
+    assert "INVENTED_SESSION_CANARY_NEVER_RETAIN" not in captured.err
+
+
 def test_cli_refuses_an_absolute_path_without_echoing_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -524,6 +602,29 @@ def test_work_refuses_a_packet_carrying_the_session_canary(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli, "build_engine", lambda: CanaryWorkEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+class CanaryLegendEngine(FixedEngine):
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        row = dict(super().work_context(run_id)[0])
+        row["label"] = f"planted {PLANTED_CANARY} in a legend label"
+        return (row,)
+
+
+def test_work_refuses_a_legend_carrying_the_session_canary(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The legend is part of the outbound work payload and is guarded with it."""
+
+    monkeypatch.setattr(cli, "build_engine", lambda: CanaryLegendEngine(view=CAPTURED_VIEW))
 
     assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
 

@@ -620,6 +620,50 @@ def test_guided_work_packet_is_stable_across_engine_reopen(engine: EngineHarness
     assert reopened.work(prepared.run_id) == first
 
 
+def test_work_context_legend_matches_the_issued_packet_tokens(
+    engine: EngineHarness,
+) -> None:
+    """Every citable packet token gets one legend row drawn from the fingerprint."""
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packet = engine.engine.work(prepared.run_id)
+    assert packet is not None
+
+    legend = engine.engine.work_context(prepared.run_id)
+
+    fingerprint = engine.collector.fingerprint
+    assert len(legend) == len(fingerprint.observations)
+    assert tuple(row.evidence_id for row in legend) == packet.evidence_ids
+    rows_by_observation = {row.observation_id: row for row in legend}
+    for observation in fingerprint.observations:
+        row = rows_by_observation[observation.observation_id]
+        assert row.kind is observation.kind
+        assert row.identity == observation.identity
+        assert row.label == observation.label
+        assert row.relative_reference == observation.provenance.relative_reference
+        assert row.source_class is observation.provenance.source_class
+
+
+def test_work_context_is_refused_before_analysis_planning(
+    engine: EngineHarness,
+) -> None:
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.JOBS_CONFIRMED)
+    with pytest.raises(DiagnosisStateError, match="analysis planning"):
+        engine.engine.work_context(prepared.run_id)
+
+
+def test_work_context_is_empty_for_inventory_only_runs(engine: EngineHarness) -> None:
+    prepared = engine.prepare(prepare_request())
+    engine.run_to(prepared.run_id, DiagnosisStage.JOBS_CONFIRMED)
+    assert engine.engine.work_context(prepared.run_id) == ()
+
+
 def test_guided_work_validation_failure_is_bounded_and_recorded(
     engine: EngineHarness,
 ) -> None:
