@@ -55,7 +55,7 @@ from capability_exchange.diagnosis.run import (
     canonical_json_digest,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
-from capability_exchange.diagnosis.work import AnalysisMode
+from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket
 from capability_exchange.reports.store import LensReportStore
 
 __all__ = [
@@ -177,10 +177,12 @@ class ReplayHarness:
         directory: Path,
         *,
         analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
+        work_responder: Callable[[WorkPacket], tuple[object, ...]] | None = None,
     ) -> None:
         self.bundle = bundle
         self.directory = Path(directory)
         self.analysis_mode = AnalysisMode(analysis_mode)
+        self.work_responder = work_responder
         self.root = self.directory / "invented-vault"
         self.root.mkdir(parents=True)
         (self.root / "README.md").write_text("invented\n", encoding="utf-8")
@@ -254,13 +256,19 @@ class ReplayHarness:
         return view
 
     def complete_guided_work(self) -> None:
-        """Submit explicit empty responses for every replay work packet."""
+        """Submit a typed response for every replay work packet.
+
+        Without a ``work_responder`` every packet receives the explicit empty
+        evidence-insufficient response; with one, the guided corpus carries
+        real specialist content instead of proving properties of nothing.
+        """
 
         while True:
             packet = self.engine.work(self.bundle.run_id)
             if packet is None:
                 return
-            self.engine.submit_work(self.bundle.run_id, packet.packet_id, ())
+            proposals = () if self.work_responder is None else tuple(self.work_responder(packet))
+            self.engine.submit_work(self.bundle.run_id, packet.packet_id, proposals)
 
     def run_to_closed(self) -> DiagnosisResult:
         self.prepare()
@@ -326,6 +334,24 @@ class ReplayHarness:
         return self.run_store.load(self.bundle.run_id)
 
     def retained_text(self) -> str:
+        """Everything the run durably wrote plus the sanitised bundle inputs."""
+
+        return "\n".join(
+            (
+                self.stored_run_text(),
+                self.bundle.fingerprint.model_dump_json(),
+                self.bundle.ledger.model_dump_json(),
+            )
+        )
+
+    def stored_run_text(self) -> str:
+        """Every byte the run durably wrote: checkpoints, artifacts, reports.
+
+        Canary tests that deliberately plant hostile content into the bundle
+        inputs scan this surface, because for them the question is exactly
+        whether the engine let the planted input become retained state.
+        """
+
         parts: list[str] = []
         storage = self.run_store.storage
         if storage.is_dir():
@@ -337,8 +363,6 @@ class ReplayHarness:
             for path in sorted(reports.rglob("*")):
                 if path.is_file() and not path.is_symlink():
                     parts.append(path.read_text(encoding="utf-8", errors="replace"))
-        parts.append(self.bundle.fingerprint.model_dump_json())
-        parts.append(self.bundle.ledger.model_dump_json())
         return "\n".join(parts)
 
     def assert_result_matches_bundle(self, result: object) -> None:

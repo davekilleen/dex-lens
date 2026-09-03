@@ -4,16 +4,25 @@ import inspect
 import json
 import sys
 from collections import Counter
+from contextlib import redirect_stderr, redirect_stdout
 from enum import StrEnum
+from io import StringIO
 from pathlib import Path
 from typing import Literal, Self
+from unittest.mock import patch
 
+import anyio
 import pytest
+from mcp import Client, MCPError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from tests.evals.real_session_fixture import (
     CANARY,
     EXPECTED_COUNTS,
     NOW,
+    PERSON_SHAPED_NAME,
+    VAULT_SHAPED_PATH,
+    planted_session_fingerprint,
+    planted_session_ledger,
     real_session_fingerprint,
     real_session_input,
     real_session_ledger,
@@ -21,18 +30,34 @@ from tests.evals.real_session_fixture import (
     synthetic_entry_ids,
 )
 
-from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis import cli as diagnosis_cli
+from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
+from capability_exchange.diagnosis.mcp_server import build_mcp_server
+from capability_exchange.diagnosis.observations import EvidenceFingerprint
 from capability_exchange.diagnosis.orchestrator import (
     ComparisonBuilder,
     VerifiedCatalogueSlice,
 )
+from capability_exchange.diagnosis.run import DiagnosisStage, DiagnosisStateError
+from capability_exchange.diagnosis.specialists import (
+    ProposalKind,
+    SpecialistProposal,
+    SpecialistProposalError,
+    SpecialistRole,
+    candidate_id_for,
+)
+from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 from capability_exchange.evaluation.replay import (
     FIXED_RUN_ID,
     ReplayBundle,
     ReplayHarness,
     _FixedComparer,
+    _SilentServer,
+    _SilentSession,
+    run_cli,
     run_direct,
+    run_mcp,
 )
 
 EXPECTED = Path(__file__).parents[1] / "fixtures" / "evals" / "real-session-expected.json"
@@ -260,14 +285,23 @@ def _order(items: tuple[object, ...], ordering: str) -> tuple[object, ...]:
     raise ValueError(f"unknown replay ordering: {ordering}")
 
 
-def real_session_replay(*, ordering: str = "forward") -> ReplayBundle:
-    """Sanitised real-session input with a fixed clock and run id."""
+def real_session_replay(
+    *,
+    ordering: str = "forward",
+    fingerprint: EvidenceFingerprint | None = None,
+    ledger: ComparisonLedger | None = None,
+) -> ReplayBundle:
+    """Sanitised real-session input with a fixed clock and run id.
 
-    fingerprint = real_session_fingerprint()
+    ``fingerprint`` and ``ledger`` overrides exist for the canary suite, which
+    deliberately hands the engine planted inputs.
+    """
+
+    fingerprint = real_session_fingerprint() if fingerprint is None else fingerprint
     fingerprint = fingerprint.model_copy(
         update={"observations": _order(fingerprint.observations, ordering)}
     )
-    ledger = real_session_ledger()
+    ledger = real_session_ledger() if ledger is None else ledger
     ledger = ledger.model_copy(
         update={
             "capabilities": _order(ledger.capabilities, ordering),
@@ -304,7 +338,289 @@ def test_engine_replay_never_retains_the_session_canary(tmp_path: Path) -> None:
         )
     )
     assert CANARY not in retained
-    assert replay.fingerprint.model_dump_json().find(CANARY) == -1
+
+
+_PLANTED_SHAPES = (CANARY, PERSON_SHAPED_NAME, VAULT_SHAPED_PATH)
+_CLEAN_REASON = "The invented approved evidence shows a distinctive reliable method."
+
+
+def _drive_cli(engine: object, argv: list[str]) -> tuple[int, str, str]:
+    """Run one diagnosis CLI command over an injected engine, capturing streams."""
+
+    stdout, stderr = StringIO(), StringIO()
+    diagnosis_cli.bind_consent_surface(_SilentSession(), _SilentServer())
+    try:
+        with (
+            patch.object(diagnosis_cli, "build_engine", lambda: engine),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = diagnosis_cli.diagnosis_main(argv)
+    finally:
+        diagnosis_cli.reset_consent_surface()
+    return code, stdout.getvalue(), stderr.getvalue()
+
+
+def _drive_mcp_advance_error(harness: ReplayHarness) -> str:
+    """Advance over MCP expecting a refusal; return everything the wire carried."""
+
+    async def drive() -> str:
+        server = build_mcp_server(harness.engine)
+        async with Client(server, raise_exceptions=True) as client:
+            with pytest.raises(MCPError) as caught:
+                await client.call_tool(
+                    "advance_diagnosis",
+                    {"run_id": harness.bundle.run_id},
+                )
+        error = caught.value
+        return json.dumps(
+            {"message": error.message, "data": error.data},
+            default=str,
+        )
+
+    return anyio.run(drive)
+
+
+def _strength_proposal(packet: WorkPacket, *, reason: str) -> SpecialistProposal:
+    return SpecialistProposal(
+        role=packet.role,
+        kind=ProposalKind.STRENGTH,
+        run_id=packet.run_id,
+        fingerprint_digest=packet.fingerprint_digest,
+        catalogue_digest=packet.catalogue_digest,
+        packet_id=packet.packet_id,
+        packet_digest=packet.packet_digest,
+        catalogue_id=packet.catalogue_ids[0],
+        capability_id=packet.capability_ids[0],
+        candidate_id=candidate_id_for(
+            ProposalKind.STRENGTH,
+            packet.catalogue_ids[0],
+            packet.capability_ids[0],
+        ),
+        disposition=Disposition.STRONG_HERE,
+        evidence_ids=(packet.evidence_ids[0],),
+        observation_ids=(packet.observation_ids[0],),
+        reason=reason,
+    )
+
+
+def test_hostile_fingerprint_is_refused_before_any_retention(tmp_path: Path) -> None:
+    """A collected fingerprint carrying the canary must never become an artifact.
+
+    Red first: without the capture guard this run captured normally and the
+    canary, the person-shaped name, and the vault-shaped path were all retained
+    verbatim inside the stored fingerprint artifact.
+    """
+
+    replay = real_session_replay(fingerprint=planted_session_fingerprint())
+    harness = ReplayHarness(replay, tmp_path, analysis_mode=AnalysisMode.GUIDED)
+    harness.prepare()
+    harness.approve()
+    approved = harness.engine.advance(replay.run_id)
+    assert approved.stage is DiagnosisStage.SCOPE_APPROVED
+
+    with pytest.raises(DiagnosisStateError, match="refuses to retain") as caught:
+        harness.engine.advance(replay.run_id)
+
+    stored = harness.stored_run_text()
+    for planted in _PLANTED_SHAPES:
+        assert planted not in str(caught.value)
+        assert planted not in stored
+
+    code, stdout, stderr = _drive_cli(
+        harness.engine, ["advance", "--run", replay.run_id, "--json"]
+    )
+    assert code == 2
+    assert "refuses to retain" in stderr
+    mcp_error = _drive_mcp_advance_error(harness)
+    for planted in _PLANTED_SHAPES:
+        assert planted not in stdout
+        assert planted not in stderr
+        assert planted not in mcp_error
+
+
+def test_hostile_ledger_is_refused_before_render_or_save(tmp_path: Path) -> None:
+    """A comparison ledger carrying the canary must never render or save.
+
+    Red first: without the comparison guard this run closed cleanly and the
+    canary appeared verbatim in the ledger artifact, the result JSON, the
+    saved report, and the rendered markdown.
+    """
+
+    replay = real_session_replay(ledger=planted_session_ledger())
+    harness = ReplayHarness(replay, tmp_path)
+    harness.prepare()
+    harness.run_to(DiagnosisStage.JOBS_CONFIRMED)
+
+    with pytest.raises(DiagnosisStateError, match="refuses to retain") as caught:
+        harness.engine.advance(replay.run_id)
+
+    stored = harness.stored_run_text()
+    for planted in _PLANTED_SHAPES:
+        assert planted not in str(caught.value)
+        assert planted not in stored
+
+    with pytest.raises(DiagnosisStateError, match="not closed"):
+        harness.engine.result(replay.run_id)
+
+    code, stdout, stderr = _drive_cli(
+        harness.engine, ["advance", "--run", replay.run_id, "--json"]
+    )
+    assert code == 2
+    assert "refuses to retain" in stderr
+    mcp_error = _drive_mcp_advance_error(harness)
+    for planted in _PLANTED_SHAPES:
+        assert planted not in stdout
+        assert planted not in stderr
+        assert planted not in mcp_error
+
+
+def test_hostile_specialist_reason_burns_one_attempt_and_is_never_retained(
+    tmp_path: Path,
+) -> None:
+    """A guided proposal reason carrying the canary is refused, not recorded.
+
+    Red first: without the submit_work guard the engine accepted this proposal
+    and the canary was retained verbatim inside the work-responses and
+    reconciled-proposals artifacts.
+    """
+
+    replay = real_session_replay()
+    harness = ReplayHarness(replay, tmp_path, analysis_mode=AnalysisMode.GUIDED)
+    harness.prepare()
+    harness.run_to(DiagnosisStage.ANALYSIS_PLANNED)
+    engine = harness.engine
+    first = engine.work(replay.run_id)
+    assert first is not None
+    hostile = _strength_proposal(
+        first,
+        reason=f"{PERSON_SHAPED_NAME} wrote {VAULT_SHAPED_PATH}: {CANARY}.",
+    )
+
+    with pytest.raises(SpecialistProposalError, match="one retry remains"):
+        engine.submit_work(replay.run_id, first.packet_id, (hostile,))
+    for planted in _PLANTED_SHAPES:
+        assert planted not in harness.stored_run_text()
+
+    work_payloads: list[dict[str, object]] = [first.model_dump(mode="json")]
+    views = [
+        engine.submit_work(
+            replay.run_id,
+            first.packet_id,
+            (_strength_proposal(first, reason=_CLEAN_REASON),),
+        ).dump_for_storage()
+    ]
+    while True:
+        packet = engine.work(replay.run_id)
+        if packet is None:
+            break
+        work_payloads.append(packet.model_dump(mode="json"))
+        views.append(
+            engine.submit_work(replay.run_id, packet.packet_id, ()).dump_for_storage()
+        )
+    harness.run_to(DiagnosisStage.CLOSED)
+    result = engine.result(replay.run_id)
+
+    checkpoint = harness.checkpoint()
+    artifacts = {
+        kind: json.dumps(
+            harness._artifact_payload(checkpoint, kind),  # noqa: SLF001 - digest store
+            default=str,
+        )
+        for kind in (
+            "work-queue",
+            "work-responses",
+            "work-audit",
+            "reconciled-proposals",
+            "ledger",
+        )
+    }
+    # Positive control: the guided corpus carries real specialist content, so
+    # the absence assertions below scan surfaces that provably retain content.
+    assert _CLEAN_REASON in artifacts["work-responses"]
+    assert _CLEAN_REASON in artifacts["reconciled-proposals"]
+
+    surfaces = {
+        "work-bytes": json.dumps(work_payloads),
+        "submit-responses": json.dumps(views, default=str),
+        "result-json": json.dumps(result.dump_for_storage(), default=str),
+        "rendered-markdown": result.render_markdown(),
+        "stored-run-text": harness.stored_run_text(),
+        **artifacts,
+    }
+    for name, text in surfaces.items():
+        for planted in _PLANTED_SHAPES:
+            assert planted not in text, (name, planted)
+
+
+def test_planted_session_content_never_leaves_the_fingerprint_artifact(
+    tmp_path: Path,
+) -> None:
+    """Shapes no guard can detect must stay confined to the fingerprint.
+
+    A person-shaped name and a relative vault-shaped path are legitimate-shaped
+    local content: the wire guard cannot recognise them, so the engine must
+    contain them structurally. The positive controls prove the plant and the
+    scan both work before the absence assertions claim anything.
+    """
+
+    replay = real_session_replay(
+        fingerprint=planted_session_fingerprint(include_canary=False)
+    )
+
+    def responder(packet: WorkPacket) -> tuple[SpecialistProposal, ...]:
+        if packet.role is SpecialistRole.TOOLS_AND_INTEGRATIONS:
+            return (_strength_proposal(packet, reason=_CLEAN_REASON),)
+        return ()
+
+    harness = ReplayHarness(
+        replay,
+        tmp_path,
+        analysis_mode=AnalysisMode.GUIDED,
+        work_responder=responder,
+    )
+    harness.prepare()
+    harness.run_to(DiagnosisStage.CLOSED)
+    result = harness.engine.result(replay.run_id)
+
+    checkpoint = harness.checkpoint()
+    artifacts = {
+        kind: json.dumps(
+            harness._artifact_payload(checkpoint, kind),  # noqa: SLF001 - digest store
+            default=str,
+        )
+        for kind in (
+            "fingerprint",
+            "work-queue",
+            "work-responses",
+            "work-audit",
+            "reconciled-proposals",
+            "ledger",
+        )
+    }
+    # Positive controls: the plant is present where local retention is honest,
+    # and the guided corpus carries real specialist content.
+    assert PERSON_SHAPED_NAME in artifacts["fingerprint"]
+    assert VAULT_SHAPED_PATH in artifacts["fingerprint"]
+    assert _CLEAN_REASON in artifacts["work-responses"]
+
+    surfaces = {
+        "work-queue": artifacts["work-queue"],
+        "work-responses": artifacts["work-responses"],
+        "work-audit": artifacts["work-audit"],
+        "reconciled-proposals": artifacts["reconciled-proposals"],
+        "ledger": artifacts["ledger"],
+        "result-json": json.dumps(result.dump_for_storage(), default=str),
+        "rendered-markdown": result.render_markdown(),
+        "cli-stdout": run_cli(replay).decode("utf-8"),
+        "mcp-result": run_mcp(replay).decode("utf-8"),
+        "direct-result": run_direct(
+            replay, analysis_mode=AnalysisMode.GUIDED
+        ).decode("utf-8"),
+    }
+    for name, text in surfaces.items():
+        for planted in (PERSON_SHAPED_NAME, VAULT_SHAPED_PATH, CANARY):
+            assert planted not in text, (name, planted)
 
 
 def test_replay_comparer_accepts_every_engine_comparison_argument() -> None:

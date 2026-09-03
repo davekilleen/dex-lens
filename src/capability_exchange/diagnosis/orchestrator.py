@@ -18,6 +18,10 @@ from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     upgrade_stored_fingerprint_payload,
 )
+from capability_exchange.diagnosis.payload_guard import (
+    HostilePayloadError,
+    refuse_hostile_payload,
+)
 from capability_exchange.diagnosis.report import (
     ReportModel,
     canonical_fact_block,
@@ -326,6 +330,14 @@ class DeterministicDiagnosisEngine:
             if isinstance(proposal, SpecialistProposal)
             else SpecialistProposal.model_validate(proposal)
         )
+        # The stored proposals artifact retains this payload verbatim, so a
+        # canary or an absolute path is refused before validation can accept it.
+        try:
+            refuse_hostile_payload(typed.model_dump(mode="json"))
+        except HostilePayloadError as exc:
+            raise SpecialistProposalError(
+                "specialist proposal carries content the engine refuses to retain"
+            ) from exc
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         validate_proposal(typed, self._proposal_context(checkpoint, fingerprint, catalogue))
@@ -418,6 +430,11 @@ class DeterministicDiagnosisEngine:
                 else SpecialistProposal.model_validate(item)
                 for item in proposals
             )
+            # A response carrying a session canary or an absolute path is a
+            # malformed specialist response: it consumes the bounded attempt
+            # and is recorded as an empty rejection, never as content.
+            for item in typed:
+                refuse_hostile_payload(item.model_dump(mode="json"))
             if len(typed) > packet.max_proposals:
                 raise SpecialistProposalError(
                     f"a work response may contain at most {packet.max_proposals} proposals"
@@ -647,6 +664,15 @@ class DeterministicDiagnosisEngine:
         receipt = self._require_receipt(checkpoint)
         fingerprint = self._collector.collect(receipt)
         payload = fingerprint.model_dump(mode="json")
+        # The engine cannot vouch for its injected collector.  A fingerprint
+        # carrying a session canary or an absolute path is refused before any
+        # byte of it is retained, and the offending value is never echoed.
+        try:
+            refuse_hostile_payload(payload)
+        except HostilePayloadError as exc:
+            raise DiagnosisStateError(
+                "collected fingerprint carries content the engine refuses to retain"
+            ) from exc
         artifact = self._put("fingerprint", payload)
         identity = canonical_json_digest(
             {
@@ -831,7 +857,17 @@ class DeterministicDiagnosisEngine:
             proposals=reconciled,
             work_audit=work_audit,
         )
-        artifact = self._put("ledger", ledger.model_dump(mode="json"))
+        ledger_payload = ledger.model_dump(mode="json")
+        # The ledger is what renders and saves.  A comparer that carried raw
+        # session content into a conclusion is refused before the run can
+        # render, check, or save it.
+        try:
+            refuse_hostile_payload(ledger_payload)
+        except HostilePayloadError as exc:
+            raise DiagnosisStateError(
+                "comparison ledger carries content the engine refuses to retain"
+            ) from exc
+        artifact = self._put("ledger", ledger_payload)
         if (
             mode is AnalysisMode.INVENTORY_ONLY
             and checkpoint.stage is DiagnosisStage.JOBS_CONFIRMED

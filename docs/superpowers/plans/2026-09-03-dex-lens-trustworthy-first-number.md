@@ -235,22 +235,43 @@ python3 -m pytest -q tests/evals/test_run_wow_gate.py tests/diagnosis/test_orche
 **Acceptance:** a deliberately planted secret is proven absent from every
 surface a person or a shared artifact can see, on the guided path.
 
-- [ ] Delete `test_real_session_replay.py:307`. It asserts the replay input
+- [x] Delete `test_real_session_replay.py:307`. It asserts the replay input
       contains no canary, which is the statement that the canary suite is empty.
-- [ ] Plant three shapes into `real_session_fingerprint()` labels, references and
+- [x] Plant three shapes into `real_session_fingerprint()` labels, references and
       provenance: the session canary, a relative vault-shaped path, and a
-      person-shaped name. All invented; nothing real.
-- [ ] Plant a canary into a `SpecialistProposal.reason` on a guided replay whose
-      `proposals` are non-empty. `replay.py:255-263` currently submits `()` for
-      every packet, so the guided corpus carries no content at all.
-- [ ] Red first: prove the planted canary reaches the rendered report **before**
-      any guard lands. A canary test that has never failed proves nothing.
-- [ ] Assert absence in all eight: work bytes, submit responses, the ledger
+      person-shaped name. All invented; nothing real. **Planted through a
+      variant, not the default.** `planted_session_fingerprint()` extends the
+      clean fixture with the three shapes; the default stays clean because
+      every honest-path test (the orchestrator harness, adapter conformance,
+      interrupted-run) collects through it, and a permanently hostile default
+      would make the engine's new capture refusal the only reachable path.
+- [x] Plant a canary into a `SpecialistProposal.reason` on a guided replay whose
+      `proposals` are non-empty. `ReplayHarness` gained a `work_responder` so
+      the guided corpus carries real specialist content, and
+      `planted_session_ledger()` plants a reason for the comparison surface.
+- [x] Red first: prove the planted canary reaches the rendered report **before**
+      any guard lands. Observed at `5f05ee2`: the ledger plant reached the
+      rendered markdown, the result JSON and the saved report; the fingerprint
+      plant was retained verbatim in the fingerprint artifact; the proposal
+      plant was recorded verbatim into the `work-responses` artifact. All
+      three guard tests were run against the unguarded tree and failed with
+      `DID NOT RAISE` before any guard was written.
+- [x] Assert absence in all eight: work bytes, submit responses, the ledger
       artifact, the fingerprint artifact, the result JSON, the rendered markdown,
-      CLI stdout, and CLI/MCP stderr.
-- [ ] Extend the assertions to the guided-only artifacts written at
+      CLI stdout, and CLI/MCP stderr. The guards landed in the engine, which is
+      the retention authority the adapters share: `_capture` and
+      `_compare_ledger` refuse with a typed `DiagnosisStateError` before
+      writing the artifact, and `submit_work`/`submit` treat hostile content
+      as a malformed specialist response that burns the bounded attempt and is
+      recorded as an empty rejection. Refusals never echo the offending value.
+      Each absence test carries a positive control proving the plant and the
+      scan both work before absence is claimed.
+- [x] Extend the assertions to the guided-only artifacts written at
       `orchestrator.py:1136-1142` (`work-queue`, `work-responses`, `work-audit`),
-      which no canary scan reaches today.
+      which no canary scan reached before, plus `reconciled-proposals`.
+      A structural test also proves the two shapes no pattern can detect —
+      the person-shaped name and the vault-shaped relative path — never leave
+      the fingerprint artifact for any of those surfaces.
 
 ```bash
 python3 -m pytest -q tests/evals/ tests/diagnosis/test_report_model.py
