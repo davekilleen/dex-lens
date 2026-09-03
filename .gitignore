@@ -6,3 +6,4 @@ __pycache__/
 .hypothesis/
 dist/
 build/
+.claude/worktrees/
