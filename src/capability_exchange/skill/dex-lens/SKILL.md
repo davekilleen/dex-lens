@@ -199,6 +199,15 @@ separate, explicitly approved flow. That work is not this diagnosis.
 
 ## Phase 0: start the look they asked for
 
+Open with a short welcome before anything is read: two or three sentences in
+your own words, carrying exactly these facts and no more. Dex Lens is a
+second opinion on the personal AI system they have already built — what it
+does well, what has quietly rotted, and the few things Dex has that might be
+worth borrowing. It reads; it never changes their system. The look runs in
+that order: read their files, compare with what Dex publishes, then hand
+them a saved report. The welcome is a doorstep, not a lecture — no
+capability tour, no bullet lists, and no questions in it.
+
 A first look is the default. "Have a look at my setup", "what Dex has that I don't",
 and "tell me what I'm missing" are first looks. Start Phase 1 on the folder
 you are already in. Do not ask which folder first.
