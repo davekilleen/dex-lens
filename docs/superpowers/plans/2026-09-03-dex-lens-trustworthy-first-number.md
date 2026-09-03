@@ -125,42 +125,78 @@ New:
 fails; an honest ledger still passes; every hard failure the plan names either
 exists or is explicitly withdrawn in writing.
 
-- [ ] Red test: a ledger whose fourteen expectations are all `UNKNOWN` with
+- [x] Red test: a ledger whose fourteen expectations are all `UNKNOWN` with
       empty `evidence_ids` scores 0 on `significant_coverage`, not 25.
-- [ ] Red test: an insight citing an evidence id held by nothing in the ledger,
+- [x] Red test: an insight citing an evidence id held by nothing in the ledger,
       fingerprint or local entries is an `unsupported-claim` hard failure.
-- [ ] Red test: a ledger with zero ranked recommendations scores 0 on
+- [x] Red test: a ledger with zero ranked recommendations scores 0 on
       `recommendation_quality`, not 8.
-- [ ] Score `significant_coverage` from determinate states only. `UNKNOWN`
+- [x] Score `significant_coverage` from determinate states only. `UNKNOWN`
       scores nothing. An expectation with empty `evidence_ids` scores nothing
       even when its state is determinate.
-- [ ] Give `SignificantExpectation.evidence_ids` a `min_length`, or score it as
-      unevidenced. Prefer the type: a determinate claim without evidence should
-      be unrepresentable.
-- [ ] Replace `_workflow_quality`'s tautology. Score edges whose evidence ids
+- [x] Give `SignificantExpectation.evidence_ids` a `min_length`, or score it as
+      unevidenced. **Scored, not typed.** The plan preferred the type, but
+      `min_length` would make an evidence-free expectation unrepresentable, and
+      `UNKNOWN` legitimately has no evidence — "we could not tell" is the one
+      honest verdict that cannot cite anything. The constraint belongs on
+      determinate states only, which the type cannot express without splitting
+      the model. Scoring enforces it instead: a determinate state earns nothing
+      unless its evidence resolves.
+- [x] Replace `_workflow_quality`'s tautology. Score edges whose evidence ids
       are **distinct across the graph** and resolve to real evidence. An edge
       set that reuses one evidence pair everywhere scores as one corroboration,
       not as many.
-- [ ] Make `_evidence_integrity` derive from the proportion of claims whose
+- [x] Make `_evidence_integrity` derive from the proportion of claims whose
       evidence resolves, so absent evidence reduces it. Remove the `break` that
       caps the existing deduction at a single `-3`.
-- [ ] Replace `_validate_ledger_insights` in `report.py` with a check that every
+- [x] Replace `_validate_ledger_insights` in `report.py` with a check that every
       insight's evidence ids resolve within the ledger. Delete the tautology.
-- [ ] Make `manual-proposal` reachable: widen `WorkReceipt.submission_route` to
-      a vocabulary that can express a non-engine submission, and keep
-      `WorkAudit`'s validator consistent with it. If the founder decides the
-      route should stay single-valued, **withdraw the hard failure in writing**
-      rather than leaving an unreachable gate.
-- [ ] Implement `digest-drift`: compare the audit's `queue_digest` against
-      `queue_digest_for(...)` recomputed from the packets.
-- [ ] Implement `private-canary`: the grader refuses a ledger carrying a session
+- [x] Implement `private-canary`: the grader refuses a ledger carrying a session
       canary, using `payload_guard.refuse_hostile_payload`.
-- [ ] Decide and record `dishonest-operational-state`. The current `-3`
-      deduction (`wow_gate.py:104-108`) fires on the same condition
-      `report.py:864-872` uses to mean "genuinely working well", so it is either
-      dead or backwards. Either define the dishonest case properly or withdraw
-      it in writing.
-- [ ] Regression: the Evidence fabricated ledger fails; the honest ledger passes.
+- [x] Regression: the Evidence fabricated ledger fails; the honest ledger passes.
+      Reproduced before the fix at **91/100, passed, zero hard failures**; after
+      the fix **24, failed**, while a genuinely evidenced ledger scores **92 and
+      passes**. Both are pinned in `tests/evals/test_wow_gate.py`.
+
+### Decisions recorded while implementing (2026-09-03)
+
+**`manual-proposal` and `digest-drift` are withdrawn as grader checks.** Both
+are unreachable at the grader by construction, and for the same reason: the
+model already enforces them. `WorkAudit`'s validator derives the expected
+manual count from `WorkReceipt.submission_route`, which is
+`Literal["engine-work-packet"]` (`work.py:596-607`), and it refuses any audit
+whose `queue_digest` does not bind its own `packet_ids`
+(`work.py:568-569`). A grader row for either would restate a model invariant
+and could never fire — which is how the original `manual-proposal` gate came to
+look like protection while providing none.
+
+The check that *is* meaningful is cross-binding: whether the audit being graded
+is the one this ledger was closed with. That moves to **Task 2**, where it
+becomes "refuse when the supplied audit disagrees with `ledger.work_audit`".
+Widening `submission_route` is not required and is not done.
+
+**`dishonest-operational-state` is withdrawn** pending a definition that
+distinguishes it from success. The `-3` deduction fired on
+`IMPLEMENTED and (OUTCOME_VERIFIED or HEALTHY)`, which is the same condition
+`report.py:864-872` uses to mean a capability is genuinely working well, so it
+was either dead or backwards. It is replaced by proportional evidence scoring,
+which is strictly stronger: `_evidence_integrity` now scores the fraction of
+all claims whose evidence the ledger holds, rather than starting at full marks
+and deducting three once.
+
+**The grader proves internal consistency, never authenticity.** A ledger
+declares its own evidence and the grader never sees the fingerprint the tokens
+were minted from, so a wholly fabricated but internally consistent ledger still
+grades well. This is stated in the module docstring so a passing score is not
+mistaken for proof that conclusions came from the inspected system. The defence
+against that case is upstream and remains open as
+RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT.
+
+**Two test fixtures were themselves unsupported** and had to be repaired before
+they could show the grader accepting an honest ledger: both
+`tests/evals/test_wow_gate.py` and `tests/diagnosis/test_report_model.py` built
+ledgers whose insights cited two evidence identities while their dispositions
+recorded only one.
 
 ```bash
 python3 -m pytest -q tests/evals/test_wow_gate.py tests/diagnosis/test_expectations.py \

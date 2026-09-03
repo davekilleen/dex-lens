@@ -13,7 +13,12 @@ from typing import Self
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
-from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition, GroundedInsight
+from capability_exchange.diagnosis.comparison import (
+    ComparisonLedger,
+    Disposition,
+    GroundedInsight,
+    ledger_evidence_identities,
+)
 from capability_exchange.diagnosis.finding import Finding
 from capability_exchange.diagnosis.observations import HealthState, RuntimeState
 from capability_exchange.diagnosis.receipts import (
@@ -768,13 +773,24 @@ def _render_family_coverage(ledger: ComparisonLedger) -> str:
 
 
 def _validate_ledger_insights(ledger: ComparisonLedger) -> None:
+    """Refuse an insight citing evidence this ledger does not hold.
+
+    Checking only for empty ``evidence_ids`` was a tautology:
+    ``GroundedInsight.evidence_ids`` already carries ``Field(min_length=1)``,
+    so that branch could never be reached. The claim worth refusing is the one
+    that cites an identity no disposition in this ledger records, because the
+    rendered report tells the reader the exact references are in the appendix.
+    """
+
+    held = ledger_evidence_identities(ledger)
     for insight in (
         *ledger.strengths,
         *ledger.reciprocal_lessons,
         *ledger.workflow_insights,
     ):
-        if not insight.evidence_ids:
-            raise ValueError("insight requires evidence")
+        cited = {*insight.evidence_ids, *insight.observation_ids}
+        if not cited <= held:
+            raise ValueError("insight cites evidence the ledger does not hold")
 
 
 def _render_grounded_strengths(ledger: ComparisonLedger) -> str:

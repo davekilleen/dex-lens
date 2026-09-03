@@ -481,7 +481,10 @@ def result_with_rich_grounded_findings() -> tuple[ComparisonLedger, ReportModel]
                     evidence_strength=2,
                     adoption_effort=1,
                 ),
-                evidence_ids=(evidence[0],),
+                # Both identities: the strengths, lessons and connections below
+                # cite both, and a ledger that cites evidence it never records
+                # is not a rich result, it is an unsupported one.
+                evidence_ids=evidence,
                 reason=f"Reason {index}.",
             )
             for index in range(1, 5)
@@ -492,7 +495,7 @@ def result_with_rich_grounded_findings() -> tuple[ComparisonLedger, ReportModel]
             catalogue_id=item.catalogue_id,
             capability_id=item.capability_id,
             disposition=Disposition.WORTH_BORROWING,
-            evidence_references=(evidence[0],),
+            evidence_references=evidence,
             method_compared=True,
             reason=item.reason,
         )
@@ -570,4 +573,31 @@ def test_report_rejects_an_insight_without_bound_evidence() -> None:
             title="Unsupported",
             explanation="No evidence.",
             evidence_ids=(),
+        )
+
+
+def test_report_refuses_an_insight_citing_evidence_the_ledger_does_not_hold() -> None:
+    """The guard must refuse an unsupported claim, not merely an empty one.
+
+    ``GroundedInsight.evidence_ids`` already carries ``Field(min_length=1)``,
+    so a check for emptiness can never fire. The claim worth refusing is the
+    one citing an identity no disposition records, because the rendered report
+    tells the reader the exact references are in the appendix.
+    """
+
+    ledger, _ = result_with_rich_grounded_findings()
+    unheld = "evidence:sha256:" + "9" * 64
+    tampered = ledger.model_copy(
+        update={
+            "strengths": (
+                ledger.strengths[0].model_copy(update={"evidence_ids": (unheld,)}),
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="does not hold"):
+        ReportModel.from_result(
+            run_identity=run_identity(),
+            ledger=tampered,
+            ledger_sha256=canonical_ledger_digest(tampered),
+            findings=(),
         )

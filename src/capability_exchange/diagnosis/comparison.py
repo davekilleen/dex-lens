@@ -1171,6 +1171,31 @@ def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
     )
 
 
+def ledger_evidence_identities(ledger: ComparisonLedger) -> frozenset[str]:
+    """Every evidence and observation identity this ledger actually records.
+
+    Dispositions are where the engine writes down what it saw, so this is the
+    set a claim may cite from. Anything outside it is a claim about something
+    the ledger does not hold.
+
+    This proves internal consistency only. It cannot prove the identities are
+    authentic, because a ledger declares its own evidence and this function
+    never sees the fingerprint the tokens were minted from. Authenticity is
+    the engine's job, upstream.
+    """
+
+    held: set[str] = set()
+    for entry in ledger.entries:
+        held.update(entry.evidence_references)
+    for entry in ledger.local_entries:
+        held.update(entry.evidence_references)
+        held.add(entry.observation_id)
+    for entry in ledger.family_entries:
+        held.update(entry.evidence_references)
+        held.update(entry.matched_observation_ids)
+    return frozenset(held)
+
+
 def _rebuild_with_work_types() -> None:
     """Resolve the deferred ``WorkAudit`` annotation on ``ComparisonLedger``.
 

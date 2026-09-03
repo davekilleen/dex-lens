@@ -67,7 +67,11 @@ def _ranked(count: int = 3) -> tuple[RankedRecommendation, ...]:
                 evidence_strength=2,
                 adoption_effort=1,
             ),
-            evidence_ids=(EVIDENCE[0],),
+            # Both identities, because the ledger's strengths, lessons and
+            # connections go on to cite both. A fixture that cites evidence it
+            # never records is not an honest ledger, and so cannot show that
+            # the grader accepts one.
+            evidence_ids=EVIDENCE,
             reason=f"Reason {index}.",
             rank=index,
         )
@@ -232,3 +236,176 @@ def test_rich_run_needs_all_expectations_and_a_surprise() -> None:
 def test_inventory_only_audit_scores_zero_autonomy_points() -> None:
     grade = grade_wow_run(_ledger(), None)
     assert grade.autonomy_and_clarity == 0
+
+
+UNHELD = ("evidence:sha256:" + "9" * 64, "evidence:sha256:" + "8" * 64)
+HELD = "evidence:sha256:" + "7" * 64
+
+
+def _fabricated_ledger() -> ComparisonLedger:
+    """A diagnosis that determined nothing and cites evidence nothing holds.
+
+    This is the ledger an independent review scored at 95/100 through the
+    shipped grader on 2026-09-03: every expectation Unknown and evidence-free,
+    no observations at all, and every claim citing a fabricated identity.
+    """
+
+    insight = GroundedInsight(
+        insight_id="connection:invented",
+        kind=InsightKind.WORKFLOW_CONNECTION,
+        title="Invented connection",
+        explanation="Nothing observed supports this.",
+        evidence_ids=UNHELD,
+        workflow_ids=("workflow:invented",),
+    )
+    return ComparisonLedger(
+        catalogue_version=1,
+        catalogue_sha256="a" * 64,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=f"invented-{index}",
+                title=f"Invented capability {index}",
+                job_ids=("keep-work-moving",),
+                catalogue_ids=(f"invented-{index}",),
+                person_observation_ids=(),
+            )
+            for index in range(1, 8)
+        ),
+        entries=tuple(
+            CatalogueDisposition(
+                catalogue_id=f"invented-{index}",
+                capability_id=f"invented-{index}",
+                disposition=Disposition.WORTH_BORROWING,
+                evidence_references=(UNHELD[0],),
+                method_compared=True,
+                reason=f"Invented reason {index}.",
+            )
+            for index in range(1, 8)
+        ),
+        ranked_recommendations=tuple(
+            RankedRecommendation(
+                catalogue_id=f"invented-{index}",
+                capability_id=f"invented-{index}",
+                factors=RecommendationFactors(
+                    reliability_risk=2,
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                evidence_ids=(UNHELD[0],),
+                reason=f"Invented reason {index}.",
+                rank=index,
+            )
+            for index in range(1, 8)
+        ),
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+        expectations=tuple(
+            SignificantExpectation(
+                family_id=family_id,
+                state=ExpectationState.UNKNOWN,
+                evidence_ids=(),
+                reason=f"Could not determine {family_id}.",
+            )
+            for family_id in WOW_EXPECTATIONS
+        ),
+        strengths=(
+            GroundedInsight(
+                insight_id="strength:invented",
+                kind=InsightKind.STRENGTH,
+                title="Invented strength",
+                explanation="Nothing observed supports this either.",
+                evidence_ids=UNHELD,
+            ),
+        ),
+        reciprocal_lessons=(
+            GroundedInsight(
+                insight_id="lesson:invented",
+                kind=InsightKind.RECIPROCAL_LESSON,
+                title="Invented lesson",
+                explanation="Nothing observed supports this either.",
+                evidence_ids=UNHELD,
+            ),
+        ),
+        workflow_insights=(insight,),
+        workflow_graph=WorkflowGraph(
+            nodes=(
+                WorkflowNode(
+                    node_id="invented:source",
+                    kind=NodeKind.TRIGGER,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
+                    runtime_state=RuntimeState.OUTCOME_VERIFIED,
+                    health_state=HealthState.HEALTHY,
+                    evidence_ids=(UNHELD[0],),
+                ),
+                WorkflowNode(
+                    node_id="invented:target",
+                    kind=NodeKind.SKILL,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
+                    runtime_state=RuntimeState.OUTCOME_VERIFIED,
+                    health_state=HealthState.HEALTHY,
+                    evidence_ids=(UNHELD[1],),
+                ),
+            ),
+            edges=(
+                WorkflowEdge(
+                    workflow_id="workflow:invented",
+                    source_id="invented:source",
+                    target_id="invented:target",
+                    kind=EdgeKind.CREATES,
+                    evidence_ids=UNHELD,
+                ),
+            ),
+        ),
+        family_entries=(),
+    )
+
+
+def test_a_diagnosis_that_determined_nothing_does_not_pass() -> None:
+    grade = grade_wow_run(_fabricated_ledger(), audit=autonomous_audit())
+    assert not grade.passed
+    assert grade.score < 90
+
+
+def test_unknown_and_evidence_free_expectations_score_nothing() -> None:
+    grade = grade_wow_run(_fabricated_ledger(), audit=autonomous_audit())
+    assert grade.significant_coverage == 0
+
+
+def test_no_recommendations_scores_nothing() -> None:
+    """Producing nothing is not worth eight points."""
+
+    bare = _ledger(rich=True).model_copy(update={"ranked_recommendations": ()})
+    assert grade_wow_run(bare, audit=autonomous_audit()).recommendation_quality == 0
+
+
+def test_a_claim_citing_evidence_the_ledger_does_not_hold_is_a_hard_failure() -> None:
+    grade = grade_wow_run(_fabricated_ledger(), audit=autonomous_audit())
+    assert "unsupported-claim" in grade.hard_failures
+
+
+def test_repeating_one_evidence_pair_is_a_single_corroboration() -> None:
+    """Handing the same pair to every edge is one corroboration, not many.
+
+    WorkflowEdge.evidence_ids already carries Field(min_length=2), so counting
+    edges that clear two ids counts edges. Distinct corroboration is the thing
+    worth scoring.
+    """
+
+    ledger = _ledger(rich=True)
+    one_edge = grade_wow_run(ledger, audit=autonomous_audit()).workflow_quality
+    edge = ledger.workflow_graph.edges[0]
+    repeated = ledger.model_copy(
+        update={
+            "workflow_graph": ledger.workflow_graph.model_copy(
+                update={
+                    "edges": (
+                        edge,
+                        edge.model_copy(update={"workflow_id": "workflow:second"}),
+                        edge.model_copy(update={"workflow_id": "workflow:third"}),
+                    )
+                }
+            )
+        }
+    )
+    assert grade_wow_run(repeated, audit=autonomous_audit()).workflow_quality == one_edge
