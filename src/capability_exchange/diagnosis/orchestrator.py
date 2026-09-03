@@ -51,6 +51,7 @@ from capability_exchange.diagnosis.run import (
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
     DISAGREEMENT_REASON,
+    MAX_EVIDENCE_IDS,
     MAX_RECOMMENDATIONS,
     CandidateBaseline,
     ProposalContext,
@@ -423,6 +424,18 @@ class DeterministicDiagnosisEngine:
         # uncover tampering.  Such a failure is a run-state error, not a
         # malformed assistant response, so it must never consume a retry.
         context = self._proposal_context_for_packet(checkpoint, packet, queue)
+        # Aggregate recommendation state is engine-owned run state, so it is
+        # also computed outside the bounded-attempt block: a corrupted store
+        # stays a run-state error rather than a burned retry.  The packet's
+        # own previously-recorded receipts are excluded so an exact replay of
+        # an already-accepted response remains idempotent.  Sceptical
+        # responses can only preserve or downgrade an existing candidate, so
+        # the prospective cap applies to normal packets only.
+        prior_recommendations: set[str] | None = None
+        if packet.role.value != "sceptical-reconciler":
+            prior_recommendations = self._final_recommendation_candidates(
+                checkpoint, queue, exclude_packet_id=packet.packet_id
+            )
         try:
             typed = tuple(
                 item
@@ -440,6 +453,22 @@ class DeterministicDiagnosisEngine:
                     f"a work response may contain at most {packet.max_proposals} proposals"
                 )
             validated = tuple(validate_proposal(item, context) for item in typed)
+            if prior_recommendations is not None:
+                prospective = prior_recommendations | {
+                    item.candidate_id or ""
+                    for item in validated
+                    if item.kind.value == "recommendation"
+                    or item.disposition.value == "worth-borrowing"
+                }
+                if len(prospective) > MAX_RECOMMENDATIONS:
+                    # A response that would push the run past the
+                    # recommendation cap is a malformed specialist response:
+                    # it burns the bounded attempt and is recorded as an
+                    # empty rejection, never as content.
+                    raise SpecialistProposalError(
+                        f"a diagnosis may recommend at most {MAX_RECOMMENDATIONS} "
+                        "Dex additions"
+                    )
         except (TypeError, ValueError) as exc:
             status = WorkStatus.PENDING if attempt == 1 else WorkStatus.UNRESOLVED
             receipt = WorkReceipt(
@@ -1192,6 +1221,45 @@ class DeterministicDiagnosisEngine:
         )
         return self._runs.save(updated)
 
+    def _final_recommendation_candidates(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        queue: WorkQueue,
+        *,
+        exclude_packet_id: str,
+    ) -> set[str]:
+        """Distinct recommendation candidates already final on other normal packets."""
+
+        packets = {packet.packet_id: packet for packet in queue.packets}
+        candidates: set[str] = set()
+        for record in self._response_records(checkpoint):
+            receipt = WorkReceipt.model_validate(record["receipt"])
+            if receipt.packet_id == exclude_packet_id:
+                continue
+            packet = packets.get(receipt.packet_id)
+            if packet is None or packet.role.value == "sceptical-reconciler":
+                continue
+            if receipt.status is not WorkStatus.COMPLETED:
+                continue
+            proposals = record.get("proposals")
+            if not isinstance(proposals, list):
+                raise DiagnosisStateError(
+                    "stored specialist response proposals are unreadable"
+                )
+            for item in proposals:
+                try:
+                    typed = SpecialistProposal.model_validate(item)
+                except (TypeError, ValueError) as exc:
+                    raise DiagnosisStateError(
+                        "stored normal specialist proposal is invalid"
+                    ) from exc
+                if (
+                    typed.kind.value == "recommendation"
+                    or typed.disposition.value == "worth-borrowing"
+                ):
+                    candidates.add(typed.candidate_id or "")
+        return candidates
+
     def _normal_reconciled_proposals(
         self,
         checkpoint: DiagnosisCheckpoint,
@@ -1249,9 +1317,16 @@ class DeterministicDiagnosisEngine:
             else:
                 disposition = sample.disposition
                 reason = sorted(item.reason for item in group)[0]
+            # Several agreeing specialists each citing bounded evidence is
+            # normal behaviour, so this union may lawfully exceed the
+            # per-proposal ceiling.  Evidence breadth is corroboration, not
+            # the conclusion: keep exactly the first MAX_EVIDENCE_IDS of the
+            # sorted union — deterministic, order-independent, no conclusion
+            # lost — instead of letting construction below raise and wedge
+            # the run with no exit.
             evidence_ids = tuple(
                 sorted({token for item in group for token in item.evidence_ids})
-            )
+            )[:MAX_EVIDENCE_IDS]
             observation_ids = tuple(
                 sorted({token for item in group for token in item.observation_ids})
             )
@@ -1270,6 +1345,9 @@ class DeterministicDiagnosisEngine:
                     observation_ids=observation_ids,
                 )
             )
+        # Fail-closed backstop against a tampered response store.  An honest
+        # run can no longer reach this raise: submit_work enforces the same
+        # cap before any normal packet's response becomes a final receipt.
         if sum(
             item.kind.value == "recommendation" or item.disposition.value == "worth-borrowing"
             for item in reconciled

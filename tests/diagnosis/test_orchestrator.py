@@ -21,7 +21,13 @@ from capability_exchange.diagnosis.comparison import (
     Disposition,
     HumanCapability,
 )
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    Observation,
+    ObservationKind,
+    OperationalState,
+    SafeAttribute,
+)
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     PrepareDiagnosisRequest,
@@ -47,7 +53,8 @@ from capability_exchange.diagnosis.specialists import (
     candidate_id_for,
     mint_evidence_token,
 )
-from capability_exchange.diagnosis.work import AnalysisMode, WorkStatus
+from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket, WorkStatus
+from capability_exchange.evidence import EvidenceItem, EvidenceState
 from capability_exchange.reports.store import LensReportStore
 
 NOW = datetime(2026, 8, 27, 16, 0, tzinfo=UTC)
@@ -826,3 +833,235 @@ def test_disputed_guided_recommendation_keeps_sceptical_work_resumable(
     )
     assert disputed.disposition is Disposition.NOT_ASSESSED
     assert disputed.recommendation_factors is None
+
+
+def _wedge_fingerprint(observation_count: int = 10) -> EvidenceFingerprint:
+    """An invented fingerprint wide enough to mint 9+ evidence tokens."""
+
+    observations = tuple(
+        Observation(
+            kind=ObservationKind.SKILL,
+            identity=f"invented-wedge-method-{index:02d}",
+            label=f"Invented wedge method {index:02d}",
+            operational_state=OperationalState.IMPLEMENTED,
+            evidence=EvidenceItem(
+                state=EvidenceState.OBSERVED,
+                captured_at=NOW,
+                reference=f"file-token:invented-wedge-{index:02d}.md",
+            ),
+            provenance={
+                "source_id": f"scope:invented-wedge-method-{index:02d}",
+                "source_class": "vault-authored",
+                "scope_reference": "scope:sha256:" + "b" * 64,
+                "relative_reference": f"synthetic/invented-wedge-{index:02d}/SKILL.md",
+            },
+            attributes=(SafeAttribute(key="source-kind", value="vault-authored"),),
+        )
+        for index in range(observation_count)
+    )
+    return EvidenceFingerprint(
+        adapter_id="invented-local-adapter",
+        collected_at=NOW,
+        observations=observations,
+    )
+
+
+def _bound_proposal(
+    packet: WorkPacket,
+    *,
+    kind: ProposalKind,
+    catalogue_id: str,
+    capability_id: str,
+    disposition: Disposition,
+    evidence_ids: tuple[str, ...],
+    reason: str,
+    recommendation_factors: RecommendationFactors | None = None,
+) -> SpecialistProposal:
+    return SpecialistProposal(
+        role=packet.role,
+        kind=kind,
+        run_id=packet.run_id,
+        fingerprint_digest=packet.fingerprint_digest,
+        catalogue_digest=packet.catalogue_digest,
+        packet_id=packet.packet_id,
+        packet_digest=packet.packet_digest,
+        catalogue_id=catalogue_id,
+        capability_id=capability_id,
+        candidate_id=candidate_id_for(kind, catalogue_id, capability_id),
+        disposition=disposition,
+        recommendation_factors=recommendation_factors,
+        evidence_ids=evidence_ids,
+        reason=reason,
+    )
+
+
+def test_guided_run_completes_when_agreeing_specialists_overflow_the_evidence_cap(
+    engine: EngineHarness,
+) -> None:
+    """RISK-GUIDED-RUN-WEDGE, wedge 1: normal breadth must not wedge the run.
+
+    Five specialists each cite two distinct engine-minted tokens for the same
+    candidate; the coalesced union (10) exceeds MAX_EVIDENCE_IDS (8).  The run
+    must still close, with the reconciled candidate citing exactly the first
+    eight of the sorted union.
+    """
+
+    engine.collector.fingerprint = _wedge_fingerprint(10)
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+
+    cited: list[str] = []
+    for index in range(5):
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        assert packet.role is not SpecialistRole.SCEPTICAL_RECONCILER
+        pair = packet.evidence_ids[2 * index : 2 * index + 2]
+        engine.engine.submit_work(
+            prepared.run_id,
+            packet.packet_id,
+            (
+                _bound_proposal(
+                    packet,
+                    kind=ProposalKind.STRENGTH,
+                    catalogue_id=CATALOGUE_ID,
+                    capability_id=CAPABILITY_ID,
+                    disposition=Disposition.STRONG_HERE,
+                    evidence_ids=pair,
+                    reason="The approved evidence shows a distinctive reliable method.",
+                ),
+            ),
+        )
+        cited.extend(pair)
+    assert len(set(cited)) == 10
+
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    # Before the fix this raised a raw pydantic error while building the
+    # sceptical packet's context — before any receipt was recorded — and the
+    # run was wedged: advance refused as incomplete and work returned the same
+    # packet forever.
+    engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    compared = engine.advance(prepared.run_id)
+    assert compared.stage is DiagnosisStage.COMPARED
+    candidate_id = candidate_id_for(ProposalKind.STRENGTH, CATALOGUE_ID, CAPABILITY_ID)
+    reconciled = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert reconciled.disposition is Disposition.STRONG_HERE
+    assert reconciled.evidence_ids == tuple(sorted(set(cited)))[:8]
+    assert len(reconciled.evidence_ids) == 8
+
+    closed = engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def test_guided_run_refuses_recommendation_overflow_at_submit_and_still_closes(
+    engine: EngineHarness,
+) -> None:
+    """RISK-GUIDED-RUN-WEDGE, wedge 2: the eleventh recommendation is refused
+    where the bounded-retry protocol can reject, not accepted to wedge later.
+    """
+
+    borrow_ids = tuple(f"invented-borrow-{index:02d}" for index in range(11))
+    engine.catalogue_loader.slice = VerifiedCatalogueSlice(
+        version=1,
+        sha256="b" * 64,
+        catalogue_ids=borrow_ids,
+        capability_ids=(CAPABILITY_ID,),
+        unavailable_ids=(),
+        family_contract_present=False,
+    )
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+
+    factors = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+
+    def recommendations(
+        packet: WorkPacket, catalogue_ids: tuple[str, ...]
+    ) -> tuple[SpecialistProposal, ...]:
+        return tuple(
+            _bound_proposal(
+                packet,
+                kind=ProposalKind.RECOMMENDATION,
+                catalogue_id=catalogue_id,
+                capability_id=CAPABILITY_ID,
+                disposition=Disposition.WORTH_BORROWING,
+                evidence_ids=(packet.evidence_ids[0],),
+                reason="The approved evidence supports this bounded Dex addition.",
+                recommendation_factors=factors,
+            )
+            for catalogue_id in catalogue_ids
+        )
+
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+    accepted_first = recommendations(first, borrow_ids[:6])
+    engine.engine.submit_work(prepared.run_id, first.packet_id, accepted_first)
+
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    # Six accepted plus five more distinct candidates is eleven: the response
+    # is refused as malformed before it is recorded, burning the bounded
+    # attempt as an empty rejection — instead of being accepted and wedging
+    # the run at the sceptical packet.
+    with pytest.raises(SpecialistProposalError, match="one retry remains") as refusal:
+        engine.engine.submit_work(
+            prepared.run_id, second.packet_id, recommendations(second, borrow_ids[6:11])
+        )
+    assert "at most 10" in str(refusal.value.__cause__)
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    burned = [item for item in queue.receipts if item.packet_id == second.packet_id]
+    assert [item.status for item in burned] == [WorkStatus.PENDING]
+    assert burned[0].proposal_count == 0
+
+    # A retry with fewer recommendations succeeds.
+    engine.engine.submit_work(
+        prepared.run_id, second.packet_id, recommendations(second, borrow_ids[6:10])
+    )
+
+    # An exact replay of the first accepted response stays idempotent even
+    # though the run now holds the full ten distinct recommendations.
+    engine.engine.submit_work(prepared.run_id, first.packet_id, accepted_first)
+
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    compared = engine.advance(prepared.run_id)
+    assert compared.stage is DiagnosisStage.COMPARED
+    recommended = {
+        item.catalogue_id
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.kind is ProposalKind.RECOMMENDATION
+    }
+    # Every accepted recommendation is present — nothing silently dropped.
+    assert recommended == set(borrow_ids[:10])
+
+    closed = engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED

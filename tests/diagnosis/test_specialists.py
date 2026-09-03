@@ -209,6 +209,30 @@ def test_matching_proposals_coalesce_sorted_evidence_ids() -> None:
     assert reconciled[0].evidence_ids == ("current:a", "current:b", "current:c")
 
 
+def test_wide_agreeing_evidence_coalesces_to_the_sorted_first_eight() -> None:
+    """RISK-GUIDED-RUN-WEDGE: a coalesced union past MAX_EVIDENCE_IDS is
+    deterministically truncated to the first eight of the sorted union
+    instead of raising and wedging the run that stored the responses.
+    """
+
+    tokens = tuple(f"current:{index:02d}" for index in range(9))
+    context = proposal_context(evidence_ids=tokens)
+    first = proposal(evidence_ids=tokens[:5])
+    second = proposal(
+        role=SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+        evidence_ids=tokens[4:9],
+    )
+
+    reconciled = reconcile_proposals((first, second), context=context)
+    reordered = reconcile_proposals((second, first), context=context)
+
+    assert reconciled == reordered
+    assert len(reconciled) == 1
+    assert reconciled[0].disposition is Disposition.SHARED
+    assert reconciled[0].evidence_ids == tokens[:8]
+    assert len(reconciled[0].evidence_ids) == 8
+
+
 def test_conflicting_dispositions_become_not_assessed() -> None:
     context = proposal_context()
     first = proposal(disposition=Disposition.STRONG_HERE)

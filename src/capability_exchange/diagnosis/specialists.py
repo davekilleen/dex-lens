@@ -689,12 +689,16 @@ def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
 
 def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
     dispositions = {item.disposition for item in group}
-    evidence_ids = tuple(sorted({token for item in group for token in item.evidence_ids}))
+    # Several agreeing specialists each citing bounded evidence is normal
+    # behaviour, so the union across a group may lawfully exceed the
+    # per-proposal ceiling.  Evidence breadth is corroboration, not the
+    # conclusion, and every token is an engine-minted digest: keep exactly
+    # the first MAX_EVIDENCE_IDS of the sorted union so the result is
+    # deterministic and order-independent and no conclusion is lost.
+    evidence_ids = tuple(
+        sorted({token for item in group for token in item.evidence_ids})
+    )[:MAX_EVIDENCE_IDS]
     observation_ids = tuple(sorted({token for item in group for token in item.observation_ids}))
-    if len(evidence_ids) > MAX_EVIDENCE_IDS:
-        raise SpecialistProposalError(
-            f"coalesced proposals may cite at most {MAX_EVIDENCE_IDS} evidence tokens"
-        )
     sample = group[0]
     if len(dispositions) == 1 and not _recommendation_factors_conflict(group):
         reasons = sorted(item.reason for item in group)
