@@ -149,8 +149,9 @@ class _FixedComparer:
         catalogue: VerifiedCatalogueSlice,
         jobs: tuple[object, ...],
         proposals: tuple[object, ...],
+        work_audit: object | None = None,
     ) -> ComparisonLedger:
-        del fingerprint, catalogue, jobs, proposals
+        del fingerprint, catalogue, jobs, proposals, work_audit
         return self.ledger
 
 

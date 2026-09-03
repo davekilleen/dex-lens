@@ -216,11 +216,19 @@ async def test_secret_canaries_and_absolute_paths_are_refused() -> None:
 
         canary = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "packet_id": "packet:sha256:" + "a" * 64, "proposals": [{"note": CANARY}]},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": CANARY}],
+            },
         )
         path = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "packet_id": "packet:sha256:" + "a" * 64, "proposals": [{"note": HOSTILE_ROOT}]},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": HOSTILE_ROOT}],
+            },
         )
         extra = await client.call_tool(
             "submit_specialist_proposal",

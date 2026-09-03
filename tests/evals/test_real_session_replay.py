@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 from collections import Counter
@@ -21,12 +22,16 @@ from tests.evals.real_session_fixture import (
 )
 
 from capability_exchange.diagnosis.comparison import Disposition
-from capability_exchange.diagnosis.orchestrator import VerifiedCatalogueSlice
+from capability_exchange.diagnosis.orchestrator import (
+    ComparisonBuilder,
+    VerifiedCatalogueSlice,
+)
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 from capability_exchange.evaluation.replay import (
     FIXED_RUN_ID,
     ReplayBundle,
     ReplayHarness,
+    _FixedComparer,
     run_direct,
 )
 
@@ -300,3 +305,16 @@ def test_engine_replay_never_retains_the_session_canary(tmp_path: Path) -> None:
     )
     assert CANARY not in retained
     assert replay.fingerprint.model_dump_json().find(CANARY) == -1
+
+
+def test_replay_comparer_accepts_every_engine_comparison_argument() -> None:
+    engine_arguments = {
+        name
+        for name, parameter in inspect.signature(ComparisonBuilder.compare).parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+    replay_arguments = set(inspect.signature(_FixedComparer.compare).parameters)
+    assert engine_arguments <= replay_arguments, (
+        "the replay comparer must accept every argument the engine passes to compare(); "
+        f"missing: {sorted(engine_arguments - replay_arguments)}"
+    )
