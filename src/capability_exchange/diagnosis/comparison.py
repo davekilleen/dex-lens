@@ -1169,3 +1169,29 @@ def _mcp_tool_inventory(catalogue: CatalogueV2) -> tuple[McpToolInventory, ...]:
         for entry in sorted(catalogue.capabilities, key=lambda item: item.capability_id)
         if isinstance(entry, McpServerCapabilityEntryV2)
     )
+
+
+def _rebuild_with_work_types() -> None:
+    """Resolve the deferred ``WorkAudit`` annotation on ``ComparisonLedger``.
+
+    ``work`` imports this module, so the import is deferred to call time
+    rather than done at module scope. Without this rebuild, importing
+    ``comparison`` without also importing ``work`` leaves the ledger
+    undefined at runtime, and every caller fails with an internal pydantic
+    error instead of a typed refusal. The whole-suite run hides it because
+    collection order happens to import ``work`` first.
+    """
+
+    try:
+        from capability_exchange.diagnosis.work import WorkAudit
+    except ImportError:
+        # ``work`` reaches this module on its own way up, through
+        # ``specialists``, so on that path ``WorkAudit`` does not exist yet.
+        # ``work`` runs the identical rebuild once it finishes defining it,
+        # which is what covers this order.
+        return
+
+    ComparisonLedger.model_rebuild(_types_namespace={"WorkAudit": WorkAudit})
+
+
+_rebuild_with_work_types()

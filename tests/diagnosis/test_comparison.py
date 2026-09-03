@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 from pydantic import ValidationError
 from tests.catalogue.test_bridge import _catalogue
@@ -383,3 +386,25 @@ def test_human_capability_cannot_point_at_an_unknown_catalogue_entry() -> None:
             capabilities=(_human(*catalogue_ids, "not-in-catalogue"),),
             entries=tuple(_disposition(item) for item in catalogue_ids),
         )
+
+
+def test_comparison_ledger_resolves_without_importing_work_first() -> None:
+    """The ledger must resolve on its own, not by luck of collection order.
+
+    ``work`` supplies the deferred ``WorkAudit`` annotation, so any suite that
+    happens to import ``work`` first hides a missing rebuild. Only a fresh
+    interpreter importing this module alone proves it, which is why this runs
+    in a subprocess.
+    """
+
+    probe = (
+        "from capability_exchange.diagnosis.comparison import ComparisonLedger\n"
+        "assert ComparisonLedger.__pydantic_complete__, 'ledger is not fully defined'\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
