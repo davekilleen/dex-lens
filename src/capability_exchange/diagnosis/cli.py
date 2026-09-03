@@ -19,12 +19,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from pydantic import ValidationError
+
+from capability_exchange.diagnosis.payload_guard import (
+    REMOVE_ABSOLUTE_PATH,
+    REMOVE_SECRET,
+    HostilePayloadError,
+    parse_specialist_proposal,
+    refuse_hostile_payload,
+)
 from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
 )
-from capability_exchange.diagnosis.work import AnalysisMode
+from capability_exchange.diagnosis.specialists import SpecialistProposalError
+from capability_exchange.diagnosis.work import AnalysisMode, WorkQueueError
 
 __all__ = [
     "DeterministicDiagnosisEngine",
@@ -225,6 +235,17 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         return handlers[command](arguments[1:])
     except DiagnosisStateError as exc:
         print(f"dex-lens: {exc}", file=sys.stderr)
+        return 2
+    except (WorkQueueError, SpecialistProposalError) as exc:
+        print(f"dex-lens: {exc}", file=sys.stderr)
+        return 2
+    except ValidationError:
+        # Never render a pydantic error here: it repeats the offending input
+        # value, which on this path is specialist or vault text.
+        print(
+            "dex-lens: the payload is not a closed typed diagnosis value.",
+            file=sys.stderr,
+        )
         return 2
     except SystemExit as exc:
         code = 0 if exc.code in {None, True} else (1 if exc.code is False else int(exc.code))
@@ -512,7 +533,10 @@ def _submit(argv: list[str]) -> int:
             proposal = _load_proposal(path)
             if proposal is None:
                 return 2
-            proposals.append(proposal)
+            typed = _typed_proposal(proposal)
+            if typed is None:
+                return 2
+            proposals.append(typed)
         view = engine.submit_work(args.run, args.packet, tuple(proposals))
     else:
         if len(args.proposal) != 1:
@@ -566,3 +590,31 @@ def _load_proposal(path: Path) -> object | None:
     except OSError as exc:
         print(f"dex-lens: could not read the proposal: {exc}", file=sys.stderr)
         return None
+
+
+_HOSTILE_GUIDANCE = {
+    REMOVE_SECRET: "dex-lens: secret material is not retained on the diagnosis wire.",
+    REMOVE_ABSOLUTE_PATH: "dex-lens: absolute paths are not retained on the diagnosis wire.",
+}
+
+
+def _typed_proposal(payload: object) -> object | None:
+    """Validate one proposal here, so a bad file never costs a packet attempt.
+
+    The engine records a durable attempt for anything it rejects. MCP parses
+    ahead of the engine for that reason and the CLI must match it, or the same
+    bytes would consume a retry on one adapter and none on the other. Refusals
+    never repeat the offending value.
+    """
+
+    try:
+        typed = parse_specialist_proposal(payload)
+    except ValueError as exc:
+        print(f"dex-lens: {exc}", file=sys.stderr)
+        return None
+    try:
+        refuse_hostile_payload(typed.model_dump())
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return None
+    return typed

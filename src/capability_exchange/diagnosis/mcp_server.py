@@ -8,7 +8,6 @@ the real orchestrator; tests and later adapters inject a fake the same way.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -19,6 +18,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
+from capability_exchange.diagnosis.payload_guard import (
+    REMOVE_ABSOLUTE_PATH,
+    REMOVE_SECRET,
+    HostilePayloadError,
+    parse_specialist_proposal,
+    refuse_hostile_payload,
+)
 from capability_exchange.diagnosis.run import DiagnosisStateError, RequiredStep
 from capability_exchange.diagnosis.specialists import (
     SpecialistProposal as EngineProposal,
@@ -51,8 +57,6 @@ EXPECTED_TOOLS = {
     "get_diagnosis_result",
 }
 FORBIDDEN_TOOL_SUBSTRINGS = ("write", "delete", "install", "repair", "share", "send")
-_SESSION_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
-_ABSOLUTE_PATH = re.compile(r"(?:/Users/|/home/|/private/|[A-Za-z]:\\)")
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -90,15 +94,7 @@ class SpecialistProposal:
 
     @classmethod
     def from_mapping(cls, payload: dict[str, object]) -> EngineProposal:
-        if not isinstance(payload, dict):
-            raise ValueError("specialist proposal is not a closed typed payload")
-        extra = set(payload) - cls._FIELDS
-        if extra:
-            raise ValueError("unknown fields are forbidden on specialist proposals")
-        try:
-            return EngineProposal.model_validate(payload)
-        except Exception as exc:
-            raise ValueError("specialist proposal is not a closed typed payload") from exc
+        return parse_specialist_proposal(payload)
 
 
 @runtime_checkable
@@ -269,38 +265,21 @@ def _required_step(exc: DiagnosisStateError) -> str:
     return RequiredStep.REQUIRED_STEP.value
 
 
+_HOSTILE_MESSAGES = {
+    REMOVE_SECRET: "secret material is not retained on the MCP wire",
+    REMOVE_ABSOLUTE_PATH: "absolute paths are not retained on the MCP wire",
+}
+
+
 def _refuse_hostile_payload(payload: object) -> None:
-    for text in _string_values(payload):
-        if _SESSION_CANARY in text:
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message="secret material is not retained on the MCP wire",
-                data={"required_step": "remove_secret", "error": "HostilePayload"},
-            )
-        if _ABSOLUTE_PATH.search(text):
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message="absolute paths are not retained on the MCP wire",
-                data={"required_step": "remove_absolute_path", "error": "HostilePayload"},
-            )
-
-
-def _string_values(payload: object) -> list[str]:
-    if isinstance(payload, str):
-        return [payload]
-    if isinstance(payload, dict):
-        found: list[str] = []
-        for key, value in payload.items():
-            if isinstance(key, str):
-                found.append(key)
-            found.extend(_string_values(value))
-        return found
-    if isinstance(payload, list | tuple):
-        found: list[str] = []
-        for item in payload:
-            found.extend(_string_values(item))
-        return found
-    return []
+    try:
+        refuse_hostile_payload(payload)
+    except HostilePayloadError as exc:
+        raise MCPError(
+            code=INVALID_REQUEST,
+            message=_HOSTILE_MESSAGES[exc.required_step],
+            data={"required_step": exc.required_step, "error": "HostilePayload"},
+        ) from exc
 
 
 def _forbid_unknown_tool_fields(server: MCPServer) -> None:

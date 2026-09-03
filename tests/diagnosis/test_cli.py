@@ -20,6 +20,8 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
 )
+from capability_exchange.diagnosis.specialists import candidate_id_for
+from capability_exchange.diagnosis.work import WorkQueueError
 
 RUN_ID = "run:" + "a" * 16
 CAPTURED_VIEW = DiagnosisRunView(
@@ -381,3 +383,112 @@ def test_prepare_accepts_guided_analysis_mode(
     assert captured[0].analysis_mode.value == "guided-analysis"
     assert capsys.readouterr().out
 
+
+
+PACKET_ID = "packet:sha256:" + "a" * 64
+
+
+def _write_proposal(tmp_path: Path, payload: dict[str, object]) -> Path:
+    path = tmp_path / "proposal.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _valid_proposal(reason: str) -> dict[str, object]:
+    """One structurally valid specialist proposal, so guards are what refuse it."""
+
+    return {
+        "role": "tools-and-integrations",
+        "kind": "mapping",
+        "run_id": RUN_ID,
+        "fingerprint_digest": "sha256:" + "b" * 64,
+        "catalogue_digest": "sha256:" + "d" * 64,
+        "packet_id": PACKET_ID,
+        "packet_digest": "sha256:" + "a" * 64,
+        "catalogue_id": "daily-planning",
+        "capability_id": "daily-planning",
+        "candidate_id": candidate_id_for(
+            kind="mapping",
+            catalogue_id="daily-planning",
+            capability_id="daily-planning",
+        ),
+        "disposition": "shared",
+        "evidence_ids": ["evidence:sha256:" + "e" * 64],
+        "reason": reason,
+    }
+
+
+def test_cli_refuses_an_unknown_proposal_field_before_the_engine_sees_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A payload the engine never sees costs no specialist attempt.
+
+    MCP parses ahead of the engine, so the CLI must too. Otherwise the same
+    bytes burn one of a packet's two attempts on one adapter and none on the
+    other, and two adapters produce different durable run state.
+    """
+
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, {"note": "unknown field"})
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", "packet:sha256:" + "a" * 64,
+         "--proposal", str(path)]
+    )
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "unknown fields are forbidden" in captured.err
+
+
+def test_cli_refuses_an_absolute_path_without_echoing_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    secret = "/Users/invented/vault/People/Invented_Name.md"
+    path = _write_proposal(tmp_path, _valid_proposal(f"Seen in {secret}"))
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", "packet:sha256:" + "a" * 64,
+         "--proposal", str(path)]
+    )
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_cli_reports_a_work_queue_error_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class RefusingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            raise WorkQueueError("packet is not in this work queue")
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RefusingEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, _valid_proposal("an ordinary reason"))
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+    assert code == 2
+    assert "packet is not in this work queue" in capsys.readouterr().err
