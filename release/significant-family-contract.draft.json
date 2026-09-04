@@ -1,0 +1,1297 @@
+{
+  "capability_families": [
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "dex-granola-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-meeting-intel",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "granola-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "meeting-closeout",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "meeting-prep",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "process-meetings",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "meeting-follow-through",
+      "jobs": [
+        "capture-without-friction",
+        "track-people-and-relationships"
+      ],
+      "member_capability_ids": [
+        "dex-granola-mcp",
+        "dex-meeting-intel",
+        "granola-setup",
+        "meeting-closeout",
+        "meeting-prep",
+        "process-meetings"
+      ],
+      "outcome": "Meetings become notes, people context and tracked follow-up.",
+      "title": "Meeting follow-through"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "entity-temperature-engine",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "relationship-radar",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "living-people-company-context",
+      "jobs": [
+        "track-people-and-relationships"
+      ],
+      "member_capability_ids": [
+        "entity-temperature-engine",
+        "relationship-radar"
+      ],
+      "outcome": "People and company pages are created, refreshed and connected over time.",
+      "title": "Living people and company context"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "commitments",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "delegate-check",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-work-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "proactive-promise-engine",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "triage",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "durable-task-continuity",
+      "jobs": [
+        "evolve-the-system-itself",
+        "keep-projects-on-track",
+        "manage-tasks-reliably",
+        "track-people-and-relationships"
+      ],
+      "member_capability_ids": [
+        "commitments",
+        "delegate-check",
+        "dex-work-mcp",
+        "proactive-promise-engine",
+        "triage"
+      ],
+      "outcome": "Tasks can be captured from several places and completion returns to linked surfaces.",
+      "title": "Durable task continuity"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "things-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "todoist-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "trello-setup",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "external-task-interoperability",
+      "jobs": [
+        "manage-tasks-reliably"
+      ],
+      "member_capability_ids": [
+        "things-setup",
+        "todoist-setup",
+        "trello-setup"
+      ],
+      "outcome": "Todoist, Things and Trello can exchange tasks on request without pretending background polling exists.",
+      "title": "External task interoperability"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "apple-mail-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "atlassian-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "calendar-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-calendar-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "google-workspace-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "ms-teams-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "zoom-setup",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "connected-work-context",
+      "jobs": [
+        "capture-without-friction",
+        "keep-projects-on-track",
+        "start-each-day-focused",
+        "track-people-and-relationships"
+      ],
+      "member_capability_ids": [
+        "apple-mail-setup",
+        "atlassian-setup",
+        "calendar-setup",
+        "dex-calendar-mcp",
+        "google-workspace-setup",
+        "ms-teams-setup",
+        "zoom-setup"
+      ],
+      "outcome": "Google, Teams, Zoom, Atlassian and Apple Mail can inform plans, preparation and reviews when explicitly connected.",
+      "title": "Connected work context"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "dex-pipedrive-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "pipedrive-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "pipeline-sync",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "pipedrive-pipeline-continuity",
+      "jobs": [
+        "keep-projects-on-track",
+        "track-people-and-relationships"
+      ],
+      "member_capability_ids": [
+        "dex-pipedrive-mcp",
+        "pipedrive-setup",
+        "pipeline-sync"
+      ],
+      "outcome": "Live pipeline context informs local work; external writes stay previewed and confirmed.",
+      "title": "Pipedrive pipeline continuity"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "daily-plan",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "daily-review",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "week-plan",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "week-review",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "weekly-reflection",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "daily-weekly-operating-rhythm",
+      "jobs": [
+        "reflect-and-improve-continuously",
+        "start-each-day-focused"
+      ],
+      "member_capability_ids": [
+        "daily-plan",
+        "daily-review",
+        "week-plan",
+        "week-review",
+        "weekly-reflection"
+      ],
+      "outcome": "Planning, review and reflection form one repeatable operating cadence.",
+      "title": "Daily and weekly operating rhythm"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "decision-log",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-session-memory",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "enable-semantic-search",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "journal",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "save-insight",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "durable-work-memory",
+      "jobs": [
+        "keep-projects-on-track",
+        "reflect-and-improve-continuously"
+      ],
+      "member_capability_ids": [
+        "decision-log",
+        "dex-session-memory",
+        "enable-semantic-search",
+        "journal",
+        "save-insight"
+      ],
+      "outcome": "Sourced decisions, commitments, context and patterns remain available across sessions.",
+      "title": "Durable work memory"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "dex-doctor",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-smoke-nightly",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "proactive-health-and-recovery",
+      "jobs": [
+        "evolve-the-system-itself"
+      ],
+      "member_capability_ids": [
+        "dex-doctor",
+        "dex-smoke-nightly"
+      ],
+      "outcome": "Doctor and scheduled checks distinguish healthy, off, broken and unknown, then use bounded repair paths.",
+      "title": "Proactive health and recovery"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "backup-now",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "backup-restore",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "backup-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-vault-backup",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "backup-and-restore-confidence",
+      "jobs": [
+        "evolve-the-system-itself"
+      ],
+      "member_capability_ids": [
+        "backup-now",
+        "backup-restore",
+        "backup-setup",
+        "dex-vault-backup"
+      ],
+      "outcome": "Backups are created and recovery is proved by a safe restore rehearsal.",
+      "title": "Backup and restore confidence"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "dex-rollback",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-update",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-adopt",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-adopt-profile",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-generate",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-list",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-profile",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "diff-remove",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "safe-change-and-rewind",
+      "jobs": [
+        "evolve-the-system-itself",
+        "reflect-and-improve-continuously"
+      ],
+      "member_capability_ids": [
+        "dex-rollback",
+        "dex-update",
+        "diff-adopt",
+        "diff-adopt-profile",
+        "diff-generate",
+        "diff-list",
+        "diff-profile",
+        "diff-remove"
+      ],
+      "outcome": "Changes are previewed, verified, receipted and reversible.",
+      "title": "Safe change and rewind"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "create-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "create-skill",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-add-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-whats-new",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "integrate-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "manage-capabilities",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "skill-score",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "capability-discovery-and-adoption",
+      "jobs": [
+        "evolve-the-system-itself"
+      ],
+      "member_capability_ids": [
+        "create-mcp",
+        "create-skill",
+        "dex-add-mcp",
+        "dex-whats-new",
+        "integrate-mcp",
+        "manage-capabilities",
+        "skill-score"
+      ],
+      "outcome": "Useful methods can be discovered, reviewed, adopted and created through the safe lifecycle.",
+      "title": "Capability discovery and adoption"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "manual-only",
+        "reason": "A person must confirm that no private work leaves the machine before feedback is shared."
+      },
+      "components": [
+        {
+          "capability_id": "feedback",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "privacy-safe-feedback-loop",
+      "jobs": [
+        "evolve-the-system-itself"
+      ],
+      "member_capability_ids": [
+        "feedback"
+      ],
+      "outcome": "A problem can become a minimal report and a returned answer or fix without exporting private work.",
+      "title": "Privacy-safe feedback loop"
+    },
+    {
+      "aliases": [],
+      "assessment": {
+        "mode": "automatic",
+        "profile": "catalogue"
+      },
+      "components": [
+        {
+          "capability_id": "career-coach",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "career-setup",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-career-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "dex-resume-mcp",
+          "component_type": "capability"
+        },
+        {
+          "capability_id": "resume-builder",
+          "component_type": "capability"
+        }
+      ],
+      "family_id": "career-growth-evidence",
+      "jobs": [
+        "reflect-and-improve-continuously",
+        "track-career-growth"
+      ],
+      "member_capability_ids": [
+        "career-coach",
+        "career-setup",
+        "dex-career-mcp",
+        "dex-resume-mcp",
+        "resume-builder"
+      ],
+      "outcome": "Career and Resume tools turn consented evidence into development and application support without inventing claims.",
+      "title": "Career growth evidence"
+    }
+  ],
+  "derivation_notes": [
+    "Derived from the signature-verified Dex catalogue named in derived_from and the founder-approved family definitions in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md.",
+    "Membership is drafted judgment for founder review; every TODO(founder) item in founder_review must be resolved before the resolved capability_families collection enters Dex Core's catalogue generator and is signed.",
+    "This file is never signed and never published; only Dex Core signs catalogue bytes."
+  ],
+  "derived_from": {
+    "canonical_sha256": "c9d79c96250f89f72fe26f1c2a85fa75820b5e3f0cedacea9078bfd667c91164",
+    "catalog_version": 6,
+    "core_release": "v1.97.2",
+    "key_id": "dex-core-lens-1",
+    "produced_at": "2026-08-27T08:37:39Z"
+  },
+  "draft_contract": "dex-lens-significant-family-contract-draft",
+  "draft_version": 1,
+  "founder_review": [
+    {
+      "family_id": "meeting-follow-through",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-granola-mcp",
+          "jobs": [
+            "capture-without-friction",
+            "track-people-and-relationships"
+          ],
+          "title": "Dex Granola MCP"
+        },
+        {
+          "availability": "active",
+          "capability_class": "scheduled-automation",
+          "capability_id": "dex-meeting-intel",
+          "jobs": [
+            "capture-without-friction",
+            "track-people-and-relationships"
+          ],
+          "title": "Dex Meeting Intel"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "granola-setup",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Granola Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "meeting-closeout",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Meeting Closeout"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "meeting-prep",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Meeting Prep"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "process-meetings",
+          "jobs": [
+            "capture-without-friction",
+            "track-people-and-relationships"
+          ],
+          "title": "Process Meetings"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'meeting-follow-through'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    },
+    {
+      "family_id": "living-people-company-context",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "system-engine",
+          "capability_id": "entity-temperature-engine",
+          "jobs": [
+            "track-people-and-relationships"
+          ],
+          "title": "Entity Temperature Engine"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "relationship-radar",
+          "jobs": [
+            "track-people-and-relationships"
+          ],
+          "title": "Relationship Radar"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'living-people-company-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "durable-task-continuity",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "commitments",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Commitments"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "delegate-check",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Delegate Check"
+        },
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-work-mcp",
+          "jobs": [
+            "keep-projects-on-track",
+            "manage-tasks-reliably",
+            "track-people-and-relationships"
+          ],
+          "title": "Dex Work MCP"
+        },
+        {
+          "availability": "active",
+          "capability_class": "system-engine",
+          "capability_id": "proactive-promise-engine",
+          "jobs": [
+            "evolve-the-system-itself",
+            "manage-tasks-reliably"
+          ],
+          "title": "Proactive Promise Engine"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "triage",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Triage"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'durable-task-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    },
+    {
+      "family_id": "external-task-interoperability",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "things-setup",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Things Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "todoist-setup",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Todoist Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "trello-setup",
+          "jobs": [
+            "manage-tasks-reliably"
+          ],
+          "title": "Trello Setup"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'external-task-interoperability'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "connected-work-context",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "apple-mail-setup",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Apple Mail Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "atlassian-setup",
+          "jobs": [
+            "keep-projects-on-track"
+          ],
+          "title": "Atlassian Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "calendar-setup",
+          "jobs": [
+            "start-each-day-focused"
+          ],
+          "title": "Calendar Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-calendar-mcp",
+          "jobs": [
+            "start-each-day-focused",
+            "track-people-and-relationships"
+          ],
+          "title": "Dex Calendar MCP"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "google-workspace-setup",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Google Workspace Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "ms-teams-setup",
+          "jobs": [
+            "track-people-and-relationships"
+          ],
+          "title": "Ms Teams Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "zoom-setup",
+          "jobs": [
+            "capture-without-friction"
+          ],
+          "title": "Zoom Setup"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'connected-work-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    },
+    {
+      "family_id": "pipedrive-pipeline-continuity",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-pipedrive-mcp",
+          "jobs": [
+            "keep-projects-on-track",
+            "track-people-and-relationships"
+          ],
+          "title": "Dex Pipedrive MCP"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "pipedrive-setup",
+          "jobs": [
+            "track-people-and-relationships"
+          ],
+          "title": "Pipedrive Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "pipeline-sync",
+          "jobs": [
+            "keep-projects-on-track"
+          ],
+          "title": "Pipeline Sync"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'pipedrive-pipeline-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    },
+    {
+      "family_id": "daily-weekly-operating-rhythm",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "daily-plan",
+          "jobs": [
+            "start-each-day-focused"
+          ],
+          "title": "Daily Plan"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "daily-review",
+          "jobs": [
+            "reflect-and-improve-continuously",
+            "start-each-day-focused"
+          ],
+          "title": "Daily Review"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "week-plan",
+          "jobs": [
+            "start-each-day-focused"
+          ],
+          "title": "Week Plan"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "week-review",
+          "jobs": [
+            "reflect-and-improve-continuously",
+            "start-each-day-focused"
+          ],
+          "title": "Week Review"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "weekly-reflection",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Weekly Reflection"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'daily-weekly-operating-rhythm'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "durable-work-memory",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "decision-log",
+          "jobs": [
+            "keep-projects-on-track"
+          ],
+          "title": "Decision Log"
+        },
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-session-memory",
+          "jobs": [
+            "keep-projects-on-track",
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Dex Session Memory"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "enable-semantic-search",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Enable Semantic Search"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "journal",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Journal"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "save-insight",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Save Insight"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'durable-work-memory'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    },
+    {
+      "family_id": "proactive-health-and-recovery",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "dex-doctor",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Doctor"
+        },
+        {
+          "availability": "active",
+          "capability_class": "scheduled-automation",
+          "capability_id": "dex-smoke-nightly",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Smoke Nightly"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'proactive-health-and-recovery'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "backup-and-restore-confidence",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "backup-now",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Backup Now"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "backup-restore",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Backup Restore"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "backup-setup",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Backup Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "scheduled-automation",
+          "capability_id": "dex-vault-backup",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Vault Backup"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'backup-and-restore-confidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "safe-change-and-rewind",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "dex-rollback",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Rollback"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "dex-update",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Update"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-adopt",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Diff Adopt"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-adopt-profile",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Diff Adopt Profile"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-generate",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Diff Generate"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-list",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Diff List"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-profile",
+          "jobs": [
+            "reflect-and-improve-continuously"
+          ],
+          "title": "Diff Profile"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "diff-remove",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Diff Remove"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'safe-change-and-rewind'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "capability-discovery-and-adoption",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "create-mcp",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Create Mcp"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "create-skill",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Create Skill"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "dex-add-mcp",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Add Mcp"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "dex-whats-new",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Dex Whats New"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "integrate-mcp",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Integrate Mcp"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "manage-capabilities",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Manage Capabilities"
+        },
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "skill-score",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Skill Score"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'capability-discovery-and-adoption'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "privacy-safe-feedback-loop",
+      "member_basis": [
+        {
+          "availability": "active",
+          "capability_class": "active-skill",
+          "capability_id": "feedback",
+          "jobs": [
+            "evolve-the-system-itself"
+          ],
+          "title": "Feedback"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'privacy-safe-feedback-loop'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"manual-only\", \"reason\": \"A person must confirm that no private work leaves the machine before feedback is shared.\"}); a stronger detector profile may fit better."
+      ]
+    },
+    {
+      "family_id": "career-growth-evidence",
+      "member_basis": [
+        {
+          "availability": "dormant",
+          "capability_class": "active-skill",
+          "capability_id": "career-coach",
+          "jobs": [
+            "reflect-and-improve-continuously",
+            "track-career-growth"
+          ],
+          "title": "Career Coach"
+        },
+        {
+          "availability": "dormant",
+          "capability_class": "active-skill",
+          "capability_id": "career-setup",
+          "jobs": [
+            "track-career-growth"
+          ],
+          "title": "Career Setup"
+        },
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-career-mcp",
+          "jobs": [
+            "track-career-growth"
+          ],
+          "title": "Dex Career MCP"
+        },
+        {
+          "availability": "active",
+          "capability_class": "mcp-server",
+          "capability_id": "dex-resume-mcp",
+          "jobs": [
+            "track-career-growth"
+          ],
+          "title": "Dex Resume MCP"
+        },
+        {
+          "availability": "dormant",
+          "capability_class": "active-skill",
+          "capability_id": "resume-builder",
+          "jobs": [
+            "track-career-growth"
+          ],
+          "title": "Resume Builder"
+        }
+      ],
+      "todos": [
+        "TODO(founder): confirm the member list for 'career-growth-evidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+      ]
+    }
+  ],
+  "status": "unsigned-draft; not release truth until the founder resolves every TODO(founder) item and Dex Core signs a catalogue carrying the resolved capability_families collection"
+}

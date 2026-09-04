@@ -94,12 +94,12 @@ class TestWhatAReportMustShow:
         problems = missing_report_requirements(COMPLETE.replace(missing, ""))
         assert any(missing.removeprefix("## ") in problem for problem in problems)
 
-    def test_more_than_three_recommendation_findings_are_refused(self) -> None:
+    def test_more_than_ten_recommendation_findings_are_refused(self) -> None:
         suggestions = "\n".join(
             f"### Suggestion {index} — Verified\n"
             f"> evidence for suggestion {index}\n"
             f"> - `system-{index}.md`"
-            for index in range(4)
+            for index in range(11)
         )
         report = COMPLETE.replace(
             "## Worth borrowing from Dex\nNo Dex addition cleared the evidence bar this time.",
@@ -107,7 +107,7 @@ class TestWhatAReportMustShow:
         )
 
         assert any(
-            "at most three" in problem for problem in missing_report_requirements(report)
+            "at most 10" in problem for problem in missing_report_requirements(report)
         )
 
     def test_a_scored_finding_with_no_evidence_is_named(self) -> None:

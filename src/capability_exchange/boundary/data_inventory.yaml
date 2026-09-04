@@ -1075,6 +1075,186 @@ fields:
     deletion: not-stored
     audit: "ephemeral local explanation"
 
+  FamilyComponentEvidence.component_reference:
+    description: "exact typed identity of one signed capability-family component"
+    collection: "copied locally from the signature-verified family contract"
+    derivation: "closed capability, MCP tool, provider, or source-component reference"
+    display: "anchors a component match in the complete family ledger appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  FamilyComponentEvidence.observation_ids:
+    description: "exact local observation identities supporting one family component match"
+    collection: "copied from deterministic family assessment results"
+    derivation: "non-empty unique canonical observation identities"
+    display: "links a family component to bounded local evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral opaque identities; no raw local content"
+
+  FamilyComponentEvidence.evidence_references:
+    description: "bounded non-raw evidence references supporting one family component match"
+    collection: "copied from matched local observations"
+    derivation: "validated as non-empty unique safe references"
+    display: "supports the family match without exposing content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local evidence references"
+
+  FamilyComponentEvidence.match_bases:
+    description: "closed deterministic reasons an observation matches the signed component"
+    collection: "assigned by the reviewed significant-family assessor"
+    derivation: "non-empty unique ComponentMatchBasis values"
+    display: "explains whether identity, alias, tool, provider, or source evidence matched"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic assessment facts"
+
+  FamilyComponentEvidence.method_equivalent:
+    description: "constant false guard preventing identity overlap from claiming method equivalence"
+    collection: "assigned locally as false for every deterministic family component match"
+    derivation: "Literal false; true is unrepresentable"
+    display: "keeps the evidence limitation explicit in the family appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral fail-closed comparison guard"
+
+  FamilyLedgerEntry.family_id:
+    description: "exact signed significant capability-family identity"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "validated against the complete signed family identity set"
+    display: "identifies the significant outcome in coverage and the appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  FamilyLedgerEntry.title:
+    description: "signed plain-language title for one significant capability family"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "must remain byte-equal to signed family truth"
+    display: "labels one significant outcome in the human-readable report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue prose"
+
+  FamilyLedgerEntry.outcome:
+    description: "signed outcome description for one significant capability family"
+    collection: "copied from the signature-verified catalogue"
+    derivation: "must remain byte-equal to signed family truth"
+    display: "explains the family outcome without inventing a local result"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue prose"
+
+  FamilyLedgerEntry.signed_availability:
+    description: "family availability derived only from signed member leaf states"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "closed available, partial, or unavailable FamilyAvailability"
+    display: "separates release availability from local evidence overlap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic release fact"
+
+  FamilyLedgerEntry.available_member_ids:
+    description: "signed family members whose canonical leaf availability is active"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact ordered subset of signed family member identities"
+    display: "supports family release-availability explanation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.unavailable_member_ids:
+    description: "signed family members whose canonical leaf availability is not active"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact ordered complement of available family members"
+    display: "keeps unavailable release members distinct from unknown local evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.recommendable_member_ids:
+    description: "active signed family members eligible for later leaf-level consideration"
+    collection: "calculated locally from signature-verified catalogue entries"
+    derivation: "exact canonical recommendable subset; dormant and parked leaves excluded"
+    display: "supports recommendation eligibility without creating extra recommendations"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyLedgerEntry.matched_components:
+    description: "exact signed family components with evidence-bound local matches"
+    collection: "assembled from deterministic significant-family assessment"
+    derivation: "unique tuple of FamilyComponentEvidence records"
+    display: "shows which family building blocks have exact local evidence overlap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-bound assessment structure"
+
+  FamilyLedgerEntry.matched_observation_ids:
+    description: "deduplicated exact observations supporting all matched family components"
+    collection: "calculated from matched component evidence rows"
+    derivation: "must equal the sorted union of component observation identities"
+    display: "supports transparent overlap and strength counts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral opaque local identities"
+
+  FamilyLedgerEntry.unresolved_components:
+    description: "signed family components for which no exact local evidence match was found"
+    collection: "calculated by deterministic assessment over the approved fingerprint"
+    derivation: "exact unique complement of matched signed components"
+    display: "shown as Unknown rather than absent"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-limit facts"
+
+  FamilyLedgerEntry.evidence_references:
+    description: "deduplicated bounded references supporting all matched family components"
+    collection: "calculated from matched component evidence rows"
+    derivation: "must equal the sorted union of component evidence references"
+    display: "grounds family overlap without exposing raw content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local evidence references"
+
+  FamilyLedgerEntry.disposition:
+    description: "closed deterministic local-evidence disposition for one signed family"
+    collection: "assigned by the significant-family assessor"
+    derivation: "closed not-assessed, unresolved, overlap, or not-recommendable state"
+    display: "summarises exact local overlap without claiming equivalence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic assessment result"
+
+  FamilyLedgerEntry.reason:
+    description: "bounded one-line explanation for the family disposition"
+    collection: "authored by the deterministic assessor from closed state"
+    derivation: "bounded safe single-line text"
+    display: "explains the evidence boundary of the family result"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic explanation"
+
   HumanCapability.capability_id:
     description: "stable local identity of one human-meaningful capability"
     collection: "assigned locally while grouping related system observations"
@@ -1165,6 +1345,556 @@ fields:
     deletion: not-stored
     audit: "ephemeral complete comparison ledger"
 
+  ComparisonLedger.ranked_recommendations:
+    description: "deterministically ordered recommendation candidates with one-based ranks"
+    collection: "derived locally from validated recommendation factors"
+    derivation: "sorted by reliability risk, job relevance, workflow leverage, evidence strength, adoption effort, then catalogue identity"
+    display: "drives the explainable recommendation order in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral ranked recommendation tuple; no pseudo-percentage"
+
+  RecommendationFactors.reliability_risk:
+    description: "bounded urgency factor for a proved reliability or continuity risk"
+    collection: "assigned locally from evidence-bound diagnosis findings"
+    derivation: "integer from 0 through 3"
+    display: "explains recommendation urgency"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.job_relevance:
+    description: "bounded relevance factor for the person's confirmed jobs"
+    collection: "assigned locally from confirmed job evidence"
+    derivation: "integer from 0 through 3"
+    display: "explains recommendation fit to the person's work"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.workflow_leverage:
+    description: "bounded expected leverage across reconstructed workflows"
+    collection: "assigned locally from evidence-bound workflow analysis"
+    derivation: "integer from 0 through 3"
+    display: "explains the expected breadth of recommendation benefit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.evidence_strength:
+    description: "bounded strength of the evidence supporting a recommendation"
+    collection: "assigned locally from cited engine-owned evidence"
+    derivation: "integer from 1 through 3"
+    display: "explains how strongly the recommendation is grounded"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationFactors.adoption_effort:
+    description: "bounded effort factor for adopting the recommended capability"
+    collection: "assigned locally from the signed capability method"
+    derivation: "integer from 1 through 3; lower values sort first"
+    display: "explains the relative adoption effort"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic ranking factor"
+
+  RecommendationCandidate.catalogue_id:
+    description: "signed catalogue identity of one recommendation candidate"
+    collection: "selected from the verified catalogue"
+    derivation: "bounded catalogue identity"
+    display: "names the Dex capability being recommended"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  RecommendationCandidate.capability_id:
+    description: "human capability identity associated with one recommendation candidate"
+    collection: "selected from the local comparison grouping"
+    derivation: "bounded capability identity"
+    display: "groups the recommendation with the person's job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral capability grouping identity"
+
+  RecommendationCandidate.factors:
+    description: "closed ranking factors explaining one recommendation candidate"
+    collection: "assembled locally from bounded diagnosis evidence"
+    derivation: "validated RecommendationFactors record"
+    display: "shows the factors behind the deterministic rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral explainable ranking structure"
+
+  RecommendationCandidate.evidence_ids:
+    description: "engine-owned evidence tokens supporting one recommendation candidate"
+    collection: "selected from the current evidence fingerprint"
+    derivation: "one through eight unique opaque evidence tokens"
+    display: "shows the facts grounding the recommendation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence identities; raw content is unrepresentable"
+
+  RecommendationCandidate.observation_ids:
+    description: "optional local observation identities supporting one recommendation candidate"
+    collection: "selected from the current evidence fingerprint"
+    derivation: "unique bounded observation identities"
+    display: "links the recommendation to observed local facts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identities"
+
+  RecommendationCandidate.reason:
+    description: "bounded one-line explanation for one recommendation candidate"
+    collection: "authored locally from the comparison evidence"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "explains why the recommendation cleared the evidence bar"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  RankedRecommendation.rank:
+    description: "one-based deterministic recommendation rank"
+    collection: "derived locally after candidate ordering"
+    derivation: "integer from 1 through 10"
+    display: "shows the recommendation position in the local report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral deterministic rank; no pseudo-percentage"
+
+  RankedRecommendation.catalogue_id:
+    description: "signed catalogue identity of one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "bounded catalogue identity"
+    display: "names the Dex capability at this rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  RankedRecommendation.capability_id:
+    description: "human capability identity associated with one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "bounded capability identity"
+    display: "groups the ranked recommendation with the person's job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral capability grouping identity"
+
+  RankedRecommendation.factors:
+    description: "closed ranking factors retained on one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "validated RecommendationFactors record"
+    display: "explains the deterministic rank"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral explainable ranking structure"
+
+  RankedRecommendation.evidence_ids:
+    description: "engine-owned evidence tokens supporting one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "one through eight unique opaque evidence tokens"
+    display: "shows the facts grounding the ranked recommendation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence identities; raw content is unrepresentable"
+
+  RankedRecommendation.observation_ids:
+    description: "optional local observation identities supporting one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "unique bounded observation identities"
+    display: "links the rank to observed local facts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identities"
+
+  RankedRecommendation.reason:
+    description: "bounded one-line explanation for one ranked recommendation"
+    collection: "copied from the ordered recommendation candidate"
+    derivation: "at most 600 characters; control characters are refused"
+    display: "explains why the ranked recommendation cleared the evidence bar"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  ComparisonLedger.local_entries:
+    description: "one explicit disposition for every captured local observation"
+    collection: "assembled locally from the fingerprint and validated specialist mappings"
+    derivation: "validated for exact observation identity coverage, uniqueness, and source facts"
+    display: "provides the reciprocal local-observation accounting behind the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral complete local comparison ledger"
+
+  ComparisonLedger.mcp_tools_by_server:
+    description: "every complete exact MCP tool inventory grouped by its signed catalogue server"
+    collection: "copied locally from signature-verified catalogue MCP server entries"
+    derivation: "server-sorted tuple of complete inventories with each signed tool order preserved"
+    display: "provides every exact MCP tool under its server in the complete report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release facts"
+
+  ComparisonLedger.family_entries:
+    description: "one exact evidence-bound durable row for every signed capability family"
+    collection: "assembled locally from the verified family contract and approved fingerprint"
+    derivation: "validated for exact family identity, signed truth, component coverage, and evidence aggregates"
+    display: "drives significant-family coverage, strengths, reciprocal value, and the complete appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral complete family ledger; canonical report storage binds every row by digest"
+
+  ComparisonLedger.version_distance:
+    description: "optional family-level signed skill-lineage changes after one proven inspected Core release"
+    collection: "derived locally from a root Dex release marker and signature-verified skill release fields"
+    derivation: "present only for one unambiguous Dex Core release identity and at least one exact signed skill change"
+    display: "drives the bounded what-changed section while omitting families without signed lineage"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral release comparison; canonical report storage binds it by digest"
+
+  VersionDistance.inspected_version:
+    description: "Dex Core semantic version proven by the approved local snapshot"
+    collection: "copied from the allowlisted release-id attribute on one approved release observation"
+    derivation: "retained only when all relevant release observations agree"
+    display: "identifies the release being compared"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded release identity"
+
+  VersionDistance.current_version:
+    description: "Dex Core semantic version named by the signature-verified catalogue metadata"
+    collection: "copied from the verified signed catalogue envelope"
+    derivation: "signature-verified public release metadata"
+    display: "identifies the current comparison endpoint"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release identity"
+
+  VersionDistance.evidence_references:
+    description: "bounded approved references proving the inspected Core release identity"
+    collection: "copied from the approved release observations"
+    derivation: "deduplicated, sorted, and capped at eight references"
+    display: "kept in the canonical appendix rather than exposed as a private path in human prose"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral release evidence references"
+
+  VersionDistance.families:
+    description: "exact family rows containing at least one signed skill introduction or change after the inspected release"
+    collection: "derived from the verified family contract and signed skill since_release and changed_in fields"
+    derivation: "families without signed release lineage in the compared interval are omitted, never treated as unchanged"
+    display: "renders only proven family-level release changes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family release comparison"
+
+  FamilyDelta.family_id:
+    description: "signed identity of the capability family in a version-distance row"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "anchors one family comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family identity"
+
+  FamilyDelta.title:
+    description: "signed human-readable capability family title"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "heads the family comparison"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family title"
+
+  FamilyDelta.outcome:
+    description: "signed plain-language outcome of the capability family"
+    collection: "copied from the signature-verified family contract"
+    derivation: "validated as exact signed family truth"
+    display: "explains the family without requiring technical catalogue rows"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public family outcome"
+
+  FamilyDelta.current_version:
+    description: "current signed Core semantic version for this family comparison"
+    collection: "copied from the verified catalogue envelope"
+    derivation: "validated to equal the parent version-distance endpoint"
+    display: "supports the family comparison context"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public release identity"
+
+  FamilyDelta.inspected_version:
+    description: "approved local Core semantic version for this family comparison"
+    collection: "copied from the proven release observation"
+    derivation: "validated to equal the parent version-distance endpoint"
+    display: "supports the family comparison context"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded release identity"
+
+  FamilyDelta.availability:
+    description: "current family availability derived from signed member capability states"
+    collection: "derived from the verified member entries"
+    derivation: "uses the one canonical leaf availability rule"
+    display: "states whether the current family is available, partial, or unavailable"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral derived public availability"
+
+  FamilyDelta.introduced_member_ids:
+    description: "signed skill members whose since_release is after the inspected release and no later than the current release"
+    collection: "derived from signature-verified skill since_release fields"
+    derivation: "exact ordered subset of signed family membership with bounded SemVer comparison"
+    display: "names the exact newly introduced signed skill entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyDelta.changed_member_ids:
+    description: "signed skill members with a changed_in release after the inspected release and no later than the current release"
+    collection: "derived from signature-verified skill changed_in fields"
+    derivation: "exact ordered family subset excluding entries already classified as introduced"
+    display: "names the exact signed skill entries changed after the inspected release"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyDelta.available_member_ids:
+    description: "signed family members currently available"
+    collection: "derived from the verified member entries"
+    derivation: "exact ordered subset of signed family membership"
+    display: "supports the family availability proof"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyDelta.unavailable_member_ids:
+    description: "signed family members not currently available"
+    collection: "derived from the verified member entries"
+    derivation: "exact ordered complement of available family members"
+    display: "supports honest partial or unavailable family status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  FamilyDelta.recommendable_member_ids:
+    description: "signed family members current catalogue rules allow Lens to recommend"
+    collection: "derived from the verified member entries"
+    derivation: "equal to available members under the canonical recommendation rule"
+    display: "prevents unavailable family members being pitched"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identities"
+
+  McpToolInventory.server_id:
+    description: "signed catalogue capability identity for one MCP server tool group"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated as a bounded catalogue identity"
+    display: "anchors one exact MCP tool group in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  McpToolInventory.server_name:
+    description: "signed runtime name of the MCP server owning this exact tool group"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated as a bounded MCP server name"
+    display: "labels the server above its exact tools in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue server name"
+
+  McpToolInventory.inventory_status:
+    description: "whether the signed MCP tool list is complete or a published sample"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated against the closed sampled or complete states"
+    display: "prevents sampled tool examples being described as a complete inventory"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue inventory scope"
+
+  McpToolInventory.declared_tool_count:
+    description: "signed total number of tools declared for one MCP server"
+    collection: "copied from the signature-verified catalogue MCP server entry"
+    derivation: "validated against the published complete or sampled tool tuple"
+    display: "reports total MCP breadth without inventing identities omitted from a sample"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue tool count"
+
+  McpToolInventory.tools:
+    description: "signed complete tool tuple or signed published examples for one MCP server"
+    collection: "copied from the matching complete or sampled fields of the signature-verified catalogue entry"
+    derivation: "validated as non-empty, unique bounded tool identities with signed order preserved and explicit inventory scope"
+    display: "lists the exact published identities under their server while identifying samples as incomplete"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue tool identities"
+
+  LocalObservationDisposition.observation_id:
+    description: "opaque stable identity of one source-bound local observation"
+    collection: "derived locally from observation kind, identity, and source identity"
+    derivation: "canonical SHA-256 observation identity"
+    display: "anchors one exact local observation appendix row"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identity"
+
+  LocalObservationDisposition.kind:
+    description: "closed class of the local observation receiving a disposition"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed ObservationKind vocabulary"
+    display: "explains which local system surface was observed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation structure"
+
+  LocalObservationDisposition.identity:
+    description: "bounded stable identity copied from the local observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated as a bounded observation identity"
+    display: "names the safe local observation without raw content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral safe observation identity"
+
+  LocalObservationDisposition.configuration_state:
+    description: "configuration or installation state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed ConfigurationState vocabulary"
+    display: "keeps the independently observed configuration fact in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local configuration fact"
+
+  LocalObservationDisposition.runtime_state:
+    description: "runtime or execution state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed RuntimeState vocabulary"
+    display: "keeps the independently observed runtime fact in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local runtime fact"
+
+  LocalObservationDisposition.health_state:
+    description: "explicit health-check state copied from the local evidence observation"
+    collection: "copied from the verified evidence fingerprint"
+    derivation: "validated through the closed HealthState vocabulary"
+    display: "keeps the independently observed health fact in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local health fact"
+
+  LocalObservationDisposition.disposition:
+    description: "closed answer for how one local observation maps in this comparison"
+    collection: "assigned locally from validated specialist evidence"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "shows whether the local observation was assessed or remains unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence-led local judgement"
+
+  LocalObservationDisposition.mapped_catalogue_ids:
+    description: "signed Dex catalogue identities mapped to this local observation"
+    collection: "copied from validated specialist mappings"
+    derivation: "validated against the exact catalogue identity set"
+    display: "connects local evidence to the Dex entries it informs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public identity mapping"
+
+  LocalObservationDisposition.mapped_capability_ids:
+    description: "human capability identities mapped to this local observation"
+    collection: "copied from validated specialist mappings"
+    derivation: "validated against the current comparison capability set"
+    display: "connects local evidence to the jobs it informs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local identity mapping"
+
+  LocalObservationDisposition.evidence_references:
+    description: "non-raw evidence references supporting this local disposition"
+    collection: "copied from the fingerprint or validated specialist evidence tokens"
+    derivation: "validated as unique bounded locators or digests"
+    display: "supports the local observation row without exposing content"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence references"
+
+  LocalObservationDisposition.reason:
+    description: "bounded one-line explanation for the local observation disposition"
+    collection: "authored locally from validated comparison evidence"
+    derivation: "bounded single-line text"
+    display: "explains why the local observation received its answer"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local explanation"
+
+  LocalObservationDisposition.limitation:
+    description: "bounded explicit limit on what the local observation proves"
+    collection: "authored locally from the observation evidence boundary"
+    derivation: "bounded single-line text"
+    display: "keeps local evidence limits visible in the report appendix"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local limitation"
+
   ComparisonLedger.reciprocal_answer:
     description: "bounded answer describing what Dex could learn from the person's system"
     collection: "authored locally from evidenced transferable methods"
@@ -1174,6 +1904,246 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral local answer; never transmitted without a later separate consent path"
+
+  ComparisonLedger.workflow_graph:
+    description: "evidence-bound reconstructed workflow graph for one diagnosis"
+    collection: "assembled locally from deterministic detectors"
+    derivation: "WorkflowGraph built from the approved fingerprint"
+    display: "supports cross-surface workflow insights in the report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow graph"
+
+  ComparisonLedger.work_audit:
+    description: "packet completion audit for one guided analysis run"
+    collection: "derived locally from the persisted work queue and receipts"
+    derivation: "WorkAudit summarising packet completion and provenance"
+    display: "binds autonomous completion claims to packet receipts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided-analysis audit"
+
+  ComparisonLedger.expectations:
+    description: "versioned Wow Gate expectation rows for every significant family"
+    collection: "joined locally from signed family assessments"
+    derivation: "one SignificantExpectation per manifest family ID"
+    display: "drives significant-family coverage grading"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation manifest rows"
+
+  ComparisonLedger.strengths:
+    description: "evidence-bound strengths surfaced in the report"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight strength rows"
+    display: "shown under What is especially strong here"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded strength insights"
+
+  ComparisonLedger.reciprocal_lessons:
+    description: "evidence-bound reciprocal lessons for Dex"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight reciprocal-lesson rows"
+    display: "shown under What Dex should learn from you"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded reciprocal lessons"
+
+  ComparisonLedger.workflow_insights:
+    description: "accepted cross-surface workflow insights"
+    collection: "derived locally from reconciled specialist proposals"
+    derivation: "tuple of GroundedInsight workflow-connection rows"
+    display: "shown under Connections Lens noticed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded workflow insights"
+
+  SignificantExpectation.family_id:
+    description: "signed significant-family identity for one expectation row"
+    collection: "copied from the Wow Gate manifest"
+    derivation: "must match one signed catalogue family exactly once"
+    display: "anchors one expectation row to a family"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation family identity"
+
+  SignificantExpectation.state:
+    description: "closed evidence state for one significant-family expectation"
+    collection: "derived locally from family assessment"
+    derivation: "one ExpectationState value"
+    display: "records whether the family is present, partial, absent, or unknown"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation state"
+
+  SignificantExpectation.evidence_ids:
+    description: "evidence identities supporting one expectation row"
+    collection: "copied from the family assessment evidence references"
+    derivation: "unique bounded evidence tokens"
+    display: "binds each expectation to cited evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation evidence binding"
+
+  SignificantExpectation.reason:
+    description: "bounded explanation for one expectation row"
+    collection: "copied from the family assessment reason"
+    derivation: "single bounded line of text"
+    display: "explains the expectation state in plain language"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral expectation explanation"
+
+  GroundedInsight.insight_id:
+    description: "stable identity for one grounded insight"
+    collection: "assigned locally during reconciliation"
+    derivation: "bounded insight identity"
+    display: "anchors one insight in the ledger and report"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight identity"
+
+  GroundedInsight.kind:
+    description: "closed kind for one grounded insight"
+    collection: "assigned locally from the reconciled proposal role"
+    derivation: "one InsightKind value"
+    display: "distinguishes strengths, lessons, and workflow connections"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight classification"
+
+  GroundedInsight.title:
+    description: "bounded title for one grounded insight"
+    collection: "derived locally from reconciled proposal content"
+    derivation: "single bounded title line"
+    display: "headline for one insight section"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight title"
+
+  GroundedInsight.explanation:
+    description: "bounded explanation for one grounded insight"
+    collection: "derived locally from reconciled proposal content"
+    derivation: "single bounded explanation line"
+    display: "explains one insight in plain language"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight explanation"
+
+  GroundedInsight.evidence_ids:
+    description: "evidence identities supporting one grounded insight"
+    collection: "copied from reconciled proposal evidence"
+    derivation: "one to eight unique bounded evidence tokens"
+    display: "refuses unsupported insight claims"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight evidence binding"
+
+  GroundedInsight.observation_ids:
+    description: "observation identities cited by one grounded insight"
+    collection: "copied from reconciled proposal observations"
+    derivation: "unique bounded observation tokens"
+    display: "binds insights to local observations when present"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight observation binding"
+
+  GroundedInsight.workflow_ids:
+    description: "workflow identities cited by one grounded insight"
+    collection: "copied from reconciled workflow synthesis proposals"
+    derivation: "unique bounded workflow tokens"
+    display: "binds insights to reconstructed workflows when present"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grounded insight workflow binding"
+
+  WowGrade.significant_coverage:
+    description: "Wow Gate points for significant-family expectation coverage"
+    collection: "derived locally from typed expectation rows"
+    derivation: "integer from 0 through 25"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.workflow_quality:
+    description: "Wow Gate points for workflow reconstruction quality"
+    collection: "derived locally from workflow graph edges"
+    derivation: "integer from 0 through 20"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.recommendation_quality:
+    description: "Wow Gate points for ranked recommendation quality"
+    collection: "derived locally from ranked recommendations"
+    derivation: "integer from 0 through 20"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.reciprocal_quality:
+    description: "Wow Gate points for grounded strengths and reciprocal lessons"
+    collection: "derived locally from grounded insights"
+    derivation: "integer from 0 through 15"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.evidence_integrity:
+    description: "Wow Gate points for evidence integrity and operational honesty"
+    collection: "derived locally from ledger facts"
+    derivation: "integer from 0 through 15"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.autonomy_and_clarity:
+    description: "Wow Gate points for one-request autonomy and clear close"
+    collection: "derived locally from work audit completion"
+    derivation: "integer from 0 through 5"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
+  WowGrade.hard_failures:
+    description: "closed Wow Gate hard-failure reasons for one run"
+    collection: "derived locally from typed ledger and audit facts"
+    derivation: "tuple of bounded failure tokens"
+    display: "fails the run regardless of numeric score"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral Wow Gate hard-failure list"
 
   LedgerSummary.total:
     description: "exact catalogue entry count derived from one comparison ledger"
@@ -1535,6 +2505,106 @@ fields:
     deletion: not-stored
     audit: "ephemeral grouping identities"
 
+  CandidateBaseline.candidate_id:
+    description: "deterministic identity for one candidate before sceptical review"
+    collection: "derived from the candidate kind, catalogue identity, and capability identity"
+    derivation: "candidate_id_for canonical sha256 identity"
+    display: "joins sceptical decisions to the exact accepted candidate"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate baseline identity"
+
+  CandidateBaseline.kind:
+    description: "closed proposal kind retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "validated through the closed ProposalKind vocabulary"
+    display: "prevents sceptical proposals changing the semantic claim"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate claim kind"
+
+  CandidateBaseline.catalogue_id:
+    description: "catalogue identity retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "bounded signed-catalogue identity"
+    display: "prevents sceptical proposals switching the candidate entry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue identity"
+
+  CandidateBaseline.capability_id:
+    description: "capability identity retained on the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "bounded capability identity"
+    display: "prevents sceptical proposals switching the candidate capability"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral grouping identity"
+
+  CandidateBaseline.original_disposition:
+    description: "original accepted disposition before sceptical review"
+    collection: "copied from the accepted normal proposal"
+    derivation: "validated through the closed Disposition vocabulary"
+    display: "limits sceptical review to acceptance or a bounded downgrade"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral pre-review disposition"
+
+  CandidateBaseline.recommendation_factors:
+    description: "original ranking factors retained for the candidate"
+    collection: "copied from the accepted recommendation proposal when applicable"
+    derivation: "validated RecommendationFactors; required for recommendations"
+    display: "prevents sceptical factor inflation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate ranking factors"
+
+  CandidateBaseline.evidence_ids:
+    description: "canonical evidence identities supporting the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "unique bounded evidence tokens sorted canonically"
+    display: "supports unchanged sceptical evidence retention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate evidence tokens"
+
+  CandidateBaseline.observation_ids:
+    description: "canonical observation identities supporting the candidate baseline"
+    collection: "copied from the accepted normal proposal"
+    derivation: "unique bounded observation identities sorted canonically"
+    display: "supports unchanged sceptical observation retention"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate observation identities"
+
+  CandidateBaseline.disputed_dispositions:
+    description: "closed disposition set the normal packets proposed for a disputed candidate"
+    collection: "derived from conflicting accepted normal proposals for one candidate"
+    derivation: "unique closed Disposition values sorted canonically; empty when undisputed"
+    display: "limits sceptical adjudication to a proposed disposition or a bounded downgrade"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral disputed disposition set"
+
+  CandidateBaseline.disputed_recommendation_factors:
+    description: "complete factor tuples the normal packets proposed for a disputed recommendation"
+    collection: "derived from conflicting accepted recommendation proposals for one candidate"
+    derivation: "unique validated RecommendationFactors tuples sorted canonically; empty when undisputed"
+    display: "limits sceptical adjudication factors to a proposed tuple"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral disputed factor tuples"
+
   SpecialistProposal.role:
     description: "closed specialist role that authored this untrusted proposal"
     collection: "declared by the submitting adapter or host assistant"
@@ -1585,6 +2655,26 @@ fields:
     deletion: not-stored
     audit: "ephemeral public catalogue digest"
 
+  SpecialistProposal.packet_id:
+    description: "opaque issued work-packet identity this proposal answers"
+    collection: "copied from the engine-issued specialist packet"
+    derivation: "packet digest prefixed with packet"
+    display: "used to refuse proposals for another assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity"
+
+  SpecialistProposal.packet_digest:
+    description: "work-packet digest this proposal claims to answer"
+    collection: "copied from the engine-issued specialist packet"
+    derivation: "must match the exact issued packet digest"
+    display: "used to refuse stale or substituted packet responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet integrity binding"
+
   SpecialistProposal.catalogue_id:
     description: "one signed catalogue identity this proposal is about"
     collection: "selected from the issued shard"
@@ -1604,6 +2694,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral grouping identity"
+
+  SpecialistProposal.candidate_id:
+    description: "opaque candidate identity this proposal accepts or challenges"
+    collection: "copied from the engine's accepted candidate set when present"
+    derivation: "bounded candidate identity"
+    display: "joins a sceptical proposal to an existing candidate"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate provenance identity"
 
   SpecialistProposal.disposition:
     description: "proposed closed comparison answer; untrusted until reconciled"
@@ -1635,6 +2735,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral local explanation"
 
+  SpecialistProposal.recommendation_factors:
+    description: "optional closed ranking factors attached to a recommendation proposal"
+    collection: "assigned by the specialist from bounded diagnosis evidence"
+    derivation: "validated RecommendationFactors; absent for non-recommendation claims"
+    display: "kept as untrusted ranking rationale until proposal validation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted ranking structure"
+
   ProposalContext.run_id:
     description: "current diagnosis run a proposal must bind to"
     collection: "copied from the active run identity"
@@ -1644,6 +2754,16 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral run handle"
+
+  ProposalContext.analysis_mode:
+    description: "closed mode governing whether semantic packet work is enabled"
+    collection: "copied from the diagnosis request or stored-run compatibility mode"
+    derivation: "inventory-only or guided-analysis"
+    display: "explains whether packet-bound specialist work is required"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed proposal-context mode"
 
   ProposalContext.fingerprint_digest:
     description: "current fingerprint digest proposals may cite"
@@ -1664,6 +2784,36 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral public catalogue digest"
+
+  ProposalContext.packet_id:
+    description: "opaque issued packet identity required for guided proposals"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "packet digest prefixed with packet"
+    display: "binds proposals to exactly one issued assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided packet routing identity"
+
+  ProposalContext.packet_digest:
+    description: "issued packet digest required for guided proposals"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "SHA-256 binding of the packet content"
+    display: "binds every allowed identity set to the assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral guided packet integrity binding"
+
+  ProposalContext.packet_role:
+    description: "closed role assigned to the current guided packet"
+    collection: "copied from the engine-issued specialist packet when guided"
+    derivation: "validated through SpecialistRole"
+    display: "refuses role masquerading across packet assignments"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed packet role"
 
   ProposalContext.evidence_ids:
     description: "engine-owned evidence tokens valid for this fingerprint"
@@ -1694,6 +2844,26 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral grouping identities"
+
+  ProposalContext.accepted_candidate_ids:
+    description: "canonical candidate identities accepted before sceptical review"
+    collection: "assembled by the engine from validated normal proposals"
+    derivation: "unique bounded identities sorted canonically"
+    display: "limits sceptical review to existing candidates"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical reconciliation allowlist"
+
+  ProposalContext.accepted_candidates:
+    description: "canonical baseline state for candidates accepted before sceptical review"
+    collection: "assembled by the engine from validated normal proposals"
+    derivation: "unique CandidateBaseline values sorted by candidate identity"
+    display: "gives sceptical review the exact semantic and evidence baseline"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical candidate baseline state"
 
   ProposalContext.held_ids:
     description: "catalogue identities that are not available to recommend"
@@ -1755,6 +2925,36 @@ fields:
     deletion: not-stored
     audit: "ephemeral grouping identity"
 
+  ValidatedProposal.packet_id:
+    description: "issued packet identity retained on one validated proposal"
+    collection: "copied from the validated specialist proposal"
+    derivation: "must match the guided ProposalContext packet when present"
+    display: "supports packet-level proposal reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity"
+
+  ValidatedProposal.packet_digest:
+    description: "issued packet digest retained on one validated proposal"
+    collection: "copied from the validated specialist proposal"
+    derivation: "must match the guided ProposalContext packet digest when present"
+    display: "supports stale-response refusal and audit"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet integrity binding"
+
+  ValidatedProposal.candidate_id:
+    description: "candidate identity retained on one validated proposal"
+    collection: "copied from the validated specialist proposal when present"
+    derivation: "bounded candidate identity"
+    display: "supports deterministic sceptical reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral candidate provenance identity"
+
   ValidatedProposal.disposition:
     description: "accepted disposition, or not-assessed when specialists disagreed"
     collection: "copied from matching proposals or forced to not-assessed on conflict"
@@ -1784,6 +2984,26 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral local explanation"
+
+  ValidatedProposal.recommendation_factors:
+    description: "closed ranking factors retained on an accepted recommendation proposal"
+    collection: "copied from a validated recommendation proposal"
+    derivation: "validated RecommendationFactors; absent for non-recommendation claims"
+    display: "makes the recommendation's deterministic rank explainable"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated ranking structure"
+
+  ValidatedProposal.disputed:
+    description: "engine-set structural fact that this coalesced result records a specialist dispute"
+    collection: "set only by deterministic coalesce/reconciliation when dispositions or factor tuples conflict"
+    derivation: "boolean; the wire proposal model has no such field, so no specialist input can set it"
+    display: "keys the ledger's disagreement priority instead of specialist-authored reason text"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconciled dispute marker"
 
   PersistedScopeApproval.run_id:
     description: "run identity for a locally persisted scope approval"
@@ -1917,6 +3137,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "local approval time only"
 
+  ApprovedScopeReceipt.include_live_state:
+    description: "whether this consent receipt explicitly includes a read-only host live-state check"
+    collection: "selected by the person on the local consent surface"
+    derivation: "strict boolean; omitted legacy receipts default to false"
+    display: "controls whether operating-system runtime state may be collected"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "explicit consent scope flag; never inferred from configuration files"
+
   RunIdentity.run_id:
     description: "opaque public identity for one diagnosis run"
     collection: "assigned at prepare before any read"
@@ -1952,6 +3184,18 @@ fields:
     sharing: never
     deletion: delete-diagnosis-run-state
     audit: "product schema marker only"
+
+  RunIdentity.analysis_mode:
+    description: "digest-chain analysis mode chosen at prepare time"
+    collection: "copied from the prepare request before any read"
+    derivation: "closed inventory-only or guided-analysis value"
+    display: "never shown directly; binds guided runs before diagnosis input exists"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "pre-confirmation mode authority bound into the run identity artifact"
 
   RunIdentity.created_at:
     description: "timezone-aware moment the run identity was created"
@@ -2072,6 +3316,18 @@ fields:
     sharing: never
     deletion: delete-diagnosis-run-state
     audit: "nested inventoried contracts; no unconfirmed drafts"
+
+  DiagnosisInput.analysis_mode:
+    description: "closed analysis mode selected for the diagnosis run"
+    collection: "copied from the prepare request when jobs are confirmed"
+    derivation: "guided-analysis for new product runs; inventory-only for explicit compatibility or migrated legacy inputs"
+    display: "controls whether engine-issued semantic work is required"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed mode marker; never inferred from collected evidence"
 
   DiagnosisInput.assessed_at:
     description: "timezone-aware assessment instant fixed for this run"
@@ -2217,6 +3473,18 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "product guidance only"
 
+  DiagnosisRunView.required_step:
+    description: "typed next step required to advance the diagnosis run"
+    collection: "derived by the engine from the closed diagnosis stage"
+    derivation: "validated through the closed RequiredStep vocabulary"
+    display: "returned by CLI and MCP without parsing error strings"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed progress marker only"
+
   DiagnosisRunView.input_identity:
     description: "optional SHA-256 of the execution input once it exists"
     collection: "copied after scope approval binds an input identity"
@@ -2240,6 +3508,18 @@ fields:
     sharing: never
     deletion: delete-diagnosis-run-state
     audit: "local URL only; no token query string"
+
+  PersistedCandidateScope.analysis_mode:
+    description: "closed analysis mode carried from prepare into the durable run input"
+    collection: "copied from the diagnosis prepare request"
+    derivation: "guided-analysis for new runs; inventory-only when omitted by legacy stored state"
+    display: "controls whether specialist work packets are issued after job confirmation"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/ outside inspected roots"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local mode marker only; no private path or content"
 
   SafeAttribute.key:
     description: "closed allowlisted name for one privacy-safe observation attribute"
@@ -2291,15 +3571,35 @@ fields:
     deletion: not-stored
     audit: "ephemeral label visible only during the local session"
 
-  Observation.operational_state:
-    description: "closed state describing how far a capability is proved to operate"
-    collection: "assigned locally from the evidence actually observed"
-    derivation: "validated through OperationalState separately from evidence provenance"
-    display: "explains whether something is declared, installed, running, or outcome-verified"
+  Observation.configuration_state:
+    description: "closed configuration axis for one observed capability"
+    collection: "assigned locally from the approved snapshot declaration"
+    derivation: "validated through the closed ConfigurationState vocabulary"
+    display: "explains whether configuration is declared, implemented, installed, enabled, disabled, or absent"
     storage: none
     sharing: never
     deletion: not-stored
-    audit: "ephemeral local assessment that never upgrades configuration into outcome proof"
+    audit: "ephemeral configuration fact; it never implies runtime or health"
+
+  Observation.runtime_state:
+    description: "closed runtime axis for one observed capability"
+    collection: "assigned only from an explicitly approved live-state check or outcome evidence"
+    derivation: "validated through the closed RuntimeState vocabulary"
+    display: "explains whether execution is loaded, running, recently run, stale, or not assessed"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral runtime fact; configuration alone cannot populate it"
+
+  Observation.health_state:
+    description: "closed health axis for one observed capability"
+    collection: "assigned only from an explicit health check"
+    derivation: "validated through the closed HealthState vocabulary"
+    display: "explains whether an explicit check found healthy, broken, stale, disabled, or unknown health"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral health fact; file presence never upgrades it to healthy"
 
   Observation.evidence:
     description: "typed evidence item supporting one operational observation"
@@ -7489,6 +8789,296 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  McpServerCapabilityEntryV2.tools:
+    description: "complete exact tool names exposed by the MCP server when inventory is complete"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a unique tuple of exact snake_case tool names"
+    display: "used locally to prove exact MCP tool component references"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpServerCapabilityEntryV2.tool_inventory:
+    description: "whether the MCP tool tuple is sampled or complete"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal sampled or complete; complete inventories are count-checked"
+    display: "shown locally when explaining whether exact tool coverage is proven"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityReferenceV2.component_type:
+    description: "closed discriminator identifying a capability component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal capability"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  CapabilityReferenceV2.capability_id:
+    description: "canonical signed capability id referenced by a family component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the exact catalogue capability identity set"
+    display: "shown locally as a family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.component_type:
+    description: "closed discriminator identifying an exact MCP tool component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal mcp-tool"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.server_id:
+    description: "canonical MCP server capability id or published server name"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against an MCP entry with a complete tool inventory"
+    display: "shown locally as the exact server owning a tool component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  McpToolReferenceV2.tool_name:
+    description: "exact snake_case MCP tool name referenced by a family component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the referenced server's complete tools tuple"
+    display: "shown locally as an exact tool component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  NangoProviderReferenceV2.component_type:
+    description: "closed discriminator identifying a Nango provider component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal nango-provider"
+    display: "used locally to render a typed provider component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  NangoProviderReferenceV2.provider_id:
+    description: "safe bounded provider type slug from the Nango catalogue"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded provider slug; account and workspace identities are excluded"
+    display: "shown locally as a provider type only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no account, workspace, token, or credential data"
+
+  NangoProviderReferenceV2.source_package:
+    description: "exact package identity from which the provider type was reviewed"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal @nangohq/providers"
+    display: "shown locally as provider-source provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.source_version:
+    description: "semantic version of the pinned provider source package"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as MAJOR.MINOR.PATCH"
+    display: "shown locally as provider-source provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.dex_support:
+    description: "whether Dex supports the referenced provider type"
+    collection: "reviewed by the Dex Core release process"
+    derivation: "closed literal supported or unsupported; not inferred from security review"
+    display: "shown locally as a separate support fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  NangoProviderReferenceV2.security_vetted:
+    description: "whether the referenced provider type has a separate security review"
+    collection: "reviewed by the Dex Core security process"
+    derivation: "boolean independent from dex_support"
+    display: "shown locally as a separate security fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  SourceComponentReferenceV2.component_type:
+    description: "closed discriminator identifying a reviewed source component reference"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal source-component"
+    display: "used locally to render a typed family component"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product data; contains no personal system data"
+
+  SourceComponentReferenceV2.component_id:
+    description: "bounded kebab-case identity of a reviewed source component"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a safe bounded component slug; raw paths are excluded"
+    display: "shown locally as a source component fact"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  AutomaticAssessmentV2.mode:
+    description: "closed discriminator identifying an automatic family assessment"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal automatic"
+    display: "shown locally as the family assessment mode"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  AutomaticAssessmentV2.profile:
+    description: "closed name of a built-in read-only detector profile"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated against Lens's closed assessment profile vocabulary"
+    display: "shown locally as the family assessment profile"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; no arbitrary command or detector code is retained"
+
+  ManualOnlyAssessmentV2.mode:
+    description: "closed discriminator identifying a manual-only family assessment"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "closed literal manual-only"
+    display: "shown locally as the family assessment mode"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  ManualOnlyAssessmentV2.reason:
+    description: "bounded plain-language reason an assessment remains manual-only"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; no commands or detector code"
+    display: "shown locally to explain why no automatic detector runs"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityAliasV2.alias:
+    description: "human-friendly alias for one canonical signed capability id"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded id and unique across aliases"
+    display: "used locally as a convenience lookup name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityAliasV2.capability_id:
+    description: "canonical signed capability id targeted by an alias"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "cross-checked against the exact catalogue capability identity set"
+    display: "used locally to resolve a capability alias"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.family_id:
+    description: "stable public id of a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a bounded id and unique across families"
+    display: "used locally to identify a family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.title:
+    description: "plain-language title of a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; rendered as escaped text"
+    display: "shown locally as the family heading"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.outcome:
+    description: "plain-language outcome the family represents"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "bounded single-line text; rendered as escaped text"
+    display: "shown locally as the family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.jobs:
+    description: "public job taxonomy ids served by this capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against jobs_taxonomy"
+    display: "used locally to organize family outcomes by job"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.aliases:
+    description: "human-friendly aliases for a signed capability family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids in one family alias namespace"
+    display: "used locally as convenience lookup names"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.member_capability_ids:
+    description: "exact canonical capability ids making up the family"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as unique ids and cross-checked against capabilities"
+    display: "shown locally beneath the family outcome"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.components:
+    description: "typed reviewed components supporting the family outcome"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated through the closed component union and exact identity checks"
+    display: "shown locally as family support details"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CapabilityFamilyV2.assessment:
+    description: "closed automatic-detector or manual-only assessment declaration"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated through the closed assessment union"
+    display: "shown locally as family assessment provenance"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; no arbitrary commands or detector code are retained"
+
   ScheduledAutomationCapabilityEntryV2.capability_id:
     description: "stable public Dex capability id"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
@@ -7869,6 +9459,26 @@ fields:
     deletion: not-stored
     audit: "public product data; contains no personal system data"
 
+  CatalogueV2.capability_aliases:
+    description: "optional public aliases resolving to canonical capability ids"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a closed tuple with unique aliases and known targets"
+    display: "used locally for convenience lookup without changing canonical identity"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; contains no personal system data"
+
+  CatalogueV2.capability_families:
+    description: "optional signed significant capability families"
+    collection: "authored by the Dex Core release pipeline and verified locally by Lens"
+    derivation: "validated as a closed tuple with exact jobs, members, components, and assessment"
+    display: "used locally to explain connected outcomes over detailed capability entries"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "public product metadata; family availability is derived from member entries and never stored"
+
   CatalogueV2.portable_brief:
     description: "public portable brief contract for the catalogue"
     collection: "authored by the Dex Core release pipeline and verified locally by Lens"
@@ -8096,3 +9706,583 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "local bridge state only; no personal system content"
+
+  SpecialistShard.observation_ids:
+    description: "local observation identities present in the specialist shard"
+    collection: "copied from the exact captured fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "limits which local observations a specialist may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identities"
+
+  SpecialistProposal.observation_ids:
+    description: "local observation identities cited by one specialist proposal"
+    collection: "selected from the current specialist shard"
+    derivation: "validated against the exact fingerprint observation identity set"
+    display: "shows which local facts the untrusted claim concerns"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted observation mapping"
+
+  ProposalContext.observation_ids:
+    description: "local observation identities valid for this specialist context"
+    collection: "copied from the captured evidence fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "the only local observations proposals may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-owned observation identities"
+
+  ValidatedProposal.observation_ids:
+    description: "validated local observation identities retained on a proposal"
+    collection: "copied from a specialist proposal after identity checks"
+    derivation: "unique identities accepted by ProposalContext"
+    display: "feeds deterministic local-observation ledger mappings"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral validated observation mapping"
+
+  WorkPacket.packet_id:
+    description: "opaque identity of one engine-issued specialist work packet"
+    collection: "derived from the canonical packet role and allowed identities"
+    derivation: "packet digest prefixed with packet"
+    display: "used to request and submit exactly one bounded assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet routing identity; contains no raw private content"
+
+  WorkPacket.packet_digest:
+    description: "SHA-256 binding of the exact work packet content"
+    collection: "computed by the diagnosis engine when the packet is issued"
+    derivation: "canonical JSON digest over role, run, catalogue, and allowed identities"
+    display: "used to refuse stale or substituted packet responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral integrity binding for specialist work"
+
+  WorkPacket.role:
+    description: "closed specialist role assigned to one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "one of the eight normal roles or the sceptical reconciler"
+    display: "explains the bounded question the host assistant must answer"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed work assignment"
+
+  WorkPacket.run_id:
+    description: "diagnosis run identity bound into one work packet"
+    collection: "copied from the current diagnosis run"
+    derivation: "opaque run identity; raw scope paths are excluded"
+    display: "used to keep specialist work within one diagnosis"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral run binding"
+
+  WorkPacket.fingerprint_digest:
+    description: "captured fingerprint digest bound into one work packet"
+    collection: "copied from the verified diagnosis fingerprint"
+    derivation: "SHA-256 identity of the approved structural evidence set"
+    display: "used to reject work for a changed inspected system"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding"
+
+  WorkPacket.catalogue_digest:
+    description: "verified Dex catalogue digest bound into one work packet"
+    collection: "copied from the exact signed catalogue used by the run"
+    derivation: "SHA-256 identity of the verified catalogue bytes"
+    display: "used to reject work for a changed catalogue"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public-catalogue binding"
+
+  WorkPacket.evidence_ids:
+    description: "engine-issued evidence tokens available to one specialist"
+    collection: "copied from the exact captured diagnosis fingerprint"
+    derivation: "unique canonical evidence tokens; raw content is not included"
+    display: "limits which evidence a specialist response may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound work identities"
+
+  WorkPacket.catalogue_ids:
+    description: "Dex catalogue identities available to one specialist"
+    collection: "copied from the verified catalogue slice for this run"
+    derivation: "unique canonical catalogue identities"
+    display: "limits which Dex capabilities a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public capability identities"
+
+  WorkPacket.capability_ids:
+    description: "human capability identities available to one specialist"
+    collection: "copied from the confirmed capability context"
+    derivation: "unique canonical capability identities"
+    display: "limits which person methods a specialist may name"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded capability identities"
+
+  WorkPacket.observation_ids:
+    description: "local observation identities available to one specialist"
+    collection: "copied from the exact captured fingerprint"
+    derivation: "unique canonical observation identities"
+    display: "limits which local observations a specialist may cite"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral source-bound observation identities"
+
+  WorkPacket.family_ids:
+    description: "workflow family identities available to one specialist"
+    collection: "copied from the deterministic family assessment context"
+    derivation: "unique canonical family identities; omitted when unavailable"
+    display: "limits which capability families a specialist may discuss"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded family identities"
+
+  WorkPacket.workflow_ids:
+    description: "workflow identities available to one specialist"
+    collection: "copied from the deterministic workflow graph context"
+    derivation: "unique canonical workflow identities; omitted when unavailable"
+    display: "limits which reconstructed workflows a specialist may discuss"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded workflow identities"
+
+  WorkPacket.question:
+    description: "closed bounded question assigned to one specialist role"
+    collection: "authored by the diagnosis engine role manifest"
+    derivation: "fixed plain-language question for the closed role"
+    display: "shown to the chosen host assistant for one packet"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral protocol instruction; no private prompt content"
+
+  WorkPacket.max_attempts:
+    description: "maximum response attempts accepted for one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "fixed integer ceiling of two including the initial attempt"
+    display: "limits retries for malformed or unavailable specialist responses"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral retry-abuse prevention limit"
+
+  WorkPacket.max_proposals:
+    description: "maximum proposal count accepted for one work packet"
+    collection: "assigned by the deterministic diagnosis queue"
+    derivation: "bounded integer ceiling of twenty-four"
+    display: "limits specialist response size"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral abuse-prevention limit"
+
+  WorkReceipt.packet_id:
+    description: "packet identity acknowledged by one specialist response"
+    collection: "copied from the engine-issued work packet"
+    derivation: "must identify a pending packet in the current queue"
+    display: "joins a response to exactly one assignment"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response routing identity"
+
+  WorkReceipt.packet_digest:
+    description: "packet digest acknowledged by one specialist response"
+    collection: "copied from the engine-issued work packet"
+    derivation: "must exactly match the current packet digest"
+    display: "proves the response is not stale or substituted"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response integrity binding"
+
+  WorkReceipt.response_digest:
+    description: "SHA-256 binding of one bounded specialist response"
+    collection: "computed by the host adapter over the typed response"
+    derivation: "canonical response digest supplied with the receipt"
+    display: "supports idempotent replay and conflicting-response refusal"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral untrusted response integrity binding"
+
+  WorkReceipt.status:
+    description: "closed outcome status recorded for one work packet"
+    collection: "returned by the host assistant through the typed protocol"
+    derivation: "pending, completed, insufficient, or unresolved"
+    display: "shows whether the packet produced useful output or an honest gap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded specialist outcome"
+
+  WorkReceipt.submission_route:
+    description: "closed route through which one packet response was submitted"
+    collection: "assigned by the engine work-packet submission path"
+    derivation: "always engine-work-packet for this queue"
+    display: "supports provenance checks against manually seeded conclusions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response provenance marker"
+
+  WorkReceipt.attempt_count:
+    description: "one-based response attempt number for a work packet"
+    collection: "returned by the host assistant through the typed protocol"
+    derivation: "bounded to the initial attempt and one retry"
+    display: "shows whether a response used the one permitted retry"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded retry audit fact"
+
+  WorkReceipt.proposal_count:
+    description: "number of typed proposals carried by one packet response"
+    collection: "counted by the engine from the bounded response tuple"
+    derivation: "non-negative integer no greater than the packet limit"
+    display: "shown in packet audit totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral response-size audit fact"
+
+  EvidenceLegendRow.evidence_id:
+    description: "engine-minted opaque evidence token one legend row explains"
+    collection: "minted by the engine from the run, fingerprint digest, and observation key"
+    derivation: "digest-shaped token; carries no raw content"
+    display: "lets the local host cite packet evidence tokens without reading engine source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-owned citation token"
+
+  EvidenceLegendRow.observation_id:
+    description: "stable digest identity of the observation one legend row explains"
+    collection: "computed from the observation's kind, identity, and source"
+    derivation: "digest-shaped token; labels and paths never become identity"
+    display: "lets the local host cite packet observation identities"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observation identity for local citation"
+
+  EvidenceLegendRow.kind:
+    description: "closed observation class for one evidence legend row"
+    collection: "copied from the captured fingerprint observation"
+    derivation: "closed ObservationKind vocabulary"
+    display: "tells the local host what class of fact a token denotes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed classification"
+
+  EvidenceLegendRow.identity:
+    description: "bounded stable identity of the observed capability in one legend row"
+    collection: "copied from the captured fingerprint observation"
+    derivation: "normalised bounded machine identity; no raw payloads"
+    display: "identifies which observed capability a token denotes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral identity shown only on the local work surface"
+
+  EvidenceLegendRow.label:
+    description: "bounded human-readable label for the observation in one legend row"
+    collection: "copied from the captured, privacy-screened fingerprint observation"
+    derivation: "bounded text; commands, arguments, URLs, and raw note content are excluded"
+    display: "shown locally so the host can describe cited evidence to the person"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local-only label in the fingerprint trust domain"
+
+  EvidenceLegendRow.relative_reference:
+    description: "bounded source-relative locator for the observation in one legend row"
+    collection: "copied from the captured fingerprint observation provenance"
+    derivation: "non-raw locator; absolute, home, traversal, and secret-shaped values were refused at capture"
+    display: "locates cited local evidence within its opaque approved source"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral non-raw locator in the fingerprint trust domain"
+
+  EvidenceLegendRow.source_class:
+    description: "closed ownership class of the observation source in one legend row"
+    collection: "copied from the captured fingerprint observation provenance"
+    derivation: "closed SourceClass vocabulary"
+    display: "tells the local host which trust domain cited evidence came from"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed provenance class"
+
+  WorkQueue.mode:
+    description: "analysis mode governing one immutable specialist queue"
+    collection: "copied from the diagnosis request"
+    derivation: "inventory-only or guided-analysis"
+    display: "explains whether semantic specialist work was requested"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral queue mode"
+
+  WorkQueue.packets:
+    description: "ordered immutable packets issued by the diagnosis engine"
+    collection: "created deterministically from the run context and role manifest"
+    derivation: "eight normal packets followed by one locked sceptical packet in guided mode"
+    display: "drives the host assistant work loop"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral bounded specialist checklist"
+
+  WorkQueue.receipts:
+    description: "immutable response receipts reconciled into one work queue"
+    collection: "appended only after packet and digest validation"
+    derivation: "at most one receipt per issued packet"
+    display: "drives completion and unresolved-work status"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral specialist completion audit"
+
+  WorkQueue.sceptical_packet_id:
+    description: "identity of the mandatory sceptical reconciliation packet"
+    collection: "assigned when guided work is issued"
+    derivation: "the packet identity whose role is sceptical-reconciler"
+    display: "shows which final challenge remains locked until normal work completes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral sceptical-pass gate"
+
+  WorkAudit.mode:
+    description: "analysis mode recorded in the specialist work audit"
+    collection: "copied from the reconciled work queue"
+    derivation: "closed queue mode vocabulary"
+    display: "shown in run audit diagnostics"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work audit metadata"
+
+  WorkAudit.packet_count:
+    description: "number of packets issued by one specialist work queue"
+    collection: "counted from the immutable queue packet tuple"
+    derivation: "non-negative deterministic count"
+    display: "shown in exact run work totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work audit count"
+
+  WorkAudit.packet_ids:
+    description: "ordered packet identities included in one work audit"
+    collection: "copied from the deterministic work queue packet tuple"
+    derivation: "unique packet digest identities in role issuance order"
+    display: "binds the audit to exactly the packets issued by the engine"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral packet identity audit"
+
+  WorkAudit.queue_digest:
+    description: "SHA-256 binding of queue mode and ordered packet identities"
+    collection: "computed by the diagnosis engine when the work audit is built"
+    derivation: "canonical JSON digest over analysis mode and packet IDs"
+    display: "supports exact queue and audit reconciliation"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral queue integrity binding"
+
+  WorkAudit.completed_count:
+    description: "number of issued packets with a response receipt"
+    collection: "counted from the immutable queue receipt tuple"
+    derivation: "non-negative count including explicit insufficient or unresolved outcomes"
+    display: "shown in exact run work totals"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral work completion audit count"
+
+  WorkAudit.unresolved_count:
+    description: "number of packet receipts recorded as unresolved"
+    collection: "counted from typed receipt statuses"
+    derivation: "status equals unresolved"
+    display: "shown so missing semantic coverage stays visible"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest-gap audit count"
+
+  WorkAudit.manual_submission_count:
+    description: "number of packet responses submitted outside the engine route"
+    collection: "counted from typed receipt provenance markers"
+    derivation: "zero for the closed engine-work-packet route"
+    display: "used by the Wow Gate to refuse manually seeded conclusions"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral provenance audit count"
+
+  WorkAudit.receipts:
+    description: "receipts retained in the specialist work audit"
+    collection: "copied from the reconciled immutable work queue"
+    derivation: "ordered typed receipts with packet and response digests"
+    display: "supports exact packet-level audit review"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral specialist response audit"
+
+  WorkflowNode.node_id:
+    description: "closed structural identity for one workflow node"
+    collection: "derived from reviewed observation structure"
+    derivation: "bounded node identity without raw paths or prose"
+    display: "anchors evidence-bound workflow reconstruction"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral structural workflow identity"
+
+  WorkflowNode.kind:
+    description: "closed node kind for one workflow vertex"
+    collection: "assigned by deterministic workflow reconstruction"
+    derivation: "one of the closed NodeKind values"
+    display: "explains what structural role the node plays"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow node classification"
+
+  WorkflowNode.configuration_state:
+    description: "configuration axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed ConfigurationState vocabulary"
+    display: "states what configuration is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest configuration axis"
+
+  WorkflowNode.runtime_state:
+    description: "runtime axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed RuntimeState vocabulary"
+    display: "states what runtime behaviour is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest runtime axis"
+
+  WorkflowNode.health_state:
+    description: "health axis for one workflow node"
+    collection: "copied from supporting observations"
+    derivation: "closed HealthState vocabulary"
+    display: "states what health outcome is proved"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral honest health axis"
+
+  WorkflowNode.evidence_ids:
+    description: "evidence identities supporting one workflow node"
+    collection: "bound from exact observation identities"
+    derivation: "one to eight unique bounded evidence tokens"
+    display: "limits node claims to cited evidence"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding for workflow nodes"
+
+  WorkflowEdge.workflow_id:
+    description: "stable identity for one workflow edge"
+    collection: "derived from source, target, and edge kind"
+    derivation: "canonical digest over closed edge identity"
+    display: "joins specialist work to one reconstructed path"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge identity"
+
+  WorkflowEdge.source_id:
+    description: "source node identity for one workflow edge"
+    collection: "copied from reconstructed workflow nodes"
+    derivation: "bounded node identity"
+    display: "anchors the start of one proved relationship"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge source"
+
+  WorkflowEdge.target_id:
+    description: "target node identity for one workflow edge"
+    collection: "copied from reconstructed workflow nodes"
+    derivation: "bounded node identity"
+    display: "anchors the end of one proved relationship"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow edge target"
+
+  WorkflowEdge.kind:
+    description: "closed relationship kind for one workflow edge"
+    collection: "assigned by reviewed structural detectors"
+    derivation: "one of the closed EdgeKind values"
+    display: "explains how two nodes are related"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral workflow relationship classification"
+
+  WorkflowEdge.evidence_ids:
+    description: "evidence identities supporting one workflow edge"
+    collection: "bound from at least two independent observations"
+    derivation: "two to eight unique bounded evidence tokens"
+    display: "refuses single-evidence cross-surface claims"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral evidence binding for workflow edges"
+
+  WorkflowGraph.nodes:
+    description: "nodes in one reconstructed workflow graph"
+    collection: "assembled from deterministic detectors"
+    derivation: "sorted unique WorkflowNode tuple"
+    display: "supports cross-surface workflow insights"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow nodes"
+
+  WorkflowGraph.edges:
+    description: "edges in one reconstructed workflow graph"
+    collection: "assembled from deterministic detectors"
+    derivation: "sorted unique WorkflowEdge tuple"
+    display: "supports cross-surface workflow insights"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconstructed workflow edges"

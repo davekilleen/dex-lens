@@ -20,6 +20,8 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
 )
+from capability_exchange.diagnosis.specialists import candidate_id_for
+from capability_exchange.diagnosis.work import WorkQueueError
 
 RUN_ID = "run:" + "a" * 16
 CAPTURED_VIEW = DiagnosisRunView(
@@ -66,6 +68,50 @@ class FixedEngine:
         return self.view
 
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView:
+        return self.view
+
+    def work(self, run_id: str) -> dict[str, object] | None:
+        return {
+            "packet_id": "packet:sha256:" + "a" * 64,
+            "packet_digest": "sha256:" + "b" * 64,
+            "role": "tools-and-integrations",
+            "run_id": run_id,
+            "fingerprint_digest": "sha256:" + "c" * 64,
+            "catalogue_digest": "sha256:" + "d" * 64,
+            "evidence_ids": [],
+            "catalogue_ids": ["daily-planning"],
+            "capability_ids": ["planning"],
+            "observation_ids": [],
+            "family_ids": [],
+            "workflow_ids": [],
+            "question": "What tools matter?",
+            "max_attempts": 2,
+            "max_proposals": 24,
+        }
+
+    def pending_work(self, run_id: str) -> tuple[dict[str, object], ...]:
+        packet = self.work(run_id)
+        return () if packet is None else (packet,)
+
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        return (
+            {
+                "evidence_id": "evidence:sha256:" + "e" * 64,
+                "observation_id": "observation:sha256:" + "f" * 64,
+                "kind": "skill",
+                "identity": "invented-shared-method",
+                "label": "Invented shared method",
+                "relative_reference": "synthetic/invented-shared-method/SKILL.md",
+                "source_class": "vault-authored",
+            },
+        )
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView:
         return self.view
 
     def result(self, run_id: str) -> FakeResult:
@@ -314,3 +360,461 @@ def test_chat_approve_records_receipt_without_a_browser(
     assert diagnosis_main(["status", "--run", run_id, "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["stage"] == "scope-approved"
+
+
+def test_work_prints_only_canonical_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    engine = fake_engine(CAPTURED_VIEW)
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["packet"] is not None
+    assert payload["packet"]["packet_id"] == "packet:sha256:" + "a" * 64
+    # The whole issuable round rides beside the first packet.
+    assert payload["packets"] == [payload["packet"]]
+
+
+def test_work_json_includes_the_evidence_legend_beside_the_packet(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A work payload carries the engine's evidence legend, not only opaque tokens."""
+
+    engine = fake_engine(CAPTURED_VIEW)
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["evidence_legend"] == list(engine.work_context(RUN_ID))
+
+
+def test_work_json_empty_result_carries_no_legend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class DrainedEngine(FixedEngine):
+        def work(self, run_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "build_engine", lambda: DrainedEngine(view=CAPTURED_VIEW))
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"packet": None, "packets": []}
+
+
+def test_prepare_accepts_guided_analysis_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def prepare(self, request: cli.PrepareDiagnosisRequest) -> DiagnosisRunView:
+            captured.append(request)
+            return self.view
+
+    view = DiagnosisRunView(
+        run_id=RUN_ID,
+        stage=DiagnosisStage.CREATED,
+        next_action=NEXT_ACTION[DiagnosisStage.CREATED],
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=view))
+    root = invented_root(tmp_path)
+    assert (
+        diagnosis_main(
+            ["prepare", "--root", str(root), "--mode", "guided-analysis"]
+        )
+        == 0
+    )
+    assert len(captured) == 1
+    assert captured[0].analysis_mode.value == "guided-analysis"
+    assert capsys.readouterr().out
+
+
+
+PACKET_ID = "packet:sha256:" + "a" * 64
+
+
+def _write_proposal(tmp_path: Path, payload: dict[str, object]) -> Path:
+    path = tmp_path / "proposal.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _valid_proposal(reason: str) -> dict[str, object]:
+    """One structurally valid specialist proposal, so guards are what refuse it."""
+
+    return {
+        "role": "tools-and-integrations",
+        "kind": "mapping",
+        "run_id": RUN_ID,
+        "fingerprint_digest": "sha256:" + "b" * 64,
+        "catalogue_digest": "sha256:" + "d" * 64,
+        "packet_id": PACKET_ID,
+        "packet_digest": "sha256:" + "a" * 64,
+        "catalogue_id": "daily-planning",
+        "capability_id": "daily-planning",
+        "candidate_id": candidate_id_for(
+            kind="mapping",
+            catalogue_id="daily-planning",
+            capability_id="daily-planning",
+        ),
+        "disposition": "shared",
+        "evidence_ids": ["evidence:sha256:" + "e" * 64],
+        "reason": reason,
+    }
+
+
+def test_cli_refuses_an_unknown_proposal_field_before_the_engine_sees_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A payload the engine never sees costs no specialist attempt.
+
+    MCP parses ahead of the engine, so the CLI must too. Otherwise the same
+    bytes burn one of a packet's two attempts on one adapter and none on the
+    other, and two adapters produce different durable run state.
+    """
+
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, {"note": "unknown field"})
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", "packet:sha256:" + "a" * 64,
+         "--proposal", str(path)]
+    )
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "unknown fields are forbidden" in captured.err
+
+
+def test_cli_schema_refusal_names_the_failing_fields_never_their_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A schema refusal says which fields failed so a host can repair them.
+
+    The failing values themselves are never echoed: one of them carries the
+    session canary, exactly the material a refusal must not repeat.
+    """
+
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    proposal = _valid_proposal("an ordinary reason")
+    proposal["reason"] = (
+        "planted INVENTED_SESSION_CANARY_NEVER_RETAIN\nacross two lines"
+    )
+    proposal["evidence_ids"] = []
+    path = _write_proposal(tmp_path, proposal)
+
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (
+        "specialist proposal is not a closed typed payload "
+        "(invalid fields: evidence_ids, reason)"
+    ) in captured.err
+    assert "INVENTED_SESSION_CANARY_NEVER_RETAIN" not in captured.err
+
+
+def test_cli_refuses_an_absolute_path_without_echoing_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    submitted: list[object] = []
+
+    class RecordingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            submitted.append(proposals)
+            return self.view
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RecordingEngine(view=CAPTURED_VIEW))
+    secret = "/Users/invented/vault/People/Invented_Name.md"
+    path = _write_proposal(tmp_path, _valid_proposal(f"Seen in {secret}"))
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", "packet:sha256:" + "a" * 64,
+         "--proposal", str(path)]
+    )
+    assert code == 2
+    assert submitted == []
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_cli_reports_a_work_queue_error_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class RefusingEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            raise WorkQueueError("packet is not in this work queue")
+
+    monkeypatch.setattr(cli, "build_engine", lambda: RefusingEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, _valid_proposal("an ordinary reason"))
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+    assert code == 2
+    assert "packet is not in this work queue" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Outbound guard: the CLI must refuse to print what the MCP adapter refuses.
+# ---------------------------------------------------------------------------
+
+PLANTED_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
+PLANTED_PATH = "/Users/invented-owner/vault/note.md"
+SECRET_GUIDANCE = "dex-lens: secret material is not retained on the diagnosis wire."
+PATH_GUIDANCE = "dex-lens: absolute paths are not retained on the diagnosis wire."
+
+
+class CanaryWorkEngine(FixedEngine):
+    def work(self, run_id: str) -> dict[str, object] | None:
+        packet = super().work(run_id)
+        assert packet is not None
+        packet["question"] = f"planted {PLANTED_CANARY} in an engine packet"
+        return packet
+
+
+class PathWorkEngine(FixedEngine):
+    def work(self, run_id: str) -> dict[str, object] | None:
+        packet = super().work(run_id)
+        assert packet is not None
+        packet["question"] = f"seen in {PLANTED_PATH}"
+        return packet
+
+
+def test_work_refuses_a_packet_carrying_the_session_canary(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "build_engine", lambda: CanaryWorkEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+class CanaryLegendEngine(FixedEngine):
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        row = dict(super().work_context(run_id)[0])
+        row["label"] = f"planted {PLANTED_CANARY} in a legend label"
+        return (row,)
+
+
+def test_work_refuses_a_legend_carrying_the_session_canary(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The legend is part of the outbound work payload and is guarded with it."""
+
+    monkeypatch.setattr(cli, "build_engine", lambda: CanaryLegendEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+def test_work_refuses_a_packet_carrying_an_absolute_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "build_engine", lambda: PathWorkEngine(view=CAPTURED_VIEW))
+
+    assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == PATH_GUIDANCE + "\n"
+    assert PLANTED_PATH not in captured.out
+    assert PLANTED_PATH not in captured.err
+
+
+def test_submit_refuses_a_returned_view_dump_carrying_planted_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The view dump is outbound wire: what MCP submit_work refuses, submit must too."""
+
+    hostile = FakeResult(
+        {
+            "note": f"planted {PLANTED_CANARY} in a stored view",
+            "location": PLANTED_PATH,
+        }
+    )
+
+    class HostileSubmitEngine(FixedEngine):
+        def submit_work(
+            self, run_id: str, packet_id: str, proposals: tuple[object, ...] = ()
+        ) -> DiagnosisRunView:
+            return hostile  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli, "build_engine", lambda: HostileSubmitEngine(view=CAPTURED_VIEW))
+    path = _write_proposal(tmp_path, _valid_proposal("an ordinary reason"))
+
+    code = diagnosis_main(
+        ["submit", "--run", RUN_ID, "--packet", PACKET_ID, "--proposal", str(path)]
+    )
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH):
+        assert planted not in captured.out
+        assert planted not in captured.err
+
+
+def test_result_json_refuses_a_dump_carrying_planted_content(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A canary or absolute path in a ledger reason never reaches result --format json."""
+
+    result = FakeResult(
+        {
+            "reason": f"planted {PLANTED_CANARY} in a ledger reason",
+            "location": PLANTED_PATH,
+        }
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH):
+        assert planted not in captured.out
+        assert planted not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Crash boundary: an unexpected exception never prints vault text.
+# ---------------------------------------------------------------------------
+
+
+class CrashingEngine(FixedEngine):
+    def status(self, run_id: str) -> DiagnosisRunView:
+        raise RuntimeError(f"boom {PLANTED_CANARY} while reading {PLANTED_PATH}")
+
+
+class InterruptedEngine(FixedEngine):
+    def status(self, run_id: str) -> DiagnosisRunView:
+        raise KeyboardInterrupt
+
+
+def _crash_log_dir(state_home: Path) -> Path:
+    return state_home / "dex-lens" / "capability-bridge" / "crash-logs"
+
+
+def test_an_unexpected_crash_prints_a_fixed_sentence_and_a_redacted_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_engine", lambda: CrashingEngine(view=CAPTURED_VIEW))
+
+    code = diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == cli._CRASH_SENTENCE + "\n"
+    logs = sorted(_crash_log_dir(state_home).glob("crashlog-*.json"))
+    assert len(logs) == 1
+    raw = logs[0].read_text(encoding="utf-8")
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err
+        assert planted not in raw
+    assert "RuntimeError" in raw
+
+
+def test_keyboard_interrupt_escapes_the_crash_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_engine", lambda: InterruptedEngine(view=CAPTURED_VIEW))
+
+    with pytest.raises(KeyboardInterrupt):
+        diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert not _crash_log_dir(state_home).exists()
+
+
+def test_a_failed_crash_log_write_still_prints_only_the_fixed_sentence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the state directory should be", encoding="utf-8")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocked))
+    monkeypatch.setattr(cli, "build_engine", lambda: CrashingEngine(view=CAPTURED_VIEW))
+
+    code = diagnosis_main(["status", "--run", RUN_ID, "--json"])
+
+    assert code == 70
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == cli._CRASH_SENTENCE + "\n"
+    for planted in (PLANTED_CANARY, PLANTED_PATH, "boom"):
+        assert planted not in captured.err
+
+
+def test_result_markdown_refuses_planted_content(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With the footer home-relative (WO-022, decided), markdown is outbound
+    wire like every other surface: what MCP would refuse, markdown must too."""
+
+    result = FakeResult(
+        {"stage": "closed"},
+        markdown=f"# Diagnosis\n\nplanted {PLANTED_CANARY} in a rendered reason\n",
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "markdown"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == SECRET_GUIDANCE + "\n"
+    assert PLANTED_CANARY not in captured.out
+    assert PLANTED_CANARY not in captured.err
+
+
+def test_result_markdown_still_prints_a_clean_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The guard must not refuse Lens's own clean output."""
+
+    result = FakeResult({"stage": "closed"}, markdown="# Diagnosis\n\nclosed\n")
+    monkeypatch.setattr(cli, "build_engine", lambda: fake_engine(CAPTURED_VIEW, result=result))
+
+    assert diagnosis_main(["result", "--run", RUN_ID, "--format", "markdown"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == "# Diagnosis\n\nclosed\n"
+    assert captured.err == ""

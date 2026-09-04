@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.jobs.contract import SuccessContract
@@ -25,21 +26,54 @@ __all__ = [
     "DiagnosisRunView",
     "DiagnosisStage",
     "DiagnosisStateError",
+    "RequiredStep",
     "RunIdentity",
     "advance_to",
+    "advance_inventory_to_compare",
     "canonical_json_digest",
+    "required_step_for_stage",
+    "upgrade_stored_input_payload",
 ]
 
-ENGINE_VERSION = "0.1.15-diagnosis-engine"
-INPUT_SCHEMA_VERSION = "1"
+ENGINE_VERSION = "0.1.16-diagnosis-engine"
+# Version 2 replaces the collapsed observation operational scalar with the
+# independent configuration/runtime/health axes.  Stored v1 fingerprints are
+# read through the explicit stored-payload upgrade in ``observations``.
+INPUT_SCHEMA_VERSION = "3"
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
+class RequiredStep(StrEnum):
+    """Typed next action exposed by the engine and MCP adapter."""
+
+    APPROVE_SCOPE = "approve_scope"
+    CAPTURE_FINGERPRINT = "capture_fingerprint"
+    VERIFY_CATALOGUE = "verify_catalogue"
+    CONFIRM_JOBS = "confirm_jobs"
+    PLAN_ANALYSIS = "plan_analysis"
+    SUBMIT_WORK = "submit_work"
+    COMPARE = "compare"
+    RENDER = "render"
+    CHECK = "check"
+    SAVE = "save"
+    CLOSE = "close"
+    REQUIRED_STEP = "required_step"
+
+
 class DiagnosisStateError(ValueError):
     """A diagnosis run was asked to take an unlawful step."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        required_step: RequiredStep = RequiredStep.REQUIRED_STEP,
+    ) -> None:
+        super().__init__(message)
+        self.required_step = required_step
 
 
 class DiagnosisStage(StrEnum):
@@ -50,6 +84,8 @@ class DiagnosisStage(StrEnum):
     CAPTURED = "captured"
     CATALOGUE_VERIFIED = "catalogue-verified"
     JOBS_CONFIRMED = "jobs-confirmed"
+    ANALYSIS_PLANNED = "analysis-planned"
+    ANALYSIS_COMPLETED = "analysis-completed"
     COMPARED = "compared"
     RENDERED = "rendered"
     CHECKED = "checked"
@@ -57,12 +93,36 @@ class DiagnosisStage(StrEnum):
     CLOSED = "closed"
 
 
+_REQUIRED_STEP_BY_STAGE: dict[DiagnosisStage, RequiredStep] = {
+    DiagnosisStage.CREATED: RequiredStep.APPROVE_SCOPE,
+    DiagnosisStage.SCOPE_APPROVED: RequiredStep.CAPTURE_FINGERPRINT,
+    DiagnosisStage.CAPTURED: RequiredStep.VERIFY_CATALOGUE,
+    DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.CONFIRM_JOBS,
+    DiagnosisStage.JOBS_CONFIRMED: RequiredStep.PLAN_ANALYSIS,
+    DiagnosisStage.ANALYSIS_PLANNED: RequiredStep.SUBMIT_WORK,
+    DiagnosisStage.ANALYSIS_COMPLETED: RequiredStep.COMPARE,
+    DiagnosisStage.COMPARED: RequiredStep.RENDER,
+    DiagnosisStage.RENDERED: RequiredStep.CHECK,
+    DiagnosisStage.CHECKED: RequiredStep.SAVE,
+    DiagnosisStage.SAVED: RequiredStep.CLOSE,
+    DiagnosisStage.CLOSED: RequiredStep.REQUIRED_STEP,
+}
+
+
+def required_step_for_stage(stage: DiagnosisStage) -> RequiredStep:
+    """Return the typed action needed from one deterministic stage."""
+
+    return _REQUIRED_STEP_BY_STAGE[stage]
+
+
 NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
     DiagnosisStage.CREATED: DiagnosisStage.SCOPE_APPROVED,
     DiagnosisStage.SCOPE_APPROVED: DiagnosisStage.CAPTURED,
     DiagnosisStage.CAPTURED: DiagnosisStage.CATALOGUE_VERIFIED,
     DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.JOBS_CONFIRMED,
-    DiagnosisStage.JOBS_CONFIRMED: DiagnosisStage.COMPARED,
+    DiagnosisStage.JOBS_CONFIRMED: DiagnosisStage.ANALYSIS_PLANNED,
+    DiagnosisStage.ANALYSIS_PLANNED: DiagnosisStage.ANALYSIS_COMPLETED,
+    DiagnosisStage.ANALYSIS_COMPLETED: DiagnosisStage.COMPARED,
     DiagnosisStage.COMPARED: DiagnosisStage.RENDERED,
     DiagnosisStage.RENDERED: DiagnosisStage.CHECKED,
     DiagnosisStage.CHECKED: DiagnosisStage.SAVED,
@@ -76,7 +136,9 @@ NEXT_ACTION: dict[DiagnosisStage, str] = {
     DiagnosisStage.SCOPE_APPROVED: "Capture the consented fingerprint.",
     DiagnosisStage.CAPTURED: "Verify the exact catalogue bytes.",
     DiagnosisStage.CATALOGUE_VERIFIED: "Confirm the jobs this diagnosis may use.",
-    DiagnosisStage.JOBS_CONFIRMED: "Compare the fingerprint with the catalogue.",
+    DiagnosisStage.JOBS_CONFIRMED: "Plan the bounded specialist analysis.",
+    DiagnosisStage.ANALYSIS_PLANNED: "Complete the issued specialist work packets.",
+    DiagnosisStage.ANALYSIS_COMPLETED: "Compare the fingerprint with the catalogue.",
     DiagnosisStage.COMPARED: "Render the typed report from the ledger.",
     DiagnosisStage.RENDERED: "Check the report against ledger-derived facts.",
     DiagnosisStage.CHECKED: "Save the canonical result outside inspected roots.",
@@ -141,6 +203,7 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
     scope_digest: str = Field(pattern=_SHA256.pattern)
     session_receipt_id: str = Field(min_length=8, max_length=120)
     approved_at: datetime
+    include_live_state: StrictBool = False
 
     @field_validator("scope_references")
     @classmethod
@@ -171,6 +234,7 @@ class RunIdentity(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     engine_version: str = Field(min_length=1, max_length=64)
     input_schema_version: str = Field(min_length=1, max_length=16)
+    analysis_mode: Literal["inventory-only", "guided-analysis"] = "inventory-only"
     created_at: datetime
 
     @field_validator("created_at")
@@ -191,6 +255,7 @@ class DiagnosisInput(_ValidatedInventoried):
     catalogue_version: int = Field(ge=1)
     catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
     confirmed_jobs: tuple[SuccessContract, ...] = ()
+    analysis_mode: Literal["inventory-only", "guided-analysis"] = "guided-analysis"
     assessed_at: datetime
 
     @field_validator("assessed_at")
@@ -203,6 +268,35 @@ class DiagnosisInput(_ValidatedInventoried):
         """Digest that changes when scope, catalogue, fingerprint or engine changes."""
 
         return canonical_json_digest(self.dump_for_storage())
+
+
+def upgrade_stored_run_identity_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Upgrade a stored run identity without changing legacy semantics.
+
+  ``analysis_mode`` was introduced after the original durable identity shape.
+  Old checkpoints did not issue semantic work, so a missing field is
+  deliberately upgraded to ``inventory-only`` rather than inheriting the guided
+  default used for newly-created product runs.
+    """
+
+    upgraded = dict(payload)
+    upgraded.setdefault("analysis_mode", "inventory-only")
+    return upgraded
+
+
+def upgrade_stored_input_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Upgrade a stored diagnosis input without changing legacy semantics.
+
+    ``analysis_mode`` was introduced after the original durable input shape.
+    Old checkpoints did not issue semantic work, so a missing field is
+    deliberately upgraded to ``inventory-only`` rather than inheriting the
+    guided default used for newly-created product runs.  The operation is
+    idempotent and never mutates the caller's mapping.
+    """
+
+    upgraded = dict(payload)
+    upgraded.setdefault("analysis_mode", "inventory-only")
+    return upgraded
 
 
 class DiagnosisCheckpoint(_ValidatedInventoried):
@@ -242,6 +336,7 @@ class DiagnosisRunView(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     stage: DiagnosisStage
     next_action: str = Field(min_length=1, max_length=240)
+    required_step: RequiredStep = RequiredStep.REQUIRED_STEP
     input_identity: str | None = Field(default=None, pattern=_SHA256.pattern)
     approval_url: str | None = Field(default=None, max_length=240)
 
@@ -271,6 +366,36 @@ def advance_to(
             checkpoint.artifact_digests if artifact_digests is None else artifact_digests
         ),
         next_action=NEXT_ACTION[stage],
+        engine_version=checkpoint.engine_version,
+        created_at=now,
+    )
+
+
+def advance_inventory_to_compare(
+    checkpoint: DiagnosisCheckpoint,
+    *,
+    now: datetime,
+    artifact_digests: tuple[str, ...] = (),
+) -> DiagnosisCheckpoint:
+    """Advance one legacy inventory-only run across the guided-era stages.
+
+    Checkpoints written before the specialist queue existed must retain their
+    direct comparison semantics.  This narrow transition is deliberately
+    separate from :func:`advance_to`, so ordinary callers cannot use it to
+    bypass the closed stage machine.
+    """
+
+    if checkpoint.stage is not DiagnosisStage.JOBS_CONFIRMED:
+        raise DiagnosisStateError(
+            "inventory-only comparison skip is valid only after jobs-confirmed"
+        )
+    return DiagnosisCheckpoint(
+        run_id=checkpoint.run_id,
+        stage=DiagnosisStage.COMPARED,
+        previous_digest=checkpoint.canonical_digest(),
+        input_identity=checkpoint.input_identity,
+        artifact_digests=(*checkpoint.artifact_digests, *artifact_digests),
+        next_action=NEXT_ACTION[DiagnosisStage.COMPARED],
         engine_version=checkpoint.engine_version,
         created_at=now,
     )

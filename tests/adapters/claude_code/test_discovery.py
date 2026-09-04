@@ -14,7 +14,11 @@ from capability_exchange.adapters.claude_code.discovery import discover_fingerpr
 from capability_exchange.adapters.claude_code.live_state import LiveState
 from capability_exchange.adapters.claude_code.snapshot import InspectionSnapshot, take_snapshot
 from capability_exchange.concierge.collection import ScopeSnapshot
-from capability_exchange.diagnosis.observations import ObservationKind, OperationalState
+from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
+    ObservationKind,
+    OperationalState,
+)
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
 
@@ -33,7 +37,7 @@ def _write(root: Path, relative: str, content: str) -> None:
 
 def _synthetic_legacy_system(root: Path) -> InspectionSnapshot:
     root.mkdir()
-    _write(root, "VERSION", "v0.8.3\n")
+    _write(root, ".dex-version", "v0.8.3\n")
     _write(
         root,
         ".claude/skills/daily-plan/SKILL.md",
@@ -108,6 +112,36 @@ def test_discovers_whole_system_without_equating_presence_with_working(tmp_path:
     assert (ObservationKind.MCP_TOOL, "career-data:unknown") not in by_key
 
 
+def test_generic_project_version_file_is_not_dex_release_evidence(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "VERSION", "v9.8.7\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
+
+
+def test_unrelated_changelog_is_not_dex_release_evidence(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "CHANGELOG.md", "# Changelog\n\n## v9.8.7\n\nA generic project.\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
+
+
+def test_nested_dex_version_is_not_enough_to_claim_core_lineage(tmp_path: Path) -> None:
+    root = tmp_path / "unrelated-project"
+    root.mkdir()
+    _write(root, "vendor/tool/.dex-version", "v9.8.7\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert all(item.kind is not ObservationKind.RELEASE for item in fingerprint.observations)
+
+
 def test_mcp_and_hook_discovery_never_retains_secret_values(tmp_path: Path) -> None:
     canary = "DEX_LENS_CANARY_DO_NOT_RETAIN"
     root = tmp_path / "secret-bearing-system"
@@ -139,6 +173,265 @@ def test_mcp_and_hook_discovery_never_retains_secret_values(tmp_path: Path) -> N
     assert canary not in rendered
     assert "API_TOKEN" not in rendered
     assert "--token" not in rendered
+
+
+def test_discovers_per_server_and_direct_map_mcp_manifests_without_secrets(
+    tmp_path: Path,
+) -> None:
+    canary = "DEX_LENS_MCP_MANIFEST_CANARY"
+    root = tmp_path / "manifest-system"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/mcp/career.json",
+        json.dumps(
+            {
+                "name": "career",
+                "description": "Career evidence tools",
+                "server": {
+                    "command": "python",
+                    "args": ["private-server.py"],
+                    "env": {"API_TOKEN": canary},
+                },
+            }
+        ),
+    )
+    _write(
+        root,
+        ".claude/mcp-servers.json",
+        json.dumps(
+            {
+                "dev-browser": {
+                    "command": "browser-runner",
+                    "args": ["--credential", canary],
+                }
+            }
+        ),
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    servers = {
+        item.identity: item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.MCP_SERVER
+    }
+
+    assert set(servers) == {"career", "dev-browser"}
+    assert all(
+        item.configuration_state is ConfigurationState.DECLARED
+        for item in servers.values()
+    )
+    rendered = fingerprint.model_dump_json()
+    assert canary not in rendered
+    assert "private-server.py" not in rendered
+
+
+def test_provider_identities_reject_every_canonical_secret_marker(tmp_path: Path) -> None:
+    root = tmp_path / "provider-registry"
+    root.mkdir()
+    rejected = {
+        "api_key",
+        "calendar-api-key",
+        "auth",
+        "private-key",
+        "passwd",
+        "access-token",
+    }
+    _write(
+        root,
+        "System/integrations/registry.json",
+        json.dumps({"providers": {"calendar": {}, **dict.fromkeys(rejected, {})}}),
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    provider_ids = {
+        item.identity
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_PROVIDER
+    }
+    registry = next(
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_REGISTRY
+    )
+
+    assert provider_ids == {"calendar"}
+    assert rejected.isdisjoint(provider_ids)
+    assert next(item.value for item in registry.attributes if item.key == "provider-count") == "1"
+
+
+def test_backup_restore_proof_requires_safe_path_and_closed_semantics(tmp_path: Path) -> None:
+    root = tmp_path / "recovery-system"
+    root.mkdir()
+    _write(
+        root,
+        "scripts/backup-verify.sh",
+        """#!/bin/sh
+set -eu
+restore_dir="$(mktemp -d)"
+trap 'rm -rf "$restore_dir"' EXIT
+rclone copy remote:backups/latest "$restore_dir/archive"
+tar -xzf "$restore_dir/archive/vault.tar.gz" -C "$restore_dir/restored"
+sha256sum --check "$restore_dir/restored/SHA256SUMS"
+""",
+    )
+    _write(root, "checks/backup-verify.sh", "#!/bin/sh\necho not-a-restore-proof\n")
+    _write(
+        root,
+        "ordinary/backup-verify.sh",
+        """#!/bin/sh
+restore_dir="$(mktemp -d)"
+rclone copy remote:backups/latest "$restore_dir/archive"
+tar -xzf "$restore_dir/archive/vault.tar.gz" -C "$restore_dir/restored"
+sha256sum --check "$restore_dir/restored/SHA256SUMS"
+""",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    recovery = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.RECOVERY_PROOF
+    ]
+
+    assert [(item.identity, item.configuration_state) for item in recovery] == [
+        ("vault-backup", ConfigurationState.IMPLEMENTED)
+    ]
+    assert recovery[0].evidence.reference.startswith("file:scripts/backup-verify.sh#snap:")
+
+
+def test_git_clone_restore_proof_tracks_a_derived_throwaway_directory(tmp_path: Path) -> None:
+    root = tmp_path / "git-recovery-system"
+    root.mkdir()
+    _write(
+        root,
+        "scripts/backup-verify.sh",
+        """#!/bin/sh
+work_dir="$(mktemp -d)"
+clone_dir="$work_dir/clone"
+if ! git clone remote:backup "$clone_dir"; then exit 1; fi
+git -C "$clone_dir" fsck --no-progress
+""",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert [
+        item.identity
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.RECOVERY_PROOF
+    ] == ["vault-backup"]
+
+
+def test_external_task_adapters_emit_one_bounded_source_observation_without_secrets(
+    tmp_path: Path,
+) -> None:
+    canary = "DEX_LENS_TASK_ADAPTER_CANARY_DO_NOT_RETAIN"
+    root = tmp_path / "task-adapter-system"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/todoist.cjs",
+        f'const privateValue = "{canary}";\n'
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
+    )
+    _write(
+        root,
+        ".claude/hooks/adapters/trello.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
+    )
+    _write(
+        root,
+        "ordinary/todoist.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
+    )
+    _write(
+        root,
+        ".claude/hooks/adapters/asana.cjs",
+        "module.exports = { toExternal, toDex, create, complete, getChanges };\n",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    matching = [
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+    ]
+
+    assert len(matching) == 1
+    assert matching[0].configuration_state is ConfigurationState.IMPLEMENTED
+    assert {(item.key, item.value) for item in matching[0].attributes} == {
+        ("provider-count", "2"),
+        ("source-kind", "claude-hook-adapter"),
+    }
+    rendered = fingerprint.model_dump_json()
+    assert canary not in rendered
+    assert "privateValue" not in rendered
+
+
+def test_task_adapter_filename_without_export_declaration_is_not_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "task-adapter-lookalike"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/todoist.cjs",
+        '// A note about todoist; no adapter is exported.\nconst provider = "todoist";\n',
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
+
+
+def test_task_adapter_missing_a_required_bridge_function_is_not_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "incomplete-task-adapter"
+    root.mkdir()
+    _write(
+        root,
+        ".claude/hooks/adapters/trello.cjs",
+        "module.exports = { toExternal, toDex, create, complete };\n",
+    )
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "module.exports = { /* toExternal toDex create complete getChanges */ };\n",
+        'module.exports = { note: "toExternal toDex create complete getChanges" };\n',
+    ),
+)
+def test_task_adapter_comments_and_strings_cannot_impersonate_exported_keys(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    root = tmp_path / "comment-lookalike"
+    root.mkdir()
+    _write(root, ".claude/hooks/adapters/todoist.cjs", body)
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+
+    assert not any(
+        item.kind is ObservationKind.INTEGRATION_REGISTRY
+        and item.identity == "external-task-sync"
+        for item in fingerprint.observations
+    )
 
 
 def test_exact_duplicate_declarations_are_folded(tmp_path: Path) -> None:
@@ -200,6 +493,27 @@ def test_same_named_skills_from_distinct_approved_sources_emit_separately(
         "scope:global",
         "scope:vault",
     ]
+
+
+def test_same_named_skills_in_one_source_report_copy_and_variant_counts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "multi-harness-system"
+    root.mkdir()
+    _write(root, ".claude/skills/planner/SKILL.md", "# Planner\nUse the calendar.\n")
+    _write(root, ".agents/skills/planner/SKILL.md", "# Planner\nUse the task list.\n")
+
+    fingerprint = discover_fingerprint(_snapshot(root), collected_at=NOW)
+    planner = next(
+        item
+        for item in fingerprint.observations
+        if item.kind is ObservationKind.SKILL and item.identity == "planner"
+    )
+
+    assert {attribute.key: attribute.value for attribute in planner.attributes} == {
+        "copy-count": "2",
+        "variant-count": "2",
+    }
 
 
 def test_unsourced_live_state_cannot_upgrade_same_automation_across_sources(

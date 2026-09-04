@@ -7,6 +7,7 @@ and never lose or silently replace a report that was already written.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -225,8 +226,17 @@ class TestAFolderThePersonOwns:
 
 class TestSaveResult:
     def test_it_renders_typed_markdown_and_verifies_the_three_digests(
-        self, store: LensReportStore
+        self, store: LensReportStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """Finding A2 evolved the location assertion in this test.
+
+        It previously asserted the footer carried the saved ABSOLUTE path
+        verbatim (this store lives outside home), which is the leak the
+        footer contract now forbids. The invented home puts the store under
+        home, so the footer still binds to the exact saved file — rendered
+        home-relative, never absolute.
+        """
+
         from tests.diagnosis.test_report_model import run_identity
         from tests.evals.real_session_fixture import real_session_ledger
 
@@ -237,6 +247,7 @@ class TestSaveResult:
             canonical_ledger_digest,
         )
 
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         ledger = real_session_ledger()
         result = DiagnosisResult(
             report=ReportModel.from_result(
@@ -251,13 +262,107 @@ class TestSaveResult:
 
         markdown = saved.path.read_text(encoding="utf-8")
         assert canonical_fact_block(ledger) in markdown
+        relative = "~/" + saved.path.relative_to(tmp_path).as_posix()
+        assert f"- Report location: `{relative}`." in markdown
+        assert str(saved.path) not in markdown
         assert saved.ledger_path.is_file()
         assert saved.result_path.is_file()
         stored = saved.result_path.read_text(encoding="utf-8")
         assert canonical_ledger_digest(ledger) in stored
+
+    def test_unsorted_valid_ledger_round_trips_through_appendix_self_check(
+        self, store: LensReportStore
+    ) -> None:
+        from tests.diagnosis.test_report_model import ranked_ledger, run_identity
+
+        from capability_exchange.diagnosis.comparison import ComparisonLedger
+        from capability_exchange.diagnosis.orchestrator import DiagnosisResult
+        from capability_exchange.diagnosis.report import (
+            ReportModel,
+            canonical_ledger_digest,
+            ledger_appendix_errors,
+        )
+
+        base = ranked_ledger()
+        unsorted_entry = base.entries[0].model_copy(
+            update={"evidence_references": ("evidence:z", "evidence:a")}
+        )
+        matching_recommendation = base.ranked_recommendations[0].model_copy(
+            update={"evidence_ids": ("evidence:a", "evidence:z")}
+        )
+        ledger = base.model_copy(
+            update={
+                "entries": (unsorted_entry, *base.entries[1:]),
+                "ranked_recommendations": (
+                    matching_recommendation,
+                    *base.ranked_recommendations[1:],
+                ),
+            }
+        )
+        result = DiagnosisResult(
+            report=ReportModel.from_result(
+                run_identity=run_identity(),
+                ledger=ledger,
+                ledger_sha256=canonical_ledger_digest(ledger),
+            ),
+            ledger=ledger,
+        )
+
+        saved = store.save_result(result, label="vault", now=NOW)
+        reloaded = ComparisonLedger.model_validate(
+            json.loads(saved.ledger_path.read_text(encoding="utf-8"))
+        )
+
+        assert canonical_ledger_digest(reloaded) == canonical_ledger_digest(ledger)
+        assert ledger_appendix_errors(saved.path.read_text(encoding="utf-8"), reloaded) == ()
 
     def test_it_refuses_arbitrary_markdown_without_a_typed_result(
         self, store: LensReportStore
     ) -> None:
         with pytest.raises(ValueError, match="typed result"):
             store.save_result("# Invented prose\n")
+
+    def test_it_refuses_a_self_consistent_noncanonical_ledger_payload(
+        self, store: LensReportStore
+    ) -> None:
+        from tests.diagnosis.test_report_model import run_identity
+        from tests.evals.real_session_fixture import real_session_ledger
+
+        from capability_exchange.diagnosis.orchestrator import DiagnosisResult
+        from capability_exchange.diagnosis.report import (
+            ReportModel,
+            canonical_ledger_digest,
+        )
+
+        ledger = real_session_ledger()
+        result = DiagnosisResult(
+            report=ReportModel.from_result(
+                run_identity=run_identity(),
+                ledger=ledger,
+                ledger_sha256=canonical_ledger_digest(ledger),
+            ),
+            ledger=ledger,
+        )
+        forged_ledger = ledger.model_dump(mode="json")
+        forged_ledger["reciprocal_answer"] = "A mutually consistent forged answer."
+        forged_result = result.dump_for_storage()
+        forged_result["ledger"] = forged_ledger
+
+        class ForgedStorageView:
+            report = result.report
+            ledger = result.ledger
+
+            @staticmethod
+            def render_markdown() -> str:
+                return result.render_markdown()
+
+            @staticmethod
+            def ledger_json() -> str:
+                return json.dumps(forged_ledger)
+
+            @staticmethod
+            def dump_for_storage() -> dict[str, object]:
+                return forged_result
+
+        with pytest.raises(ValueError, match="canonical comparison ledger"):
+            store.save_result(ForgedStorageView(), label="vault", now=NOW)

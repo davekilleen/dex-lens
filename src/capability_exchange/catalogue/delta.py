@@ -31,7 +31,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from capability_exchange.catalogue.v2 import CatalogueV2
+from capability_exchange.catalogue.v2 import CatalogueV2, McpServerCapabilityEntryV2
 
 __all__ = [
     "CatalogueDelta",
@@ -48,10 +48,22 @@ def entry_fingerprints(catalogue: CatalogueV2) -> dict[str, str]:
     """One short fingerprint per published capability, by id."""
     return {
         entry.capability_id: hashlib.sha256(
-            entry.model_dump_json().encode("utf-8")
+            _fingerprint_json(entry).encode("utf-8")
         ).hexdigest()
         for entry in catalogue.capabilities
     }
+
+
+def _fingerprint_json(entry: object) -> str:
+    """Keep sampled MCP fingerprints identical across additive defaults."""
+    if isinstance(entry, McpServerCapabilityEntryV2):
+        # v6 signed only the sampled fields.  The additive v2 fields default to
+        # an empty tuple and ``sampled`` during parsing, but those defaults were
+        # not present in the historical wire bytes and must not look like a
+        # changed catalogue entry.
+        if entry.tool_inventory == "sampled" and not entry.tools:
+            return entry.model_dump_json(exclude={"tools", "tool_inventory"})
+    return entry.model_dump_json()  # type: ignore[union-attr]
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 
 import pytest
 from tests.diagnosis.test_receipts import RESPONSE_DIGEST, SESSION, decision_receipt
@@ -16,7 +17,23 @@ from tests.evals.real_session_fixture import (
 )
 from tests.evals.test_real_session_replay import expected_contract
 
-from capability_exchange.diagnosis.comparison import Disposition
+from capability_exchange.diagnosis.comparison import (
+    CatalogueDisposition,
+    ComparisonLedger,
+    Disposition,
+    GroundedInsight,
+    HumanCapability,
+    InsightKind,
+)
+from capability_exchange.diagnosis.payload_guard import (
+    HostilePayloadError,
+    refuse_hostile_payload,
+)
+from capability_exchange.diagnosis.ranking import (
+    RecommendationCandidate,
+    RecommendationFactors,
+    rank_recommendations,
+)
 from capability_exchange.diagnosis.receipts import (
     DecisionState,
     DestinationClass,
@@ -34,6 +51,53 @@ from capability_exchange.diagnosis.run import ENGINE_VERSION, INPUT_SCHEMA_VERSI
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
 
 FALSE_COVERAGE_CLAIM = "93 capabilities are already covered"
+
+
+def ranked_ledger() -> ComparisonLedger:
+    entries = tuple(
+        CatalogueDisposition(
+            catalogue_id=f"recommendation-{index}",
+            capability_id=f"capability-{index}",
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_references=(f"evidence:{index}",),
+            method_compared=True,
+            reason=f"Reason {index}.",
+        )
+        for index in range(2)
+    )
+    candidates = tuple(
+        RecommendationCandidate(
+            catalogue_id=entry.catalogue_id,
+            capability_id=entry.capability_id,
+            factors=RecommendationFactors(
+                reliability_risk=2 - index,
+                job_relevance=2,
+                workflow_leverage=2,
+                evidence_strength=2,
+                adoption_effort=1,
+            ),
+            evidence_ids=entry.evidence_references,
+            reason=entry.reason,
+        )
+        for index, entry in enumerate(entries)
+    )
+    return ComparisonLedger(
+        catalogue_version=1,
+        catalogue_sha256="a" * 64,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=f"capability-{index}",
+                title=f"Capability {index}",
+                job_ids=(),
+                catalogue_ids=(f"recommendation-{index}",),
+                person_observation_ids=(),
+            )
+            for index in range(2)
+        ),
+        entries=entries,
+        ranked_recommendations=rank_recommendations(candidates),
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+    )
 
 
 def run_identity() -> RunIdentity:
@@ -112,6 +176,55 @@ def test_canonical_ledger_digest_is_stable_and_content_bound() -> None:
     assert canonical_ledger_digest(drifted) != digest
 
 
+def test_canonical_ledger_digest_ignores_catalogue_evidence_order() -> None:
+    ledger = ranked_ledger().model_copy(update={"ranked_recommendations": ()})
+    unsorted_entry = ledger.entries[0].model_copy(
+        update={"evidence_references": ("evidence:z", "evidence:a")}
+    )
+    sorted_entry = unsorted_entry.model_copy(
+        update={"evidence_references": ("evidence:a", "evidence:z")}
+    )
+    unsorted_ledger = ledger.model_copy(update={"entries": (unsorted_entry, *ledger.entries[1:])})
+    sorted_ledger = ledger.model_copy(update={"entries": (sorted_entry, *ledger.entries[1:])})
+
+    assert canonical_ledger_digest(unsorted_ledger) == canonical_ledger_digest(sorted_ledger)
+
+
+@pytest.mark.parametrize("change", ("rank", "factors", "evidence_ids", "reason"))
+def test_canonical_ledger_digest_binds_ranked_recommendation_details(change: str) -> None:
+    ledger = ranked_ledger()
+    digest = canonical_ledger_digest(ledger)
+    first = ledger.ranked_recommendations[0]
+    if change == "rank":
+        updated = first.model_copy(update={"rank": 2})
+    elif change == "factors":
+        updated = first.model_copy(
+            update={
+                "factors": RecommendationFactors(
+                    reliability_risk=1,
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                )
+            }
+        )
+    elif change == "evidence_ids":
+        updated = first.model_copy(update={"evidence_ids": ("evidence:changed",)})
+    else:
+        updated = first.model_copy(update={"reason": "Changed ranked reason."})
+    changed = ledger.model_copy()
+    # Simulate bytes tampered after validation: the digest must still bind the
+    # ranked payload even when a hostile caller bypasses model validation.
+    object.__setattr__(
+        changed,
+        "ranked_recommendations",
+        (updated, *ledger.ranked_recommendations[1:]),
+    )
+
+    assert canonical_ledger_digest(changed) != digest
+
+
 def test_canonical_fact_block_is_exact_ledger_projection() -> None:
     ledger = real_session_ledger()
     block = canonical_fact_block(ledger)
@@ -120,6 +233,10 @@ def test_canonical_fact_block_is_exact_ledger_projection() -> None:
     assert block == (
         f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
+        + "- Local observations: 0 captured; 0 mapped; 0 remain not assessed.\n"
+        + "- Signed MCP inventory: 0 declared tools across 0 servers; 0 complete "
+        + "inventories; 0 sampled inventories.\n"
+        + "- Significant-family components: 0 exact matches; 0 remain Unknown.\n"
     )
     assert block.splitlines()[1] == (
         "- Catalogue accounting: 115 entries; 35 assessed; 80 remain Unknown."
@@ -342,11 +459,269 @@ def test_close_is_generated_from_the_report_model() -> None:
     close = _after_coverage(rendered)
 
     assert "No grounded strength cleared the evidence bar." in close
-    assert "No transferable method cleared the evidence bar." in close
-    assert "No first move cleared the bar." in close
-    assert "not been saved yet" in close.lower()
+    assert "See 2 evidence-reviewed patterns above." in close
+    assert (
+        "No single first move has stronger evidence than the other options above."
+        in close
+    )
+    assert "will be saved before the run closes" in close.lower()
     assert RUN_ID in close
     assert "Sharing was not offered." in close
     assert "Future-watch is a separate choice from sharing." in close
     assert "taken" not in close
     assert re.search(r"\bshared\b", close, flags=re.IGNORECASE) is None
+
+
+def result_with_rich_grounded_findings() -> tuple[ComparisonLedger, ReportModel]:
+    evidence = ("evidence:sha256:" + "e" * 64, "evidence:sha256:" + "f" * 64)
+    ranked = rank_recommendations(
+        tuple(
+            RecommendationCandidate(
+                catalogue_id=f"recommendation-{index}",
+                capability_id=f"capability-{index}",
+                factors=RecommendationFactors(
+                    reliability_risk=max(0, 3 - index),
+                    job_relevance=2,
+                    workflow_leverage=2,
+                    evidence_strength=2,
+                    adoption_effort=1,
+                ),
+                # Both identities: the strengths, lessons and connections below
+                # cite both, and a ledger that cites evidence it never records
+                # is not a rich result, it is an unsupported one.
+                evidence_ids=evidence,
+                reason=f"Reason {index}.",
+            )
+            for index in range(1, 5)
+        )
+    )
+    entries = tuple(
+        CatalogueDisposition(
+            catalogue_id=item.catalogue_id,
+            capability_id=item.capability_id,
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_references=evidence,
+            method_compared=True,
+            reason=item.reason,
+        )
+        for item in ranked
+    )
+    ledger = ComparisonLedger(
+        catalogue_version=1,
+        catalogue_sha256="a" * 64,
+        capabilities=tuple(
+            HumanCapability(
+                capability_id=f"capability-{index}",
+                title=f"Capability {index}",
+                job_ids=(),
+                catalogue_ids=(f"recommendation-{index}",),
+                person_observation_ids=(),
+            )
+            for index in range(1, 5)
+        ),
+        entries=entries,
+        ranked_recommendations=ranked,
+        reciprocal_answer="No transferable method cleared the evidence bar.",
+        strengths=(
+            GroundedInsight(
+                insight_id="strength:rich",
+                kind=InsightKind.STRENGTH,
+                title="Strong operating rhythm",
+                explanation="Weekly planning closes the loop with evidence.",
+                evidence_ids=evidence,
+            ),
+        ),
+        reciprocal_lessons=(
+            GroundedInsight(
+                insight_id="lesson:rich",
+                kind=InsightKind.RECIPROCAL_LESSON,
+                title="Portable review method",
+                explanation="Dex could borrow this review cadence.",
+                evidence_ids=evidence,
+            ),
+        ),
+        workflow_insights=(
+            GroundedInsight(
+                insight_id="connection:rich",
+                kind=InsightKind.WORKFLOW_CONNECTION,
+                title="Planning to task bridge",
+                explanation="Planning notes create tasks with follow-through.",
+                evidence_ids=evidence,
+            ),
+        ),
+    )
+    report = ReportModel.from_result(
+        run_identity=run_identity(),
+        ledger=ledger,
+        ledger_sha256=canonical_ledger_digest(ledger),
+        findings=(),
+    )
+    return ledger, report
+
+
+def test_report_renders_ranking_strengths_lessons_and_connections() -> None:
+    ledger, report = result_with_rich_grounded_findings()
+    rendered = report.render_markdown(ledger)
+    assert "## The best first move" in rendered
+    assert "## Next most useful" in rendered
+    assert "## Also worth considering" in rendered
+    assert "## What is especially strong here" in rendered
+    assert "## What Dex should learn from you" in rendered
+    assert "## Connections Lens noticed" in rendered
+
+
+def test_report_rejects_an_insight_without_bound_evidence() -> None:
+    with pytest.raises(ValueError, match="evidence"):
+        GroundedInsight(
+            insight_id="strength:bad",
+            kind=InsightKind.STRENGTH,
+            title="Unsupported",
+            explanation="No evidence.",
+            evidence_ids=(),
+        )
+
+
+def test_report_refuses_an_insight_citing_evidence_the_ledger_does_not_hold() -> None:
+    """The guard must refuse an unsupported claim, not merely an empty one.
+
+    ``GroundedInsight.evidence_ids`` already carries ``Field(min_length=1)``,
+    so a check for emptiness can never fire. The claim worth refusing is the
+    one citing an identity no disposition records, because the rendered report
+    tells the reader the exact references are in the appendix.
+    """
+
+    ledger, _ = result_with_rich_grounded_findings()
+    unheld = "evidence:sha256:" + "9" * 64
+    tampered = ledger.model_copy(
+        update={
+            "strengths": (
+                ledger.strengths[0].model_copy(update={"evidence_ids": (unheld,)}),
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="does not hold"):
+        ReportModel.from_result(
+            run_identity=run_identity(),
+            ledger=tampered,
+            ledger_sha256=canonical_ledger_digest(tampered),
+            findings=(),
+        )
+
+
+def test_report_location_under_home_renders_home_relative(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WO-022, decided 2026-09-03: the footer renders the location relative.
+
+    The footer lives in the most shareable artifact Lens produces, and an
+    absolute home path carries the account name. The invented home below is
+    /Users/-shaped on purpose: rendered absolute, it is exactly what the
+    outbound guards refuse everywhere else.
+    """
+
+    invented_home = tmp_path / "Users" / "invented-owner"
+    saved = invented_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md"
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    assert "invented-owner" not in markdown
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_outside_home_renders_no_path_at_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Finding A2: a location outside home renders no path, never verbatim.
+
+    This test previously certified the hole it now closes: it asserted the
+    absolute location was "rendered as written", which is exactly the leak —
+    with ``XDG_STATE_HOME`` outside home the app-storage path (and on other
+    layouts the account name) went verbatim into the most shareable artifact
+    Lens produces. The decided direction is: render relative or render no
+    path at all.
+    """
+
+    invented_home = tmp_path / "Users" / "invented-owner"
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    # XDG_STATE_HOME pointed outside home: default_lens_app_storage honours
+    # it, Path.home() never sees it.
+    saved = tmp_path / "invented-xdg-state" / "dex-lens" / "capability-bridge" / "lens-look.md"
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert str(saved) not in markdown
+    assert str(tmp_path) not in markdown
+    assert (
+        "- Report location: saved in Lens's app storage — `dex-lens reports` lists it."
+        in markdown
+    )
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_under_symlinked_home_never_leaks_the_account_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Finding A2, the reviewed leak: a symlinked home rendered the account name.
+
+    ``default_lens_app_storage`` resolves symlinks; ``Path.home()`` does not.
+    On a symlinked home the stored location is the resolved path, so
+    ``relative_to(Path.home())`` failed and the old fallback rendered the
+    resolved ABSOLUTE path — account name included — into the footer.
+    """
+
+    real_home = tmp_path / "invented-actual-homes" / "invented-owner"
+    real_home.mkdir(parents=True)
+    linked_home = tmp_path / "Users" / "invented-owner"
+    linked_home.parent.mkdir(parents=True)
+    linked_home.symlink_to(real_home)
+    monkeypatch.setattr(Path, "home", lambda: linked_home)
+    # The storage path is stored resolved, exactly as default_lens_app_storage
+    # produces it.
+    saved = (
+        (real_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md")
+        .resolve(strict=False)
+    )
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert "invented-owner" not in markdown
+    assert str(saved) not in markdown
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_under_a_var_home_shaped_home_passes_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding A2 meets C4: on /var/home layouts the footer must stay renderable.
+
+    The extended outbound guard refuses absolute ``/var/home/...`` paths, so a
+    footer that retained the absolute location would make
+    ``result --format markdown`` refuse its own report forever. Rendered
+    home-relative, the footer passes the very guard that refuses the raw path.
+    """
+
+    invented_home = Path("/var/home/invented-owner")
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    saved = invented_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md"
+    with pytest.raises(HostilePayloadError):
+        refuse_hostile_payload(str(saved))
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert "invented-owner" not in markdown
+    assert "/var/home/" not in markdown
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    refuse_hostile_payload(markdown)

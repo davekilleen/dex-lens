@@ -21,13 +21,21 @@ def test_skill_requires_version_and_method_before_same_capability() -> None:
     assert "Written is not running" in text
 
 
-def test_skill_requires_praise_reciprocity_and_three_or_fewer() -> None:
+def test_skill_requires_praise_reciprocity_and_ten_or_fewer() -> None:
     text = SKILL.read_text(encoding="utf-8")
 
     assert "What is working especially well" in text
     assert "What Dex should learn from you" in text
-    assert "at most three" in text.lower()
+    assert "up to ten" in text.lower()
     assert "repeat the best strength" in text
+
+
+def test_skill_has_no_stale_three_recommendation_cap() -> None:
+    text = SKILL.read_text(encoding="utf-8").lower()
+
+    assert "at most three" not in text
+    assert "no more than three" not in text
+    assert "three good suggestions" not in text
 
 
 def test_skill_requires_engine_owned_catalogue_completeness() -> None:

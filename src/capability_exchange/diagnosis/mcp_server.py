@@ -8,8 +8,8 @@ the real orchestrator; tests and later adapters inject a fake the same way.
 from __future__ import annotations
 
 import json
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -19,8 +19,22 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
-from capability_exchange.diagnosis.run import DiagnosisStateError
-from capability_exchange.diagnosis.specialists import SpecialistProposal as EngineProposal
+from capability_exchange.boundary.crashlog import write_crash_log
+from capability_exchange.diagnosis.payload_guard import (
+    REMOVE_ABSOLUTE_PATH,
+    REMOVE_SECRET,
+    HostilePayloadError,
+    parse_specialist_proposal,
+    refuse_hostile_payload,
+)
+from capability_exchange.diagnosis.run import DiagnosisStateError, RequiredStep
+from capability_exchange.diagnosis.specialists import (
+    SpecialistProposal as EngineProposal,
+)
+from capability_exchange.diagnosis.specialists import (
+    SpecialistProposalError,
+)
+from capability_exchange.diagnosis.work import WorkQueueError
 
 __all__ = [
     "EXPECTED_TOOLS",
@@ -32,6 +46,7 @@ __all__ = [
     "build_engine",
     "build_mcp_server",
     "canonical_result_bytes",
+    "canonical_work_bytes",
     "main",
 ]
 
@@ -39,12 +54,11 @@ EXPECTED_TOOLS = {
     "prepare_diagnosis",
     "get_diagnosis_status",
     "advance_diagnosis",
+    "get_diagnosis_work",
     "submit_specialist_proposal",
     "get_diagnosis_result",
 }
 FORBIDDEN_TOOL_SUBSTRINGS = ("write", "delete", "install", "repair", "share", "send")
-_SESSION_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
-_ABSOLUTE_PATH = re.compile(r"(?:/Users/|/home/|/private/|[A-Za-z]:\\)")
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -82,15 +96,7 @@ class SpecialistProposal:
 
     @classmethod
     def from_mapping(cls, payload: dict[str, object]) -> EngineProposal:
-        if not isinstance(payload, dict):
-            raise ValueError("specialist proposal is not a closed typed payload")
-        extra = set(payload) - cls._FIELDS
-        if extra:
-            raise ValueError("unknown fields are forbidden on specialist proposals")
-        try:
-            return EngineProposal.model_validate(payload)
-        except Exception as exc:
-            raise ValueError("specialist proposal is not a closed typed payload") from exc
+        return parse_specialist_proposal(payload)
 
 
 @runtime_checkable
@@ -105,8 +111,39 @@ class DiagnosisEngine(Protocol):
     def prepare(self, request: PrepareDiagnosisRequest) -> StoredResult: ...
     def status(self, run_id: str) -> StoredResult: ...
     def advance(self, run_id: str) -> StoredResult: ...
+    def work(self, run_id: str) -> object: ...
+    def pending_work(self, run_id: str) -> tuple[object, ...]: ...
+    def work_context(self, run_id: str) -> tuple[object, ...]: ...
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> StoredResult: ...
     def submit(self, run_id: str, proposal: object) -> StoredResult: ...
     def result(self, run_id: str) -> StoredResult: ...
+
+
+def _json_row(row: object) -> object:
+    """Dump one typed legend row; already-plain rows pass through."""
+
+    dump = getattr(row, "model_dump", None)
+    return dump(mode="json") if callable(dump) else row
+
+
+def _json_packet(packet: object) -> object:
+    """Dump one typed work packet; already-plain packets pass through."""
+
+    dump = getattr(packet, "model_dump", None)
+    return dump(mode="json") if callable(dump) else packet
+
+
+def canonical_work_bytes(payload: object) -> bytes:
+    """Sorted compact JSON bytes used for engine-vs-adapter work equality."""
+
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
 
 
 def canonical_result_bytes(payload: object) -> bytes:
@@ -125,11 +162,60 @@ def build_engine() -> DiagnosisEngine:
     return build_default_engine()
 
 
+#: Fixed by design, exactly like the diagnosis CLI's crash sentence: no
+#: exception text, no path, ever. An unexpected exception's message is
+#: interpolated from runtime values and can carry vault content, so a crash on
+#: this surface must not become a second way for inspected-system content to
+#: reach the wire — or the host's stderr, where the SDK would otherwise log
+#: the full traceback with the raw message.
+_CRASH_SENTENCE = (
+    "this diagnosis tool stopped on an unexpected error; "
+    "only a redacted crash log is kept locally."
+)
+
+
+def _record_crash(exc: Exception) -> None:
+    """Write the redacted crash record; a failed write forfeits only the log."""
+
+    try:
+        from capability_exchange.catalogue.subscription import default_lens_app_storage
+
+        write_crash_log(exc, default_lens_app_storage() / "crash-logs")
+    except Exception:  # the crash boundary never propagates
+        pass
+
+
+@contextmanager
+def _crash_boundary() -> Iterator[None]:
+    """The MCP twin of the CLI's crash boundary, wrapped around every tool body.
+
+    The typed flows — ``MCPError`` and ``ToolError`` carry fixed adapter
+    wording composed on purpose — pass through untouched, and so does
+    ``KeyboardInterrupt`` (any ``BaseException`` outside ``Exception``).
+    Everything else is a crash: the structural record goes to the same
+    app-storage crash-logs directory the CLI uses, and the wire gets only the
+    fixed sentence. Raising ``ToolError`` here is what keeps the SDK on its
+    anticipated-failure path, which logs only ``str(exc)`` — its unexpected
+    path would log the full traceback, raw interpolated message included.
+    ``from None`` severs the chain so no wrapper can carry the original text;
+    the redacted crash log is the only place the chain lives.
+    """
+
+    try:
+        yield
+    except (MCPError, ToolError):
+        raise
+    except Exception as exc:
+        _record_crash(exc)
+        raise ToolError(_CRASH_SENTENCE) from None
+
+
 def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:
     server = MCPServer("dex-lens-diagnosis")
     _register_status_tool(server, engine)
     _register_advance_tool(server, engine)
     register_prepare_tool(server, engine)
+    register_work_tool(server, engine)
     register_proposal_tool(server, engine)
     register_result_tool(server, engine)
     _forbid_unknown_tool_fields(server)
@@ -144,41 +230,115 @@ def register_prepare_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def prepare_diagnosis(roots: list[str]) -> dict[str, object]:
         """Create a pending run and return the local consent action without reading."""
-        request = PrepareDiagnosisRequest.from_mapping({"roots": list(roots)})
-        return _dump(engine.prepare, request)
+        with _crash_boundary():
+            request = PrepareDiagnosisRequest.from_mapping({"roots": list(roots)})
+            return _dump(engine.prepare, request)
+
+
+def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
+    @server.tool(annotations=_READ_ONLY)
+    def get_diagnosis_work(run_id: str) -> dict[str, object]:
+        """Return every issuable engine packet, or a typed empty result."""
+        with _crash_boundary():
+            try:
+                packets = tuple(engine.pending_work(run_id))
+                legend = () if not packets else tuple(engine.work_context(run_id))
+            except DiagnosisStateError as exc:
+                raise MCPError(
+                    code=INVALID_REQUEST,
+                    message=str(exc),
+                    data={
+                        "required_step": _required_step(exc),
+                        "error": type(exc).__name__,
+                    },
+                ) from exc
+            if not packets:
+                payload: dict[str, object] = {"packet": None, "packets": []}
+            else:
+                # ``packets`` is the whole legal round, so a host fans every
+                # packet out to parallel workers from this one fetch; ``packet``
+                # stays the first pending entry for compatibility. The legend
+                # rides alongside the round exactly once so a host can cite the
+                # opaque evidence/observation tokens without reading engine
+                # source. It never joins any packet's digest-bound identity.
+                dumped = [_json_packet(item) for item in packets]
+                payload = {
+                    "packet": dumped[0],
+                    "packets": dumped,
+                    "evidence_legend": [_json_row(row) for row in legend],
+                }
+            _refuse_hostile_payload(payload)
+            return payload
 
 
 def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
-    def submit_specialist_proposal(run_id: str, proposal: dict[str, object]) -> dict[str, object]:
-        """Offer typed, evidence-referenced semantic help for later validation."""
-        try:
-            parsed = SpecialistProposal.from_mapping(proposal)
-        except (TypeError, ValueError) as exc:
-            raise ToolError("specialist proposal is not a closed typed payload") from exc
-        _refuse_hostile_payload(parsed.model_dump())
-        return _dump(engine.submit, run_id, parsed)
+    def submit_specialist_proposal(
+        run_id: str,
+        packet_id: str,
+        proposals: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Validate and record one engine-issued packet response."""
+        with _crash_boundary():
+            try:
+                parsed = tuple(SpecialistProposal.from_mapping(item) for item in proposals)
+            except (TypeError, ValueError) as exc:
+                # ``parse_specialist_proposal`` raises plain ValueError carrying
+                # only fixed rule text plus failing field names — never pydantic
+                # messages or submitted values — so exactly that wording may be
+                # surfaced verbatim.  Any other exception type keeps the closed
+                # sentence: its text could interpolate submitted values.
+                message = (
+                    str(exc)
+                    if type(exc) is ValueError
+                    else "specialist proposal is not a closed typed payload"
+                )
+                raise ToolError(message) from exc
+            for item in parsed:
+                _refuse_hostile_payload(item.model_dump())
+            return _dump_work(engine.submit_work, run_id, packet_id, parsed)
 
 
 def register_result_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_result(run_id: str) -> dict[str, object]:
         """Return the closed typed result for one local run."""
-        return _dump(engine.result, run_id)
+        with _crash_boundary():
+            return _dump(engine.result, run_id)
 
 
 def _register_status_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_status(run_id: str) -> dict[str, object]:
         """Return proved stages and the next required action for one local run."""
-        return _dump(engine.status, run_id)
+        with _crash_boundary():
+            return _dump(engine.status, run_id)
 
 
 def _register_advance_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def advance_diagnosis(run_id: str) -> dict[str, object]:
         """Perform one lawful read-only diagnosis transition."""
-        return _dump(engine.advance, run_id)
+        with _crash_boundary():
+            return _dump(engine.advance, run_id)
+
+
+def _dump_work(method: Callable[..., StoredResult], *args: object) -> dict[str, object]:
+    try:
+        payload = method(*args).dump_for_storage()
+    except (DiagnosisStateError, WorkQueueError, SpecialistProposalError) as exc:
+        raise MCPError(
+            code=INVALID_REQUEST,
+            message=str(exc),
+            data={
+                "required_step": _required_step(exc)
+                if isinstance(exc, DiagnosisStateError)
+                else RequiredStep.REQUIRED_STEP.value,
+                "error": type(exc).__name__,
+            },
+        ) from exc
+    _refuse_hostile_payload(payload)
+    return payload
 
 
 def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, object]:
@@ -195,44 +355,27 @@ def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, objec
 
 
 def _required_step(exc: DiagnosisStateError) -> str:
-    text = str(exc).lower()
-    if "approve" in text or "scope" in text or "consent" in text:
-        return "approve_scope"
-    return "required_step"
+    typed = getattr(exc, "required_step", RequiredStep.REQUIRED_STEP)
+    if isinstance(typed, RequiredStep):
+        return typed.value
+    return RequiredStep.REQUIRED_STEP.value
+
+
+_HOSTILE_MESSAGES = {
+    REMOVE_SECRET: "secret material is not retained on the MCP wire",
+    REMOVE_ABSOLUTE_PATH: "absolute paths are not retained on the MCP wire",
+}
 
 
 def _refuse_hostile_payload(payload: object) -> None:
-    for text in _string_values(payload):
-        if _SESSION_CANARY in text:
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message="secret material is not retained on the MCP wire",
-                data={"required_step": "remove_secret", "error": "HostilePayload"},
-            )
-        if _ABSOLUTE_PATH.search(text):
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message="absolute paths are not retained on the MCP wire",
-                data={"required_step": "remove_absolute_path", "error": "HostilePayload"},
-            )
-
-
-def _string_values(payload: object) -> list[str]:
-    if isinstance(payload, str):
-        return [payload]
-    if isinstance(payload, dict):
-        found: list[str] = []
-        for key, value in payload.items():
-            if isinstance(key, str):
-                found.append(key)
-            found.extend(_string_values(value))
-        return found
-    if isinstance(payload, list | tuple):
-        found: list[str] = []
-        for item in payload:
-            found.extend(_string_values(item))
-        return found
-    return []
+    try:
+        refuse_hostile_payload(payload)
+    except HostilePayloadError as exc:
+        raise MCPError(
+            code=INVALID_REQUEST,
+            message=_HOSTILE_MESSAGES[exc.required_step],
+            data={"required_step": exc.required_step, "error": "HostilePayload"},
+        ) from exc
 
 
 def _forbid_unknown_tool_fields(server: MCPServer) -> None:

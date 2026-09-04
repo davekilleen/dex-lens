@@ -282,12 +282,10 @@ def test_working_copy_observations_are_centrally_not_assessed(
     )
 
     assert observation.operational_state is OperationalState.NOT_ASSESSED
-    assert (
+    with pytest.raises(ValueError, match="operational_state alongside axis fields"):
         observation.model_copy(
             update={"operational_state": OperationalState.OUTCOME_VERIFIED}
-        ).operational_state
-        is OperationalState.NOT_ASSESSED
-    )
+        )
 
 
 def test_working_copy_construct_route_cannot_introduce_active_state() -> None:
@@ -298,9 +296,8 @@ def test_working_copy_construct_route_cannot_introduce_active_state() -> None:
     }
     values["operational_state"] = OperationalState.LOADED
 
-    constructed = type(observation).model_construct(**values)
-
-    assert constructed.operational_state is OperationalState.NOT_ASSESSED
+    with pytest.raises(ValueError, match="operational_state alongside axis fields"):
+        type(observation).model_construct(**values)
 
 
 def test_fingerprint_copy_and_construct_reject_duplicate_source_triples() -> None:

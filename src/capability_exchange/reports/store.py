@@ -31,6 +31,7 @@ from capability_exchange.catalogue.subscription import (
     default_lens_app_storage,
     require_app_storage_outside_roots,
 )
+from capability_exchange.diagnosis.ranking import MAX_RECOMMENDATIONS
 
 __all__ = [
     "DEFAULT_LABEL",
@@ -183,7 +184,10 @@ def _verify_result_digests(
 
     from capability_exchange.diagnosis.report import (
         canonical_fact_block,
+        canonical_ledger_appendix,
         canonical_ledger_digest,
+        canonical_ledger_payload,
+        ledger_appendix_errors,
     )
 
     ledger = getattr(result, "ledger", None)
@@ -195,12 +199,20 @@ def _verify_result_digests(
         raise ValueError("result ledger digest does not match the comparison ledger")
     if canonical_fact_block(ledger) not in markdown:
         raise ValueError("canonical markdown does not match the comparison ledger")
+    if ledger_appendix_errors(markdown, ledger):
+        raise ValueError("canonical markdown appendix does not match the comparison ledger")
     stored = json.loads(result_json)
     if stored.get("ledger_sha256") != ledger_digest:
         raise ValueError("result JSON digest does not match the comparison ledger")
     payload = json.loads(ledger_json)
-    if payload.get("catalogue_sha256") != getattr(ledger, "catalogue_sha256", None):
-        raise ValueError("ledger JSON does not match the comparison ledger")
+    canonical_payload = canonical_ledger_payload(ledger)
+    if payload != canonical_payload:
+        raise ValueError("ledger JSON is not the exact canonical comparison ledger")
+    if stored.get("ledger") != canonical_payload:
+        raise ValueError("result JSON is not bound to the exact canonical comparison ledger")
+    canonical_appendix = canonical_ledger_appendix(ledger)
+    if stored.get("ledger_appendix") != canonical_appendix:
+        raise ValueError("result JSON appendix does not match the comparison ledger")
 
 
 class LensReportStore:
@@ -230,6 +242,25 @@ class LensReportStore:
         slug = _slug(label)
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self._free_path(stamp, slug)
+        return self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
+
+    def _write_saved_report(
+        self,
+        path: Path,
+        markdown: str,
+        *,
+        stamp: datetime,
+        slug: str,
+        ledger_json: str | None,
+    ) -> SavedReport:
+        """Write one already-allocated path so its report can name itself exactly."""
+
         path.write_text(markdown, encoding="utf-8")
         saved = SavedReport(
             path=path,
@@ -262,7 +293,38 @@ class LensReportStore:
         render = getattr(result, "render_markdown", None)
         if not callable(render):
             raise ValueError("save_result requires a typed result with render_markdown()")
-        markdown = render()
+        # Validate the supplied typed view before enriching it with the final
+        # destination.  This preserves the stronger canonical-ledger error for
+        # a forged storage view instead of letting a missing convenience
+        # method mask the actual integrity failure.
+        initial_markdown = render()
+        if not isinstance(initial_markdown, str) or not initial_markdown.strip():
+            raise ValueError("a report with no content is not a report")
+        initial_dump = getattr(result, "dump_for_storage", None)
+        if not callable(initial_dump):
+            raise ValueError("save_result requires a typed result with dump_for_storage()")
+        initial_ledger_json = _ledger_json_from_result(result)
+        initial_result_json = json.dumps(
+            initial_dump(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        _verify_result_digests(
+            result,
+            initial_markdown,
+            initial_ledger_json,
+            initial_result_json,
+        )
+        bind_location = getattr(result, "with_report_location", None)
+        if not callable(bind_location):
+            raise ValueError("save_result requires a typed result with report location binding")
+        stamp = (now or datetime.now(UTC)).astimezone(UTC)
+        slug = _slug(label)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self._free_path(stamp, slug)
+        result = bind_location(path)
+        markdown = result.render_markdown()
         if not isinstance(markdown, str) or not markdown.strip():
             raise ValueError("a report with no content is not a report")
         dump = getattr(result, "dump_for_storage", None)
@@ -276,7 +338,13 @@ class LensReportStore:
             sort_keys=True,
         )
         _verify_result_digests(result, markdown, ledger_json, result_json)
-        saved = self.save(markdown, label=label, now=now, ledger_json=ledger_json)
+        saved = self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
         try:
             saved.result_path.write_text(result_json, encoding="utf-8")
         except OSError:
@@ -626,9 +694,9 @@ def missing_report_requirements(markdown: str) -> list[str]:
         for heading in _HEADING.finditer(body)
         if heading.group(1) == "###"
     )
-    if recommendation_count > 3:
+    if recommendation_count > MAX_RECOMMENDATIONS:
         problems.append(
-            f"recommend at most three Dex additions; this report contains "
+            f"recommend at most {MAX_RECOMMENDATIONS} Dex additions; this report contains "
             f"{recommendation_count}."
         )
 

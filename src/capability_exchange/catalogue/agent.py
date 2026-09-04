@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import html
-import json
 from collections.abc import Iterable, Sequence
 
 from capability_exchange.catalogue.v2 import (
@@ -36,6 +35,7 @@ from capability_exchange.catalogue.v2 import (
     capability_class_fact_lines,
     capability_class_of,
 )
+from capability_exchange.diagnosis.families import summarise_family
 
 __all__ = [
     "capability_by_id",
@@ -157,6 +157,46 @@ def render_catalogue_digest(
             )
         lines.append("")
 
+    # Families are outcome-level views over the same leaf entries.  Derive
+    # their state from the complete verified catalogue even when the digest is
+    # narrowed: passing a partial member list would turn an omitted leaf into a
+    # false unavailable state.  A narrowed digest still omits unrelated
+    # families so the summary stays aligned with the requested capabilities.
+    families = [
+        family
+        for family in catalogue.capability_families
+        if wanted is None or wanted.intersection(family.member_capability_ids)
+    ]
+    if families:
+        lines.extend(["## Capability families", ""])
+        entries_by_id = {
+            entry.capability_id: entry for entry in catalogue.capabilities
+        }
+        for family in sorted(families, key=lambda item: item.family_id):
+            summary = summarise_family(
+                family,
+                tuple(
+                    entries_by_id[member_id]
+                    for member_id in family.member_capability_ids
+                ),
+            )
+            line = (
+                f"- **{_safe_markdown(summary.title)}** (`{summary.family_id}`) — "
+                f"{_safe_markdown(summary.outcome)} "
+                f"(availability: **{summary.availability.value}**)."
+            )
+            if summary.unavailable_member_ids:
+                line += (
+                    " Unavailable members: "
+                    + ", ".join(
+                        f"`{_safe_markdown(member_id)}`"
+                        for member_id in summary.unavailable_member_ids
+                    )
+                    + "."
+                )
+            lines.append(line)
+        lines.append("")
+
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -170,27 +210,82 @@ def render_catalogue_ledger_template(envelope: SignedCatalogueEnvelopeV2) -> str
     signed_json = envelope._signed_json
     if signed_json is None:
         raise ValueError("a ledger template requires an envelope returned by verification")
-    payload = {
-        "catalogue_version": envelope.metadata.catalog_version,
-        "catalogue_sha256": hashlib.sha256(signed_json.encode("utf-8")).hexdigest(),
-        "capabilities": [],
-        "entries": [
-            {
-                "catalogue_id": entry.capability_id,
-                "disposition": "not-assessed",
-                "capability_id": "unassigned",
-                "evidence_references": [],
-                "method_compared": False,
-                "reason": "Not assessed yet.",
-            }
+    from capability_exchange.diagnosis.comparison import (
+        CatalogueDisposition,
+        ComparisonLedger,
+        Disposition,
+        FamilyLedgerEntry,
+    )
+    from capability_exchange.diagnosis.significant_families import (
+        FamilyAssessmentDisposition,
+    )
+
+    def component_reference(component: object) -> str:
+        component_type = getattr(component, "component_type", None)
+        if component_type == "capability":
+            return f"capability:{component.capability_id}"
+        if component_type == "mcp-tool":
+            return f"mcp-tool:{component.server_id}:{component.tool_name}"
+        if component_type == "nango-provider":
+            return f"nango-provider:{component.provider_id}"
+        if component_type == "source-component":
+            return f"source-component:{component.component_id}"
+        raise TypeError("family component must use the verified closed component union")
+
+    entries_by_id = {
+        entry.capability_id: entry for entry in envelope.catalogue.capabilities
+    }
+    family_entries = tuple(
+        FamilyLedgerEntry(
+            family_id=family.family_id,
+            title=family.title,
+            outcome=family.outcome,
+            signed_availability=(
+                summary := summarise_family(
+                    family,
+                    tuple(
+                        entries_by_id[member_id]
+                        for member_id in family.member_capability_ids
+                    ),
+                )
+            ).availability,
+            available_member_ids=summary.available_member_ids,
+            unavailable_member_ids=summary.unavailable_member_ids,
+            recommendable_member_ids=summary.recommendable_member_ids,
+            matched_components=(),
+            matched_observation_ids=(),
+            unresolved_components=tuple(
+                sorted(component_reference(component) for component in family.components)
+            ),
+            evidence_references=(),
+            disposition=FamilyAssessmentDisposition.NOT_ASSESSED,
+            reason="Not assessed yet.",
+        )
+        for family in sorted(
+            envelope.catalogue.capability_families,
+            key=lambda item: item.family_id,
+        )
+    )
+    ledger = ComparisonLedger.for_catalogue(
+        envelope.catalogue,
+        catalogue_version=envelope.metadata.catalog_version,
+        catalogue_sha256=hashlib.sha256(signed_json.encode("utf-8")).hexdigest(),
+        capabilities=(),
+        entries=tuple(
+            CatalogueDisposition(
+                catalogue_id=entry.capability_id,
+                disposition=Disposition.NOT_ASSESSED,
+                capability_id="unassigned",
+                reason="Not assessed yet.",
+            )
             for entry in sorted(
                 envelope.catalogue.capabilities,
                 key=lambda item: item.capability_id,
             )
-        ],
-        "reciprocal_answer": "No transferable method cleared the evidence bar.",
-    }
-    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        ),
+        family_entries=family_entries,
+    )
+    return ledger.model_dump_json(indent=2) + "\n"
 
 
 def _bullets(values: Sequence[str]) -> list[str]:

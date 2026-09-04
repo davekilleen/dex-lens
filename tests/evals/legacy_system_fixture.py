@@ -29,7 +29,11 @@ description: {description}
 """
 
 FILES = {
-    "CHANGELOG.md": "# Changes\n\n## v0.8.3 — Local Services\n",
+    "CHANGELOG.md": (
+        "# Changelog\n\n"
+        "All notable changes to Dex will be documented in this file.\n\n"
+        "## v0.8.3 — Local Services\n"
+    ),
     ".mcp.json": json.dumps(
         {
             "mcpServers": {

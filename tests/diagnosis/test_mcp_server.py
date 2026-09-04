@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -13,16 +14,21 @@ from typing import Any
 import pytest
 from mcp import Client, MCPError
 from mcp.client.stdio import StdioServerParameters
+from mcp.server.mcpserver.exceptions import ToolError
 from tests.evals.real_session_fixture import CANARY
 
 from capability_exchange.diagnosis.mcp_server import (
+    _CRASH_SENTENCE,
     EXPECTED_TOOLS,
     FORBIDDEN_TOOL_SUBSTRINGS,
     PrepareDiagnosisRequest,
     SpecialistProposal,
+    _crash_boundary,
+    _required_step,
     build_engine,
     build_mcp_server,
     canonical_result_bytes,
+    canonical_work_bytes,
     main,
 )
 from capability_exchange.diagnosis.run import (
@@ -30,6 +36,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+    RequiredStep,
 )
 from capability_exchange.diagnosis.specialists import (
     ProposalKind,
@@ -72,6 +79,9 @@ class FakeStored:
     def dump_for_storage(self) -> dict[str, Any]:
         return self.payload
 
+    def model_dump(self, **kwargs: object) -> dict[str, Any]:
+        return self.payload
+
 
 @dataclass
 class FakeEngine:
@@ -81,6 +91,11 @@ class FakeEngine:
     collection_calls: int = 0
     prepared: list[PrepareDiagnosisRequest] = field(default_factory=list)
     submitted: list[object] = field(default_factory=list)
+    work_calls: list[str] = field(default_factory=list)
+    legend_calls: list[str] = field(default_factory=list)
+    submitted_work: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
+    next_packet: dict[str, object] | None = None
+    next_legend: tuple[dict[str, object], ...] = ()
 
     def prepare(self, request: PrepareDiagnosisRequest) -> DiagnosisRunView:
         self.prepared.append(request)
@@ -102,7 +117,10 @@ class FakeEngine:
 
     def advance(self, run_id: str) -> DiagnosisRunView:
         if not self.consented:
-            raise DiagnosisStateError("approve the exact scope")
+            raise DiagnosisStateError(
+                "approve the exact scope",
+                required_step=RequiredStep.APPROVE_SCOPE,
+            )
         self.collection_calls += 1
         return DiagnosisRunView(
             run_id=run_id,
@@ -112,6 +130,29 @@ class FakeEngine:
 
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView:
         self.submitted.append(proposal)
+        return self.status(run_id)
+
+    def work(self, run_id: str) -> FakeStored | None:
+        self.work_calls.append(run_id)
+        if self.next_packet is None:
+            return None
+        return FakeStored(self.next_packet)
+
+    def pending_work(self, run_id: str) -> tuple[FakeStored, ...]:
+        packet = self.work(run_id)
+        return () if packet is None else (packet,)
+
+    def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
+        self.legend_calls.append(run_id)
+        return self.next_legend
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView:
+        self.submitted_work.append((packet_id, proposals))
         return self.status(run_id)
 
     def result(self, run_id: str) -> FakeStored:
@@ -136,6 +177,17 @@ def _tool_payload(result: object) -> dict[str, Any]:
             if isinstance(loaded, dict):
                 return loaded
     raise AssertionError(f"tool result had no JSON object payload: {result!r}")
+
+
+@pytest.mark.anyio
+async def test_mcp_exposes_exactly_six_read_only_diagnosis_tools() -> None:
+    server = build_mcp_server(fake_engine())
+    async with Client(server, raise_exceptions=True) as client:
+        tools = await client.list_tools()
+    assert {tool.name for tool in tools.tools} == EXPECTED_TOOLS
+    for name in EXPECTED_TOOLS:
+        lowered = name.lower()
+        assert all(token not in lowered for token in FORBIDDEN_TOOL_SUBSTRINGS)
 
 
 @pytest.mark.anyio
@@ -178,15 +230,27 @@ async def test_secret_canaries_and_absolute_paths_are_refused() -> None:
 
         canary = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": CANARY}},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": CANARY}],
+            },
         )
         path = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": HOSTILE_ROOT}},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": HOSTILE_ROOT}],
+            },
         )
         extra = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": {"note": "ok", "invented": 1}},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [{"note": "ok", "invented": 1}],
+            },
         )
     assert canary.is_error
     assert path.is_error
@@ -206,6 +270,18 @@ async def test_advance_before_consent_is_structured_mcp_error_without_collection
     assert error.data is not None
     assert error.data["required_step"] == "approve_scope"
     assert "approve the exact scope" in error.message
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "approve this scope",
+        "consent is required",
+        "scope approval is missing",
+    ),
+)
+def test_required_step_is_never_inferred_from_error_message(message: str) -> None:
+    assert _required_step(DiagnosisStateError(message)) == RequiredStep.REQUIRED_STEP.value
 
 
 @pytest.mark.anyio
@@ -258,18 +334,116 @@ def test_specialist_proposal_validates_the_engine_schema() -> None:
 
 
 @pytest.mark.anyio
-async def test_submit_forwards_a_typed_engine_proposal() -> None:
+async def test_get_diagnosis_work_returns_canonical_packet_bytes() -> None:
+    packet = {
+        "packet_id": "packet:sha256:" + "d" * 64,
+        "packet_digest": "sha256:" + "e" * 64,
+        "role": SpecialistRole.TOOLS_AND_INTEGRATIONS.value,
+        "run_id": RUN_ID,
+        "fingerprint_digest": "sha256:" + "b" * 64,
+        "catalogue_digest": "sha256:" + "c" * 64,
+        "evidence_ids": [],
+        "catalogue_ids": ["daily-planning"],
+        "capability_ids": ["planning"],
+        "observation_ids": [],
+        "family_ids": [],
+        "workflow_ids": [],
+        "question": "What tools and integrations matter here?",
+        "max_attempts": 2,
+        "max_proposals": 24,
+    }
+    legend = (
+        {
+            "evidence_id": "evidence:sha256:" + "f" * 64,
+            "observation_id": "observation:sha256:" + "a" * 64,
+            "kind": "skill",
+            "identity": "invented-shared-method",
+            "label": "Invented shared method",
+            "relative_reference": "synthetic/invented-shared-method/SKILL.md",
+            "source_class": "vault-authored",
+        },
+    )
+    engine = fake_engine()
+    engine.next_packet = packet
+    engine.next_legend = legend
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
+    payload = _tool_payload(result)
+    assert canonical_work_bytes(payload) == canonical_work_bytes(
+        {"packet": packet, "packets": [packet], "evidence_legend": list(legend)}
+    )
+    assert engine.work_calls == [RUN_ID]
+    assert engine.legend_calls == [RUN_ID]
+
+
+@pytest.mark.anyio
+async def test_get_diagnosis_work_empty_result_carries_no_legend() -> None:
+    engine = fake_engine()
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
+    assert _tool_payload(result) == {"packet": None, "packets": []}
+    assert engine.legend_calls == []
+
+
+@pytest.mark.anyio
+async def test_submit_forwards_packet_bound_engine_proposals() -> None:
     engine = fake_engine()
     server = build_mcp_server(engine)
     async with Client(server, raise_exceptions=True) as client:
         result = await client.call_tool(
             "submit_specialist_proposal",
-            {"run_id": RUN_ID, "proposal": _VALID_PROPOSAL},
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [_VALID_PROPOSAL],
+            },
         )
     assert not result.is_error
-    assert len(engine.submitted) == 1
-    assert isinstance(engine.submitted[0], EngineProposal)
-    assert engine.submitted[0].capability_id == "planning"
+    assert len(engine.submitted_work) == 1
+    packet_id, proposals = engine.submitted_work[0]
+    assert packet_id == "packet:sha256:" + "a" * 64
+    assert len(proposals) == 1
+    assert isinstance(proposals[0], EngineProposal)
+    assert proposals[0].capability_id == "planning"
+
+
+@pytest.mark.anyio
+async def test_mcp_schema_refusal_names_the_failing_fields_never_their_values() -> None:
+    """The MCP refusal carries field names and fixed rule text, never values.
+
+    One failing value carries the session canary, exactly the material a
+    refusal must not repeat on the wire.
+    """
+
+    engine = fake_engine()
+    server = build_mcp_server(engine)
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "submit_specialist_proposal",
+            {
+                "run_id": RUN_ID,
+                "packet_id": "packet:sha256:" + "a" * 64,
+                "proposals": [
+                    {
+                        **_VALID_PROPOSAL,
+                        "reason": f"planted {CANARY}\nacross two lines",
+                        "evidence_ids": [],
+                    }
+                ],
+            },
+        )
+    assert result.is_error
+    rendered = json.dumps(
+        [getattr(block, "text", "") for block in (result.content or ())]
+    )
+    assert (
+        "specialist proposal is not a closed typed payload "
+        "(invalid fields: evidence_ids, reason)"
+    ) in rendered
+    assert CANARY not in rendered
+    assert engine.submitted_work == []
 
 
 _STDIO_SMOKE = r"""
@@ -296,6 +470,10 @@ class Engine:
         return self.prepare(None)
     def advance(self, run_id):
         raise DiagnosisStateError("approve the exact scope")
+    def work(self, run_id):
+        return None
+    def submit_work(self, run_id, packet_id, proposals=()):
+        return self.status(run_id)
     def submit(self, run_id, proposal):
         return self.status(run_id)
     def result(self, run_id):
@@ -311,7 +489,6 @@ build_mcp_server(Engine()).run(transport="stdio")
 def _stdio_env() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(_SRC)
-    environment["PYTHONNOUSERSITE"] = "1"
     environment["LENS_TEST_CANARY"] = CANARY
     return environment
 
@@ -389,6 +566,92 @@ def test_stdio_stdout_contains_protocol_only() -> None:
     listed = next(frame for frame in frames if frame.get("id") == 2 and "result" in frame)
     names = {item["name"] for item in listed["result"]["tools"]}
     assert names == EXPECTED_TOOLS
+
+
+#: A crash message interpolated from inspected-system content: the session
+#: canary plus a vault-shaped absolute path, exactly what the crash boundary
+#: exists to keep off every outbound channel.
+_CRASH_MESSAGE = f"boom {CANARY} in /Users/invented-owner/vault"
+
+
+class _CrashingEngine(FakeEngine):
+    """The fake engine with one method that crashes like a real bug would."""
+
+    def result(self, run_id: str) -> FakeStored:
+        raise RuntimeError(_CRASH_MESSAGE)
+
+
+@pytest.mark.anyio
+async def test_a_tool_crash_reaches_neither_the_wire_nor_the_server_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unexpected engine exception is redacted everywhere it could surface.
+
+    Red first: without the crash boundary the SDK's ``logger.exception`` path
+    wrote the full traceback — raw interpolated message included, canary and
+    absolute path with it — to the server-side log, the exact channel the CLI
+    crash boundary had already closed for every other surface.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    server = build_mcp_server(_CrashingEngine())
+    with caplog.at_level(logging.DEBUG):
+        async with Client(server, raise_exceptions=True) as client:
+            result = await client.call_tool("get_diagnosis_result", {"run_id": RUN_ID})
+
+    assert result.is_error
+    wire = json.dumps(
+        [getattr(block, "text", "") for block in (result.content or ())]
+    )
+    logged = caplog.text + json.dumps(
+        [record.getMessage() for record in caplog.records]
+    )
+    for channel in (wire, logged):
+        assert CANARY not in channel
+        assert "/Users/" not in channel
+        assert "boom" not in channel
+    assert _CRASH_SENTENCE in wire
+
+    crash_directory = tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs"
+    crash_logs = sorted(crash_directory.glob("*.json"))
+    assert len(crash_logs) == 1
+    record = json.loads(crash_logs[0].read_text(encoding="utf-8"))
+    assert record["exception_type"] == "RuntimeError"
+    stored = crash_logs[0].read_text(encoding="utf-8")
+    assert CANARY not in stored
+    assert "/Users/" not in stored
+    assert "boom" not in stored
+
+
+def test_crash_boundary_lets_keyboard_interrupt_propagate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ctrl-C is the person's decision, never a crash to swallow or record."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    with pytest.raises(KeyboardInterrupt):
+        with _crash_boundary():
+            raise KeyboardInterrupt
+    assert not (tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs").exists()
+
+
+def test_crash_boundary_passes_the_typed_refusals_through_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MCPError and ToolError are the deliberate flows; they carry fixed text
+    the adapters composed on purpose, so the boundary must not re-wrap them."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    typed = MCPError(code=-32600, message="approve the exact scope")
+    with pytest.raises(MCPError) as caught_mcp:
+        with _crash_boundary():
+            raise typed
+    assert caught_mcp.value is typed
+    deliberate = ToolError("specialist proposal is not a closed typed payload")
+    with pytest.raises(ToolError) as caught_tool:
+        with _crash_boundary():
+            raise deliberate
+    assert caught_tool.value is deliberate
+    assert not (tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs").exists()
 
 
 def test_main_uses_injectable_build_engine(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -20,6 +21,11 @@ from scripts.release_bundle import (
     verify_manifest_signature,
 )
 from scripts.render_release_installer import render_installer
+
+from capability_exchange.catalogue.v2 import (
+    default_keyring,
+    verify_catalogue_envelope,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RELEASE_URL = "https://github.com/davekilleen/dex-lens/releases/download/v0.1.0"
@@ -619,7 +625,14 @@ def test_a_real_install_repoints_only_the_official_legacy_launcher(
     assert launcher.readlink() == signed_target
     assert legacy.exists(), "the rollback copy must remain untouched"
     assert (skill_home / "dex-lens" / "SKILL.md").is_file()
-    assert (skill_home / "dex-lens" / "dex-capabilities.json").is_file()
+    reference_path = skill_home / "dex-lens" / "dex-capabilities.json"
+    assert reference_path.is_file()
+    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+    signed_catalogue = json.dumps(
+        reference["signed_catalogue"], sort_keys=True, separators=(",", ":")
+    )
+    verified = verify_catalogue_envelope(signed_catalogue, keyring=default_keyring())
+    assert verified.metadata.key_id == reference["source_catalogue"]["key_id"]
     assert "It looks like you used Dex Lens before" in completed.stdout
     assert "Your earlier private copy is still" in completed.stdout
 
