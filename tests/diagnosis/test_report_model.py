@@ -25,7 +25,10 @@ from capability_exchange.diagnosis.comparison import (
     HumanCapability,
     InsightKind,
 )
-from capability_exchange.diagnosis.payload_guard import refuse_hostile_payload
+from capability_exchange.diagnosis.payload_guard import (
+    HostilePayloadError,
+    refuse_hostile_payload,
+)
 from capability_exchange.diagnosis.ranking import (
     RecommendationCandidate,
     RecommendationFactors,
@@ -630,16 +633,95 @@ def test_report_location_under_home_renders_home_relative(
     refuse_hostile_payload(markdown)
 
 
-def test_report_location_outside_home_is_rendered_as_written(
+def test_report_location_outside_home_renders_no_path_at_all(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Only a home-rooted location is rewritten; anywhere else stays exact."""
+    """Finding A2: a location outside home renders no path, never verbatim.
+
+    This test previously certified the hole it now closes: it asserted the
+    absolute location was "rendered as written", which is exactly the leak —
+    with ``XDG_STATE_HOME`` outside home the app-storage path (and on other
+    layouts the account name) went verbatim into the most shareable artifact
+    Lens produces. The decided direction is: render relative or render no
+    path at all.
+    """
 
     invented_home = tmp_path / "Users" / "invented-owner"
     monkeypatch.setattr(Path, "home", lambda: invented_home)
-    saved = tmp_path / "shared-drive" / "lens-look.md"
+    # XDG_STATE_HOME pointed outside home: default_lens_app_storage honours
+    # it, Path.home() never sees it.
+    saved = tmp_path / "invented-xdg-state" / "dex-lens" / "capability-bridge" / "lens-look.md"
     ledger, report = _report()
 
     markdown = report.with_report_location(saved).render_markdown(ledger)
 
-    assert f"- Report location: `{saved}`." in markdown
+    assert str(saved) not in markdown
+    assert str(tmp_path) not in markdown
+    assert (
+        "- Report location: saved in Lens's app storage — `dex-lens reports` lists it."
+        in markdown
+    )
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_under_symlinked_home_never_leaks_the_account_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Finding A2, the reviewed leak: a symlinked home rendered the account name.
+
+    ``default_lens_app_storage`` resolves symlinks; ``Path.home()`` does not.
+    On a symlinked home the stored location is the resolved path, so
+    ``relative_to(Path.home())`` failed and the old fallback rendered the
+    resolved ABSOLUTE path — account name included — into the footer.
+    """
+
+    real_home = tmp_path / "invented-actual-homes" / "invented-owner"
+    real_home.mkdir(parents=True)
+    linked_home = tmp_path / "Users" / "invented-owner"
+    linked_home.parent.mkdir(parents=True)
+    linked_home.symlink_to(real_home)
+    monkeypatch.setattr(Path, "home", lambda: linked_home)
+    # The storage path is stored resolved, exactly as default_lens_app_storage
+    # produces it.
+    saved = (
+        (real_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md")
+        .resolve(strict=False)
+    )
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert "invented-owner" not in markdown
+    assert str(saved) not in markdown
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    refuse_hostile_payload(markdown)
+
+
+def test_report_location_under_a_var_home_shaped_home_passes_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding A2 meets C4: on /var/home layouts the footer must stay renderable.
+
+    The extended outbound guard refuses absolute ``/var/home/...`` paths, so a
+    footer that retained the absolute location would make
+    ``result --format markdown`` refuse its own report forever. Rendered
+    home-relative, the footer passes the very guard that refuses the raw path.
+    """
+
+    invented_home = Path("/var/home/invented-owner")
+    monkeypatch.setattr(Path, "home", lambda: invented_home)
+    saved = invented_home / ".local" / "state" / "dex-lens" / "reports" / "lens-look.md"
+    with pytest.raises(HostilePayloadError):
+        refuse_hostile_payload(str(saved))
+    ledger, report = _report()
+
+    markdown = report.with_report_location(saved).render_markdown(ledger)
+
+    assert "invented-owner" not in markdown
+    assert "/var/home/" not in markdown
+    assert (
+        "- Report location: `~/.local/state/dex-lens/reports/lens-look.md`." in markdown
+    )
+    refuse_hostile_payload(markdown)

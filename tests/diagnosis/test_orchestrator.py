@@ -381,6 +381,56 @@ def test_each_stage_calls_exactly_its_lawful_dependency(engine: EngineHarness) -
     assert engine.report_store.save_calls == []
 
 
+def test_capture_accepts_lawful_nested_relative_references(engine: EngineHarness) -> None:
+    """Finding B3: an ordinary vault must never wedge at capture.
+
+    A vault containing a folder named ``private``, ``home`` or ``Users`` below
+    its root produces relative references such as ``notes/private/journal.md``
+    — accepted by provenance validation and emitted verbatim by the snapshot
+    adapter. The capture guard refuses absolute-path SHAPE, so these lawful
+    references must reach the CAPTURED stage instead of being refused as
+    hostile content forever.
+    """
+
+    base = real_session_fingerprint()
+    nested_references = (
+        "notes/private/journal.md",
+        "dotfiles/home/config.md",
+        "sync/Users/list.md",
+    )
+    observations = list(base.observations)
+    for index, reference in enumerate(nested_references):
+        observations.append(
+            Observation(
+                kind=ObservationKind.SKILL,
+                identity=f"invented-nested-{index:03d}",
+                label=f"Invented nested folder method {index:03d}",
+                operational_state=OperationalState.IMPLEMENTED,
+                evidence=EvidenceItem(
+                    state=EvidenceState.OBSERVED,
+                    captured_at=NOW,
+                    reference=f"file-token:invented-nested-{index:03d}.md",
+                ),
+                provenance={
+                    "source_id": f"scope:invented-nested-{index:03d}",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "b" * 64,
+                    "relative_reference": reference,
+                },
+                attributes=(SafeAttribute(key="source-kind", value="vault-authored"),),
+            )
+        )
+    engine.collector.fingerprint = base.model_copy(
+        update={"observations": tuple(observations)}
+    )
+
+    prepared = engine.prepare(prepare_request())
+    view = engine.run_to(prepared.run_id, DiagnosisStage.CAPTURED)
+
+    assert view.stage is DiagnosisStage.CAPTURED
+    assert len(engine.collector.calls) == 1
+
+
 def test_failed_reconciliation_never_reaches_saved(
     engine: EngineHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -523,7 +573,19 @@ def test_save_consumes_report_model_via_save_result(engine: EngineHarness) -> No
     assert engine.report_store.save_calls == []
 
 
-def test_result_after_close_can_render_canonical_markdown(engine: EngineHarness) -> None:
+def test_result_after_close_can_render_canonical_markdown(
+    engine: EngineHarness, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The closed result names its exact saved destination, home-relative.
+
+    Finding A2 evolved this test: it previously asserted the footer carried
+    the saved ABSOLUTE path verbatim (the store lives outside home in this
+    harness), which is the leak the footer contract now forbids. The invented
+    home below puts the store under home, so the footer still binds to the
+    exact saved file — rendered relative, never absolute.
+    """
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     prepared = engine.prepare(prepare_request())
     engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
     result = engine.result(prepared.run_id)
@@ -534,7 +596,9 @@ def test_result_after_close_can_render_canonical_markdown(engine: EngineHarness)
     assert canonical_fact_block(result.ledger) in markdown
     saved = engine.report_store.last()
     assert saved is not None
-    assert f"- Report location: `{saved.path}`." in markdown
+    relative = "~/" + saved.path.relative_to(tmp_path).as_posix()
+    assert f"- Report location: `{relative}`." in markdown
+    assert str(saved.path) not in markdown
     assert "not been saved" not in markdown
 
 

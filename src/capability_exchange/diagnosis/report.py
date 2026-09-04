@@ -67,19 +67,37 @@ def _insight_row(item: GroundedInsight) -> dict[str, object]:
     }
 
 
-def _home_relative_location(location: str) -> str:
-    """Render a report location without naming the account that owns it.
+def _home_relative_location(location: str) -> str | None:
+    """Render a report location home-relative, or ``None`` when it cannot be.
 
     WO-022, decided 2026-09-03: the footer lives in the most shareable
     artifact Lens produces, and an absolute home path carries the person's
-    username. A location under the home directory renders as ``~/…``;
-    anywhere else is rendered as written.
+    username. A location under the home directory renders as ``~/…``. The
+    storage path arrives resolved (``default_lens_app_storage`` resolves
+    symlinks and honours ``XDG_STATE_HOME``) while ``Path.home()`` does
+    neither, so both the written and the resolved location are tried against
+    both the written and the resolved home. When nothing matches — for
+    example ``XDG_STATE_HOME`` outside home — the caller renders no path at
+    all: no footer may ever carry an absolute path.
     """
 
-    try:
-        return "~/" + Path(location).relative_to(Path.home()).as_posix()
-    except ValueError:
-        return location
+    written = Path(location)
+    homes: list[Path] = []
+    for home in (Path.home(), Path.home().resolve(strict=False)):
+        if home not in homes:
+            homes.append(home)
+    candidates: list[Path] = [written]
+    if written.is_absolute():
+        resolved = written.resolve(strict=False)
+        if resolved not in candidates:
+            candidates.append(resolved)
+    for candidate in candidates:
+        for home in homes:
+            try:
+                return "~/" + candidate.relative_to(home).as_posix()
+            except ValueError:
+                continue
+    return None
 
 
 def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
@@ -548,11 +566,15 @@ class ReportModel(InventoriedModel):
             first_move = self.strongest_findings[0].recommended_next_move
         else:
             first_move = "No first move cleared the bar."
-        report_location = (
-            f"`{_home_relative_location(self._report_location)}`."
-            if self._report_location is not None
-            else "This report will be saved before the run closes."
-        )
+        if self._report_location is None:
+            report_location = "This report will be saved before the run closes."
+        else:
+            relative = _home_relative_location(self._report_location)
+            report_location = (
+                f"`{relative}`."
+                if relative is not None
+                else "saved in Lens's app storage — `dex-lens reports` lists it."
+            )
         return (
             "## What happens next\n"
             f"- Already doing: {strongest}\n"

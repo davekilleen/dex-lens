@@ -26,7 +26,37 @@ __all__ = [
 ]
 
 SESSION_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
-ABSOLUTE_PATH = re.compile(r"(?:/Users/|/home/|/private/|[A-Za-z]:\\)")
+
+# The guard refuses absolute-path SHAPE, not substrings. A guarded prefix
+# counts only where an absolute path can actually start: at the beginning of
+# the string, or immediately after a non-path boundary character — whitespace,
+# a quote, an opening bracket, ``=`` or ``:`` — the ways an absolute path is
+# embedded in surrounding text. It never counts mid-relative-path after a
+# path segment, so a vault folder named ``private``, ``home`` or ``Users``
+# below the root (``notes/private/journal.md``) stays diagnosable: every
+# relative reference provenance validation accepts must pass this guard.
+#
+# The vocabulary deliberately has no bare ``/var/`` or ``/tmp/``: macOS
+# temporary directories live under ``/var/folders/...`` and Linux test
+# fixtures under ``/tmp/...``. Fedora Silverblue's real home is covered
+# explicitly as ``/var/home/``.
+_ABSOLUTE_PREFIXES = (
+    "/Users/",
+    "/home/",
+    "/private/",
+    "/root/",
+    "/srv/",
+    "/opt/",
+    "/Volumes/",
+    "/var/home/",
+)
+_BOUNDARY = r"(?:^|(?<=[\s\"'`([{<=:]))"
+ABSOLUTE_PATH = re.compile(
+    _BOUNDARY
+    + "(?:"
+    + "|".join(re.escape(prefix) for prefix in _ABSOLUTE_PREFIXES)
+    + r")|[A-Za-z]:\\"
+)
 
 REMOVE_SECRET = "remove_secret"
 REMOVE_ABSOLUTE_PATH = "remove_absolute_path"

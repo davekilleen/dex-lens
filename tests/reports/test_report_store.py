@@ -226,8 +226,17 @@ class TestAFolderThePersonOwns:
 
 class TestSaveResult:
     def test_it_renders_typed_markdown_and_verifies_the_three_digests(
-        self, store: LensReportStore
+        self, store: LensReportStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """Finding A2 evolved the location assertion in this test.
+
+        It previously asserted the footer carried the saved ABSOLUTE path
+        verbatim (this store lives outside home), which is the leak the
+        footer contract now forbids. The invented home puts the store under
+        home, so the footer still binds to the exact saved file — rendered
+        home-relative, never absolute.
+        """
+
         from tests.diagnosis.test_report_model import run_identity
         from tests.evals.real_session_fixture import real_session_ledger
 
@@ -238,6 +247,7 @@ class TestSaveResult:
             canonical_ledger_digest,
         )
 
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         ledger = real_session_ledger()
         result = DiagnosisResult(
             report=ReportModel.from_result(
@@ -252,7 +262,9 @@ class TestSaveResult:
 
         markdown = saved.path.read_text(encoding="utf-8")
         assert canonical_fact_block(ledger) in markdown
-        assert f"- Report location: `{saved.path}`." in markdown
+        relative = "~/" + saved.path.relative_to(tmp_path).as_posix()
+        assert f"- Report location: `{relative}`." in markdown
+        assert str(saved.path) not in markdown
         assert saved.ledger_path.is_file()
         assert saved.result_path.is_file()
         stored = saved.result_path.read_text(encoding="utf-8")
