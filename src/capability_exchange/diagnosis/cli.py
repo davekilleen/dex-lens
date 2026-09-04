@@ -63,6 +63,8 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def work(self, run_id: str) -> object: ...
 
+    def pending_work(self, run_id: str) -> tuple[object, ...]: ...
+
     def work_context(self, run_id: str) -> tuple[object, ...]: ...
 
     def submit_work(
@@ -548,20 +550,32 @@ def _work(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     engine = build_engine()
-    packet = engine.work(args.run)
-    if packet is None:
-        payload: dict[str, object] = {"packet": None}
+    packets = engine.pending_work(args.run)
+    if not packets:
+        payload: dict[str, object] = {"packet": None, "packets": []}
     else:
-        # The legend rides alongside the packet so a host can cite the
-        # packet's opaque evidence/observation tokens without reading engine
-        # source. It never joins the packet's digest-bound identity.
+        # ``packets`` is the whole legal round, so a host fans every packet
+        # out to parallel workers from this one fetch; ``packet`` stays the
+        # first pending entry for compatibility. The legend rides alongside
+        # the round exactly once so a host can cite the opaque
+        # evidence/observation tokens without reading engine source. It
+        # never joins any packet's digest-bound identity.
+        dumped = [_json_packet(item) for item in packets]
         payload = {
-            "packet": getattr(packet, "model_dump", lambda **_: packet)(mode="json"),
+            "packet": dumped[0],
+            "packets": dumped,
             "evidence_legend": [
                 _json_row(row) for row in engine.work_context(args.run)
             ],
         }
     return _write_guarded_canonical_json(payload)
+
+
+def _json_packet(packet: object) -> object:
+    """Dump one typed work packet; already-plain packets pass through."""
+
+    dump = getattr(packet, "model_dump", None)
+    return dump(mode="json") if callable(dump) else packet
 
 
 def _json_row(row: object) -> object:

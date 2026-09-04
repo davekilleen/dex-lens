@@ -21,7 +21,7 @@ from capability_exchange.diagnosis.mcp_server import (
 )
 from capability_exchange.diagnosis.run import DiagnosisStage
 from capability_exchange.diagnosis.specialists import candidate_id_for
-from capability_exchange.diagnosis.work import AnalysisMode
+from capability_exchange.diagnosis.work import NORMAL_ROLES, AnalysisMode
 from capability_exchange.evaluation.replay import (
     ReplayHarness,
     _cli_json,
@@ -40,12 +40,14 @@ class AdapterHarness:
 
     def direct_work_bytes(self) -> bytes:
         engine = self.harness.engine
-        packet = engine.work(self.harness.bundle.run_id)
-        if packet is None:
-            payload: dict[str, object] = {"packet": None}
+        packets = engine.pending_work(self.harness.bundle.run_id)
+        if not packets:
+            payload: dict[str, object] = {"packet": None, "packets": []}
         else:
+            dumped = [item.model_dump(mode="json") for item in packets]
             payload = {
-                "packet": packet.model_dump(mode="json"),
+                "packet": dumped[0],
+                "packets": dumped,
                 "evidence_legend": [
                     row.model_dump(mode="json")
                     for row in engine.work_context(self.harness.bundle.run_id)
@@ -204,6 +206,86 @@ def test_a_host_can_cite_and_submit_using_only_the_work_payload(
     next_packet = after["packet"]
     assert isinstance(next_packet, dict)
     assert next_packet["packet_id"] != packet["packet_id"]
+
+
+def _cli_call(harness: ReplayHarness, argv: list[str]) -> dict[str, object]:
+    diagnosis_cli.bind_consent_surface(_SilentSession(), _SilentServer())
+    try:
+        with patch.object(diagnosis_cli, "build_engine", lambda: harness.engine):
+            return _cli_json(argv)
+    finally:
+        diagnosis_cli.reset_consent_surface()
+
+
+def test_work_payload_lists_every_pending_normal_packet(
+    conformance: AdapterHarness,
+) -> None:
+    """One ``work --json`` fetch hands a host the whole legal round at once."""
+
+    payload = _cli_work_payload(conformance.harness)
+    packets = payload["packets"]
+    assert isinstance(packets, list)
+    assert [item["role"] for item in packets] == [role.value for role in NORMAL_ROLES]
+    assert packets[0] == payload["packet"]
+    assert "sceptical-reconciler" not in {item["role"] for item in packets}
+
+
+def test_work_payload_carries_exactly_one_legend_and_packets_carry_none(
+    conformance: AdapterHarness,
+) -> None:
+    """The 282-row legend problem: the legend appears once, never per packet."""
+
+    payload = _cli_work_payload(conformance.harness)
+    assert payload["evidence_legend"]
+    packets = payload["packets"]
+    assert isinstance(packets, list) and packets
+    assert all("evidence_legend" not in item for item in packets)
+    assert canonical_work_bytes(payload).count(b'"evidence_legend"') == 1
+
+
+def test_sceptical_packet_joins_the_list_alone_only_after_normals_are_final(
+    conformance: AdapterHarness,
+) -> None:
+    """While any normal packet is pending the list excludes sceptical work;
+    once every normal receipt is final the sceptical packet is the only entry."""
+
+    harness = conformance.harness
+    run_id = harness.bundle.run_id
+    payload = _cli_work_payload(harness)
+    normals = payload["packets"]
+    assert [item["role"] for item in normals] == [role.value for role in NORMAL_ROLES]
+
+    for item in normals[:-1]:
+        _cli_call(
+            harness,
+            ["submit", "--run", run_id, "--packet", str(item["packet_id"])],
+        )
+    one_left = _cli_work_payload(harness)
+    assert [item["role"] for item in one_left["packets"]] == [normals[-1]["role"]]
+    assert "sceptical-reconciler" not in {
+        item["role"] for item in one_left["packets"]
+    }
+
+    _cli_call(
+        harness,
+        ["submit", "--run", run_id, "--packet", str(normals[-1]["packet_id"])],
+    )
+    unlocked = _cli_work_payload(harness)
+    assert [item["role"] for item in unlocked["packets"]] == ["sceptical-reconciler"]
+    assert unlocked["packet"]["role"] == "sceptical-reconciler"
+
+    _cli_call(
+        harness,
+        [
+            "submit",
+            "--run",
+            run_id,
+            "--packet",
+            str(unlocked["packet"]["packet_id"]),
+        ],
+    )
+    drained = _cli_work_payload(harness)
+    assert drained == {"packet": None, "packets": []}
 
 
 @pytest.mark.parametrize("ordering", ["forward", "reverse", "rotated"])

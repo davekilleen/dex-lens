@@ -110,6 +110,7 @@ class DiagnosisEngine(Protocol):
     def status(self, run_id: str) -> StoredResult: ...
     def advance(self, run_id: str) -> StoredResult: ...
     def work(self, run_id: str) -> object: ...
+    def pending_work(self, run_id: str) -> tuple[object, ...]: ...
     def work_context(self, run_id: str) -> tuple[object, ...]: ...
     def submit_work(
         self,
@@ -126,6 +127,13 @@ def _json_row(row: object) -> object:
 
     dump = getattr(row, "model_dump", None)
     return dump(mode="json") if callable(dump) else row
+
+
+def _json_packet(packet: object) -> object:
+    """Dump one typed work packet; already-plain packets pass through."""
+
+    dump = getattr(packet, "model_dump", None)
+    return dump(mode="json") if callable(dump) else packet
 
 
 def canonical_work_bytes(payload: object) -> bytes:
@@ -179,24 +187,29 @@ def register_prepare_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
 def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_work(run_id: str) -> dict[str, object]:
-        """Return the next engine-issued packet, or a typed empty result."""
+        """Return every issuable engine packet, or a typed empty result."""
         try:
-            packet = engine.work(run_id)
-            legend = () if packet is None else tuple(engine.work_context(run_id))
+            packets = tuple(engine.pending_work(run_id))
+            legend = () if not packets else tuple(engine.work_context(run_id))
         except DiagnosisStateError as exc:
             raise MCPError(
                 code=INVALID_REQUEST,
                 message=str(exc),
                 data={"required_step": _required_step(exc), "error": type(exc).__name__},
             ) from exc
-        if packet is None:
-            payload: dict[str, object] = {"packet": None}
+        if not packets:
+            payload: dict[str, object] = {"packet": None, "packets": []}
         else:
-            # The legend rides alongside the packet so a host can cite the
-            # packet's opaque evidence/observation tokens without reading
-            # engine source. It never joins the packet's digest-bound identity.
+            # ``packets`` is the whole legal round, so a host fans every
+            # packet out to parallel workers from this one fetch; ``packet``
+            # stays the first pending entry for compatibility. The legend
+            # rides alongside the round exactly once so a host can cite the
+            # opaque evidence/observation tokens without reading engine
+            # source. It never joins any packet's digest-bound identity.
+            dumped = [_json_packet(item) for item in packets]
             payload = {
-                "packet": packet.model_dump(mode="json"),
+                "packet": dumped[0],
+                "packets": dumped,
                 "evidence_legend": [_json_row(row) for row in legend],
             }
         _refuse_hostile_payload(payload)

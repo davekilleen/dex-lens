@@ -53,7 +53,12 @@ from capability_exchange.diagnosis.specialists import (
     candidate_id_for,
     mint_evidence_token,
 )
-from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket, WorkStatus
+from capability_exchange.diagnosis.work import (
+    NORMAL_ROLES,
+    AnalysisMode,
+    WorkPacket,
+    WorkStatus,
+)
 from capability_exchange.evidence import EvidenceItem, EvidenceState
 from capability_exchange.reports.store import LensReportStore
 
@@ -645,6 +650,98 @@ def test_work_context_legend_matches_the_issued_packet_tokens(
         assert row.label == observation.label
         assert row.relative_reference == observation.provenance.relative_reference
         assert row.source_class is observation.provenance.source_class
+
+
+def test_pending_work_lists_every_pending_normal_packet(engine: EngineHarness) -> None:
+    """One fetch returns the whole legal round, not just the first packet."""
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+
+    packets = engine.engine.pending_work(prepared.run_id)
+
+    assert tuple(item.role for item in packets) == NORMAL_ROLES
+    assert engine.engine.work(prepared.run_id) == packets[0]
+
+
+def test_pending_work_is_empty_for_inventory_only_runs(engine: EngineHarness) -> None:
+    prepared = engine.prepare(prepare_request())
+    engine.run_to(prepared.run_id, DiagnosisStage.JOBS_CONFIRMED)
+    assert engine.engine.pending_work(prepared.run_id) == ()
+
+
+def test_pending_work_keeps_sceptical_locked_until_normals_are_final(
+    engine: EngineHarness,
+) -> None:
+    """The sceptical packet never joins the list while a normal packet is open."""
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packets = engine.engine.pending_work(prepared.run_id)
+    assert len(packets) == len(NORMAL_ROLES)
+
+    for index, packet in enumerate(packets[:-1]):
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+        remaining = engine.engine.pending_work(prepared.run_id)
+        assert remaining == packets[index + 1 :]
+        assert all(
+            item.role is not SpecialistRole.SCEPTICAL_RECONCILER for item in remaining
+        )
+
+    engine.engine.submit_work(prepared.run_id, packets[-1].packet_id, ())
+    unlocked = engine.engine.pending_work(prepared.run_id)
+    assert len(unlocked) == 1
+    assert unlocked[0].role is SpecialistRole.SCEPTICAL_RECONCILER
+
+    engine.engine.submit_work(prepared.run_id, unlocked[0].packet_id, ())
+    assert engine.engine.pending_work(prepared.run_id) == ()
+
+
+def test_issued_packets_accept_out_of_order_interleaved_submission(
+    engine: EngineHarness,
+) -> None:
+    """Responses for one issued round may return in any order.
+
+    Tripwire, not a guard demonstration: ``submit_work`` already matched
+    packets by identity rather than queue position, so this behaviour was
+    observed green before any change. It pins the property that makes
+    parallel fan-out legal — a host may submit whichever specialist
+    finishes first.
+    """
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packets = engine.engine.pending_work(prepared.run_id)
+    assert len(packets) == len(NORMAL_ROLES)
+
+    interleaved = (3, 0, 7, 2, 5, 1, 6, 4)
+    assert sorted(interleaved) == list(range(len(packets)))
+    for position, index in enumerate(interleaved):
+        packet = packets[index]
+        proposals: tuple[SpecialistProposal, ...] = ()
+        if position == 2:
+            proposals = (
+                _bound_proposal(
+                    packet,
+                    kind=ProposalKind.STRENGTH,
+                    catalogue_id=CATALOGUE_ID,
+                    capability_id=CAPABILITY_ID,
+                    disposition=Disposition.STRONG_HERE,
+                    evidence_ids=(packet.evidence_ids[0],),
+                    reason="The approved evidence shows a distinctive reliable method.",
+                ),
+            )
+        view = engine.engine.submit_work(prepared.run_id, packet.packet_id, proposals)
+        assert view.stage is DiagnosisStage.ANALYSIS_PLANNED
+
+    unlocked = engine.engine.pending_work(prepared.run_id)
+    assert tuple(item.role for item in unlocked) == (SpecialistRole.SCEPTICAL_RECONCILER,)
 
 
 def test_work_context_is_refused_before_analysis_planning(

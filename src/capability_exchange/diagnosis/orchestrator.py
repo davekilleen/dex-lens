@@ -422,17 +422,30 @@ class DeterministicDiagnosisEngine:
         reopening the engine therefore returns byte-identical packet content.
         """
 
+        pending = self.pending_work(run_id)
+        return pending[0] if pending else None
+
+    def pending_work(self, run_id: str) -> tuple[WorkPacket, ...]:
+        """Return every pending packet the host may legally answer right now.
+
+        This is the whole issuable round, so a host can fan all of it out to
+        parallel workers from one fetch instead of draining packets one at a
+        time.  The set is ``WorkQueue.pending_packets()``: all pending normal
+        packets while any remains, then the sceptical packet alone once every
+        normal receipt is final.  Responses may be submitted in any order.
+        Inventory-only runs intentionally expose no semantic work.
+        """
+
         checkpoint = self._load(run_id)
         mode = self._analysis_mode(checkpoint)
         if mode is AnalysisMode.INVENTORY_ONLY:
-            return None
+            return ()
         if checkpoint.stage is not DiagnosisStage.ANALYSIS_PLANNED:
             raise DiagnosisStateError(
                 "specialist work is available only after analysis planning"
             )
         queue = self._work_queue(checkpoint)
-        pending = queue.pending_packets()
-        return pending[0] if pending else None
+        return queue.pending_packets()
 
     def work_context(self, run_id: str) -> tuple[EvidenceLegendRow, ...]:
         """Return the evidence legend for this run's guided queue.

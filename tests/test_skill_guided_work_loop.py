@@ -50,6 +50,36 @@ def test_skill_has_parallel_and_sequential_host_routes() -> None:
     assert "sequential processing in this conversation is the fallback" in text
 
 
+def test_skill_fans_out_the_whole_round_from_one_work_fetch() -> None:
+    """The host fetches once per round, fans out every listed packet at once,
+    gives each worker only its own packet plus the shared legend, and submits
+    responses as they return."""
+
+    text = " ".join(SKILL.read_text(encoding="utf-8").split())
+    assert "one `work --json` fetch per round" in text
+    assert "every packet you may answer right now" in text
+    assert "in the same breath" in text
+    assert "only its own packet" in text
+    assert "plus the shared legend" in text
+    assert "not the other packets" in text.lower()
+    assert "as each worker returns" in text.lower()
+    assert "order does not matter" in text
+
+
+def test_skill_polls_status_at_stage_transitions_only() -> None:
+    text = " ".join(SKILL.read_text(encoding="utf-8").split())
+    assert "at stage transitions" in text.lower()
+    assert "never between packet submissions" in text.lower()
+    assert "after every engine step" not in text.lower()
+
+
+def test_skill_states_the_economics_of_the_packet_round() -> None:
+    text = " ".join(SKILL.read_text(encoding="utf-8").split())
+    assert "costs real model time" in text
+    assert "the packet round is the expensive stretch" in text
+    assert "parallel is how it stays short" in text
+
+
 def test_skill_worked_examples_are_valid_specialist_proposals() -> None:
     """The three worked examples must clear the real proposal model.
 

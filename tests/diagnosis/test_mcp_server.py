@@ -134,6 +134,10 @@ class FakeEngine:
             return None
         return FakeStored(self.next_packet)
 
+    def pending_work(self, run_id: str) -> tuple[FakeStored, ...]:
+        packet = self.work(run_id)
+        return () if packet is None else (packet,)
+
     def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
         self.legend_calls.append(run_id)
         return self.next_legend
@@ -363,7 +367,7 @@ async def test_get_diagnosis_work_returns_canonical_packet_bytes() -> None:
         result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
     payload = _tool_payload(result)
     assert canonical_work_bytes(payload) == canonical_work_bytes(
-        {"packet": packet, "evidence_legend": list(legend)}
+        {"packet": packet, "packets": [packet], "evidence_legend": list(legend)}
     )
     assert engine.work_calls == [RUN_ID]
     assert engine.legend_calls == [RUN_ID]
@@ -375,7 +379,7 @@ async def test_get_diagnosis_work_empty_result_carries_no_legend() -> None:
     server = build_mcp_server(engine)
     async with Client(server, raise_exceptions=True) as client:
         result = await client.call_tool("get_diagnosis_work", {"run_id": RUN_ID})
-    assert _tool_payload(result) == {"packet": None}
+    assert _tool_payload(result) == {"packet": None, "packets": []}
     assert engine.legend_calls == []
 
 

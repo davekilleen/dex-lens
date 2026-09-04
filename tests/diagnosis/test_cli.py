@@ -89,6 +89,10 @@ class FixedEngine:
             "max_proposals": 24,
         }
 
+    def pending_work(self, run_id: str) -> tuple[dict[str, object], ...]:
+        packet = self.work(run_id)
+        return () if packet is None else (packet,)
+
     def work_context(self, run_id: str) -> tuple[dict[str, object], ...]:
         return (
             {
@@ -367,6 +371,8 @@ def test_work_prints_only_canonical_json(
     payload = json.loads(capsys.readouterr().out)
     assert payload["packet"] is not None
     assert payload["packet"]["packet_id"] == "packet:sha256:" + "a" * 64
+    # The whole issuable round rides beside the first packet.
+    assert payload["packets"] == [payload["packet"]]
 
 
 def test_work_json_includes_the_evidence_legend_beside_the_packet(
@@ -390,7 +396,7 @@ def test_work_json_empty_result_carries_no_legend(
 
     monkeypatch.setattr(cli, "build_engine", lambda: DrainedEngine(view=CAPTURED_VIEW))
     assert diagnosis_main(["work", "--run", RUN_ID, "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"packet": None}
+    assert json.loads(capsys.readouterr().out) == {"packet": None, "packets": []}
 
 
 def test_prepare_accepts_guided_analysis_mode(

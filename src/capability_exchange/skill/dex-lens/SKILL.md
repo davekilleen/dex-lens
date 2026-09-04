@@ -176,15 +176,27 @@ specialist response unchanged through `submit_specialist_proposal`.
 
 After scope approval, keep following the engine until it closes:
 
-1. Read status; never maintain a separate checklist or total.
-2. If the engine asks for work, fetch the next packet and process every engine-issued packet.
+1. Read status at stage transitions — after approve, after each advance, and
+   when a round of packets is finished — never between packet submissions.
+   Never maintain a separate checklist or total.
+2. If the engine asks for work, make one `work --json` fetch per round. Its
+   `packets` list is every packet you may answer right now, and one shared
+   `evidence_legend` decodes the tokens for all of them.
 3. If this host supports sub-agents, fan the independent packets out in
-   parallel — parallel is the default whenever the host allows it, and it is
-   most of the difference between a session that takes minutes and one that
-   takes an afternoon. Sequential processing in this conversation is the
-   fallback, not the norm.
-4. Give each worker only the packet. Submit the specialist response unchanged.
-5. When no packet remains, advance the engine and repeat.
+   parallel — every listed packet dispatched in the same breath, not one
+   after another. Parallel is the default whenever the host allows it, and
+   it is most of the difference between a session that takes minutes and one
+   that takes an afternoon: the deep look costs real model time, the packet
+   round is the expensive stretch, and parallel is how it stays short.
+   Sequential processing in this conversation is the fallback, not the norm.
+4. Give each worker only its own packet — its question and its identity
+   lists — plus the shared legend. Not the other packets, and not a second
+   copy of anything the packet already carries. As each worker returns,
+   submit the specialist response unchanged; order does not matter.
+5. Fetch `work` again only when every listed packet has been submitted; the
+   next round is the sceptical packet, alone. Round by round,
+   process every engine-issued packet. When no packet remains, advance the
+   engine and repeat.
 6. Stop only for a real person decision, an explicit engine error, or closed.
 Never ask the person to prompt the next diagnosis stage.
 
@@ -199,9 +211,10 @@ is for a folder they named in their own words — never one you added because
 it looked useful. If they name another folder before they approve, run
 `prepare` again with that folder included.
 
-After every engine step, run `dex-lens diagnosis status`. Do what it says
-next. Do not keep a private checklist, and do not skip ahead to a shortlist
-because you think you already know.
+Run `dex-lens diagnosis status` at stage transitions, and do what it says
+next — never between packet submissions, whose own replies already say they
+landed. Do not keep a private checklist, and do not skip ahead to a
+shortlist because you think you already know.
 
 In a guided run, `submit --packet` is how you answer each packet the engine
 issues — it is the work itself, not an optional extra. The next four
@@ -213,9 +226,11 @@ packet.)
 
 ### What a work packet gives you
 
-`dex-lens diagnosis work --run <id> --json` returns the next packet, or
-`{"packet": null}` when none is waiting. A packet is one closed assignment.
-Everything a proposal may reference is already inside it:
+`dex-lens diagnosis work --run <id> --json` returns the whole round in one
+payload: `packets` is every packet you may answer right now, `packet`
+repeats the first of them, and the payload is
+`{"packet": null, "packets": []}` when none is waiting. A packet is one
+closed assignment. Everything a proposal may reference is already inside it:
 
 - `packet_id` and `packet_digest` — the identity of this exact assignment.
   Copy both into every proposal you submit for it.
@@ -233,14 +248,16 @@ Everything a proposal may reference is already inside it:
 - `max_attempts` — always 2: one submission, then one retry if the first
   is refused.
 
-The `work` payload also carries an `evidence_legend`: one row per
-observation, sorted by `evidence_id`. Each row gives `evidence_id`,
-`observation_id`, `kind`, `identity`, `label`, `relative_reference`, and
-`source_class`. The legend is how you know which token denotes which
-observed thing — which row is their daily-plan skill, which is a scheduled
-job, which is an instruction file. Read the legend first, every packet.
-Do not go digging in Lens's own installed code to decode the tokens; the
-legend is the decoder, and it is already in your hands.
+The `work` payload also carries an `evidence_legend`, once for the whole
+round — it decodes every packet in the list, so hand each worker the same
+legend rather than fetching it again per packet. One row per observation,
+sorted by `evidence_id`. Each row gives `evidence_id`, `observation_id`,
+`kind`, `identity`, `label`, `relative_reference`, and `source_class`. The
+legend is how you know which token denotes which observed thing — which row
+is their daily-plan skill, which is a scheduled job, which is an instruction
+file. Read the legend first, every round. Do not go digging in Lens's own
+installed code to decode the tokens; the legend is the decoder, and it is
+already in your hands.
 
 ### The proposal, field by field
 
@@ -369,8 +386,8 @@ And a fragility:
 
 ### How to work one packet
 
-1. Fetch it: `dex-lens diagnosis work --run <id> --json`. Read the
-   question and the legend.
+1. Take it from the round's one fetch: `dex-lens diagnosis work --run <id>
+   --json` lists it in `packets`. Read its question and the shared legend.
 2. Decide, from the legend and from the person's files you actually read,
    which observations bear on which catalogue entries. This is the
    judgement the packet is asking for; nothing else supplies it.
@@ -810,10 +827,11 @@ Do not repair the gap with remembered facts or a manual checklist. Ask
 ## Phase 5: compare on jobs, across all four kinds of capability
 
 Do not keep your own comparison checklist. Ask `dex-lens diagnosis status`
-after every engine step and do the next action it names. Advance when it
-says advance. When it asks for work, answer each packet the way "How to
-work one packet" above describes — proposals cite only evidence the
-engine already holds. Then wait for `status` again.
+at each stage transition and do the next action it names. Advance when it
+says advance. When it asks for work, fetch the round once, fan it out, and
+answer each packet the way "How to work one packet" above describes —
+proposals cite only evidence the engine already holds. Ask for `status`
+again when the round is done, not between submissions.
 
 The engine owns the ledger. Do not calculate or rewrite catalogue totals.
 Unavailable entries cannot be recommended.
@@ -1276,7 +1294,7 @@ the person who built the thing.
 | `dex-lens diagnosis approve --run <id>` | Records their yes in this chat. Do not run it before they say yes. |
 | `dex-lens diagnosis status --run <id>` | The current stage, completed proof, and the next required action. Follow this. |
 | `dex-lens diagnosis advance --run <id>` | The next lawful step. Do not invent the next step yourself. |
-| `dex-lens diagnosis work --run <id>` | The next engine-issued packet with its evidence legend, or a typed empty result when none is waiting. |
+| `dex-lens diagnosis work --run <id>` | Every engine-issued packet you may answer right now, with one shared evidence legend — or a typed empty result when none is waiting. Fetch once per round and fan the whole list out. |
 | `dex-lens diagnosis submit --run <id> --packet <id> --proposal <file>` | Your answer to one packet. Repeat `--proposal` for each proposal; omit it entirely for the honest empty answer. Proposals do not author counts. |
 | `dex-lens diagnosis result --run <id>` | The closed result. Speak this close. Do not rewrite it. |
 | `dex-lens inventory <folder> --out <file>` | The declared shape of the system, duplicates folded, housekeeping findings at the end. |
