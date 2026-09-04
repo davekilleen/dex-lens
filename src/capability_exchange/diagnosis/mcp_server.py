@@ -8,7 +8,8 @@ the real orchestrator; tests and later adapters inject a fake the same way.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -18,6 +19,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import INVALID_REQUEST, ToolAnnotations
 from pydantic import ConfigDict
 
+from capability_exchange.boundary.crashlog import write_crash_log
 from capability_exchange.diagnosis.payload_guard import (
     REMOVE_ABSOLUTE_PATH,
     REMOVE_SECRET,
@@ -160,6 +162,54 @@ def build_engine() -> DiagnosisEngine:
     return build_default_engine()
 
 
+#: Fixed by design, exactly like the diagnosis CLI's crash sentence: no
+#: exception text, no path, ever. An unexpected exception's message is
+#: interpolated from runtime values and can carry vault content, so a crash on
+#: this surface must not become a second way for inspected-system content to
+#: reach the wire — or the host's stderr, where the SDK would otherwise log
+#: the full traceback with the raw message.
+_CRASH_SENTENCE = (
+    "this diagnosis tool stopped on an unexpected error; "
+    "only a redacted crash log is kept locally."
+)
+
+
+def _record_crash(exc: Exception) -> None:
+    """Write the redacted crash record; a failed write forfeits only the log."""
+
+    try:
+        from capability_exchange.catalogue.subscription import default_lens_app_storage
+
+        write_crash_log(exc, default_lens_app_storage() / "crash-logs")
+    except Exception:  # the crash boundary never propagates
+        pass
+
+
+@contextmanager
+def _crash_boundary() -> Iterator[None]:
+    """The MCP twin of the CLI's crash boundary, wrapped around every tool body.
+
+    The typed flows — ``MCPError`` and ``ToolError`` carry fixed adapter
+    wording composed on purpose — pass through untouched, and so does
+    ``KeyboardInterrupt`` (any ``BaseException`` outside ``Exception``).
+    Everything else is a crash: the structural record goes to the same
+    app-storage crash-logs directory the CLI uses, and the wire gets only the
+    fixed sentence. Raising ``ToolError`` here is what keeps the SDK on its
+    anticipated-failure path, which logs only ``str(exc)`` — its unexpected
+    path would log the full traceback, raw interpolated message included.
+    ``from None`` severs the chain so no wrapper can carry the original text;
+    the redacted crash log is the only place the chain lives.
+    """
+
+    try:
+        yield
+    except (MCPError, ToolError):
+        raise
+    except Exception as exc:
+        _record_crash(exc)
+        raise ToolError(_CRASH_SENTENCE) from None
+
+
 def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:
     server = MCPServer("dex-lens-diagnosis")
     _register_status_tool(server, engine)
@@ -180,40 +230,45 @@ def register_prepare_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def prepare_diagnosis(roots: list[str]) -> dict[str, object]:
         """Create a pending run and return the local consent action without reading."""
-        request = PrepareDiagnosisRequest.from_mapping({"roots": list(roots)})
-        return _dump(engine.prepare, request)
+        with _crash_boundary():
+            request = PrepareDiagnosisRequest.from_mapping({"roots": list(roots)})
+            return _dump(engine.prepare, request)
 
 
 def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_work(run_id: str) -> dict[str, object]:
         """Return every issuable engine packet, or a typed empty result."""
-        try:
-            packets = tuple(engine.pending_work(run_id))
-            legend = () if not packets else tuple(engine.work_context(run_id))
-        except DiagnosisStateError as exc:
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message=str(exc),
-                data={"required_step": _required_step(exc), "error": type(exc).__name__},
-            ) from exc
-        if not packets:
-            payload: dict[str, object] = {"packet": None, "packets": []}
-        else:
-            # ``packets`` is the whole legal round, so a host fans every
-            # packet out to parallel workers from this one fetch; ``packet``
-            # stays the first pending entry for compatibility. The legend
-            # rides alongside the round exactly once so a host can cite the
-            # opaque evidence/observation tokens without reading engine
-            # source. It never joins any packet's digest-bound identity.
-            dumped = [_json_packet(item) for item in packets]
-            payload = {
-                "packet": dumped[0],
-                "packets": dumped,
-                "evidence_legend": [_json_row(row) for row in legend],
-            }
-        _refuse_hostile_payload(payload)
-        return payload
+        with _crash_boundary():
+            try:
+                packets = tuple(engine.pending_work(run_id))
+                legend = () if not packets else tuple(engine.work_context(run_id))
+            except DiagnosisStateError as exc:
+                raise MCPError(
+                    code=INVALID_REQUEST,
+                    message=str(exc),
+                    data={
+                        "required_step": _required_step(exc),
+                        "error": type(exc).__name__,
+                    },
+                ) from exc
+            if not packets:
+                payload: dict[str, object] = {"packet": None, "packets": []}
+            else:
+                # ``packets`` is the whole legal round, so a host fans every
+                # packet out to parallel workers from this one fetch; ``packet``
+                # stays the first pending entry for compatibility. The legend
+                # rides alongside the round exactly once so a host can cite the
+                # opaque evidence/observation tokens without reading engine
+                # source. It never joins any packet's digest-bound identity.
+                dumped = [_json_packet(item) for item in packets]
+                payload = {
+                    "packet": dumped[0],
+                    "packets": dumped,
+                    "evidence_legend": [_json_row(row) for row in legend],
+                }
+            _refuse_hostile_payload(payload)
+            return payload
 
 
 def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
@@ -224,44 +279,48 @@ def register_proposal_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
         proposals: list[dict[str, object]],
     ) -> dict[str, object]:
         """Validate and record one engine-issued packet response."""
-        try:
-            parsed = tuple(SpecialistProposal.from_mapping(item) for item in proposals)
-        except (TypeError, ValueError) as exc:
-            # ``parse_specialist_proposal`` raises plain ValueError carrying
-            # only fixed rule text plus failing field names — never pydantic
-            # messages or submitted values — so exactly that wording may be
-            # surfaced verbatim.  Any other exception type keeps the closed
-            # sentence: its text could interpolate submitted values.
-            message = (
-                str(exc)
-                if type(exc) is ValueError
-                else "specialist proposal is not a closed typed payload"
-            )
-            raise ToolError(message) from exc
-        for item in parsed:
-            _refuse_hostile_payload(item.model_dump())
-        return _dump_work(engine.submit_work, run_id, packet_id, parsed)
+        with _crash_boundary():
+            try:
+                parsed = tuple(SpecialistProposal.from_mapping(item) for item in proposals)
+            except (TypeError, ValueError) as exc:
+                # ``parse_specialist_proposal`` raises plain ValueError carrying
+                # only fixed rule text plus failing field names — never pydantic
+                # messages or submitted values — so exactly that wording may be
+                # surfaced verbatim.  Any other exception type keeps the closed
+                # sentence: its text could interpolate submitted values.
+                message = (
+                    str(exc)
+                    if type(exc) is ValueError
+                    else "specialist proposal is not a closed typed payload"
+                )
+                raise ToolError(message) from exc
+            for item in parsed:
+                _refuse_hostile_payload(item.model_dump())
+            return _dump_work(engine.submit_work, run_id, packet_id, parsed)
 
 
 def register_result_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_result(run_id: str) -> dict[str, object]:
         """Return the closed typed result for one local run."""
-        return _dump(engine.result, run_id)
+        with _crash_boundary():
+            return _dump(engine.result, run_id)
 
 
 def _register_status_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_status(run_id: str) -> dict[str, object]:
         """Return proved stages and the next required action for one local run."""
-        return _dump(engine.status, run_id)
+        with _crash_boundary():
+            return _dump(engine.status, run_id)
 
 
 def _register_advance_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def advance_diagnosis(run_id: str) -> dict[str, object]:
         """Perform one lawful read-only diagnosis transition."""
-        return _dump(engine.advance, run_id)
+        with _crash_boundary():
+            return _dump(engine.advance, run_id)
 
 
 def _dump_work(method: Callable[..., StoredResult], *args: object) -> dict[str, object]:

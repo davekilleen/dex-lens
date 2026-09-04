@@ -521,21 +521,11 @@ class TestReportCheckHoldsTheSavedLedgerToItsRecordedDigest:
             in capsys.readouterr().err
         )
 
-    def test_a_report_that_records_no_digest_makes_no_binding_claim(
-        self,
-        saved_pair: tuple[Path, Path, dict],
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """The guided template records totals, not a digest; it still checks.
-
-        A hand-written report never claimed one exact ledger, so only the
-        catalogue-bound validation applies to the ledger beside it.
-        """
-        source, ledger_path, _payload = saved_pair
+    @staticmethod
+    def _without_digest_line(source: Path, destination: Path) -> None:
         markdown = source.read_text(encoding="utf-8")
-        unbound = tmp_path / "unbound-report.md"
-        unbound.write_text(
+        assert "- Ledger digest: " in markdown
+        destination.write_text(
             "\n".join(
                 line
                 for line in markdown.splitlines()
@@ -545,6 +535,103 @@ class TestReportCheckHoldsTheSavedLedgerToItsRecordedDigest:
             encoding="utf-8",
         )
 
-        assert cli.reports_main(["check", str(unbound), "--ledger", str(ledger_path)]) == 0
+    def test_a_report_stripped_of_its_digest_line_is_refused_beside_a_ledger(
+        self,
+        saved_pair: tuple[Path, Path, dict],
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A supplied ledger demands the report's own digest line, full stop.
 
-        assert "ready to save" in capsys.readouterr().err
+        This test used to certify the opposite — that a report recording no
+        digest "makes no binding claim" and passes beside any catalogue-valid
+        ledger. That reading made the tamper binding opt-out: stripping one
+        line from the report switched the digest check off. The binding is
+        now mandatory whenever a ledger is supplied, so the stripped report
+        is refused even when the ledger itself is untampered.
+        """
+        source, ledger_path, _payload = saved_pair
+        unbound = tmp_path / "unbound-report.md"
+        self._without_digest_line(source, unbound)
+
+        assert cli.reports_main(["check", str(unbound), "--ledger", str(ledger_path)]) == 2
+
+        captured = capsys.readouterr()
+        assert "records no ledger digest for the supplied ledger" in captured.err
+        assert "re-run the diagnosis" in captured.err.lower()
+
+    @pytest.mark.parametrize("field", sorted(_RUN_DERIVED_TAMPERS))
+    def test_stripping_the_digest_line_cannot_launder_a_tampered_ledger(
+        self,
+        field: str,
+        saved_pair: tuple[Path, Path, dict],
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The complete attack: tamper a run-derived field, strip the digest.
+
+        Red first through the shipped command: with the opt-out reading,
+        `reports check` exited 0 on exactly this pair — the tampered ledger
+        validated against the catalogue, and the stripped report made "no
+        binding claim" for the digest check to hold it to.
+        """
+        source, _ledger_path, payload = saved_pair
+        unbound = tmp_path / "unbound-report.md"
+        self._without_digest_line(source, unbound)
+        tampered = copy.deepcopy(payload)
+        _RUN_DERIVED_TAMPERS[field](tampered)
+        tampered_path = tmp_path / f"laundered-{field}.ledger.json"
+        tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+        assert (
+            cli.reports_main(["check", str(unbound), "--ledger", str(tampered_path)]) == 2
+        )
+
+        captured = capsys.readouterr()
+        assert "records no ledger digest for the supplied ledger" in captured.err
+        # The refusal explains the rule, never the tampered content.
+        assert "Forged" not in captured.err
+        assert "broken" not in captured.err
+
+    def test_save_refuses_the_stripped_report_beside_a_tampered_ledger_too(
+        self,
+        saved_pair: tuple[Path, Path, dict],
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        source, _ledger_path, payload = saved_pair
+        unbound = tmp_path / "unbound-report.md"
+        self._without_digest_line(source, unbound)
+        tampered = copy.deepcopy(payload)
+        _RUN_DERIVED_TAMPERS["strengths"](tampered)
+        tampered_path = tmp_path / "laundered.ledger.json"
+        tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+        assert (
+            cli.reports_main(
+                ["save", str(unbound), "--ledger", str(tampered_path), "--label", "vault"]
+            )
+            == 2
+        )
+
+        captured = capsys.readouterr()
+        assert "nothing was saved" in captured.err.lower()
+        assert "records no ledger digest for the supplied ledger" in captured.err
+
+    def test_a_report_checked_without_a_ledger_is_not_asked_for_a_digest(
+        self,
+        saved_pair: tuple[Path, Path, dict],
+        tmp_path: Path,
+    ) -> None:
+        """No ledger supplied, no binding demanded — exactly as before.
+
+        A hand-written report with no digest line makes no binding claim on
+        its own; the new requirement exists only for the pair, where a
+        supplied ledger has run-derived rows nothing else can hold in place.
+        """
+        source, _ledger_path, _payload = saved_pair
+        unbound = tmp_path / "unbound-report.md"
+        self._without_digest_line(source, unbound)
+        markdown = unbound.read_text(encoding="utf-8")
+
+        assert cli._ledger_binding_problems(markdown, None) == []

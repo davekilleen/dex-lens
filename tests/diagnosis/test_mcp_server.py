@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -13,13 +14,16 @@ from typing import Any
 import pytest
 from mcp import Client, MCPError
 from mcp.client.stdio import StdioServerParameters
+from mcp.server.mcpserver.exceptions import ToolError
 from tests.evals.real_session_fixture import CANARY
 
 from capability_exchange.diagnosis.mcp_server import (
+    _CRASH_SENTENCE,
     EXPECTED_TOOLS,
     FORBIDDEN_TOOL_SUBSTRINGS,
     PrepareDiagnosisRequest,
     SpecialistProposal,
+    _crash_boundary,
     _required_step,
     build_engine,
     build_mcp_server,
@@ -562,6 +566,92 @@ def test_stdio_stdout_contains_protocol_only() -> None:
     listed = next(frame for frame in frames if frame.get("id") == 2 and "result" in frame)
     names = {item["name"] for item in listed["result"]["tools"]}
     assert names == EXPECTED_TOOLS
+
+
+#: A crash message interpolated from inspected-system content: the session
+#: canary plus a vault-shaped absolute path, exactly what the crash boundary
+#: exists to keep off every outbound channel.
+_CRASH_MESSAGE = f"boom {CANARY} in /Users/invented-owner/vault"
+
+
+class _CrashingEngine(FakeEngine):
+    """The fake engine with one method that crashes like a real bug would."""
+
+    def result(self, run_id: str) -> FakeStored:
+        raise RuntimeError(_CRASH_MESSAGE)
+
+
+@pytest.mark.anyio
+async def test_a_tool_crash_reaches_neither_the_wire_nor_the_server_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unexpected engine exception is redacted everywhere it could surface.
+
+    Red first: without the crash boundary the SDK's ``logger.exception`` path
+    wrote the full traceback — raw interpolated message included, canary and
+    absolute path with it — to the server-side log, the exact channel the CLI
+    crash boundary had already closed for every other surface.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    server = build_mcp_server(_CrashingEngine())
+    with caplog.at_level(logging.DEBUG):
+        async with Client(server, raise_exceptions=True) as client:
+            result = await client.call_tool("get_diagnosis_result", {"run_id": RUN_ID})
+
+    assert result.is_error
+    wire = json.dumps(
+        [getattr(block, "text", "") for block in (result.content or ())]
+    )
+    logged = caplog.text + json.dumps(
+        [record.getMessage() for record in caplog.records]
+    )
+    for channel in (wire, logged):
+        assert CANARY not in channel
+        assert "/Users/" not in channel
+        assert "boom" not in channel
+    assert _CRASH_SENTENCE in wire
+
+    crash_directory = tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs"
+    crash_logs = sorted(crash_directory.glob("*.json"))
+    assert len(crash_logs) == 1
+    record = json.loads(crash_logs[0].read_text(encoding="utf-8"))
+    assert record["exception_type"] == "RuntimeError"
+    stored = crash_logs[0].read_text(encoding="utf-8")
+    assert CANARY not in stored
+    assert "/Users/" not in stored
+    assert "boom" not in stored
+
+
+def test_crash_boundary_lets_keyboard_interrupt_propagate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ctrl-C is the person's decision, never a crash to swallow or record."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    with pytest.raises(KeyboardInterrupt):
+        with _crash_boundary():
+            raise KeyboardInterrupt
+    assert not (tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs").exists()
+
+
+def test_crash_boundary_passes_the_typed_refusals_through_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MCPError and ToolError are the deliberate flows; they carry fixed text
+    the adapters composed on purpose, so the boundary must not re-wrap them."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    typed = MCPError(code=-32600, message="approve the exact scope")
+    with pytest.raises(MCPError) as caught_mcp:
+        with _crash_boundary():
+            raise typed
+    assert caught_mcp.value is typed
+    deliberate = ToolError("specialist proposal is not a closed typed payload")
+    with pytest.raises(ToolError) as caught_tool:
+        with _crash_boundary():
+            raise deliberate
+    assert caught_tool.value is deliberate
+    assert not (tmp_path / "state" / "dex-lens" / "capability-bridge" / "crash-logs").exists()
 
 
 def test_main_uses_injectable_build_engine(monkeypatch: pytest.MonkeyPatch) -> None:

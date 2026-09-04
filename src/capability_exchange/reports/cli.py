@@ -208,15 +208,22 @@ def _ledger_binding_problems(markdown: str, ledger: ComparisonLedger | None) -> 
     Validating the ledger against the catalogue proves the catalogue-owned
     rows, but the run-derived rows — insights, expectations, the work audit —
     have no external truth to re-derive them from. The report's own recorded
-    digest is what binds them, so when the report records one, it is held. A
-    hand-written report that records no digest has made no such claim, and
-    nothing new is demanded of it.
+    digest is the only thing that binds them, so beside a supplied ledger the
+    digest line is mandatory: a check that let its absence stand made the
+    binding opt-out, and stripping one line from the report laundered any
+    tamper of the run-derived rows. A report checked *without* a ledger makes
+    no binding claim and nothing new is demanded of it.
     """
     if ledger is None:
         return []
     recorded = set(_RECORDED_LEDGER_DIGEST.findall(markdown))
     if not recorded:
-        return []
+        return [
+            "this report records no ledger digest for the supplied ledger: a "
+            "diagnosis that produced both writes the digest line into the "
+            "report, so its absence means this is not the pair the diagnosis "
+            "wrote. Re-run the diagnosis rather than editing either file."
+        ]
     from capability_exchange.diagnosis.report import canonical_ledger_digest
 
     if recorded != {canonical_ledger_digest(ledger)}:
