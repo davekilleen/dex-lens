@@ -35,12 +35,12 @@ from capability_exchange.diagnosis.comparison import (
     ComparisonLedger,
     Disposition,
     FamilyLedgerEntry,
+    GroundedInsight,
     HumanCapability,
     LocalObservationDisposition,
     VersionDistance,
     family_entries_from_assessments,
     insights_from_proposals,
-    ranked_recommendations_from_proposals,
 )
 from capability_exchange.diagnosis.expectations import assess_wow_expectations
 from capability_exchange.diagnosis.families import build_family_delta
@@ -55,6 +55,12 @@ from capability_exchange.diagnosis.observations import (
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     VerifiedCatalogueSlice,
+)
+from capability_exchange.diagnosis.ranking import (
+    RankedRecommendation,
+    RecommendationCandidate,
+    RecommendationFactors,
+    rank_recommendations,
 )
 from capability_exchange.diagnosis.run import ApprovedScopeReceipt, DiagnosisStateError
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
@@ -81,6 +87,28 @@ __all__ = [
 ]
 
 _NO_PROPOSAL = "No specialist proposal cleared the evidence bar."
+#: Kinds whose claims rest on an evidence-bound method review rather than
+#: identity overlap.  A reciprocal proposal *is* a method review — the
+#: strength-and-reciprocal specialist answers "what transferable lesson could
+#: Dex learn" from cited method evidence — so, like a method comparison, it
+#: may ground the method-bound dispositions the ledger validator protects.
+_METHOD_REVIEW_KINDS = frozenset({ProposalKind.METHOD_COMPARISON, ProposalKind.RECIPROCAL})
+_METHOD_BOUND_DISPOSITIONS = frozenset({Disposition.SHARED, Disposition.DEX_SHOULD_LEARN})
+_NO_METHOD_REVIEW = (
+    "Specialist proposals claimed a method-level comparison without a "
+    "method review; the comparison remains Unknown."
+)
+#: Fixed, engine-authored factors for the deterministic skill-copy
+#: recommendation.  Without factors that entry could never be ranked, and a
+#: ledger whose ranked list misses one worth-borrowing entry fails typed
+#: validation — wedging any guided run on a system with differing copies.
+_SKILL_COPY_FACTORS = RecommendationFactors(
+    reliability_risk=2,
+    job_relevance=1,
+    workflow_leverage=1,
+    evidence_strength=2,
+    adoption_effort=1,
+)
 _SKILL_SCORE_ID = "skill-score"
 _BUNDLED_REFERENCE_PATH = (
     Path(__file__).resolve().parents[1] / "skill" / "dex-lens" / "dex-capabilities.json"
@@ -335,7 +363,22 @@ def _entry_for(capability_id: str, group: list[ValidatedProposal]) -> CatalogueD
         )
     disagreement = next((item for item in group if is_disagreement_reason(item.reason)), None)
     chosen = disagreement or _agreed_or_unknown(capability_id, group)
-    method_compared = chosen.kind is ProposalKind.METHOD_COMPARISON
+    method_compared = any(
+        item.kind in _METHOD_REVIEW_KINDS
+        for item in group
+        if item.disposition is chosen.disposition
+    )
+    if chosen.disposition in _METHOD_BOUND_DISPOSITIONS and not method_compared:
+        # A shared or Dex-should-learn verdict no method-level review supports
+        # cannot become a lawful disposition row; it stays honestly Unknown
+        # instead of failing typed ledger construction with no exit.
+        return CatalogueDisposition(
+            catalogue_id=chosen.catalogue_id,
+            disposition=Disposition.NOT_ASSESSED,
+            capability_id=chosen.capability_id,
+            evidence_references=chosen.evidence_ids,
+            reason=_NO_METHOD_REVIEW,
+        )
     return CatalogueDisposition(
         catalogue_id=chosen.catalogue_id,
         disposition=chosen.disposition,
@@ -366,6 +409,106 @@ def _agreed_or_unknown(
             sorted({token for item in ordered for token in item.observation_ids})
         ),
     )
+
+
+def _ranked_recommendations_from_entries(
+    entries: tuple[CatalogueDisposition, ...],
+    proposals: tuple[ValidatedProposal, ...],
+) -> tuple[RankedRecommendation, ...]:
+    """Rank exactly the ledger's worth-borrowing entries, from their own facts.
+
+    The ledger validator requires a non-empty ranked list to equal the
+    worth-borrowing entry identity set — same capability, same evidence, same
+    reason, entry by entry.  Deriving candidates from the raw proposals while
+    the entries coalesce cross-kind disagreements separately is how the first
+    real guided run wedged, so the entries are the single source here.  When
+    any worth-borrowing entry's proposal group carries no factor tuple the
+    ranking is withheld entirely rather than published incomplete.
+    """
+
+    by_id: dict[str, list[ValidatedProposal]] = defaultdict(list)
+    for proposal in proposals:
+        by_id[proposal.catalogue_id].append(proposal)
+    candidates: list[RecommendationCandidate] = []
+    for entry in entries:
+        if entry.disposition is not Disposition.WORTH_BORROWING:
+            continue
+        group = by_id[entry.catalogue_id]
+        factor_options = sorted(
+            {
+                item.recommendation_factors
+                for item in group
+                if item.recommendation_factors is not None
+            },
+            key=lambda item: (
+                item.reliability_risk,
+                item.job_relevance,
+                item.workflow_leverage,
+                item.evidence_strength,
+                item.adoption_effort,
+            ),
+        )
+        if not factor_options:
+            return ()
+        candidates.append(
+            RecommendationCandidate(
+                catalogue_id=entry.catalogue_id,
+                capability_id=entry.capability_id,
+                # The most conservative proposed tuple, deterministically:
+                # coalescing never breaks a tie with confidence.
+                factors=factor_options[0],
+                evidence_ids=entry.evidence_references,
+                observation_ids=tuple(
+                    sorted(
+                        {
+                            observation_id
+                            for item in group
+                            if item.capability_id == entry.capability_id
+                            for observation_id in item.observation_ids
+                        }
+                    )
+                ),
+                reason=entry.reason,
+            )
+        )
+    if not candidates:
+        return ()
+    return rank_recommendations(candidates)
+
+
+def _insights_within_held(
+    insights: tuple[GroundedInsight, ...],
+    held: set[str],
+) -> tuple[GroundedInsight, ...]:
+    """Keep only evidence citations the assembled ledger actually retains.
+
+    The coalesced evidence union is truncated to the per-entry ceiling, so an
+    insight built from the same proposals could otherwise cite a token no
+    disposition row holds any more — which the report model refuses at render,
+    wedging the run after comparison.  Citations are trimmed to the held set;
+    an insight left with no held citation is dropped whole.
+    """
+
+    kept: list[GroundedInsight] = []
+    for insight in insights:
+        evidence_ids = tuple(token for token in insight.evidence_ids if token in held)
+        if not evidence_ids:
+            continue
+        if evidence_ids == insight.evidence_ids:
+            kept.append(insight)
+            continue
+        kept.append(
+            GroundedInsight(
+                insight_id=insight.insight_id,
+                kind=insight.kind,
+                title=insight.title,
+                explanation=insight.explanation,
+                evidence_ids=evidence_ids,
+                observation_ids=insight.observation_ids,
+                workflow_ids=insight.workflow_ids,
+            )
+        )
+    return tuple(kept)
 
 
 def local_dispositions_from_proposals(
@@ -521,6 +664,7 @@ def _with_deterministic_skill_copy_recommendation(
             catalogue_id=_SKILL_SCORE_ID,
             capability_id=_SKILL_SCORE_ID,
             disposition=Disposition.WORTH_BORROWING,
+            recommendation_factors=_SKILL_COPY_FACTORS,
             evidence_ids=evidence_ids,
             reason=reason,
             observation_ids=observation_ids,
@@ -705,8 +849,18 @@ class UnknownUntilProposedComparer:
             tuple(item.capability_id for item in envelope.catalogue.capabilities),
             proposals,
         )
+        local_entries = local_dispositions_from_proposals(fingerprint, proposals)
         family_entries = family_entries_from_assessments(envelope.catalogue, assessments)
-        strengths, reciprocal_lessons, workflow_insights = insights_from_proposals(proposals)
+        # Every conclusion below must cite only what the rows above retain:
+        # entries, local rows and family rows are what the ledger holds, and
+        # the report model refuses any claim outside that set at render time.
+        held = {token for item in entries for token in item.evidence_references}
+        held.update(token for item in local_entries for token in item.evidence_references)
+        held.update(token for item in family_entries for token in item.evidence_references)
+        strengths, reciprocal_lessons, workflow_insights = (
+            _insights_within_held(group, held)
+            for group in insights_from_proposals(proposals)
+        )
         version_distance = _version_distance(
             fingerprint,
             current_version=catalogue.core_release,
@@ -719,10 +873,10 @@ class UnknownUntilProposedComparer:
             catalogue_sha256=digest,
             capabilities=capabilities,
             entries=entries,
-            ranked_recommendations=ranked_recommendations_from_proposals(proposals),
+            ranked_recommendations=_ranked_recommendations_from_entries(entries, proposals),
             family_entries=family_entries,
             version_distance=version_distance,
-            local_entries=local_dispositions_from_proposals(fingerprint, proposals),
+            local_entries=local_entries,
             reciprocal_answer=_reciprocal_answer(fingerprint, family_entries),
             workflow_graph=workflows,
             work_audit=work_audit,

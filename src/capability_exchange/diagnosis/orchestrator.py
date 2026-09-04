@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from capability_exchange.concierge.consent import (
     LocalScopeConsentAuthority,
@@ -96,6 +96,33 @@ __all__ = [
 ]
 
 ADAPTER_VERSION = "injected-collector"
+
+
+def _typed_model_refusal(action: str, exc: ValidationError) -> DiagnosisStateError:
+    """Translate a typed-model failure into a named, value-free refusal.
+
+    Pydantic's own messages repeat the offending input, which on this path can
+    be specialist or vault text; they are deliberately not consulted.  Only
+    the failing model's name and its field names are quoted, in fixed wording,
+    so a compare failure tells the operator what broke without leaking what it
+    broke on.
+    """
+
+    fields = sorted(
+        {
+            str(error["loc"][0])
+            for error in exc.errors(include_url=False, include_input=False)
+            if error.get("loc")
+        }
+    )
+    named = (
+        f" (failing fields: {', '.join(fields)})"
+        if fields
+        else " (a model-level consistency rule failed)"
+    )
+    return DiagnosisStateError(
+        f"{action} an invalid {exc.title} value{named}; no conclusion was recorded"
+    )
 
 
 def payload_digest(payload: object) -> str:
@@ -1009,13 +1036,21 @@ class DeterministicDiagnosisEngine:
                 work_audit = WorkAudit.model_validate(audit_payload)
             except (TypeError, ValueError) as exc:
                 raise DiagnosisStateError("stored work audit is unreadable") from exc
-        ledger = self._compare.compare(
-            fingerprint=fingerprint,
-            catalogue=catalogue,
-            jobs=(),
-            proposals=reconciled,
-            work_audit=work_audit,
-        )
+        try:
+            ledger = self._compare.compare(
+                fingerprint=fingerprint,
+                catalogue=catalogue,
+                jobs=(),
+                proposals=reconciled,
+                work_audit=work_audit,
+            )
+        except ValidationError as exc:
+            # The blanket CLI catch turned this into "not a closed typed
+            # diagnosis value" — exit 2 forever, telling nobody anything.  A
+            # comparer that cannot assemble a lawful ledger must surface as a
+            # typed refusal naming the failing model and fields, never
+            # pydantic's messages and never any value.
+            raise _typed_model_refusal("comparison built", exc) from exc
         ledger_payload = ledger.model_dump(mode="json")
         # The ledger is what renders and saves.  A comparer that carried raw
         # session content into a conclusion is refused before the run can
@@ -1070,8 +1105,11 @@ class DeterministicDiagnosisEngine:
         return self._advance(checkpoint, DiagnosisStage.CLOSED)
 
     def _diagnosis_result(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisResult:
-        ledger = ComparisonLedger.model_validate(self._find_kind(checkpoint, "ledger"))
-        identity = RunIdentity.model_validate(self._find_kind(checkpoint, "run-identity"))
+        try:
+            ledger = ComparisonLedger.model_validate(self._find_kind(checkpoint, "ledger"))
+            identity = RunIdentity.model_validate(self._find_kind(checkpoint, "run-identity"))
+        except ValidationError as exc:
+            raise _typed_model_refusal("this run stored", exc) from exc
         fingerprint = self._fingerprint(checkpoint)
         saved_report = self._find_kind(checkpoint, "saved-report")
         report_location = (
