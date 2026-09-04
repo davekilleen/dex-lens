@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from pydantic import Field
@@ -24,6 +26,7 @@ from capability_exchange.diagnosis.work import AnalysisMode
 
 __all__ = [
     "DiagnosisInputDrift",
+    "DiagnosisRunConflict",
     "DiagnosisRunStore",
     "PersistedCandidateScope",
     "PersistedScopeApproval",
@@ -33,6 +36,15 @@ __all__ = [
 
 class DiagnosisInputDrift(DiagnosisStateError):
     """A stored checkpoint no longer matches the expected input identity."""
+
+
+class DiagnosisRunConflict(DiagnosisStateError):
+    """The persisted run head moved after this operation loaded it.
+
+    A retryable refusal, never a corruption verdict: the caller must reload
+    the checkpoint and re-apply its change on the current head instead of
+    silently clobbering another writer's records.
+    """
 
 
 class PersistedScopeApproval(InventoriedModel):
@@ -74,6 +86,35 @@ class DiagnosisRunStore:
 
     def _sidecar_path_for(self, run_id: str, suffix: str) -> Path:
         return self._path_for(run_id).with_name(self._path_for(run_id).stem + suffix)
+
+    def _lock_path_for(self, run_id: str) -> Path:
+        return self._sidecar_path_for(run_id, ".lock")
+
+    @contextmanager
+    def exclusive(self, run_id: str) -> Iterator[None]:
+        """Hold this run's inter-process exclusive lock for one critical section.
+
+        One ``flock``-ed lockfile per run — not a global lock — so concurrent
+        ``submit_work``/``advance`` calls from parallel processes serialise
+        their whole load->validate->persist section against each other while
+        other runs stay unaffected.  macOS and Linux are the supported
+        platforms; both provide ``fcntl.flock``.
+        """
+
+        self.storage.mkdir(parents=True, exist_ok=True)
+        path = self._lock_path_for(run_id)
+        if path.is_symlink():
+            raise ValueError("diagnosis run lock path must not be a symlink")
+        flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        handle = os.open(path, flags, 0o600)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            os.close(handle)
 
     def _approval_path_for(self, run_id: str) -> Path:
         return self._sidecar_path_for(run_id, ".scope.json")
@@ -177,7 +218,41 @@ class DiagnosisRunStore:
             raise ValueError("diagnosis checkpoint escaped the run store")
         return path
 
-    def save(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
+    def _head_digest(self, run_id: str) -> str | None:
+        """Canonical digest of the persisted checkpoint head, or ``None``."""
+
+        path = self._path_for(run_id)
+        if not path.is_file():
+            return None
+        try:
+            stored = DiagnosisCheckpoint.model_validate(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except Exception as exc:
+            raise DiagnosisStateError("stored diagnosis checkpoint is unreadable") from exc
+        return stored.canonical_digest()
+
+    def save(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        *,
+        expected_head: str | None = None,
+    ) -> DiagnosisCheckpoint:
+        """Persist one checkpoint, optionally refusing a moved head.
+
+        ``expected_head`` is the canonical digest of the checkpoint this write
+        was derived from.  When provided and the persisted head no longer
+        matches — another process saved in between — the write is refused with
+        the typed, retryable :class:`DiagnosisRunConflict` instead of silently
+        resurrecting or replacing the other writer's records.  It is the
+        backstop behind :meth:`exclusive`, which serialises honest writers.
+        """
+
+        if expected_head is not None and self._head_digest(checkpoint.run_id) != expected_head:
+            raise DiagnosisRunConflict(
+                "the persisted diagnosis run changed during this operation; "
+                "reload the run and retry"
+            )
         payload = json.dumps(
             checkpoint.dump_for_storage(),
             ensure_ascii=True,

@@ -11,7 +11,11 @@ from tests.diagnosis.test_run import approved_receipt, created_checkpoint, diagn
 
 from capability_exchange.catalogue.subscription import diagnosis_run_storage
 from capability_exchange.diagnosis.run import DiagnosisStage, DiagnosisStateError, advance_to
-from capability_exchange.diagnosis.run_store import DiagnosisInputDrift, DiagnosisRunStore
+from capability_exchange.diagnosis.run_store import (
+    DiagnosisInputDrift,
+    DiagnosisRunConflict,
+    DiagnosisRunStore,
+)
 
 NOW = datetime(2026, 8, 27, 16, 0, tzinfo=UTC)
 
@@ -100,6 +104,64 @@ def test_list_resumable_skips_candidate_and_scope_sidecars(store: DiagnosisRunSt
 
     resumable = store.list_resumable()
     assert [item.run_id for item in resumable] == [saved.run_id]
+
+
+def test_save_refuses_a_stale_expected_head(store: DiagnosisRunStore) -> None:
+    """RISK finding B2 backstop: a save derived from a moved head is refused.
+
+    Red first: without ``expected_head`` support, ``save`` was unconditional
+    last-writer-wins, so the second writer silently clobbered the first
+    writer's records.
+    """
+
+    base = store.save(checkpoint(DiagnosisStage.CREATED))
+    advanced = checkpoint(DiagnosisStage.SCOPE_APPROVED)
+
+    # A save derived from the current head is accepted.
+    store.save(advanced, expected_head=base.canonical_digest())
+    assert store.load(base.run_id).stage is DiagnosisStage.SCOPE_APPROVED
+
+    # A save derived from the superseded head is a typed, retryable conflict,
+    # and the newer head survives untouched.
+    stale = base.model_copy(update={"created_at": NOW + timedelta(minutes=1)})
+    with pytest.raises(DiagnosisRunConflict, match="reload the run and retry") as conflict:
+        store.save(stale, expected_head=base.canonical_digest())
+    assert isinstance(conflict.value, DiagnosisStateError)
+    assert store.load(base.run_id).stage is DiagnosisStage.SCOPE_APPROVED
+
+    # Without expected_head the store keeps its raw last-writer semantics for
+    # deliberate tooling (rewind, tamper fixtures).
+    store.save(stale)
+    assert store.load(base.run_id).stage is DiagnosisStage.CREATED
+
+
+def test_exclusive_lock_is_per_run_and_blocks_a_second_acquirer(
+    store: DiagnosisRunStore,
+) -> None:
+    """The flock section is exclusive for one run and independent across runs."""
+
+    import fcntl
+
+    run_a = checkpoint(DiagnosisStage.CREATED).run_id
+    run_b = "run:" + "e" * 16
+
+    def try_lock(run_id: str) -> bool:
+        path = store._lock_path_for(run_id)  # noqa: SLF001
+        handle = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        else:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            return True
+        finally:
+            os.close(handle)
+
+    with store.exclusive(run_a):
+        assert not try_lock(run_a), "a second acquirer must block on the same run"
+        assert try_lock(run_b), "the lock is per run, not global"
+    assert try_lock(run_a), "the lock is released when the section exits"
 
 
 def test_diagnosis_run_storage_uses_app_state_outside_roots(

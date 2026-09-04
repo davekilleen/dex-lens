@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import fcntl
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +31,7 @@ from capability_exchange.diagnosis.observations import (
     SafeAttribute,
 )
 from capability_exchange.diagnosis.orchestrator import (
+    MAX_FACTOR_TUPLES_PER_CANDIDATE,
     DeterministicDiagnosisEngine,
     PrepareDiagnosisRequest,
     VerifiedCatalogueSlice,
@@ -43,7 +46,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
 )
-from capability_exchange.diagnosis.run_store import DiagnosisRunStore
+from capability_exchange.diagnosis.run_store import DiagnosisRunConflict, DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
     ProposalKind,
     SpecialistProposal,
@@ -57,6 +60,7 @@ from capability_exchange.diagnosis.work import (
     NORMAL_ROLES,
     AnalysisMode,
     WorkPacket,
+    WorkQueueError,
     WorkStatus,
 )
 from capability_exchange.evidence import EvidenceItem, EvidenceState
@@ -1623,3 +1627,356 @@ def test_honest_guided_run_closes_and_compares_exactly_the_derived_set(
     assert closed.stage is DiagnosisStage.CLOSED
     compared = engine.comparer.calls[-1]["proposals"]
     assert [item.model_dump(mode="json") for item in compared] == stored
+
+
+def _factor_tuple(index: int) -> RecommendationFactors:
+    """Deterministic distinct complete factor tuples for one candidate."""
+
+    return RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=index % 4,
+        workflow_leverage=(index // 4) % 4,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+
+
+def _same_candidate_recommendations(
+    packet: WorkPacket, tuple_indexes: range
+) -> tuple[SpecialistProposal, ...]:
+    """Distinct-factor recommendations that all name one semantic candidate."""
+
+    return tuple(
+        _bound_proposal(
+            packet,
+            kind=ProposalKind.RECOMMENDATION,
+            catalogue_id=CATALOGUE_ID,
+            capability_id=CAPABILITY_ID,
+            disposition=Disposition.WORTH_BORROWING,
+            evidence_ids=(packet.evidence_ids[0],),
+            reason="The approved evidence supports this bounded Dex addition.",
+            recommendation_factors=_factor_tuple(index),
+        )
+        for index in tuple_indexes
+    )
+
+
+def test_guided_run_refuses_factor_tuple_overflow_at_submit_and_still_closes(
+    engine: EngineHarness,
+) -> None:
+    """Finding B1: ten distinct same-candidate factor tuples must not wedge.
+
+    Red first, observed on the unchanged tree: the ten-tuple response was
+    ACCEPTED as a final completed receipt (proposal_count=10); the sceptical
+    packet's context then raised a raw pydantic ValidationError
+    (CandidateBaseline, too_long) outside the bounded-attempt block, so the
+    sceptical packet could never be answered — even empty — no retry was
+    consumed, advance died identically ("specialist work remains") and work
+    returned the same packet forever, with no recovery port.
+    """
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+
+    # The over-cap response is refused where the bounded-retry protocol can
+    # reject: it burns the attempt as an empty rejection, never as content.
+    with pytest.raises(SpecialistProposalError, match="one retry remains") as refusal:
+        engine.engine.submit_work(
+            prepared.run_id, first.packet_id, _same_candidate_recommendations(first, range(10))
+        )
+    assert (
+        f"at most {MAX_FACTOR_TUPLES_PER_CANDIDATE} distinct recommendation factor tuples"
+        in str(refusal.value.__cause__)
+    )
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    burned = [item for item in queue.receipts if item.packet_id == first.packet_id]
+    assert [item.status for item in burned] == [WorkStatus.PENDING]
+    assert burned[0].proposal_count == 0
+
+    # Same proposal stream, retried within the cap, is accepted.
+    engine.engine.submit_work(
+        prepared.run_id, first.packet_id, _same_candidate_recommendations(first, range(2))
+    )
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    # Before the fix this exact call raised the raw ValidationError.
+    engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    completed = engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    compared = engine.advance(prepared.run_id)
+    assert compared.stage is DiagnosisStage.COMPARED
+    candidate_id = candidate_id_for(
+        ProposalKind.RECOMMENDATION, CATALOGUE_ID, CAPABILITY_ID
+    )
+    disputed = next(
+        item
+        for item in engine.comparer.calls[-1]["proposals"]
+        if item.candidate_id == candidate_id
+    )
+    assert disputed.disposition is Disposition.NOT_ASSESSED
+    closed = engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def test_factor_tuple_cap_counts_across_packets_and_admits_the_exact_bound(
+    engine: EngineHarness,
+) -> None:
+    """Finding B1, cross-packet: the cap is prospective over final receipts of
+    other packets plus this response, exact replays stay idempotent, and a run
+    holding exactly the cap still builds its sceptical baseline and closes —
+    proving an honest run can no longer reach the reconciliation-side
+    construction, which remains only as the tamper backstop.
+    """
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    first = engine.engine.work(prepared.run_id)
+    assert first is not None
+    accepted_first = _same_candidate_recommendations(first, range(6))
+    engine.engine.submit_work(prepared.run_id, first.packet_id, accepted_first)
+
+    second = engine.engine.work(prepared.run_id)
+    assert second is not None
+    # Six final tuples plus four more is ten: past the baseline cap of nine.
+    with pytest.raises(SpecialistProposalError, match="one retry remains") as refusal:
+        engine.engine.submit_work(
+            prepared.run_id,
+            second.packet_id,
+            _same_candidate_recommendations(second, range(6, 10)),
+        )
+    assert f"at most {MAX_FACTOR_TUPLES_PER_CANDIDATE}" in str(refusal.value.__cause__)
+
+    # A retry landing exactly on the cap (6 + 3 = 9) is accepted.
+    engine.engine.submit_work(
+        prepared.run_id, second.packet_id, _same_candidate_recommendations(second, range(6, 9))
+    )
+    # An exact replay of the first accepted response stays idempotent even
+    # though the candidate now holds the full nine distinct tuples.
+    engine.engine.submit_work(prepared.run_id, first.packet_id, accepted_first)
+
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+
+    checkpoint = engine.run_store.load(prepared.run_id)
+    queue = engine.engine._work_queue(checkpoint)  # noqa: SLF001
+    context = engine.engine._proposal_context_for_packet(  # noqa: SLF001
+        checkpoint, packet, queue
+    )
+    candidate_id = candidate_id_for(
+        ProposalKind.RECOMMENDATION, CATALOGUE_ID, CAPABILITY_ID
+    )
+    baseline = next(
+        item for item in context.accepted_candidates if item.candidate_id == candidate_id
+    )
+    assert len(baseline.disputed_recommendation_factors) == MAX_FACTOR_TUPLES_PER_CANDIDATE
+
+    engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+    closed = engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def _sibling_engine(
+    engine: EngineHarness,
+) -> tuple[DeterministicDiagnosisEngine, DiagnosisRunStore]:
+    """A second engine over the same storage, standing in for another process."""
+
+    store = DiagnosisRunStore(engine.run_store.storage)
+    sibling = DeterministicDiagnosisEngine(
+        run_store=store,
+        consent_authority=engine.consent_authority,
+        collector=engine.collector,
+        catalogue_loader=engine.catalogue_loader,
+        comparer=engine.comparer,
+        report_store=engine.report_store,
+        clock=lambda: NOW,
+    )
+    return sibling, store
+
+
+def test_concurrent_submit_work_cannot_lose_or_replace_receipts(
+    engine: EngineHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding B2: an interleaved stale save must not clobber recorded work.
+
+    Red first, observed on the unchanged tree with this exact interleave: the
+    second engine's save (built on a load that predated the first engine's
+    save) was accepted, packet A's completed receipt vanished, packet A became
+    pending again, and the same stale save replaced packet A's final response
+    with a DIFFERENT response — defeating "a changed response for the same
+    packet fails closed".
+    """
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    packets = engine.engine.pending_work(prepared.run_id)
+    packet_a, packet_b = packets[0], packets[1]
+    sibling, sibling_store = _sibling_engine(engine)
+
+    # Deterministic interleave: the sibling's load happens BEFORE A's save.
+    stale = engine.run_store.load(prepared.run_id)
+    proposal_a = _bound_proposal(
+        packet_a,
+        kind=ProposalKind.STRENGTH,
+        catalogue_id=CATALOGUE_ID,
+        capability_id=CAPABILITY_ID,
+        disposition=Disposition.STRONG_HERE,
+        evidence_ids=(packet_a.evidence_ids[0],),
+        reason="The approved evidence shows a distinctive reliable method.",
+    )
+    engine.engine.submit_work(prepared.run_id, packet_a.packet_id, (proposal_a,))
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    receipt_a = next(item for item in queue.receipts if item.packet_id == packet_a.packet_id)
+    assert receipt_a.status is WorkStatus.COMPLETED
+
+    monkeypatch.setattr(
+        sibling_store,
+        "load",
+        lambda run_id, *, expected_input_digest=None: stale,
+    )
+    # The stale submission for a different packet is refused with the typed
+    # retryable conflict instead of resurrecting packet A as pending.
+    with pytest.raises(DiagnosisRunConflict, match="reload the run and retry"):
+        sibling.submit_work(prepared.run_id, packet_b.packet_id, ())
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    kept = [item for item in queue.receipts if item.packet_id == packet_a.packet_id]
+    assert [item.response_digest for item in kept] == [receipt_a.response_digest]
+    assert packet_a.packet_id not in {
+        item.packet_id for item in engine.engine.pending_work(prepared.run_id)
+    }
+    assert not any(item.packet_id == packet_b.packet_id for item in queue.receipts)
+
+    # The same stale interleave cannot replace packet A's final response with
+    # a DIFFERENT response either.
+    different = proposal_a.model_copy(
+        update={"reason": "A changed response for the same packet must fail closed."}
+    )
+    with pytest.raises(DiagnosisRunConflict, match="reload the run and retry"):
+        sibling.submit_work(prepared.run_id, packet_a.packet_id, (different,))
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    kept = [item for item in queue.receipts if item.packet_id == packet_a.packet_id]
+    assert [item.response_digest for item in kept] == [receipt_a.response_digest]
+
+    # Once the sibling reloads the real head, its submission lands too: both
+    # responses are durable regardless of which engine submitted first.
+    monkeypatch.undo()
+    sibling.submit_work(prepared.run_id, packet_b.packet_id, ())
+    queue = engine.engine._work_queue(engine.run_store.load(prepared.run_id))  # noqa: SLF001
+    final_ids = {
+        item.packet_id
+        for item in queue.receipts
+        if item.status in {WorkStatus.COMPLETED, WorkStatus.INSUFFICIENT}
+    }
+    assert {packet_a.packet_id, packet_b.packet_id} <= final_ids
+
+    # And through the front door, a changed response for a final packet still
+    # fails closed.
+    with pytest.raises(WorkQueueError, match="different response"):
+        engine.engine.submit_work(prepared.run_id, packet_a.packet_id, (different,))
+
+
+def test_mutations_hold_the_run_exclusive_lock_across_persist(
+    engine: EngineHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """submit_work and advance persist only while holding the per-run flock."""
+
+    prepared = engine.prepare(
+        PrepareDiagnosisRequest(roots=(_ROOT,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    lock_path = engine.run_store._lock_path_for(prepared.run_id)  # noqa: SLF001
+    probes: list[str] = []
+    original_save = engine.run_store.save
+
+    def probing_save(
+        checkpoint: DiagnosisCheckpoint, **kwargs: object
+    ) -> DiagnosisCheckpoint:
+        handle = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(handle)
+        probes.append(checkpoint.stage.value)
+        return original_save(checkpoint, **kwargs)
+
+    monkeypatch.setattr(engine.run_store, "save", probing_save)
+    while True:
+        packet = engine.engine.work(prepared.run_id)
+        assert packet is not None
+        engine.engine.submit_work(prepared.run_id, packet.packet_id, ())
+        if packet.role is SpecialistRole.SCEPTICAL_RECONCILER:
+            break
+    completed = engine.engine.advance(prepared.run_id)
+    assert completed.stage is DiagnosisStage.ANALYSIS_COMPLETED
+    # Every packet response plus the advance persisted under the held lock.
+    assert len(probes) == len(NORMAL_ROLES) + 2
+
+
+def test_guided_run_refuses_legacy_submit_at_every_stage_after_compare(
+    engine: EngineHarness,
+) -> None:
+    """Finding C1: a GUIDED run never accepts legacy submit at any stage.
+
+    Red first, observed on the unchanged tree: from COMPARED onward the run
+    accepted an unbound legacy proposal — validated against the default
+    inventory-only context — and durably retained it in the run's artifacts,
+    outside the submit_work protocol the earlier stages enforce.
+    """
+
+    run_id = _drive_honest_guided_analysis(engine)
+    fingerprint = engine.collector.fingerprint
+    digest = fingerprint_digest_for(fingerprint)
+    token = mint_evidence_token(
+        run_id=run_id,
+        fingerprint_digest=digest,
+        observation_key=(
+            f"{fingerprint.observations[0].kind.value}:"
+            f"{fingerprint.observations[0].identity}:"
+            f"{fingerprint.observations[0].provenance.source_id}"
+        ),
+    )
+    proposal = SpecialistProposal(
+        role=SpecialistRole.TOOLS_AND_INTEGRATIONS,
+        kind=ProposalKind.MAPPING,
+        run_id=run_id,
+        fingerprint_digest=digest,
+        catalogue_digest="sha256:" + "b" * 64,
+        catalogue_id=CATALOGUE_ID,
+        capability_id=CAPABILITY_ID,
+        disposition=Disposition.NOT_ASSESSED,
+        evidence_ids=(token,),
+        reason="An unbound legacy proposal must never enter a guided run.",
+    )
+
+    for stage in (
+        DiagnosisStage.COMPARED,
+        DiagnosisStage.RENDERED,
+        DiagnosisStage.CHECKED,
+        DiagnosisStage.SAVED,
+    ):
+        engine.run_to(run_id, stage)
+        with pytest.raises(DiagnosisStateError, match="submit_work"):
+            engine.submit(run_id, proposal)
+        checkpoint = engine.run_store.load(run_id)
+        assert engine.engine._proposal_payloads(checkpoint) == []  # noqa: SLF001
+
+    closed = engine.run_to(run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED

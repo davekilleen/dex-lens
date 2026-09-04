@@ -64,6 +64,7 @@ from capability_exchange.diagnosis.specialists import (
     ProposalContext,
     SpecialistProposal,
     SpecialistProposalError,
+    SpecialistRole,
     ValidatedProposal,
     disagreement_reason,
     mint_evidence_token,
@@ -89,6 +90,7 @@ __all__ = [
     "DiagnosisResult",
     "EvidenceLegendRow",
     "FingerprintCollector",
+    "MAX_FACTOR_TUPLES_PER_CANDIDATE",
     "PrepareDiagnosisRequest",
     "VerifiedCatalogueLoader",
     "VerifiedCatalogueSlice",
@@ -96,6 +98,15 @@ __all__ = [
 ]
 
 ADAPTER_VERSION = "injected-collector"
+
+# A disputed recommendation baseline carries at most one distinct complete
+# factor tuple per closed specialist role
+# (``CandidateBaseline.disputed_recommendation_factors`` is capped at
+# ``len(SpecialistRole)``).  Enforcing the same numeric cap at submission —
+# before any normal response becomes a final receipt — keeps that baseline
+# constructible for the sceptical packet, so a valid-input run can never wedge
+# there with no exit.
+MAX_FACTOR_TUPLES_PER_CANDIDATE = len(SpecialistRole)
 
 
 def _typed_model_refusal(action: str, exc: ValidationError) -> DiagnosisStateError:
@@ -366,6 +377,12 @@ class DeterministicDiagnosisEngine:
         return self._view(self._load(run_id))
 
     def advance(self, run_id: str) -> DiagnosisRunView:
+        # Advancing mutates the persisted run, so the whole
+        # load->validate->persist section holds the run's exclusive lock.
+        with self._runs.exclusive(run_id):
+            return self._advance_locked(run_id)
+
+    def _advance_locked(self, run_id: str) -> DiagnosisRunView:
         checkpoint = self._load(run_id)
         if checkpoint.stage is DiagnosisStage.CLOSED:
             raise DiagnosisStateError("diagnosis is closed; it exposes no mutation port")
@@ -394,9 +411,24 @@ class DeterministicDiagnosisEngine:
         return self._view(handlers[target](checkpoint))
 
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView:
+        # Legacy submission mutates the persisted run, so the whole
+        # load->validate->persist section holds the run's exclusive lock.
+        with self._runs.exclusive(run_id):
+            return self._submit_locked(run_id, proposal)
+
+    def _submit_locked(self, run_id: str, proposal: object) -> DiagnosisRunView:
         checkpoint = self._load(run_id)
         if checkpoint.stage is DiagnosisStage.CLOSED:
             raise DiagnosisStateError("diagnosis is closed; it exposes no mutation port")
+        # A guided run accepts specialist content only through the
+        # packet-bound submit_work protocol — at every stage.  Accepting an
+        # unbound legacy proposal after comparison would durably retain
+        # content no work receipt ever bound, so the refusal is unconditional
+        # on the run's mode rather than scoped to the analysis stages.
+        if self._analysis_mode(checkpoint) is AnalysisMode.GUIDED:
+            raise DiagnosisStateError(
+                "guided analysis accepts specialist responses only through submit_work"
+            )
         if checkpoint.stage in {
             DiagnosisStage.CREATED,
             DiagnosisStage.SCOPE_APPROVED,
@@ -404,18 +436,6 @@ class DeterministicDiagnosisEngine:
         }:
             raise DiagnosisStateError(
                 "specialist proposals require a captured fingerprint and verified catalogue"
-            )
-        if (
-            checkpoint.stage in {
-                DiagnosisStage.CATALOGUE_VERIFIED,
-                DiagnosisStage.JOBS_CONFIRMED,
-                DiagnosisStage.ANALYSIS_PLANNED,
-                DiagnosisStage.ANALYSIS_COMPLETED,
-            }
-            and self._analysis_mode(checkpoint) is AnalysisMode.GUIDED
-        ):
-            raise DiagnosisStateError(
-                "guided analysis accepts specialist responses only through submit_work"
             )
         typed = (
             proposal
@@ -438,7 +458,7 @@ class DeterministicDiagnosisEngine:
         updated = checkpoint.model_copy(
             update={"artifact_digests": (*checkpoint.artifact_digests, artifact)}
         )
-        self._runs.save(updated)
+        self._runs.save(updated, expected_head=checkpoint.canonical_digest())
         return self._view(updated)
 
     def work(self, run_id: str) -> WorkPacket | None:
@@ -517,8 +537,22 @@ class DeterministicDiagnosisEngine:
         response becomes terminal ``unresolved``.  Valid responses and exact
         replays are idempotent; a changed response for the same packet fails
         closed.
+
+        Parallel fan-out is supported, so the whole load->validate->persist
+        section holds the run's exclusive inter-process lock: two concurrent
+        submissions serialise instead of the later save resurrecting an
+        already-final packet and dropping the earlier response's records.
         """
 
+        with self._runs.exclusive(run_id):
+            return self._submit_work_locked(run_id, packet_id, proposals)
+
+    def _submit_work_locked(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[SpecialistProposal, ...] = (),
+    ) -> DiagnosisRunView:
         checkpoint = self._load(run_id)
         if checkpoint.stage is DiagnosisStage.CLOSED:
             raise DiagnosisStateError("diagnosis is closed; it exposes no mutation port")
@@ -566,8 +600,9 @@ class DeterministicDiagnosisEngine:
         # responses can only preserve or downgrade an existing candidate, so
         # the prospective cap applies to normal packets only.
         prior_recommendations: set[str] | None = None
+        prior_factor_tuples: dict[str, set[RecommendationFactors]] | None = None
         if packet.role.value != "sceptical-reconciler":
-            prior_recommendations = self._final_recommendation_candidates(
+            prior_recommendations, prior_factor_tuples = self._final_recommendation_state(
                 checkpoint, queue, exclude_packet_id=packet.packet_id
             )
         try:
@@ -602,6 +637,32 @@ class DeterministicDiagnosisEngine:
                     raise SpecialistProposalError(
                         f"a diagnosis may recommend at most {MAX_RECOMMENDATIONS} "
                         "Dex additions"
+                    )
+            if prior_factor_tuples is not None:
+                prospective_tuples: dict[str, set[RecommendationFactors]] = {
+                    candidate: set(tuples)
+                    for candidate, tuples in prior_factor_tuples.items()
+                }
+                for item in validated:
+                    if item.candidate_id is None or item.recommendation_factors is None:
+                        continue
+                    prospective_tuples.setdefault(item.candidate_id, set()).add(
+                        item.recommendation_factors
+                    )
+                if any(
+                    len(tuples) > MAX_FACTOR_TUPLES_PER_CANDIDATE
+                    for tuples in prospective_tuples.values()
+                ):
+                    # A response that would push one candidate past the
+                    # disputed-baseline factor-tuple cap is a malformed
+                    # specialist response: it burns the bounded attempt and is
+                    # recorded as an empty rejection, never as content.
+                    # Accepting it would leave the sceptical packet's
+                    # candidate baseline unconstructible and wedge the run.
+                    raise SpecialistProposalError(
+                        "specialist responses may propose at most "
+                        f"{MAX_FACTOR_TUPLES_PER_CANDIDATE} distinct recommendation "
+                        "factor tuples for one candidate"
                     )
         except (TypeError, ValueError) as exc:
             status = WorkStatus.PENDING if attempt == 1 else WorkStatus.UNRESOLVED
@@ -808,7 +869,7 @@ class DeterministicDiagnosisEngine:
         )
         if input_identity is not None:
             moved = moved.model_copy(update={"input_identity": input_identity})
-        return self._runs.save(moved)
+        return self._runs.save(moved, expected_head=checkpoint.canonical_digest())
 
     def _approve_scope(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
         receipt = self._require_receipt(checkpoint)
@@ -1071,7 +1132,7 @@ class DeterministicDiagnosisEngine:
                 now=self._clock(),
                 artifact_digests=(artifact,),
             )
-            return self._runs.save(moved)
+            return self._runs.save(moved, expected_head=checkpoint.canonical_digest())
         return self._advance(checkpoint, DiagnosisStage.COMPARED, artifacts=(artifact,))
 
     def _render(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
@@ -1206,6 +1267,11 @@ class DeterministicDiagnosisEngine:
             # a baseline carrying the proposed disposition set, so the
             # sceptical review can adjudicate it with evidence.  Candidates
             # every specialist honestly left not-assessed stay excluded.
+            # The baseline's own factor-tuple bound stays as the fail-closed
+            # backstop against a tampered response store: submit_work enforces
+            # MAX_FACTOR_TUPLES_PER_CANDIDATE before any normal response
+            # becomes final, so an honest run can no longer overflow this
+            # construction.
             accepted = tuple(
                 CandidateBaseline(
                     candidate_id=item.candidate_id or "",
@@ -1405,19 +1471,30 @@ class DeterministicDiagnosisEngine:
                 )
             }
         )
-        return self._runs.save(updated)
+        # Staleness backstop behind the run's exclusive lock: if the persisted
+        # head moved after this operation loaded it, the save is refused with
+        # a typed retryable conflict instead of resurrecting an already-final
+        # packet or replacing a final response.
+        return self._runs.save(updated, expected_head=checkpoint.canonical_digest())
 
-    def _final_recommendation_candidates(
+    def _final_recommendation_state(
         self,
         checkpoint: DiagnosisCheckpoint,
         queue: WorkQueue,
         *,
         exclude_packet_id: str,
-    ) -> set[str]:
-        """Distinct recommendation candidates already final on other normal packets."""
+    ) -> tuple[set[str], dict[str, set[RecommendationFactors]]]:
+        """Aggregate recommendation facts already final on other normal packets.
+
+        Returns the distinct recommendation candidates plus, per candidate,
+        the distinct complete factor tuples the final responses proposed —
+        the exact quantities the submit-time caps must bound before another
+        normal response can become a final receipt.
+        """
 
         packets = {packet.packet_id: packet for packet in queue.packets}
         candidates: set[str] = set()
+        factor_tuples: dict[str, set[RecommendationFactors]] = {}
         for record in self._response_records(checkpoint):
             receipt = WorkReceipt.model_validate(record["receipt"])
             if receipt.packet_id == exclude_packet_id:
@@ -1444,7 +1521,11 @@ class DeterministicDiagnosisEngine:
                     or typed.disposition.value == "worth-borrowing"
                 ):
                     candidates.add(typed.candidate_id or "")
-        return candidates
+                if typed.recommendation_factors is not None:
+                    factor_tuples.setdefault(typed.candidate_id or "", set()).add(
+                        typed.recommendation_factors
+                    )
+        return candidates, factor_tuples
 
     def _normal_reconciled_proposals(
         self,
