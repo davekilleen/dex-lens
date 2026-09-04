@@ -1218,6 +1218,9 @@ def test_unadjudicated_dispute_names_both_dispositions_in_the_reason(
         if item.candidate_id == candidate_id
     )
     assert disputed.disposition is Disposition.NOT_ASSESSED
+    # FINDING A1: the dispute reaches comparison as the engine-set structural
+    # flag, so the ledger assembly never has to recognise it from reason text.
+    assert disputed.disputed is True
     assert disputed.reason == (
         "Specialist proposals disagreed between fragile-or-contradictory and "
         "strong-here; the sceptical review did not adjudicate, so the "

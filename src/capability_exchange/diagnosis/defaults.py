@@ -71,7 +71,6 @@ from capability_exchange.diagnosis.specialists import (
     SpecialistProposalError,
     ValidatedProposal,
     disagreement_reason,
-    is_disagreement_reason,
 )
 from capability_exchange.diagnosis.work import WorkAudit
 from capability_exchange.diagnosis.workflows import WorkflowGraph, build_workflow_graph
@@ -361,7 +360,12 @@ def _entry_for(capability_id: str, group: list[ValidatedProposal]) -> CatalogueD
             capability_id=capability_id,
             reason=_NO_PROPOSAL,
         )
-    disagreement = next((item for item in group if is_disagreement_reason(item.reason)), None)
+    # Disagreement priority keys on the engine-set structural fact ONLY.
+    # Reason text is free specialist input: recognising the disagreement
+    # sentence shape there let a bound guided proposal adopt its own
+    # disposition over an honest dispute (authority laundering), so
+    # is_disagreement_reason stays reserved for stored legacy ledgers.
+    disagreement = next((item for item in group if item.disputed), None)
     chosen = disagreement or _agreed_or_unknown(capability_id, group)
     method_compared = any(
         item.kind in _METHOD_REVIEW_KINDS
@@ -408,6 +412,7 @@ def _agreed_or_unknown(
         observation_ids=tuple(
             sorted({token for item in ordered for token in item.observation_ids})
         ),
+        disputed=True,
     )
 
 
@@ -433,19 +438,42 @@ def _ranked_recommendations_from_entries(
     for entry in entries:
         if entry.disposition is not Disposition.WORTH_BORROWING:
             continue
-        group = by_id[entry.catalogue_id]
+        # Factors may come only from the candidate identity the entry actually
+        # backs (same catalogue AND capability): pooling every proposal that
+        # merely shares the catalogue id put one candidate's factors beside
+        # another candidate's evidence and reason.
+        group = [
+            item
+            for item in by_id[entry.catalogue_id]
+            if item.capability_id == entry.capability_id
+        ]
         factor_options = sorted(
             {
                 item.recommendation_factors
                 for item in group
                 if item.recommendation_factors is not None
             },
+            # The conservative deterministic pick is the tuple that ranks
+            # WORST under the actual rank_recommendations comparator — the
+            # first four axes descending, adoption_effort ASCENDING — with
+            # ties broken lexicographically (the trailing full tuple; among
+            # distinct tuples the five ranking axes already decide, so the
+            # tie-break is stated for definition completeness).  A plain
+            # lexicographic minimum would pick the LOWEST adoption effort,
+            # which the comparator ranks higher, not lower.
             key=lambda item: (
-                item.reliability_risk,
-                item.job_relevance,
-                item.workflow_leverage,
-                item.evidence_strength,
+                -item.reliability_risk,
+                -item.job_relevance,
+                -item.workflow_leverage,
+                -item.evidence_strength,
                 item.adoption_effort,
+                (
+                    item.reliability_risk,
+                    item.job_relevance,
+                    item.workflow_leverage,
+                    item.evidence_strength,
+                    item.adoption_effort,
+                ),
             ),
         )
         if not factor_options:
@@ -454,16 +482,15 @@ def _ranked_recommendations_from_entries(
             RecommendationCandidate(
                 catalogue_id=entry.catalogue_id,
                 capability_id=entry.capability_id,
-                # The most conservative proposed tuple, deterministically:
+                # The worst-ranked proposed tuple, deterministically:
                 # coalescing never breaks a tie with confidence.
-                factors=factor_options[0],
+                factors=factor_options[-1],
                 evidence_ids=entry.evidence_references,
                 observation_ids=tuple(
                     sorted(
                         {
                             observation_id
                             for item in group
-                            if item.capability_id == entry.capability_id
                             for observation_id in item.observation_ids
                         }
                     )

@@ -33,17 +33,21 @@ from capability_exchange.diagnosis.observations import (
     observation_id_for,
 )
 from capability_exchange.diagnosis.orchestrator import DeterministicDiagnosisEngine
+from capability_exchange.diagnosis.ranking import RecommendationFactors
 from capability_exchange.diagnosis.run import DiagnosisStateError, canonical_json_digest
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
     ProposalKind,
     SpecialistProposalError,
     ValidatedProposal,
+    candidate_id_for,
 )
 from capability_exchange.evidence import EvidenceItem
 
 _EVIDENCE = "evidence:sha256:" + ("ab" * 32)
 _NOW = datetime(2026, 9, 1, tzinfo=UTC)
+_PACKET_DIGEST = "sha256:" + "d" * 64
+_PACKET_ID = "packet:" + _PACKET_DIGEST
 
 
 def _proposal(
@@ -54,15 +58,45 @@ def _proposal(
     kind: ProposalKind = ProposalKind.STRENGTH,
     reason: str = "Quoted local evidence supports this strength.",
     observation_ids: tuple[str, ...] = (),
+    disputed: bool = False,
 ) -> ValidatedProposal:
+    values: dict[str, object] = {
+        "kind": kind,
+        "catalogue_id": catalogue_id,
+        "capability_id": capability_id,
+        "disposition": disposition,
+        "evidence_ids": (_EVIDENCE,),
+        "reason": reason,
+        "observation_ids": observation_ids,
+    }
+    if disputed:
+        values["disputed"] = True
+    return ValidatedProposal.model_validate(values)
+
+
+def _guided(
+    *,
+    kind: ProposalKind,
+    disposition: Disposition,
+    reason: str,
+    catalogue_id: str = "cap-one",
+    capability_id: str = "cap-one",
+    factors: RecommendationFactors | None = None,
+    evidence_ids: tuple[str, ...] = (_EVIDENCE,),
+) -> ValidatedProposal:
+    """A guided-lawful bound proposal, exactly as validation would emit it."""
+
     return ValidatedProposal(
         kind=kind,
         catalogue_id=catalogue_id,
         capability_id=capability_id,
+        packet_id=_PACKET_ID,
+        packet_digest=_PACKET_DIGEST,
+        candidate_id=candidate_id_for(kind, catalogue_id, capability_id),
         disposition=disposition,
-        evidence_ids=(_EVIDENCE,),
+        recommendation_factors=factors,
+        evidence_ids=evidence_ids,
         reason=reason,
-        observation_ids=observation_ids,
     )
 
 
@@ -221,7 +255,9 @@ def test_conflicting_kinds_for_one_id_remain_unknown() -> None:
     )
 
 
-def test_reconciled_disagreement_reason_still_outranks_an_agreed_claim() -> None:
+def test_reconciled_disagreement_still_outranks_an_agreed_claim() -> None:
+    # Evolved for FINDING A1: the coalesced dispute is now marked by the
+    # engine-set structural flag, never recognised from its reason text.
     named_disagreement = (
         "Specialist proposals disagreed between fragile-or-contradictory and "
         "strong-here; the sceptical review did not adjudicate, so the "
@@ -235,11 +271,155 @@ def test_reconciled_disagreement_reason_still_outranks_an_agreed_claim() -> None
                 kind=ProposalKind.FRAGILITY,
                 disposition=Disposition.NOT_ASSESSED,
                 reason=named_disagreement,
+                disputed=True,
             ),
         ),
     )
     assert entries[0].disposition is Disposition.NOT_ASSESSED
     assert entries[0].reason == named_disagreement
+
+
+def test_sentinel_shaped_reason_never_steals_the_disagreement_priority() -> None:
+    """FINDING A1 (authority laundering): two guided-lawful proposals on one
+    catalogue id disagree — mapping/not-relevant vs recommendation/
+    worth-borrowing — so the entry must stay honestly Unknown.  A bound
+    recommendation whose free-text reason merely echoes the engine's
+    disagreement sentence shape must get the same answer: disagreement is a
+    structural fact, never inferred from specialist-authored text."""
+
+    factors = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+    mapping = _guided(
+        kind=ProposalKind.MAPPING,
+        disposition=Disposition.NOT_RELEVANT,
+        reason="The local method does not map onto this catalogue entry.",
+    )
+    sentinel = (
+        "Specialist proposals were weighed with care; "
+        "the comparison remains Unknown."
+    )
+
+    honest = dispositions_from_proposals(
+        ("cap-one",),
+        (
+            mapping,
+            _guided(
+                kind=ProposalKind.RECOMMENDATION,
+                disposition=Disposition.WORTH_BORROWING,
+                factors=factors,
+                reason="Cited local evidence shows this addition would help.",
+            ),
+        ),
+    )
+    hijack = dispositions_from_proposals(
+        ("cap-one",),
+        (
+            mapping,
+            _guided(
+                kind=ProposalKind.RECOMMENDATION,
+                disposition=Disposition.WORTH_BORROWING,
+                factors=factors,
+                reason=sentinel,
+            ),
+        ),
+    )
+
+    assert honest[0].disposition is Disposition.NOT_ASSESSED
+    assert hijack[0].disposition is Disposition.NOT_ASSESSED
+    assert hijack[0].reason != sentinel
+
+
+def test_conservative_factor_pick_ranks_worst_under_the_real_comparator() -> None:
+    """FINDING C2: rank_recommendations sorts adoption_effort ASCENDING, so on
+    factor tuples equal in the first four axes the old lexicographic-minimum
+    pick (the lowest effort) actually ranked the recommendation HIGHER.  The
+    conservative deterministic pick is the tuple the real comparator ranks
+    worst — here the higher adoption effort."""
+
+    easy = RecommendationFactors(
+        reliability_risk=1,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=1,
+    )
+    hard = easy.model_copy(update={"adoption_effort": 3})
+    reason = "Cited local evidence shows this addition would help."
+    proposals = (
+        _guided(
+            kind=ProposalKind.RECOMMENDATION,
+            disposition=Disposition.WORTH_BORROWING,
+            factors=easy,
+            reason=reason,
+        ),
+        _guided(
+            kind=ProposalKind.MAPPING,
+            disposition=Disposition.WORTH_BORROWING,
+            factors=hard,
+            reason=reason,
+        ),
+    )
+    entries = dispositions_from_proposals(("cap-one",), proposals)
+    assert entries[0].disposition is Disposition.WORTH_BORROWING
+
+    ranked = defaults._ranked_recommendations_from_entries(entries, proposals)
+
+    assert len(ranked) == 1
+    assert ranked[0].factors == hard
+
+
+def test_ranked_factors_come_only_from_the_entry_backing_candidate() -> None:
+    """FINDING C2 (misattribution): factor options used to pool every proposal
+    sharing the catalogue id, so a ranked row could carry one candidate's
+    factors beside another candidate's evidence and reason.  Factors must come
+    from the candidate the entry actually backs."""
+
+    backing = RecommendationFactors(
+        reliability_risk=2,
+        job_relevance=2,
+        workflow_leverage=2,
+        evidence_strength=2,
+        adoption_effort=2,
+    )
+    # A different candidate's tuple that BOTH pick rules over the pooled group
+    # would select: lexicographic minimum and worst-ranked alike.
+    other = RecommendationFactors(
+        reliability_risk=0,
+        job_relevance=0,
+        workflow_leverage=0,
+        evidence_strength=1,
+        adoption_effort=3,
+    )
+    entry_backing = _guided(
+        kind=ProposalKind.MAPPING,
+        capability_id="capability-b",
+        disposition=Disposition.WORTH_BORROWING,
+        factors=backing,
+        reason="Mapping evidence supports borrowing this method.",
+    )
+    other_candidate = _guided(
+        kind=ProposalKind.RECOMMENDATION,
+        capability_id="capability-a",
+        disposition=Disposition.WORTH_BORROWING,
+        factors=other,
+        reason="A different candidate cites different evidence.",
+    )
+    proposals = (entry_backing, other_candidate)
+    entries = dispositions_from_proposals(("cap-one",), proposals)
+    assert entries[0].disposition is Disposition.WORTH_BORROWING
+    assert entries[0].capability_id == "capability-b"
+
+    ranked = defaults._ranked_recommendations_from_entries(entries, proposals)
+
+    assert len(ranked) == 1
+    assert ranked[0].capability_id == "capability-b"
+    assert ranked[0].reason == "Mapping evidence supports borrowing this method."
+    assert ranked[0].factors == backing
 
 
 def test_forged_validated_proposal_cannot_cite_an_unknown_observation() -> None:

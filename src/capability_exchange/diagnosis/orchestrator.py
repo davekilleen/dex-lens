@@ -1511,10 +1511,15 @@ class DeterministicDiagnosisEngine:
             dispositions = {item.disposition for item in group}
             factors = {item.recommendation_factors for item in group}
             recommendation_factors = next(iter(factors)) if len(factors) == 1 else None
+            disputed = False
             if len(dispositions) != 1 or (
                 any(item.recommendation_factors is not None for item in group)
                 and len(factors) != 1
             ):
+                # The structural record of the dispute: ledger assembly keys
+                # its disagreement priority on this engine-set fact, never on
+                # the reason text, which is free specialist input.
+                disputed = True
                 disposition = Disposition.NOT_ASSESSED
                 recommendation_factors = None
                 reason = disagreement_reason(dispositions)
@@ -1569,6 +1574,7 @@ class DeterministicDiagnosisEngine:
                     evidence_ids=evidence_ids,
                     reason=reason,
                     observation_ids=observation_ids,
+                    disputed=disputed,
                 )
             )
         # Fail-closed backstop against a tampered response store.  An honest

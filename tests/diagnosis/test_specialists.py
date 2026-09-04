@@ -424,6 +424,76 @@ def test_disagreement_reason_constant_remains_the_generic_fallback() -> None:
     )
 
 
+def test_disagreement_is_a_structural_fact_set_only_by_coalescing() -> None:
+    """FINDING A1: the fact of a dispute travels as an engine-set field on the
+    coalesced result, never inferred from specialist-authored reason text."""
+
+    context = proposal_context()
+    agreed = reconcile_proposals((proposal(),), context=context)
+    assert agreed[0].disputed is False
+
+    conflicted = reconcile_proposals(
+        (
+            proposal(disposition=Disposition.STRONG_HERE),
+            proposal(
+                role=SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+                disposition=Disposition.FRAGILE_OR_CONTRADICTORY,
+            ),
+        ),
+        context=context,
+    )
+    assert conflicted[0].disposition is Disposition.NOT_ASSESSED
+    assert conflicted[0].disputed is True
+
+
+def test_no_wire_route_lets_a_specialist_set_the_disputed_flag() -> None:
+    """The wire model must not carry the engine-owned dispute field at all, so
+    no specialist payload can arrive pre-marked as a dispute."""
+
+    assert "disputed" not in SpecialistProposal.model_fields
+    with pytest.raises(ValidationError):
+        proposal(disputed=True)
+    accepted = validate_proposal(proposal(), context=proposal_context())
+    assert accepted.disputed is False
+
+
+def test_a_disputed_validated_proposal_stays_not_assessed_and_unscored() -> None:
+    with pytest.raises(ValidationError, match="not-assessed"):
+        ValidatedProposal(
+            kind=ProposalKind.MAPPING,
+            catalogue_id=DEFAULT_CATALOGUE_ID,
+            capability_id=DEFAULT_CAPABILITY_ID,
+            disposition=Disposition.SHARED,
+            evidence_ids=(CURRENT_EVIDENCE,),
+            reason=DISAGREEMENT_REASON,
+            disputed=True,
+        )
+
+
+def test_a_reason_shaped_like_the_disagreement_sentence_is_refused() -> None:
+    """FINDING A1, the in-band channel: a specialist reason that imitates the
+    engine's disagreement sentence shape is refused with a fixed rephrase
+    instruction, so an innocent echo of the documented phrasing costs the
+    normal bounded retry instead of stealing any tie-break."""
+
+    with pytest.raises(ValidationError, match="rephrase"):
+        proposal(
+            reason=(
+                "Specialist proposals were weighed with care; "
+                "the comparison remains Unknown."
+            )
+        )
+    with pytest.raises(ValidationError, match="rephrase"):
+        proposal(reason=DISAGREEMENT_REASON)
+    # Either fragment alone is not sentinel-shaped and stays lawful.
+    assert proposal(
+        reason="Specialist proposals here agree the local method matches."
+    ).disposition is Disposition.SHARED
+    assert proposal(
+        reason="Without a method review the comparison remains Unknown."
+    ).disposition is Disposition.SHARED
+
+
 def test_disputed_baseline_carries_the_proposed_disposition_set() -> None:
     baseline = candidate_baseline(
         kind=ProposalKind.STRENGTH,

@@ -2995,6 +2995,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral validated ranking structure"
 
+  ValidatedProposal.disputed:
+    description: "engine-set structural fact that this coalesced result records a specialist dispute"
+    collection: "set only by deterministic coalesce/reconciliation when dispositions or factor tuples conflict"
+    derivation: "boolean; the wire proposal model has no such field, so no specialist input can set it"
+    display: "keys the ledger's disagreement priority instead of specialist-authored reason text"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral reconciled dispute marker"
+
   PersistedScopeApproval.run_id:
     description: "run identity for a locally persisted scope approval"
     collection: "copied from the approved-scope receipt at /approve"

@@ -77,16 +77,29 @@ def disagreement_reason(dispositions: Iterable[Disposition | str]) -> str:
 
 
 def is_disagreement_reason(reason: str) -> bool:
-    """True for any reason a deterministic disagreement coalesce produced.
+    """True for a reason shaped like a deterministic disagreement coalesce.
 
-    Matches the legacy fixed sentence and every named form emitted by
-    :func:`disagreement_reason`, so stored ledgers written before the reasons
-    named their dispositions still read as disagreements.
+    Kept ONLY for reading back stored legacy ledgers, where the reason text is
+    the sole surviving record of a dispute (matching the legacy fixed sentence
+    and every named form :func:`disagreement_reason` emitted).  It must never
+    confer authority on live proposals: reason text is free specialist input,
+    so live assembly keys on the engine-set ``ValidatedProposal.disputed``
+    structural fact instead, and :class:`SpecialistProposal` refuses a
+    sentinel-shaped reason at the wire.
     """
 
     return reason == DISAGREEMENT_REASON or (
         reason.startswith(_DISAGREEMENT_PREFIX) and reason.endswith(_DISAGREEMENT_SUFFIX)
     )
+#: Fixed refusal for a specialist reason shaped like the engine's disagreement
+#: sentence.  The shape once selected which proposal won the ledger tie-break,
+#: so a reason imitating it is refused outright — an innocent echo of the
+#: documented phrasing costs the normal bounded retry, never a hijack.
+_SENTINEL_REASON_REFUSAL = (
+    "a proposal reason must not restate the engine's disagreement sentence; "
+    "rephrase this reason in the specialist's own words"
+)
+
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PACKET_ID = re.compile(r"^packet:sha256:[0-9a-f]{64}$")
@@ -398,6 +411,12 @@ class SpecialistProposal(_ValidatedInventoried):
             raise ValueError("a proposal reason must be non-empty")
         if _CONTROL.search(value):
             raise ValueError("a proposal reason must be one bounded line")
+        # Close the in-band channel: disagreement is a structural fact the
+        # engine sets during coalescing (``ValidatedProposal.disputed``), so a
+        # specialist-authored reason shaped like the engine's disagreement
+        # sentence is refused at the wire instead of ever reaching assembly.
+        if value.startswith(_DISAGREEMENT_PREFIX) and value.endswith(_DISAGREEMENT_SUFFIX):
+            raise ValueError(_SENTINEL_REASON_REFUSAL)
         return value
 
     @model_validator(mode="after")
@@ -531,6 +550,12 @@ class ValidatedProposal(_ValidatedInventoried):
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
     observation_ids: tuple[str, ...] = ()
+    #: Engine-set structural fact: this coalesced result records a specialist
+    #: dispute.  Set only by the deterministic coalesce/reconciliation paths;
+    #: :class:`SpecialistProposal` has no such field, so no wire route can set
+    #: it, and ledger assembly keys its disagreement priority on this fact —
+    #: never on reason text, which is free specialist input.
+    disputed: bool = False
 
     @field_validator("evidence_ids")
     @classmethod
@@ -553,6 +578,11 @@ class ValidatedProposal(_ValidatedInventoried):
 
     @model_validator(mode="after")
     def _bindings_are_closed(self) -> Self:
+        if self.disputed:
+            if self.disposition is not Disposition.NOT_ASSESSED:
+                raise ValueError("a disputed proposal must coalesce to not-assessed")
+            if self.recommendation_factors is not None:
+                raise ValueError("a disputed proposal cannot carry recommendation factors")
         _validate_model_bindings(
             packet_id=self.packet_id,
             packet_digest=self.packet_digest,
@@ -869,6 +899,9 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         evidence_ids=evidence_ids,
         reason=disagreement_reason(dispositions),
         observation_ids=observation_ids,
+        # The structural record of the dispute: ledger assembly keys its
+        # disagreement priority on this engine-set fact, never on the reason.
+        disputed=True,
     )
 
 
