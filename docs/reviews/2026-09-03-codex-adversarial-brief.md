@@ -8,7 +8,10 @@ belongs in the reviewer's context.
 
 Adversarial review of github.com/davekilleen/dex-lens, branch
 `codex/lens-significant-capability-coverage`, commits after `5f05ee2` up to
-and including `c3deb3b` only.
+the branch head. A first cold-context pass on 2026-09-04 already found and
+fixed six defects (see the RISK-COLD-PASS-2026-09-04 register row; fixes
+`a8f22c8`, `d58194f`, `9f346c7`, and the path-guard/footer commit) — treat
+those areas as patched ground worth re-attacking, not as cleared.
 
 The governing standard is
 `docs/superpowers/plans/2026-09-03-dex-lens-wow-gate-completion-goal.md` —
