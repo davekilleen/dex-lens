@@ -20,6 +20,43 @@ many gates were green.
 Corollary, and it is the whole product in one line: *the interesting user is
 the stale user.* A current install is the easy case and the rare one.
 
+## 1.1 The shape of a run: a lighthouse, not an audit
+
+Lens is a **map of where value could be exchanged, in both directions**. It
+is not an exhaustive inspection, and building it as one is the standing
+temptation to resist. Two steps:
+
+**Step one — light touch, fast, job-level.** Read the system at a high level
+and put two things to the person, each as a multiple choice they can take
+none, some, or all of:
+
+- *Areas Dex could improve for you that you do not have* — and, for each,
+  **why it would help their system specifically.** Not a feature list; a
+  reason.
+- *Areas you look strong in that Dex could learn from* — and which of those
+  they would be willing to explore sharing back.
+
+**Step two — deeper, only where they asked, with an estimate of how long it
+will take.** They chose the areas; the depth is earned by their choice, never
+assumed.
+
+Three consequences the code must respect:
+
+1. **Time to first value dominates.** Step one has to land in minutes. A run
+   that reads every file to be thorough has failed the brief even if every
+   claim is true.
+2. **The unit is the job to be done, not the capability.** Differences worth
+   naming are differences in what the system can *do for the person*.
+   Capability ids churn across eighty releases; jobs do not. Job granularity
+   is what survives a large version gap, which makes it the right altitude
+   for the stale install as well as the right altitude for the person.
+3. **Both directions are first-class.** "What Dex has that you lack" and
+   "what you have that Dex lacks" are the same product, and neither is a
+   footnote to the other. A run that only audits inward is half a product.
+
+The detail from discovery stays available for an assistant to dig into
+afterwards. Step one's job is to point at where digging is worth it.
+
 ## 2. The acceptance bar
 
 A green suite is not evidence that a run works. What a run has to survive is
