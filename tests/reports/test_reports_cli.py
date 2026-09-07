@@ -88,6 +88,14 @@ class TestSave:
         ledger = tmp_path / "ledger.json"
         ledger.write_text('{"catalogue_version":5}', encoding="utf-8")
         monkeypatch.setattr(cli, "_ledger_gate", lambda _path: (object(), []))
+        # This test pins where the ledger file lands, not the digest binding
+        # or the coverage rule: the stub above is not a real ComparisonLedger,
+        # so the mandatory digest check (proven end to end in
+        # tests/reports/test_ledger.py) and the coverage-block check (proven
+        # in tests/reports/test_coverage_block.py) are stubbed out with it.
+        monkeypatch.setattr(cli, "_ledger_binding_problems", lambda _markdown, _ledger: [])
+        monkeypatch.setattr(cli, "_coverage_problems", lambda _markdown, _ledger: [])
+        monkeypatch.setattr(cli, "_job_axis_problems", lambda _markdown, _ledger: [])
 
         assert (
             cli.reports_main(

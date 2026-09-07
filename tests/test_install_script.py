@@ -16,12 +16,41 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "install.sh"
+
+
+def _sealed_interpreter_home() -> str:
+    """A directory holding one interpreter and nothing else.
+
+    The sealed PATH below exists to hide assistant choosers, not Python. But
+    macOS ships 3.9 at ``/usr/bin/python3``, which the installer correctly
+    refuses, so these tests were relying on a Homebrew interpreter that is not
+    guaranteed on a given runner: the same commit passed on the macos-14
+    py3.12 leg and failed on py3.11 on 2026-09-03, and STATUS.md records an
+    earlier instance of the same class.
+
+    Exposing the interpreter already running the tests makes the discovery
+    deterministic without widening what the seal hides. The symlink is named
+    for its real version because ``find_python`` looks for exact
+    ``python3.13``/``python3.12``/``python3.11`` names before bare ``python3``.
+    """
+
+    directory = Path(tempfile.mkdtemp(prefix="dex-lens-sealed-interpreter-"))
+    (directory / f"python3.{sys.version_info.minor}").symlink_to(sys.executable)
+    return str(directory)
+
+
+#: Assistant choosers stay hidden; a supported interpreter stays findable.
+SEALED_PATH = ":".join(
+    (_sealed_interpreter_home(), "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/opt/homebrew/bin")
+)
 #: The source-install line: what this script answers, and the documented
 #: fallback for development and unreleased changes.
 #: One marker shared with the signed release installer, so a machine that runs
@@ -77,7 +106,7 @@ def documented_header(script: str) -> str:
 def run_installer(
     home: Path, *arguments: str, extra_env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    environment = {"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"}
+    environment = {"HOME": str(home), "PATH": SEALED_PATH}
     return subprocess.run(
         ["bash", str(INSTALLER), *arguments],
         check=False,
@@ -96,7 +125,7 @@ def piped_installer(home: Path, *arguments: str) -> subprocess.CompletedProcess[
         text=True,
         input=INSTALLER.read_text(encoding="utf-8"),
         cwd="/",
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        env={"HOME": str(home), "PATH": SEALED_PATH},
     )
 
 
@@ -182,7 +211,7 @@ class TestDryRun:
             check=False,
             capture_output=True,
             text=True,
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+            env={"HOME": str(home), "PATH": SEALED_PATH},
         )
 
     def test_it_succeeds_and_names_all_four_things_it_would_do(
@@ -230,6 +259,60 @@ class TestDryRun:
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout
 
+    def test_the_assistant_chooser_speaks_plain_words(self, script: str) -> None:
+        """The chooser prompt must not need a terminal idiom to be read.
+
+        It used to print `1) Claude Code   2) Codex [1]: ` — the default
+        marker `[1]` sat flush against "Codex", and a non-technical person
+        read it as Codex being option 1. The options and the instruction are
+        now separate plain sentences, and the cryptic marker must not return.
+        """
+        assert "I found both Claude Code and Codex" in script
+        assert "1) Claude Code   2) Codex" in script
+        assert "Type 1 or 2, or just press Enter for Claude Code:" in script
+        assert "[1]" not in script, "the default marker reads as Codex being option 1"
+
+    def test_the_hand_over_sets_the_startup_pause_expectation(
+        self, script: str
+    ) -> None:
+        """A full-screen assistant takes a few seconds to come up.
+
+        A real user watched the briefly blank screen after "Starting your
+        assistant now" and read it as the install having failed. Both the
+        launch block and the wrong-folder paste instruction must say the
+        pause is expected and that the assistant asks the first question
+        itself.
+        """
+        assert script.count("a few seconds to start") >= 2, (
+            "both the launch block and the wrong-folder fallback must warn "
+            "about the startup pause"
+        )
+        assert "asks the first question itself" in script
+
+    def test_the_claude_launch_puts_the_question_before_the_allowlist_flag(
+        self, script: str
+    ) -> None:
+        """--allowedTools is variadic: it consumes every argument after it.
+
+        The first scoped-allowlist launch shipped as
+        `--allowedTools "Bash(dex-lens:*)" "$DEX_LENS_ASK"`, and Claude Code
+        swallowed the question as one more tool name: the assistant opened
+        with an empty prompt and the run never started. The question must
+        come before the flag, where it parses as the prompt argument.
+        """
+        launch_lines = [
+            line
+            for line in script.splitlines()
+            if "--allowedTools" in line and not line.lstrip().startswith("#")
+        ]
+        assert launch_lines, "the scoped-allowlist launch must exist"
+        for line in launch_lines:
+            assert '"$DEX_LENS_ASK"' in line, line
+            assert line.index('"$DEX_LENS_ASK"') < line.index("--allowedTools"), (
+                "the question must precede --allowedTools, which is variadic "
+                "and swallows every argument after it: " + line
+            )
+
     def test_the_dry_run_names_the_conditional_skill_homes(
         self, tmp_path: Path, script: str
     ) -> None:
@@ -247,7 +330,7 @@ class TestDryRun:
             check=False,
             capture_output=True,
             text=True,
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+            env={"HOME": str(home), "PATH": SEALED_PATH},
         )
 
         assert result.returncode == 0, result.stderr
@@ -307,7 +390,7 @@ class TestDryRun:
             check=True,
             capture_output=True,
             text=True,
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+            env={"HOME": str(home), "PATH": SEALED_PATH},
         )
 
         assert list(home.iterdir()) == []
@@ -337,7 +420,7 @@ class TestThePipedInstall:
             text=True,
             input=INSTALLER.read_text(encoding="utf-8"),
             cwd="/",
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+            env={"HOME": str(home), "PATH": SEALED_PATH},
         )
 
     def test_it_runs_clean_when_read_from_standard_input(self, tmp_path: Path) -> None:
@@ -370,7 +453,7 @@ class TestThePipedInstall:
             check=False,
             capture_output=True,
             text=True,
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+            env={"HOME": str(home), "PATH": SEALED_PATH},
         )
 
         assert f"install Dex Lens from this copy: {REPO_ROOT}" in result.stdout

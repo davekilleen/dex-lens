@@ -29,11 +29,16 @@ __all__ = [
     "CLAUDE_CODE_CONTRACT_VERSION",
     "CLAUDE_CODE_DIAGNOSTIC_BASENAMES",
     "CLAUDE_CODE_EVIDENCE_PROBES",
+    "EXTERNAL_TASK_ADAPTER_IDS",
     "GLOBALLY_DENIED_PATHS",
     "INTEGRATION_BASENAMES",
     "MCP_CONFIG_BASENAMES",
     "RELEASE_BASENAMES",
+    "SAFE_PROBE_FOLDERS",
     "claude_code_contract",
+    "external_task_adapter_id",
+    "is_backup_proof_probe_path",
+    "is_mcp_manifest_path",
 ]
 
 CLAUDE_CODE_ADAPTER_ID = "claude-code-local"
@@ -61,13 +66,69 @@ CLAUDE_CODE_EVIDENCE_PROBES: tuple[str, ...] = (
 )
 
 MCP_CONFIG_BASENAMES: frozenset[str] = frozenset(
-    {".mcp.json", "mcp.json", "settings.json", ".claude.json", "config.toml"}
+    {
+        ".mcp.json",
+        "mcp.json",
+        "mcp-servers.json",
+        "settings.json",
+        ".claude.json",
+        "config.toml",
+    }
 )
 AUTOMATION_SUFFIXES: frozenset[str] = frozenset({".plist", ".cron", ".service", ".timer"})
 INTEGRATION_BASENAMES: frozenset[str] = frozenset(
     {"registry.json", "config.yaml", "config.yml"}
 )
-RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", "VERSION", ".dex-version"})
+RELEASE_BASENAMES: frozenset[str] = frozenset({"CHANGELOG.md", ".dex-version"})
+SAFE_PROBE_FOLDERS: frozenset[str] = frozenset(
+    {".scripts", "scripts", "checks", "health", "system"}
+)
+EXTERNAL_TASK_ADAPTER_IDS: frozenset[str] = frozenset({"todoist", "trello"})
+
+
+def _path_parts(relative_path: str) -> tuple[str, ...]:
+    return tuple(
+        part.lower() for part in relative_path.replace("\\", "/").split("/") if part
+    )
+
+
+def is_mcp_manifest_path(relative_path: str) -> bool:
+    """Recognise reviewed Claude MCP manifest shapes without widening scope."""
+
+    parts = _path_parts(relative_path)
+    if not parts:
+        return False
+    if parts[-1] in MCP_CONFIG_BASENAMES:
+        return True
+    return (
+        len(parts) >= 3
+        and parts[-3:-1] == (".claude", "mcp")
+        and parts[-1].endswith(".json")
+    )
+
+
+def is_backup_proof_probe_path(relative_path: str) -> bool:
+    """Recognise only the reviewed backup proof location and filename."""
+
+    parts = _path_parts(relative_path)
+    return bool(
+        len(parts) >= 2
+        and parts[-1] == "backup-verify.sh"
+        and SAFE_PROBE_FOLDERS.intersection(parts[:-1])
+    )
+
+
+def external_task_adapter_id(relative_path: str) -> str | None:
+    """Return the closed task-adapter id for a reviewed Claude hook path."""
+
+    parts = _path_parts(relative_path)
+    if len(parts) < 4 or parts[-4:-1] != (".claude", "hooks", "adapters"):
+        return None
+    basename = parts[-1]
+    if not basename.endswith(".cjs"):
+        return None
+    adapter_id = basename.removesuffix(".cjs")
+    return adapter_id if adapter_id in EXTERNAL_TASK_ADAPTER_IDS else None
 
 #: File names the diagnosis reads: the probes' inputs plus the instruction
 #: files of the other assistants a real system is built with.

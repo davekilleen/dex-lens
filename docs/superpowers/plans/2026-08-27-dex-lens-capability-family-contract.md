@@ -1,5 +1,11 @@
 # Dex Lens Capability Family Contract Implementation Plan
 
+> **Superseded for implementation:** The broader, Dave-approved significant
+> capability coverage gate in
+> `2026-09-01-dex-lens-significant-capability-coverage-gate.md` replaces this
+> six-family plan. This file remains as design history only; several example
+> member IDs below no longer exist in the current Core catalogue.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add signed, release-truth capability families so Lens can explain

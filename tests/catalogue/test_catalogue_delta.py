@@ -11,6 +11,7 @@ command.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -23,6 +24,68 @@ from capability_exchange.catalogue.delta import (
     entry_fingerprints,
 )
 from capability_exchange.catalogue.v2 import CatalogueV2
+
+
+def _sampled_mcp_catalogue() -> CatalogueV2:
+    payload = {
+        "jobs_taxonomy": [
+            {
+                "job_id": "plan-my-work",
+                "label": "Plan my work",
+                "description": "Choose a realistic plan.",
+                "confirmed_gap_signals": ["the plan is hard to maintain"],
+            }
+        ],
+        "capabilities": [
+            {
+                "capability_id": "dex-work-mcp",
+                "capability_class": "mcp-server",
+                "impact_tier": "core",
+                "availability": "active",
+                "title": "Work MCP server",
+                "summary": "Task tools over MCP.",
+                "value": "The system's hands for work items.",
+                "jobs": ["plan-my-work"],
+                "prerequisites": ["a running Dex install"],
+                "trade_offs": ["only inside Dex"],
+                "evidence": [
+                    {
+                        "level": "supported",
+                        "source": "test",
+                        "summary": "release evidence",
+                        "limitations": "local state is not inspected",
+                    }
+                ],
+                "release_provenance": "core-release",
+                "server_name": "dex-work",
+                "tool_count": 2,
+                "example_tools": ["list_tasks"],
+                "source_paths": ["core/mcp/work/server.py"],
+                # This is the pre-upgrade v6 wire shape: no tools or
+                # tool_inventory fields were signed yet.
+            }
+        ],
+        "portable_brief": {
+            "format": "markdown",
+            "audience": "the person's own AI system",
+            "safety_boundary": "guidance only; it changes nothing",
+        },
+    }
+    return CatalogueV2.model_validate(payload)
+
+
+def test_pre_upgrade_sampled_mcp_fingerprint_ignores_new_defaults() -> None:
+    catalogue = _sampled_mcp_catalogue()
+    entry = catalogue.capabilities[0]
+    legacy_json = entry.model_dump_json(exclude={"tools", "tool_inventory"})
+    legacy_digest = hashlib.sha256(legacy_json.encode("utf-8")).hexdigest()
+
+    snapshot = CatalogueSnapshot(
+        catalog_version=6,
+        fingerprints={entry.capability_id: legacy_digest},
+    )
+
+    assert compare_with_snapshot(catalogue, snapshot).is_empty
 
 
 def _catalogue(**changes: object) -> CatalogueV2:

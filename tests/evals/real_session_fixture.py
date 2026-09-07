@@ -21,6 +21,11 @@ from capability_exchange.evidence import EvidenceItem, EvidenceState
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
 CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
+# Two invented shapes the wire guard cannot detect by pattern: a person-shaped
+# name and a relative vault-shaped path. They stand in for raw session content
+# an adapter failed to sanitise. Nothing here refers to a real person or file.
+PERSON_SHAPED_NAME = "Priya Invented-Nandakumar"
+VAULT_SHAPED_PATH = "clients/invented-acme/2026-08-retainer-notes.md"
 
 EXPECTED_COUNTS = Counter(
     {
@@ -129,6 +134,59 @@ def real_session_fingerprint() -> EvidenceFingerprint:
     )
 
 
+def planted_session_fingerprint(*, include_canary: bool = True) -> EvidenceFingerprint:
+    """The replay fingerprint with invented private shapes actually planted.
+
+    The plant simulates an adapter that failed to sanitise: a person-shaped
+    name in a label, a relative vault-shaped path where an opaque token
+    belongs, and — when ``include_canary`` — the session canary in the label.
+    Without the canary only the two shapes the wire guard cannot detect by
+    pattern remain, so the engine must contain them structurally.
+    """
+
+    base = real_session_fingerprint()
+    label = (
+        f"{PERSON_SHAPED_NAME} review checkpoint {CANARY}"
+        if include_canary
+        else f"{PERSON_SHAPED_NAME} weekly review checkpoint"
+    )
+    planted = Observation(
+        kind=ObservationKind.SKILL,
+        identity="invented-planted-method",
+        label=label,
+        operational_state=OperationalState.IMPLEMENTED,
+        evidence=EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=NOW,
+            reference=VAULT_SHAPED_PATH,
+        ),
+        provenance={
+            "source_id": "scope:invented-planted-method",
+            "source_class": "vault-authored",
+            "scope_reference": "scope:sha256:" + "b" * 64,
+            "relative_reference": VAULT_SHAPED_PATH,
+        },
+        attributes=(SafeAttribute(key="source-kind", value="vault-authored"),),
+    )
+    return base.model_copy(update={"observations": (*base.observations, planted)})
+
+
+def planted_session_ledger() -> ComparisonLedger:
+    """The replay ledger with one reason carrying invented raw session content."""
+
+    ledger = real_session_ledger()
+    entries = list(ledger.entries)
+    entries[0] = entries[0].model_copy(
+        update={
+            "reason": (
+                f"Invented note naming {PERSON_SHAPED_NAME} in "
+                f"{VAULT_SHAPED_PATH}: {CANARY}."
+            )
+        }
+    )
+    return ledger.model_copy(update={"entries": tuple(entries)})
+
+
 def real_session_ledger() -> ComparisonLedger:
     identities = synthetic_entry_ids()
     capabilities = tuple(
@@ -167,7 +225,8 @@ def real_session_ledger() -> ComparisonLedger:
                     disposition=disposition,
                     capability_id=identity,
                     evidence_references=evidence_references,
-                    method_compared=disposition is Disposition.SHARED,
+                    method_compared=disposition
+                    in {Disposition.SHARED, Disposition.DEX_SHOULD_LEARN},
                     reason=f"Invented replay reason {index:03d} for {disposition.value}.",
                 )
             )

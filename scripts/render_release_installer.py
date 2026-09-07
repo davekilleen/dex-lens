@@ -627,8 +627,9 @@ choose_assistant() {{
   esac
 
   printf '%s\\n' "I found both Claude Code and Codex. Which would you like to open?"
+  printf '%s\\n' "  1) Claude Code   2) Codex"
   while :; do
-    printf '%s' "  1) Claude Code   2) Codex [1]: "
+    printf '%s' "Type 1 or 2, or just press Enter for Claude Code: "
     IFS= read -r dex_lens_choice || die "No choice was received. Nothing was started."
     case "$dex_lens_choice" in
       "" | 1 | claude | Claude | "Claude Code")
@@ -652,7 +653,9 @@ if [ "${{DEX_LENS_NO_LAUNCH:-0}}" != "1" ] && [ -n "$DEX_LENS_ASSISTANT" ] && [ 
   choose_assistant
   printf '%s\\n' \\
     "Starting your assistant now. Dex Lens reads nothing until you tell it" \\
-    "which folder it may look at."
+    "which folder it may look at." \\
+    "The assistant takes a few seconds to start — a briefly blank screen" \\
+    "just means it is starting. It asks the first question itself."
   # The assistant will call `dex-lens` by name; on a fresh machine its folder
   # may not be on PATH yet. The launched process gets it either way.
   export PATH="$DEX_LENS_BIN_HOME:$PATH"

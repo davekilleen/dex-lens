@@ -31,14 +31,18 @@ from capability_exchange.catalogue.subscription import (
     default_lens_app_storage,
     require_app_storage_outside_roots,
 )
+from capability_exchange.diagnosis.ranking import MAX_RECOMMENDATIONS
 
 __all__ = [
     "DEFAULT_LABEL",
     "LensReportStore",
-    "missing_comparison_with",
+    "RecordedShareBackFate",
     "SavedReport",
+    "SelectionMemory",
     "default_report_directory",
+    "missing_comparison_with",
     "missing_report_requirements",
+    "selection_memory",
 ]
 
 #: Sorts chronologically as text, carries no path separators, and survives a
@@ -183,7 +187,10 @@ def _verify_result_digests(
 
     from capability_exchange.diagnosis.report import (
         canonical_fact_block,
+        canonical_ledger_appendix,
         canonical_ledger_digest,
+        canonical_ledger_payload,
+        ledger_appendix_errors,
     )
 
     ledger = getattr(result, "ledger", None)
@@ -195,12 +202,20 @@ def _verify_result_digests(
         raise ValueError("result ledger digest does not match the comparison ledger")
     if canonical_fact_block(ledger) not in markdown:
         raise ValueError("canonical markdown does not match the comparison ledger")
+    if ledger_appendix_errors(markdown, ledger):
+        raise ValueError("canonical markdown appendix does not match the comparison ledger")
     stored = json.loads(result_json)
     if stored.get("ledger_sha256") != ledger_digest:
         raise ValueError("result JSON digest does not match the comparison ledger")
     payload = json.loads(ledger_json)
-    if payload.get("catalogue_sha256") != getattr(ledger, "catalogue_sha256", None):
-        raise ValueError("ledger JSON does not match the comparison ledger")
+    canonical_payload = canonical_ledger_payload(ledger)
+    if payload != canonical_payload:
+        raise ValueError("ledger JSON is not the exact canonical comparison ledger")
+    if stored.get("ledger") != canonical_payload:
+        raise ValueError("result JSON is not bound to the exact canonical comparison ledger")
+    canonical_appendix = canonical_ledger_appendix(ledger)
+    if stored.get("ledger_appendix") != canonical_appendix:
+        raise ValueError("result JSON appendix does not match the comparison ledger")
 
 
 class LensReportStore:
@@ -230,6 +245,25 @@ class LensReportStore:
         slug = _slug(label)
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self._free_path(stamp, slug)
+        return self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
+
+    def _write_saved_report(
+        self,
+        path: Path,
+        markdown: str,
+        *,
+        stamp: datetime,
+        slug: str,
+        ledger_json: str | None,
+    ) -> SavedReport:
+        """Write one already-allocated path so its report can name itself exactly."""
+
         path.write_text(markdown, encoding="utf-8")
         saved = SavedReport(
             path=path,
@@ -262,7 +296,38 @@ class LensReportStore:
         render = getattr(result, "render_markdown", None)
         if not callable(render):
             raise ValueError("save_result requires a typed result with render_markdown()")
-        markdown = render()
+        # Validate the supplied typed view before enriching it with the final
+        # destination.  This preserves the stronger canonical-ledger error for
+        # a forged storage view instead of letting a missing convenience
+        # method mask the actual integrity failure.
+        initial_markdown = render()
+        if not isinstance(initial_markdown, str) or not initial_markdown.strip():
+            raise ValueError("a report with no content is not a report")
+        initial_dump = getattr(result, "dump_for_storage", None)
+        if not callable(initial_dump):
+            raise ValueError("save_result requires a typed result with dump_for_storage()")
+        initial_ledger_json = _ledger_json_from_result(result)
+        initial_result_json = json.dumps(
+            initial_dump(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        _verify_result_digests(
+            result,
+            initial_markdown,
+            initial_ledger_json,
+            initial_result_json,
+        )
+        bind_location = getattr(result, "with_report_location", None)
+        if not callable(bind_location):
+            raise ValueError("save_result requires a typed result with report location binding")
+        stamp = (now or datetime.now(UTC)).astimezone(UTC)
+        slug = _slug(label)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self._free_path(stamp, slug)
+        result = bind_location(path)
+        markdown = result.render_markdown()
         if not isinstance(markdown, str) or not markdown.strip():
             raise ValueError("a report with no content is not a report")
         dump = getattr(result, "dump_for_storage", None)
@@ -276,7 +341,13 @@ class LensReportStore:
             sort_keys=True,
         )
         _verify_result_digests(result, markdown, ledger_json, result_json)
-        saved = self.save(markdown, label=label, now=now, ledger_json=ledger_json)
+        saved = self._write_saved_report(
+            path,
+            markdown,
+            stamp=stamp,
+            slug=slug,
+            ledger_json=ledger_json,
+        )
         try:
             saved.result_path.write_text(result_json, encoding="utf-8")
         except OSError:
@@ -626,9 +697,9 @@ def missing_report_requirements(markdown: str) -> list[str]:
         for heading in _HEADING.finditer(body)
         if heading.group(1) == "###"
     )
-    if recommendation_count > 3:
+    if recommendation_count > MAX_RECOMMENDATIONS:
         problems.append(
-            f"recommend at most three Dex additions; this report contains "
+            f"recommend at most {MAX_RECOMMENDATIONS} Dex additions; this report contains "
             f"{recommendation_count}."
         )
 
@@ -757,6 +828,107 @@ def _is_finding(level: str, section: str, headings: list[re.Match[str]], index: 
         return False
     following = headings[index + 1 :]
     return not following or following[0].group(1) == "##"
+
+
+#: The engine's exact focused-selection line inside "What you decided"
+#: (``ReportModel._render_decisions`` writes it; the SKILL template copies its
+#: shape). Family identities are bounded lowercase ids, so a template
+#: placeholder like ``<family-ids>`` can never parse as memory.
+_FOCUS_SELECTED_LINE = re.compile(
+    r"^- Focused this run on: "
+    r"(?P<ids>[a-z0-9][a-z0-9-]{0,119}(?:, [a-z0-9][a-z0-9-]{0,119})*)$",
+    re.MULTILINE,
+)
+
+#: One recorded share-back fate inside "What you decided". The idea is a
+#: bounded lowercase slug in backticks and the fate is the closed vocabulary
+#: the skill records, so placeholders and free prose contribute nothing.
+_SHARE_BACK_LINE = re.compile(
+    r"^- Share-back idea `(?P<idea>[a-z0-9][a-z0-9 ._:-]{0,119})` — "
+    r"(?P<fate>offered|shared|declined|deferred)\b",
+    re.MULTILINE,
+)
+
+
+@dataclass(frozen=True)
+class RecordedShareBackFate:
+    """One share-back idea's most recently recorded fate, and when."""
+
+    idea: str
+    fate: str
+    recorded_at: datetime
+
+
+@dataclass(frozen=True)
+class SelectionMemory:
+    """What every saved report says was ever examined or offered by choice.
+
+    Derived from the saved reports alone — the "What you decided" sections the
+    engine and the skill write — never from anything a host asserts at read
+    time. ``never_examined`` is the signed 14-family manifest minus every
+    family any saved report has ever recorded as selected, in manifest order:
+    the list the next run opens with ("these N areas have never had a deep
+    dive — want one?"). ``share_back_fates`` carries each idea's latest
+    recorded fate so the once-per-idea-ever rule holds across runs.
+    """
+
+    last_selected: tuple[str, ...]
+    last_selected_at: datetime | None
+    ever_selected: tuple[str, ...]
+    never_examined: tuple[str, ...]
+    share_back_fates: tuple[RecordedShareBackFate, ...]
+
+
+def _decided_bodies(markdown: str) -> list[str]:
+    """The "What you decided" sections, with pasted templates excluded."""
+
+    return _section_bodies(_without_code_fences(markdown), "what you decided")
+
+
+def selection_memory(reports: Iterable[SavedReport]) -> SelectionMemory:
+    """Read the selection and share-back memory out of saved reports.
+
+    Walks the reports oldest-first so "latest" means what it says. A report
+    that cannot be read, or whose decided section holds no parseable line,
+    contributes nothing — memory is only ever what a saved report actually
+    recorded.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    ordered = sorted(reports, key=lambda report: (report.saved_at, report.path.name))
+    ever_selected: set[str] = set()
+    last_selected: tuple[str, ...] = ()
+    last_selected_at: datetime | None = None
+    fates: dict[str, RecordedShareBackFate] = {}
+    for report in ordered:
+        try:
+            text = report.read()
+        except OSError:
+            continue
+        for body in _decided_bodies(text):
+            for match in _FOCUS_SELECTED_LINE.finditer(body):
+                selected = tuple(match.group("ids").split(", "))
+                ever_selected.update(selected)
+                last_selected = selected
+                last_selected_at = report.saved_at
+            for match in _SHARE_BACK_LINE.finditer(body):
+                fates[match.group("idea")] = RecordedShareBackFate(
+                    idea=match.group("idea"),
+                    fate=match.group("fate"),
+                    recorded_at=report.saved_at,
+                )
+    return SelectionMemory(
+        last_selected=last_selected,
+        last_selected_at=last_selected_at,
+        ever_selected=tuple(sorted(ever_selected)),
+        never_examined=tuple(
+            family_id
+            for family_id in WOW_EXPECTATIONS
+            if family_id not in ever_selected
+        ),
+        share_back_fates=tuple(sorted(fates.values(), key=lambda fate: fate.idea)),
+    )
 
 
 def _findings_without_evidence(markdown: str) -> list[str]:
