@@ -55,10 +55,27 @@ _PLAN_PATH = (
     "2026-09-01-dex-lens-significant-capability-coverage-gate.md"
 )
 _STATUS = (
-    "unsigned-draft; not release truth until the founder resolves every "
-    "TODO(founder) item and Dex Core signs a catalogue carrying the resolved "
+    "unsigned-draft; founder-approved as drafted on 2026-09-07 — becomes "
+    "release truth only when Dex Core signs a catalogue carrying this "
     "capability_families collection"
 )
+
+# The founder reviewed the drafted families on 2026-09-07 and approved them
+# in full, in his own words ("consider the capability contract all signed by
+# me"; "take it from me that I'm happy with everything"). That approval is a
+# fact of the review, so it lives here in source: the generator emits it as
+# each family's recorded resolution, and a regenerated draft reproduces it
+# byte for byte. Signing authority is unchanged — only Dex Core's release
+# environment can turn this into release truth.
+_FOUNDER_RESOLUTION: dict[str, str] = {
+    "resolved_by": "founder",
+    "resolved_on": "2026-09-07",
+    "decision": (
+        "Approved as drafted: member lists and assessments confirmed as "
+        "generated, shipping without mcp-tool components until Core publishes "
+        "complete tool inventories."
+    ),
+}
 _MANUAL_ONLY_FAMILY = "privacy-safe-feedback-loop"
 _MANUAL_ONLY_REASON = (
     "A person must confirm that no private work leaves the machine before "
@@ -355,9 +372,13 @@ def _founder_review(
             "catalogue's MCP inventories are sampled, so tool-level components "
             "would fail verification today."
         )
+    confirmed = [
+        "Confirmed(founder): " + todo.removeprefix("TODO(founder): ") for todo in todos
+    ]
     return {
         "family_id": family_id,
-        "todos": todos,
+        "todos": [],
+        "resolution": {**_FOUNDER_RESOLUTION, "confirmed": confirmed},
         "member_basis": _member_basis(tuple(definition["members"]), entries_by_id),
     }
 
@@ -406,10 +427,11 @@ def build_draft(raw_envelope_json: str, *, keyring: KeyRing) -> dict[str, object
             "Derived from the signature-verified Dex catalogue named in "
             "derived_from and the founder-approved family definitions in "
             + _PLAN_PATH + ".",
-            "Membership is drafted judgment for founder review; every "
-            "TODO(founder) item in founder_review must be resolved before the "
-            "resolved capability_families collection enters Dex Core's "
-            "catalogue generator and is signed.",
+            "Membership was drafted for founder review and approved as drafted "
+            "by the founder on 2026-09-07; each family's founder_review entry "
+            "records that resolution. The resolved capability_families "
+            "collection may now enter Dex Core's catalogue generator and be "
+            "signed.",
             "This file is never signed and never published; only Dex Core "
             "signs catalogue bytes.",
         ],

@@ -133,12 +133,28 @@ def test_draft_members_and_components_cite_only_signed_capabilities(
         assert component_ids == list(members)
 
 
-def test_every_family_carries_founder_review_todos(draft: dict) -> None:
+def test_every_family_carries_the_founders_recorded_resolution(draft: dict) -> None:
+    """The draft never presents itself as settled without the founder.
+
+    Until 2026-09-07 that meant open TODO(founder) items in every family's
+    review. The founder then approved the draft in full ("consider the
+    capability contract all signed by me" / "take it from me that I'm happy
+    with everything"), so the same guarantee now points the other way: every
+    family must carry the recorded resolution — who, when, and exactly what
+    was confirmed — and no open TODO may remain.
+    """
     reviewed = {item["family_id"] for item in draft["founder_review"]}
     assert reviewed == set(WOW_EXPECTATIONS)
     for item in draft["founder_review"]:
-        assert item["todos"], item["family_id"]
-        assert all(todo.startswith("TODO(founder):") for todo in item["todos"])
+        assert item["todos"] == [], item["family_id"]
+        resolution = item["resolution"]
+        assert resolution["resolved_by"] == "founder"
+        assert resolution["resolved_on"] == "2026-09-07"
+        assert resolution["decision"]
+        assert resolution["confirmed"], item["family_id"]
+        assert all(
+            entry.startswith("Confirmed(founder):") for entry in resolution["confirmed"]
+        )
         assert item["member_basis"], item["family_id"]
 
 

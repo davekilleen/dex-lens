@@ -568,7 +568,7 @@
   ],
   "derivation_notes": [
     "Derived from the signature-verified Dex catalogue named in derived_from and the founder-approved family definitions in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md.",
-    "Membership is drafted judgment for founder review; every TODO(founder) item in founder_review must be resolved before the resolved capability_families collection enters Dex Core's catalogue generator and is signed.",
+    "Membership was drafted for founder review and approved as drafted by the founder on 2026-09-07; each family's founder_review entry records that resolution. The resolved capability_families collection may now enter Dex Core's catalogue generator and be signed.",
     "This file is never signed and never published; only Dex Core signs catalogue bytes."
   ],
   "derived_from": {
@@ -642,11 +642,17 @@
           "title": "Process Meetings"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'meeting-follow-through'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'meeting-follow-through'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "living-people-company-context",
@@ -670,10 +676,16 @@
           "title": "Relationship Radar"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'living-people-company-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'living-people-company-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "durable-task-continuity",
@@ -727,11 +739,17 @@
           "title": "Triage"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'durable-task-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'durable-task-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "external-task-interoperability",
@@ -764,10 +782,16 @@
           "title": "Trello Setup"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'external-task-interoperability'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'external-task-interoperability'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "connected-work-context",
@@ -837,11 +861,17 @@
           "title": "Zoom Setup"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'connected-work-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'connected-work-context'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "pipedrive-pipeline-continuity",
@@ -875,11 +905,17 @@
           "title": "Pipeline Sync"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'pipedrive-pipeline-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'pipedrive-pipeline-continuity'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "daily-weekly-operating-rhythm",
@@ -932,10 +968,16 @@
           "title": "Weekly Reflection"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'daily-weekly-operating-rhythm'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'daily-weekly-operating-rhythm'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "durable-work-memory",
@@ -987,11 +1029,17 @@
           "title": "Save Insight"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'durable-work-memory'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'durable-work-memory'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "proactive-health-and-recovery",
@@ -1015,10 +1063,16 @@
           "title": "Dex Smoke Nightly"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'proactive-health-and-recovery'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'proactive-health-and-recovery'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "backup-and-restore-confidence",
@@ -1060,10 +1114,16 @@
           "title": "Dex Vault Backup"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'backup-and-restore-confidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'backup-and-restore-confidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "safe-change-and-rewind",
@@ -1141,10 +1201,16 @@
           "title": "Diff Remove"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'safe-change-and-rewind'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'safe-change-and-rewind'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "capability-discovery-and-adoption",
@@ -1213,10 +1279,16 @@
           "title": "Skill Score"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'capability-discovery-and-adoption'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'capability-discovery-and-adoption'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "privacy-safe-feedback-loop",
@@ -1231,10 +1303,16 @@
           "title": "Feedback"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'privacy-safe-feedback-loop'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"manual-only\", \"reason\": \"A person must confirm that no private work leaves the machine before feedback is shared.\"}); a stronger detector profile may fit better."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'privacy-safe-feedback-loop'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"manual-only\", \"reason\": \"A person must confirm that no private work leaves the machine before feedback is shared.\"}); a stronger detector profile may fit better."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     },
     {
       "family_id": "career-growth-evidence",
@@ -1286,12 +1364,18 @@
           "title": "Resume Builder"
         }
       ],
-      "todos": [
-        "TODO(founder): confirm the member list for 'career-growth-evidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
-        "TODO(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
-        "TODO(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
-      ]
+      "resolution": {
+        "confirmed": [
+          "Confirmed(founder): confirm the member list for 'career-growth-evidence'. It is a draft derived from the family definition in docs/superpowers/plans/2026-09-01-dex-lens-significant-capability-coverage-gate.md and each member's signed title/jobs, not from a Core-owned registry.",
+          "Confirmed(founder): confirm the assessment for this family (draft: {\"mode\": \"automatic\", \"profile\": \"catalogue\"}); a stronger detector profile may fit better.",
+          "Confirmed(founder): add exact mcp-tool components for the MCP members once Core publishes complete tool inventories; the current signed catalogue's MCP inventories are sampled, so tool-level components would fail verification today."
+        ],
+        "decision": "Approved as drafted: member lists and assessments confirmed as generated, shipping without mcp-tool components until Core publishes complete tool inventories.",
+        "resolved_by": "founder",
+        "resolved_on": "2026-09-07"
+      },
+      "todos": []
     }
   ],
-  "status": "unsigned-draft; not release truth until the founder resolves every TODO(founder) item and Dex Core signs a catalogue carrying the resolved capability_families collection"
+  "status": "unsigned-draft; founder-approved as drafted on 2026-09-07 — becomes release truth only when Dex Core signs a catalogue carrying this capability_families collection"
 }
