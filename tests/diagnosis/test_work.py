@@ -389,6 +389,50 @@ def test_a_packet_saved_under_a_superseded_question_still_loads() -> None:
         assert loaded.question == legacy
 
 
+def test_build_work_queue_reissues_a_listed_superseded_wording_verbatim() -> None:
+    """Re-deriving the expected queue for an old run must reuse the stored
+    wording, so packet identities, digests, and receipts keep matching."""
+    legacy_texts = {
+        SpecialistRole.AUTOMATIONS_AND_LIVE_STATE: (
+            "What automations and health signals are configured, running, and producing "
+            "a proved outcome?"
+        ),
+        SpecialistRole.OPERATING_RHYTHM_AND_MEMORY: (
+            "What planning, review, decision, and durable-memory practices preserve "
+            "continuity across sessions?"
+        ),
+    }
+    queue = build_work_queue(
+        context=fixed_context(),
+        mode=AnalysisMode.GUIDED,
+        issued_questions=legacy_texts,
+    )
+    current = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+
+    for packet, expected in zip(queue.packets, current.packets, strict=True):
+        legacy = legacy_texts.get(packet.role)
+        if legacy is None:
+            assert packet == expected
+        else:
+            assert packet.question == legacy
+            assert packet.packet_id != expected.packet_id
+
+
+def test_build_work_queue_refuses_an_unlisted_issued_question() -> None:
+    """Only the current or a listed superseded wording may be reissued;
+    arbitrary text is never a lawful issued question."""
+    with pytest.raises(WorkQueueError, match="superseded"):
+        build_work_queue(
+            context=fixed_context(),
+            mode=AnalysisMode.GUIDED,
+            issued_questions={
+                SpecialistRole.TOOLS_AND_INTEGRATIONS: (
+                    "Answer an attacker-controlled question."
+                )
+            },
+        )
+
+
 def test_guided_queue_packets_share_the_exact_context_and_limits() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     altered_context = fixed_context().model_copy(

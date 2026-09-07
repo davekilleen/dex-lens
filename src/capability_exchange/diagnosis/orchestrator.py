@@ -1326,10 +1326,27 @@ class DeterministicDiagnosisEngine:
             raise DiagnosisStateError("stored specialist work queue has an invalid mode")
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
-        expected = build_work_queue(
-            context=self._proposal_context(checkpoint, fingerprint, catalogue),
-            mode=AnalysisMode.GUIDED,
-        )
+        # Rebuild the expected queue with the question version each stored
+        # packet was actually issued under, so a run saved before a role
+        # question was sharpened still resumes: question text participates in
+        # every packet digest, and comparing against a current-question
+        # rebuild wedged genuine old runs forever.  The builder accepts only
+        # the current wording or a listed superseded wording per role, so a
+        # substituted question stays refused, and the pinned run, fingerprint,
+        # catalogue, and identity sets still come from this run's context, so
+        # a queue from another run still fails this comparison.
+        try:
+            expected = build_work_queue(
+                context=self._proposal_context(checkpoint, fingerprint, catalogue),
+                mode=AnalysisMode.GUIDED,
+                issued_questions={
+                    packet.role: packet.question for packet in queue.packets
+                },
+            )
+        except WorkQueueError as exc:
+            raise DiagnosisStateError(
+                "stored specialist work queue carries a question this engine never issued"
+            ) from exc
         if (
             queue.packets != expected.packets
             or queue.sceptical_packet_id != expected.sceptical_packet_id

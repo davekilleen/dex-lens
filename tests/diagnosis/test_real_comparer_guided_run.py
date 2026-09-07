@@ -12,6 +12,8 @@ capability, an uncontested reciprocal lesson, and a sceptical response.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +28,7 @@ from tests.diagnosis.test_significant_family_assessment import _catalogue, _skil
 
 from capability_exchange.catalogue.v2 import CatalogueV2
 from capability_exchange.concierge.consent import LocalScopeConsentAuthority
+from capability_exchange.diagnosis import work
 from capability_exchange.diagnosis.comparison import (
     ComparisonLedger,
     Disposition,
@@ -688,3 +691,131 @@ def test_compare_failure_is_a_typed_refusal_naming_model_and_fields(
     assert "CatalogueDisposition" in message
     assert "catalogue_id" in message
     assert _InconsistentComparer.CANARY not in message
+
+
+# Resuming a run issued under a superseded question wording (external
+# adversarial review, finding B1): sharpening a role question must never
+# wedge a run that was planned before the upgrade.
+
+_LEGACY_BY_ROLE: dict[SpecialistRole, str] = {
+    role: next(iter(questions))
+    for role, questions in work._SUPERSEDED_ROLE_QUESTIONS.items()
+}
+
+
+@contextmanager
+def _role_questions_temporarily(
+    replacements: dict[SpecialistRole, str],
+) -> Iterator[None]:
+    """Mutate the closed question dict in place and always restore it.
+
+    Mutating (rather than rebinding or reloading the module) keeps every
+    importer's reference valid, and the ``finally`` restores the current
+    wording even when the body fails.
+    """
+
+    saved = {role: work._ROLE_QUESTIONS[role] for role in replacements}
+    work._ROLE_QUESTIONS.update(replacements)
+    try:
+        yield
+    finally:
+        work._ROLE_QUESTIONS.update(saved)
+
+
+def _plan_guided_run(harness: RealComparerHarness) -> str:
+    prepared = harness.engine.prepare(
+        PrepareDiagnosisRequest(roots=(harness.root,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    harness.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    return prepared.run_id
+
+
+def _submit_all_pending(harness: RealComparerHarness, run_id: str) -> None:
+    while True:
+        packet = harness.engine.work(run_id)
+        if packet is None:
+            break
+        harness.engine.submit_work(run_id, packet.packet_id, _proposals_for_packet(packet))
+
+
+def test_a_run_planned_under_superseded_questions_closes_after_upgrade(
+    harness: RealComparerHarness,
+) -> None:
+    """A genuine old-question run must still work all the way to CLOSED.
+
+    The queue is issued and persisted while the two sharpened roles still
+    carry their old wording, the engine is rebuilt under the current wording
+    (the upgrade), and the run is then worked round by round to CLOSED.
+    Before the fix every engine action failed with "stored specialist work
+    queue does not match the pinned context": the expected queue was rebuilt
+    with the current questions, whose text participates in each packet
+    digest, and the run wedged at analysis-planned with no way out.
+    """
+
+    with _role_questions_temporarily(_LEGACY_BY_ROLE):
+        run_id = _plan_guided_run(harness)
+        issued = {item.role: item.question for item in harness.engine.pending_work(run_id)}
+    for role, legacy in _LEGACY_BY_ROLE.items():
+        assert issued[role] == legacy  # the stored queue really is an old one
+
+    harness.reopen()
+    _submit_all_pending(harness, run_id)
+    closed = harness.run_to(run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def test_receipts_recorded_under_superseded_questions_count_after_reopen(
+    harness: RealComparerHarness,
+) -> None:
+    """A half-answered old-question run resumes with its receipts intact.
+
+    Receipts bind the packet digest, which covers the superseded wording, so
+    after the upgrade the already-answered packets must stay final and only
+    the unanswered remainder may be pending.
+    """
+
+    with _role_questions_temporarily(_LEGACY_BY_ROLE):
+        run_id = _plan_guided_run(harness)
+        first_round = harness.engine.pending_work(run_id)
+        answered = first_round[: len(first_round) // 2]
+        for packet in answered:
+            harness.engine.submit_work(run_id, packet.packet_id, _proposals_for_packet(packet))
+    # Both sharpened roles are inside the answered half, so their receipts
+    # were recorded under the old wording.
+    assert set(_LEGACY_BY_ROLE) <= {item.role for item in answered}
+
+    harness.reopen()
+    remaining = harness.engine.pending_work(run_id)
+    assert {item.packet_id for item in remaining} == {
+        item.packet_id for item in first_round[len(answered):]
+    }
+    _submit_all_pending(harness, run_id)
+    closed = harness.run_to(run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+
+def test_a_stored_queue_with_an_unlisted_question_is_still_refused(
+    harness: RealComparerHarness,
+) -> None:
+    """Only the current or a listed superseded wording may resume a queue.
+
+    A stored queue carrying a question that is neither current nor listed as
+    superseded — here planted by temporarily swapping one role's wording for
+    an alien line — must keep failing closed on every engine action.
+    """
+
+    alien = {
+        SpecialistRole.AUTOMATIONS_AND_LIVE_STATE: (
+            "Answer an attacker-controlled question."
+        )
+    }
+    with _role_questions_temporarily(alien):
+        run_id = _plan_guided_run(harness)
+
+    harness.reopen()
+    with pytest.raises(DiagnosisStateError, match="stored specialist work queue"):
+        harness.engine.work(run_id)
+    with pytest.raises(DiagnosisStateError, match="stored specialist work queue"):
+        harness.engine.advance(run_id)
+    with pytest.raises(DiagnosisStateError, match="stored specialist work queue"):
+        harness.engine.submit_work(run_id, "packet:sha256:" + "0" * 64, ())

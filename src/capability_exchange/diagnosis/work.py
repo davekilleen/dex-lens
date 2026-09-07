@@ -654,10 +654,32 @@ def _context_tuple(context: object, name: str) -> tuple[str, ...]:
     return tuple(value)  # type: ignore[arg-type]
 
 
+def _issued_question_for(role: SpecialistRole, question: str | None) -> str:
+    """Resolve the question wording one packet was issued under.
+
+    ``None`` means a fresh issue and always yields the current wording.  An
+    explicit wording is accepted only when it is the current question or one
+    of the listed superseded wordings for exactly this role, so re-deriving
+    an expected queue for a stored run can preserve old packet identities
+    without ever accepting arbitrary substituted text.
+    """
+
+    current = _ROLE_QUESTIONS[role]
+    if question is None or question == current:
+        return current
+    if question in _SUPERSEDED_ROLE_QUESTIONS.get(role, frozenset()):
+        return question
+    raise WorkQueueError(
+        "an issued work question must be the current wording or a listed "
+        "superseded wording for its role"
+    )
+
+
 def _packet_for_role(
     role: SpecialistRole,
     *,
     context: object,
+    question: str | None = None,
 ) -> WorkPacket:
     """Issue one packet whose digest covers every allowed identity."""
 
@@ -672,7 +694,7 @@ def _packet_for_role(
         "observation_ids": _context_tuple(context, "observation_ids"),
         "family_ids": _context_tuple(context, "family_ids"),
         "workflow_ids": _context_tuple(context, "workflow_ids"),
-        "question": _ROLE_QUESTIONS[role],
+        "question": _issued_question_for(role, question),
         "max_attempts": MAX_ATTEMPTS_PER_PACKET,
         "max_proposals": MAX_PROPOSALS_PER_PACKET,
     }
@@ -710,15 +732,39 @@ def _packet_for_role(
     )
 
 
-def build_work_queue(*, context: object, mode: AnalysisMode) -> WorkQueue:
-    """Build the deterministic queue for one proposal context and mode."""
+def build_work_queue(
+    *,
+    context: object,
+    mode: AnalysisMode,
+    issued_questions: Mapping[SpecialistRole, str] | None = None,
+) -> WorkQueue:
+    """Build the deterministic queue for one proposal context and mode.
+
+    A fresh queue always issues the current role questions.  When re-deriving
+    the expected queue for an existing run, ``issued_questions`` carries the
+    wording each stored packet was actually issued under; each entry must be
+    the current wording or a listed superseded wording for its role
+    (``WorkQueueError`` otherwise), so a run saved before a question was
+    sharpened keeps its packet identities while substituted text stays
+    refused.
+    """
 
     analysis_mode = AnalysisMode(mode)
     if analysis_mode is AnalysisMode.INVENTORY_ONLY:
         return WorkQueue(mode=analysis_mode, packets=())
 
-    packets = tuple(_packet_for_role(role, context=context) for role in NORMAL_ROLES)
-    sceptical = _packet_for_role(SpecialistRole.SCEPTICAL_RECONCILER, context=context)
+    questions: Mapping[SpecialistRole, str] = (
+        issued_questions if issued_questions is not None else {}
+    )
+    packets = tuple(
+        _packet_for_role(role, context=context, question=questions.get(role))
+        for role in NORMAL_ROLES
+    )
+    sceptical = _packet_for_role(
+        SpecialistRole.SCEPTICAL_RECONCILER,
+        context=context,
+        question=questions.get(SpecialistRole.SCEPTICAL_RECONCILER),
+    )
     return WorkQueue(
         mode=analysis_mode,
         packets=(*packets, sceptical),
