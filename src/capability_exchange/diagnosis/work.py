@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, Self
 
@@ -385,6 +386,31 @@ class WorkReceipt(_ValidatedInventoried):
     submission_route: Literal["engine-work-packet"] = "engine-work-packet"
     attempt_count: int = Field(ge=1, le=MAX_ATTEMPTS_PER_PACKET)
     proposal_count: int = Field(ge=0, le=MAX_PROPOSALS_PER_PACKET)
+    #: Engine-clock moment this receipt was recorded — the honest timing
+    #: source the typed status progress derives elapsed and the bounded pace
+    #: estimate from.  ``None`` on receipts saved before timing existed (the
+    #: same stored-format tolerance the superseded role questions keep): an
+    #: old run still loads and reports progress with the estimate absent,
+    #: never invented.  Deliberately outside the response digest and outside
+    #: replay identity, so an identical replay never becomes a conflict just
+    #: because the clock moved.
+    recorded_at: datetime | None = None
+
+    @field_validator("recorded_at")
+    @classmethod
+    def _recorded_at_is_aware(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("recorded_at must be a timezone-aware UTC timestamp")
+        return value
+
+    def same_response(self, other: WorkReceipt) -> bool:
+        """Replay identity: every field except the engine clock stamp."""
+
+        return self.model_dump(exclude={"recorded_at"}) == other.model_dump(
+            exclude={"recorded_at"}
+        )
 
     @model_validator(mode="after")
     def _attempt_status_is_bounded(self) -> Self:
@@ -533,7 +559,7 @@ class WorkQueue(_ValidatedInventoried):
 
         existing = tuple(item for item in self.receipts if item.packet_id == receipt.packet_id)
         if existing:
-            if receipt in existing:
+            if any(receipt.same_response(item) for item in existing):
                 return self
             previous = existing[0]
             if (

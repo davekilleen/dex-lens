@@ -27,15 +27,19 @@ __all__ = [
     "DiagnosisStage",
     "DiagnosisStateError",
     "ExpectationState",
+    "FamilyDiveProgress",
+    "FamilyDiveState",
     "FamilyMap",
     "FamilyMapRow",
     "FamilyReleaseDelta",
     "FocusReceipt",
     "RequiredStep",
     "RunIdentity",
+    "WorkProgress",
     "advance_to",
     "advance_inventory_to_compare",
     "canonical_json_digest",
+    "progress_headline",
     "required_step_for_stage",
     "upgrade_stored_input_payload",
 ]
@@ -436,6 +440,122 @@ class FocusReceipt(_ValidatedInventoried):
         return self
 
 
+class FamilyDiveState(StrEnum):
+    """Closed states for one selected family's focused dive.
+
+    Derived from the issued queue: ``done`` when the family's primary packet
+    holds a final receipt, ``running`` when that packet is the queue's next
+    legal packet, ``queued`` otherwise.
+    """
+
+    DONE = "done"
+    RUNNING = "running"
+    QUEUED = "queued"
+
+
+class FamilyDiveProgress(_ValidatedInventoried):
+    """Live progress for one selected family on a focused run.
+
+    Engine-derived on every status read from the issued queue and its
+    recorded receipts; never host-authored.  ``finding_count`` is the number
+    of accepted proposals citing this family's signed members on its primary
+    packet — the person's units, present exactly when the dive is done.
+    """
+
+    family_id: str = Field(pattern=_FAMILY_ID.pattern)
+    title: str = Field(min_length=1, max_length=200)
+    state: FamilyDiveState
+    finding_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _finding_count_rides_a_finished_dive(self) -> Self:
+        if (self.state is FamilyDiveState.DONE) != (self.finding_count is not None):
+            raise ValueError(
+                "a family dive carries a finding count exactly when it is done"
+            )
+        return self
+
+
+def progress_headline(
+    *,
+    packets_total: int,
+    packets_done: int,
+    packets_pending: int,
+    estimated_remaining_seconds: int | None,
+    families: tuple[FamilyDiveProgress, ...],
+) -> str:
+    """Compose the engine's one-line human progress sentence.
+
+    Speaks the person's units: family dives with engine-counted findings on
+    a focused run, packet counts on a guided one, and the observed pace when
+    at least one packet has completed — "about N minutes left at this pace"
+    is an observation, never a promise.  Elapsed time is deliberately not in
+    the line, so it is byte-stable for one stored run state.
+    """
+
+    pieces: list[str] = []
+    if families:
+        for dive in families:
+            if dive.state is FamilyDiveState.DONE:
+                count = dive.finding_count or 0
+                noun = "finding" if count == 1 else "findings"
+                pieces.append(f"{dive.title} dive done — {count} {noun}")
+            else:
+                pieces.append(f"{dive.title} dive {dive.state.value}")
+    else:
+        pieces.append(f"{packets_done} of {packets_total} specialist packets done")
+    if estimated_remaining_seconds is not None and packets_pending > 0:
+        minutes = max(1, -(-estimated_remaining_seconds // 60))
+        noun = "minute" if minutes == 1 else "minutes"
+        pieces.append(f"about {minutes} {noun} left at this pace")
+    return "; ".join(pieces)
+
+
+class WorkProgress(_ValidatedInventoried):
+    """Typed, engine-computed live progress for a run with work in flight.
+
+    Derived on every status read from the issued queue, its receipts'
+    engine-recorded timestamps, and the run checkpoint; never stored as an
+    authority and never host-invented.  ``elapsed_seconds`` is the only
+    clock-dependent field — everything else is byte-stable for one stored
+    run state.  The estimate exists only once at least one packet holds a
+    recorded completion timestamp, so it can never be invented; receipts
+    saved before timing existed simply leave it absent.
+    """
+
+    packets_total: int = Field(ge=1, le=64)
+    packets_done: int = Field(ge=0)
+    packets_pending: int = Field(ge=0)
+    elapsed_seconds: int = Field(ge=0)
+    estimated_remaining_seconds: int | None = Field(default=None, ge=0)
+    families: tuple[FamilyDiveProgress, ...] = ()
+    headline: str = Field(min_length=1, max_length=2400)
+
+    @model_validator(mode="after")
+    def _progress_is_engine_computed(self) -> Self:
+        if self.packets_done + self.packets_pending != self.packets_total:
+            raise ValueError("progress packet counts must partition the issued queue")
+        if self.packets_done == 0 and self.estimated_remaining_seconds is not None:
+            raise ValueError(
+                "a pace estimate requires at least one completed packet"
+            )
+        family_ids = [dive.family_id for dive in self.families]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("progress family rows must name each family exactly once")
+        if family_ids != sorted(family_ids):
+            raise ValueError("progress family rows must be sorted by family identity")
+        expected = progress_headline(
+            packets_total=self.packets_total,
+            packets_done=self.packets_done,
+            packets_pending=self.packets_pending,
+            estimated_remaining_seconds=self.estimated_remaining_seconds,
+            families=self.families,
+        )
+        if self.headline != expected:
+            raise ValueError("progress headline must be the engine-composed sentence")
+        return self
+
+
 class RunIdentity(_ValidatedInventoried):
     """Stable public identity for one diagnosis run."""
 
@@ -559,6 +679,12 @@ class DiagnosisRunView(_ValidatedInventoried):
     #: against the re-derived family map on every status read.  ``None`` until
     #: the person's selection is recorded (and always for guided runs).
     focus: FocusReceipt | None = None
+    #: Typed, engine-computed live progress, present only while specialist
+    #: work is in flight: packets done/pending, per selected family on a
+    #: focused run, elapsed time, and a bounded pace estimate derived from
+    #: engine-recorded receipt timestamps — absent until one packet has
+    #: completed, so it is never invented.
+    progress: WorkProgress | None = None
 
 
 def advance_to(

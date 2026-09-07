@@ -3583,6 +3583,128 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "engine-minted receipt; consuming surfaces fail closed on mismatch"
 
+  DiagnosisRunView.progress:
+    description: "typed engine-computed live progress while specialist work is in flight: packets done/pending, per-family completion on a focused run, elapsed time, and a bounded pace estimate"
+    collection: "derived by the engine on every status read from the issued queue, its receipts' engine-recorded timestamps, and the run checkpoint"
+    derivation: "nested WorkProgress; the estimate is derived only from recorded completion timestamps and is absent until one exists — never invented, never a promise"
+    display: "returned by CLI status (one plain progress line without --json) and the MCP status tool"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts only as the receipt timestamps inside the work-queue and work-responses records it derives from"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "engine-derived progress; only elapsed_seconds depends on the reading clock"
+
+  WorkProgress.packets_total:
+    description: "number of specialist packets the queue issued for this run"
+    collection: "counted by the engine from the issued work queue"
+    derivation: "bounded positive integer equal to the closed queue shape"
+    display: "shows how much specialist work the run holds in total"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived count"
+
+  WorkProgress.packets_done:
+    description: "number of issued packets holding a final receipt"
+    collection: "counted by the engine from the recorded work receipts"
+    derivation: "non-negative integer; done plus pending must equal the total"
+    display: "shows how much specialist work has finished"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived count"
+
+  WorkProgress.packets_pending:
+    description: "number of issued packets still awaiting a final receipt"
+    collection: "counted by the engine from the recorded work receipts"
+    derivation: "non-negative integer; done plus pending must equal the total"
+    display: "shows how much specialist work remains"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived count"
+
+  WorkProgress.elapsed_seconds:
+    description: "whole seconds since specialist work was planned, at the reading clock"
+    collection: "derived by the engine from the analysis-planned checkpoint time and the engine clock"
+    derivation: "non-negative integer; the only clock-dependent progress field"
+    display: "answers how long the run has been working"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral local duration only"
+
+  WorkProgress.estimated_remaining_seconds:
+    description: "bounded pace estimate for the remaining packets, or absent before any packet completes"
+    collection: "derived by the engine from recorded receipt completion timestamps only"
+    derivation: "observed per-packet pace times the pending count; absent until one recorded completion exists, so it is never invented and never a promise"
+    display: "rendered as the about-N-minutes-at-this-pace clause of the progress line"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral observed-pace estimate"
+
+  WorkProgress.families:
+    description: "per-selected-family dive progress rows on a focused run"
+    collection: "derived by the engine from the focus receipt, the issued queue, and the recorded responses"
+    derivation: "nested FamilyDiveProgress rows, one per selected family, sorted by family identity"
+    display: "speaks the person's units: which dives are done, running, or queued"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived rows"
+
+  WorkProgress.headline:
+    description: "the engine-composed one-line human progress sentence"
+    collection: "composed by the engine from the other typed progress fields"
+    derivation: "validated to equal the engine composition exactly; excludes elapsed time so it is byte-stable for one stored run state"
+    display: "the one progress line CLI and hosts relay instead of inventing counts"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-composed sentence"
+
+  FamilyDiveProgress.family_id:
+    description: "signed family identity of one selected family's dive"
+    collection: "copied from the recorded focus receipt selection"
+    derivation: "bounded signed family identity"
+    display: "names which selected area this progress row describes"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "signed family identity only"
+
+  FamilyDiveProgress.title:
+    description: "signed family title for the progress row's human line"
+    collection: "copied from the re-derived family map row"
+    derivation: "bounded signed catalogue title; falls back to the family identity"
+    display: "names the dive in the person's words in the progress line"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "signed catalogue title only"
+
+  FamilyDiveProgress.state:
+    description: "closed dive state: done, running, or queued"
+    collection: "derived by the engine from the family's primary packet and its receipts"
+    derivation: "closed FamilyDiveState value"
+    display: "shows where each selected dive stands"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral closed progress marker"
+
+  FamilyDiveProgress.finding_count:
+    description: "accepted proposals citing this family's signed members on its finished primary packet"
+    collection: "counted by the engine from the recorded response records"
+    derivation: "non-negative integer, present exactly when the dive is done"
+    display: "the findings number in the progress line"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived count"
+
   FocusReceipt.run_id:
     description: "opaque identity of the focused diagnosis run this selection belongs to"
     collection: "copied from the run checkpoint when the selection is recorded"
@@ -10336,6 +10458,18 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral response-size audit fact"
+
+  WorkReceipt.recorded_at:
+    description: "timezone-aware engine-clock moment one packet response receipt was recorded, or absent on receipts saved before timing existed"
+    collection: "stamped by the engine clock when it accepts the receipt; never host-supplied"
+    derivation: "naive timestamps are rejected; absent values stay absent so old saved runs keep loading with the pace estimate absent rather than invented"
+    display: "drives the typed status progress: elapsed time and the bounded pace estimate"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts inside the work-queue, work-responses, and work-audit records"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local receipt time only; outside the response digest and replay identity"
 
   EvidenceLegendRow.evidence_id:
     description: "engine-minted opaque evidence token one legend row explains"

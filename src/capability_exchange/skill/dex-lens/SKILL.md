@@ -142,7 +142,12 @@ you work, keep a light running commentary:
   stretch, then the comparison and the report". During the engine loop, the
   engine's status names the stage; translate it ("that's step 6 of 10")
   rather than inventing your own count, and never promise minutes remaining
-  you cannot know.
+  you cannot know. Once specialist work is in flight, `status` carries a
+  typed `progress` block whose `headline` is the engine's own progress line
+  ("backup dive done — 2 findings; memory dive running; about 3 minutes
+  left at this pace") — relay that line instead of inventing counts; its
+  pace clause is engine-observed from recorded packet timings, still an
+  observation and never your promise.
 - When something genuinely good surfaces mid-read, say so in one line and
   quote what earned it — a real strength, found early, is what keeps a
   person watching to the end. Praise must be earned by evidence you can

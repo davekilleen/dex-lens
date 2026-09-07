@@ -352,7 +352,14 @@ def register_result_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
 def _register_status_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
     @server.tool(annotations=_READ_ONLY)
     def get_diagnosis_status(run_id: str) -> dict[str, object]:
-        """Return proved stages and the next required action for one local run."""
+        """Return proved stages and the next required action for one local run.
+
+        While specialist work is in flight the view also carries the typed,
+        engine-computed ``progress`` block — packets done/pending, per-family
+        completion on a focused run, elapsed time, a bounded pace estimate
+        (absent until one packet has completed), and the one-line
+        ``headline`` a host should relay instead of inventing counts.
+        """
         with _crash_boundary():
             return _dump(engine.status, run_id)
 

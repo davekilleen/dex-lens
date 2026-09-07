@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import lru_cache
@@ -51,14 +51,18 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+    FamilyDiveProgress,
+    FamilyDiveState,
     FamilyMap,
     FocusReceipt,
     RequiredStep,
     RunIdentity,
+    WorkProgress,
     _ValidatedInventoried,
     advance_inventory_to_compare,
     advance_to,
     canonical_json_digest,
+    progress_headline,
     required_step_for_stage,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
@@ -476,11 +480,23 @@ class DeterministicDiagnosisEngine:
             # focus-consuming surface keeps failing closed with the typed
             # error.
             focus = None
+        progress: WorkProgress | None = None
+        if checkpoint.stage is DiagnosisStage.ANALYSIS_PLANNED:
+            try:
+                progress = self._work_progress(checkpoint, family_map, focus)
+            except DiagnosisStateError:
+                # Same discipline again: status reports proved progress
+                # without advancing, so a queue or record that cannot be
+                # loaded leaves the progress block absent while every
+                # mutating surface keeps failing closed with the typed error.
+                progress = None
         update: dict[str, object] = {}
         if family_map is not None:
             update["family_map"] = family_map
         if focus is not None:
             update["focus"] = focus
+        if progress is not None:
+            update["progress"] = progress
         if not update:
             return view
         return view.model_copy(update=update)
@@ -738,6 +754,135 @@ class DeterministicDiagnosisEngine:
                 f"hold{'s' if missing == 1 else ''} a silent not-assessed row; "
                 "every member of a selected family needs a verdict"
             )
+
+    def _work_progress(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        family_map: FamilyMap | None,
+        focus: FocusReceipt | None,
+    ) -> WorkProgress | None:
+        """Derive the typed live progress for a run with work in flight.
+
+        Engine-computed on every status read from the issued queue, its
+        receipts' engine-recorded timestamps, and the run checkpoint — never
+        host-supplied.  The elapsed clock anchors on the analysis-planned
+        checkpoint time (work persistence preserves it), so ``elapsed_seconds``
+        is the only clock-dependent field.  The pace estimate is derived only
+        from recorded completion timestamps: absent until one exists, so it is
+        never invented — including for runs saved before receipts carried a
+        timestamp — and it is an observation of pace, never a promise.
+        """
+
+        if checkpoint.stage is not DiagnosisStage.ANALYSIS_PLANNED:
+            return None
+        if self._analysis_mode(checkpoint) is AnalysisMode.INVENTORY_ONLY:
+            return None
+        queue = self._work_queue(checkpoint)
+        final_by_packet = {
+            receipt.packet_id: receipt
+            for receipt in queue.receipts
+            if receipt.status is not WorkStatus.PENDING
+        }
+        packets_total = len(queue.packets)
+        packets_done = sum(
+            1 for packet in queue.packets if packet.packet_id in final_by_packet
+        )
+        packets_pending = packets_total - packets_done
+        started_at = checkpoint.created_at
+        elapsed_seconds = max(
+            0, int((self._clock() - started_at).total_seconds())
+        )
+        timed = tuple(
+            receipt.recorded_at
+            for receipt in final_by_packet.values()
+            if receipt.recorded_at is not None
+        )
+        estimated_remaining_seconds: int | None = None
+        if timed and packets_done:
+            observed = max(0.0, (max(timed) - started_at).total_seconds())
+            estimated_remaining_seconds = int(
+                round(observed / len(timed) * packets_pending)
+            )
+        families: tuple[FamilyDiveProgress, ...] = ()
+        if focus is not None:
+            families = self._family_dive_rows(
+                checkpoint, queue, focus, family_map, final_by_packet
+            )
+        return WorkProgress(
+            packets_total=packets_total,
+            packets_done=packets_done,
+            packets_pending=packets_pending,
+            elapsed_seconds=elapsed_seconds,
+            estimated_remaining_seconds=estimated_remaining_seconds,
+            families=families,
+            headline=progress_headline(
+                packets_total=packets_total,
+                packets_done=packets_done,
+                packets_pending=packets_pending,
+                estimated_remaining_seconds=estimated_remaining_seconds,
+                families=families,
+            ),
+        )
+
+    def _family_dive_rows(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        queue: WorkQueue,
+        focus: FocusReceipt,
+        family_map: FamilyMap | None,
+        final_by_packet: Mapping[str, WorkReceipt],
+    ) -> tuple[FamilyDiveProgress, ...]:
+        """One engine-derived progress row per selected family, in map order.
+
+        A family's dive rides its fixed primary packet: done once that packet
+        holds a final receipt, running while it is the queue's next legal
+        packet, queued otherwise.  ``finding_count`` counts the accepted
+        proposals citing the family's signed members — the person's units,
+        derived from the recorded response records, never invented.
+        """
+
+        members_by_family = dict(self._catalogue(checkpoint).signed_family_members)
+        titles = (
+            {row.family_id: row.title for row in family_map.rows}
+            if family_map is not None
+            else {}
+        )
+        packets_by_role = {packet.role: packet for packet in queue.packets}
+        pending = queue.pending_packets()
+        running_packet_id = pending[0].packet_id if pending else None
+        proposals_by_packet: dict[str, list[object]] = {}
+        for record in self._response_records(checkpoint):
+            receipt = WorkReceipt.model_validate(record["receipt"])
+            if receipt.status is WorkStatus.COMPLETED:
+                proposals = record.get("proposals")
+                proposals_by_packet[receipt.packet_id] = (
+                    proposals if isinstance(proposals, list) else []
+                )
+        rows: list[FamilyDiveProgress] = []
+        for family_id in focus.selected_family_ids:
+            packet = packets_by_role[focus_primary_role(family_id)]
+            finding_count: int | None = None
+            if packet.packet_id in final_by_packet:
+                state = FamilyDiveState.DONE
+                members = set(members_by_family.get(family_id, ()))
+                finding_count = sum(
+                    1
+                    for item in proposals_by_packet.get(packet.packet_id, [])
+                    if isinstance(item, dict) and item.get("catalogue_id") in members
+                )
+            elif packet.packet_id == running_packet_id:
+                state = FamilyDiveState.RUNNING
+            else:
+                state = FamilyDiveState.QUEUED
+            rows.append(
+                FamilyDiveProgress(
+                    family_id=family_id,
+                    title=titles.get(family_id, family_id),
+                    state=state,
+                    finding_count=finding_count,
+                )
+            )
+        return tuple(rows)
 
     def advance(self, run_id: str) -> DiagnosisRunView:
         # Advancing mutates the persisted run, so the whole
@@ -1072,6 +1217,7 @@ class DeterministicDiagnosisEngine:
                 status=status,
                 attempt_count=attempt,
                 proposal_count=0,
+                recorded_at=self._clock(),
             )
             updated_queue = queue.record(receipt)
             records = self._response_records(checkpoint)
@@ -1123,6 +1269,7 @@ class DeterministicDiagnosisEngine:
             status=status,
             attempt_count=attempt,
             proposal_count=len(validated),
+            recorded_at=self._clock(),
         )
         updated_queue = queue.record(receipt)
         records = self._response_records(checkpoint)

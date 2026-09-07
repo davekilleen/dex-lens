@@ -549,9 +549,29 @@ def _status(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     view = build_engine().status(args.run)
-    # Status now carries the re-derived family map, so it clears the same
-    # outbound payload guard as every other fingerprint-derived surface.
-    return _write_guarded_canonical_json(view.dump_for_storage())
+    if args.json:
+        # Status now carries the re-derived family map, so it clears the same
+        # outbound payload guard as every other fingerprint-derived surface.
+        return _write_guarded_canonical_json(view.dump_for_storage())
+    lines = [
+        f"Run {args.run}: {view.stage.value}",
+        f"Next: {view.next_action}",
+    ]
+    progress = getattr(view, "progress", None)
+    if progress is not None:
+        # One plain engine-composed line, in the person's units — relayed,
+        # never invented here; its pace clause is observed, not promised.
+        lines.append(f"Progress: {progress.headline}")
+    rendered = "\n".join(lines) + "\n"
+    # The human rendering leaves the process exactly like the JSON payload
+    # does, so it clears the same outbound payload guard.
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    sys.stdout.write(rendered)
+    return 0
 
 
 def _advance(argv: list[str]) -> int:
