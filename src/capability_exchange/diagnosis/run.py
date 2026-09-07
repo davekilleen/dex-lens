@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.jobs.contract import SuccessContract
@@ -25,21 +26,75 @@ __all__ = [
     "DiagnosisRunView",
     "DiagnosisStage",
     "DiagnosisStateError",
+    "ExpectationState",
+    "FamilyDiveProgress",
+    "FamilyDiveState",
+    "FamilyMap",
+    "FamilyMapRow",
+    "FamilyReleaseDelta",
+    "FocusReceipt",
+    "JOB_VERDICT_STATES",
+    "JobAxisState",
+    "JobMapRow",
+    "RequiredStep",
     "RunIdentity",
+    "WorkProgress",
     "advance_to",
+    "advance_inventory_to_compare",
     "canonical_json_digest",
+    "progress_headline",
+    "required_step_for_stage",
+    "upgrade_stored_input_payload",
 ]
 
-ENGINE_VERSION = "0.1.15-diagnosis-engine"
-INPUT_SCHEMA_VERSION = "1"
+ENGINE_VERSION = "0.1.16-diagnosis-engine"
+# Version 2 replaces the collapsed observation operational scalar with the
+# independent configuration/runtime/health axes.  Stored v1 fingerprints are
+# read through the explicit stored-payload upgrade in ``observations``.
+INPUT_SCHEMA_VERSION = "3"
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# The bounded SemVer forms Lens accepts for release identities, matching the
+# signed lineage fields and the version-distance contract in ``comparison``.
+_SEMVERISH = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+_MEMBER_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,119}$")
+
+
+class RequiredStep(StrEnum):
+    """Typed next action exposed by the engine and MCP adapter."""
+
+    APPROVE_SCOPE = "approve_scope"
+    CAPTURE_FINGERPRINT = "capture_fingerprint"
+    VERIFY_CATALOGUE = "verify_catalogue"
+    MAP_FAMILIES = "map_families"
+    #: A focused run cannot confirm jobs until the person's family selection
+    #: is recorded as a focus receipt.  Not a stage of its own: the refusal on
+    #: the family-mapped -> jobs-confirmed transition names this step.
+    CONFIRM_FOCUS = "confirm_focus"
+    CONFIRM_JOBS = "confirm_jobs"
+    PLAN_ANALYSIS = "plan_analysis"
+    SUBMIT_WORK = "submit_work"
+    COMPARE = "compare"
+    RENDER = "render"
+    CHECK = "check"
+    SAVE = "save"
+    CLOSE = "close"
+    REQUIRED_STEP = "required_step"
 
 
 class DiagnosisStateError(ValueError):
     """A diagnosis run was asked to take an unlawful step."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        required_step: RequiredStep = RequiredStep.REQUIRED_STEP,
+    ) -> None:
+        super().__init__(message)
+        self.required_step = required_step
 
 
 class DiagnosisStage(StrEnum):
@@ -49,7 +104,10 @@ class DiagnosisStage(StrEnum):
     SCOPE_APPROVED = "scope-approved"
     CAPTURED = "captured"
     CATALOGUE_VERIFIED = "catalogue-verified"
+    FAMILY_MAPPED = "family-mapped"
     JOBS_CONFIRMED = "jobs-confirmed"
+    ANALYSIS_PLANNED = "analysis-planned"
+    ANALYSIS_COMPLETED = "analysis-completed"
     COMPARED = "compared"
     RENDERED = "rendered"
     CHECKED = "checked"
@@ -57,12 +115,38 @@ class DiagnosisStage(StrEnum):
     CLOSED = "closed"
 
 
+_REQUIRED_STEP_BY_STAGE: dict[DiagnosisStage, RequiredStep] = {
+    DiagnosisStage.CREATED: RequiredStep.APPROVE_SCOPE,
+    DiagnosisStage.SCOPE_APPROVED: RequiredStep.CAPTURE_FINGERPRINT,
+    DiagnosisStage.CAPTURED: RequiredStep.VERIFY_CATALOGUE,
+    DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.MAP_FAMILIES,
+    DiagnosisStage.FAMILY_MAPPED: RequiredStep.CONFIRM_JOBS,
+    DiagnosisStage.JOBS_CONFIRMED: RequiredStep.PLAN_ANALYSIS,
+    DiagnosisStage.ANALYSIS_PLANNED: RequiredStep.SUBMIT_WORK,
+    DiagnosisStage.ANALYSIS_COMPLETED: RequiredStep.COMPARE,
+    DiagnosisStage.COMPARED: RequiredStep.RENDER,
+    DiagnosisStage.RENDERED: RequiredStep.CHECK,
+    DiagnosisStage.CHECKED: RequiredStep.SAVE,
+    DiagnosisStage.SAVED: RequiredStep.CLOSE,
+    DiagnosisStage.CLOSED: RequiredStep.REQUIRED_STEP,
+}
+
+
+def required_step_for_stage(stage: DiagnosisStage) -> RequiredStep:
+    """Return the typed action needed from one deterministic stage."""
+
+    return _REQUIRED_STEP_BY_STAGE[stage]
+
+
 NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
     DiagnosisStage.CREATED: DiagnosisStage.SCOPE_APPROVED,
     DiagnosisStage.SCOPE_APPROVED: DiagnosisStage.CAPTURED,
     DiagnosisStage.CAPTURED: DiagnosisStage.CATALOGUE_VERIFIED,
-    DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.JOBS_CONFIRMED,
-    DiagnosisStage.JOBS_CONFIRMED: DiagnosisStage.COMPARED,
+    DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.FAMILY_MAPPED,
+    DiagnosisStage.FAMILY_MAPPED: DiagnosisStage.JOBS_CONFIRMED,
+    DiagnosisStage.JOBS_CONFIRMED: DiagnosisStage.ANALYSIS_PLANNED,
+    DiagnosisStage.ANALYSIS_PLANNED: DiagnosisStage.ANALYSIS_COMPLETED,
+    DiagnosisStage.ANALYSIS_COMPLETED: DiagnosisStage.COMPARED,
     DiagnosisStage.COMPARED: DiagnosisStage.RENDERED,
     DiagnosisStage.RENDERED: DiagnosisStage.CHECKED,
     DiagnosisStage.CHECKED: DiagnosisStage.SAVED,
@@ -75,8 +159,11 @@ NEXT_ACTION: dict[DiagnosisStage, str] = {
     ),
     DiagnosisStage.SCOPE_APPROVED: "Capture the consented fingerprint.",
     DiagnosisStage.CAPTURED: "Verify the exact catalogue bytes.",
-    DiagnosisStage.CATALOGUE_VERIFIED: "Confirm the jobs this diagnosis may use.",
-    DiagnosisStage.JOBS_CONFIRMED: "Compare the fingerprint with the catalogue.",
+    DiagnosisStage.CATALOGUE_VERIFIED: "Derive the deterministic family map.",
+    DiagnosisStage.FAMILY_MAPPED: "Confirm the jobs this diagnosis may use.",
+    DiagnosisStage.JOBS_CONFIRMED: "Plan the bounded specialist analysis.",
+    DiagnosisStage.ANALYSIS_PLANNED: "Complete the issued specialist work packets.",
+    DiagnosisStage.ANALYSIS_COMPLETED: "Compare the fingerprint with the catalogue.",
     DiagnosisStage.COMPARED: "Render the typed report from the ledger.",
     DiagnosisStage.RENDERED: "Check the report against ledger-derived facts.",
     DiagnosisStage.CHECKED: "Save the canonical result outside inspected roots.",
@@ -133,6 +220,231 @@ class _ValidatedInventoried(InventoriedModel):
         return cls.model_validate(values)
 
 
+class ExpectationState(StrEnum):
+    """Closed evidence states for one significant-family expectation row.
+
+    Defined beside the stage machine (and re-exported by ``expectations``)
+    because the deterministic pass-1 family map — embedded in the public run
+    view below — speaks exactly this vocabulary.  ``NOT_GATED`` is the loud
+    typed state a family-free catalogue yields: never a silent empty manifest.
+    """
+
+    PRESENT = "present"
+    PARTIAL = "partial"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+    NOT_RELEVANT = "not-relevant"
+    NOT_CURRENTLY_AVAILABLE = "not-currently-available"
+    NOT_GATED = "not-gated"
+
+
+class JobAxisState(StrEnum):
+    """Closed states for one signed-job row on the job axis.
+
+    Defined beside the stage machine (like :class:`ExpectationState`) because
+    the non-lineage family map embeds job rows in the public run view.  The
+    pass-1 deterministic map may only ever speak ``SUPPORTED`` ("something of
+    the right shape exists"; kind-level evidence, never method verification)
+    or the loud ``UNKNOWN``.  The three verdict states are mintable only by a
+    validated pass-2 ``job-coverage`` specialist proposal, each carrying its
+    evidence — including ``DOES_NOT_SERVE``, whose cited evidence is the
+    search itself: absence is never scored from silence.
+    """
+
+    SUPPORTED = "supported"
+    UNKNOWN = "unknown"
+    SERVES = "serves"
+    PARTIALLY_SERVES = "partially-serves"
+    DOES_NOT_SERVE = "does-not-serve"
+
+
+#: The specialist-mintable subset of :class:`JobAxisState`: the closed verdict
+#: vocabulary a ``job-coverage`` proposal may claim for one signed job.
+JOB_VERDICT_STATES = frozenset(
+    {
+        JobAxisState.SERVES,
+        JobAxisState.PARTIALLY_SERVES,
+        JobAxisState.DOES_NOT_SERVE,
+    }
+)
+
+#: The pass-1 deterministic map may only speak these two job-row states.
+_MAP_JOB_STATES = frozenset({JobAxisState.SUPPORTED, JobAxisState.UNKNOWN})
+
+
+class JobMapRow(_ValidatedInventoried):
+    """One deterministic signed-job row on a non-lineage family map.
+
+    Engine-derived from the signed jobs taxonomy plus kind-admitted
+    observations; never host-authored.  Pass 1 never asserts a verdict, so
+    the state is restricted to ``supported`` or the loud ``unknown``.
+    """
+
+    job_id: str = Field(min_length=1, max_length=160)
+    label: str = Field(min_length=1, max_length=200)
+    state: JobAxisState
+    evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _evidence_references_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("job map evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("job map evidence references must be sorted")
+        return values
+
+    @model_validator(mode="after")
+    def _map_rows_never_assert_a_verdict(self) -> Self:
+        if self.state not in _MAP_JOB_STATES:
+            raise ValueError(
+                "a pass-1 job map row may only be supported or unknown; job "
+                "verdicts are mintable only by a validated job-coverage proposal"
+            )
+        if self.state is JobAxisState.SUPPORTED and not self.evidence_references:
+            raise ValueError("a supported job map row requires admitted evidence")
+        return self
+
+
+class FamilyReleaseDelta(_ValidatedInventoried):
+    """Per-family signed release gap for one map row, where derivable.
+
+    The minimal honest subset of ``build_family_delta``: which signed skill
+    members of this family are newer than the person's proven Dex Core
+    lineage, which changed since it, and the family's signed ``outcome``
+    string — the only lawful source for saying what having the gap closed
+    would do.  Derived by the engine at map time from signed lineage fields
+    plus one Verified local release observation; never host-authored, and
+    re-derived on every read like the rest of the map.
+    """
+
+    inspected_release: str = Field(pattern=_SEMVERISH.pattern)
+    current_release: str = Field(pattern=_SEMVERISH.pattern)
+    newer_member_ids: tuple[str, ...] = ()
+    changed_member_ids: tuple[str, ...] = ()
+    outcome: str = Field(min_length=1, max_length=800)
+
+    @field_validator("newer_member_ids", "changed_member_ids")
+    @classmethod
+    def _member_ids_are_bounded_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("family release-delta member IDs must be unique")
+        if any(_MEMBER_ID.fullmatch(value) is None for value in values):
+            raise ValueError("family release-delta member ID is invalid")
+        return values
+
+    @model_validator(mode="after")
+    def _delta_names_a_real_signed_gap(self) -> Self:
+        if not self.newer_member_ids and not self.changed_member_ids:
+            raise ValueError("a family release delta must name at least one signed change")
+        if set(self.newer_member_ids) & set(self.changed_member_ids):
+            raise ValueError("newer and changed family members must not overlap")
+        if self.inspected_release == self.current_release:
+            raise ValueError("a family release delta requires two distinct releases")
+        return self
+
+
+class FamilyMapRow(_ValidatedInventoried):
+    """One deterministic family-map row. Engine-derived, never host-authored."""
+
+    family_id: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=200)
+    state: ExpectationState
+    evidence_references: tuple[str, ...] = ()
+    reason: str = Field(min_length=1, max_length=600)
+    #: Signed release gap for this family, present only when the run's
+    #: observations establish a Verified dex-core lineage AND the signed
+    #: catalogue carries this family — never invented without the contract.
+    release_delta: FamilyReleaseDelta | None = None
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _evidence_references_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("family map evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("family map evidence references must be sorted")
+        return values
+
+
+class FamilyMap(_ValidatedInventoried):
+    """Deterministic pass-1 family map over the verified catalogue.
+
+    Re-derived from the stored verified inputs on every read; the stored
+    ``family-map`` artifact is a digest-bound audit record, never an input
+    (mirroring the RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT lesson).  Carries no
+    wall-clock so two derivations of the same inputs are byte-identical.
+    """
+
+    catalogue_version: int = Field(ge=1)
+    catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
+    rows: tuple[FamilyMapRow, ...] = Field(min_length=1)
+    #: Dex Core release the signed catalogue metadata names, when present.
+    current_release: str | None = Field(default=None, pattern=_SEMVERISH.pattern)
+    #: The one Dex Core release the approved snapshot proves, or ``None`` when
+    #: lineage could not be established (no release observation, conflicting
+    #: release identities, or a non-release-shaped identity).  ``None`` is the
+    #: loud Unknown branch every map surface must speak, never a silence.
+    inspected_release: str | None = Field(default=None, pattern=_SEMVERISH.pattern)
+    #: Evidence references of the release observations proving the lineage.
+    release_evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+    #: Engine-computed non-lineage classification: True exactly when no
+    #: observation in the approved snapshot matches any signed Dex identity
+    #: (capability, alias, MCP server, tool, provider, source component, or
+    #: the dex-core release record).  The deterministic threshold, computed by
+    #: the engine and never the host: on a non-lineage run the map renders the
+    #: signed job axis and the report's framing is a loan, never a delta.
+    non_lineage: StrictBool = False
+    #: One deterministic row per signed job, in signed taxonomy order.
+    #: Present exactly when the run is non-lineage.
+    job_rows: tuple[JobMapRow, ...] = ()
+
+    @field_validator("release_evidence_references")
+    @classmethod
+    def _release_evidence_is_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("family map release evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("family map release evidence references must be sorted")
+        return values
+
+    @model_validator(mode="after")
+    def _rows_name_each_family_once(self) -> Self:
+        family_ids = [row.family_id for row in self.rows]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("family map rows must name each family exactly once")
+        if (self.inspected_release is None) != (not self.release_evidence_references):
+            raise ValueError(
+                "an established release lineage and its evidence references come together"
+            )
+        for row in self.rows:
+            delta = row.release_delta
+            if delta is None:
+                continue
+            if (
+                delta.inspected_release != self.inspected_release
+                or delta.current_release != self.current_release
+            ):
+                raise ValueError(
+                    "family release deltas must share the map's proven release pair"
+                )
+        job_ids = [row.job_id for row in self.job_rows]
+        if len(job_ids) != len(set(job_ids)):
+            raise ValueError("job map rows must name each signed job exactly once")
+        if self.non_lineage != bool(self.job_rows):
+            raise ValueError(
+                "a non-lineage map carries the signed job rows, and only a "
+                "non-lineage map may carry them"
+            )
+        if self.non_lineage and self.inspected_release is not None:
+            raise ValueError(
+                "a non-lineage map cannot carry a release lineage: with no "
+                "identity match there is no version to diff and no 'behind'"
+            )
+        return self
+
+
 class ApprovedScopeReceipt(_ValidatedInventoried):
     """Non-raw proof that the local consent surface approved one scope."""
 
@@ -141,6 +453,7 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
     scope_digest: str = Field(pattern=_SHA256.pattern)
     session_receipt_id: str = Field(min_length=8, max_length=120)
     approved_at: datetime
+    include_live_state: StrictBool = False
 
     @field_validator("scope_references")
     @classmethod
@@ -165,12 +478,193 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
         return self
 
 
+_FAMILY_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,119}$")
+
+
+class FocusReceipt(_ValidatedInventoried):
+    """Typed record of the person's family multi-select for one focused run.
+
+    Minted by the engine after the deterministic family map: it binds the
+    exact families selected AND the families explicitly not selected, plus the
+    digest of the family map the choice was made against.  The engine
+    re-validates the receipt against the re-derived map on every consuming
+    read, so a stored receipt that no longer matches this run's map is refused
+    rather than trusted (the same artifact discipline as the family map).
+
+    On a NON-LINEAGE run — where the map's story is the signed job axis — the
+    same two tuples carry signed JOB identities instead, partitioning the
+    map's job rows exactly.  The field names keep their family spelling so
+    stored receipts and their digests stay stable across both axes.
+    """
+
+    run_id: str = Field(pattern=_RUN_ID.pattern)
+    family_map_digest: str = Field(pattern=_SHA256.pattern)
+    selected_family_ids: tuple[str, ...] = Field(min_length=1)
+    unselected_family_ids: tuple[str, ...] = ()
+    focus_digest: str = Field(pattern=_SHA256.pattern)
+    confirmed_at: datetime
+
+    @field_validator("selected_family_ids", "unselected_family_ids")
+    @classmethod
+    def _family_ids_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("focus receipt family identities must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("focus receipt family identities must be sorted")
+        for value in values:
+            if _FAMILY_ID.fullmatch(value) is None:
+                raise ValueError("focus receipt family identities must be bounded ids")
+        return values
+
+    @field_validator("confirmed_at")
+    @classmethod
+    def _confirmed_at_is_aware(cls, value: datetime) -> datetime:
+        return _require_aware(value, "confirmed_at")
+
+    @model_validator(mode="after")
+    def _digest_binds_the_exact_selection(self) -> Self:
+        if set(self.selected_family_ids) & set(self.unselected_family_ids):
+            raise ValueError(
+                "a family cannot be both selected and explicitly not selected"
+            )
+        expected = canonical_json_digest(
+            {
+                "family_map_digest": self.family_map_digest,
+                "run_id": self.run_id,
+                "selected_family_ids": list(self.selected_family_ids),
+                "unselected_family_ids": list(self.unselected_family_ids),
+            }
+        )
+        if self.focus_digest != expected:
+            raise ValueError("focus_digest must bind the exact recorded selection")
+        return self
+
+
+class FamilyDiveState(StrEnum):
+    """Closed states for one selected family's focused dive.
+
+    Derived from the issued queue: ``done`` when the family's primary packet
+    holds a final receipt, ``running`` when that packet is the queue's next
+    legal packet, ``queued`` otherwise.
+    """
+
+    DONE = "done"
+    RUNNING = "running"
+    QUEUED = "queued"
+
+
+class FamilyDiveProgress(_ValidatedInventoried):
+    """Live progress for one selected family on a focused run.
+
+    Engine-derived on every status read from the issued queue and its
+    recorded receipts; never host-authored.  ``finding_count`` is the number
+    of accepted proposals citing this family's signed members on its primary
+    packet — the person's units, present exactly when the dive is done.
+    """
+
+    family_id: str = Field(pattern=_FAMILY_ID.pattern)
+    title: str = Field(min_length=1, max_length=200)
+    state: FamilyDiveState
+    finding_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _finding_count_rides_a_finished_dive(self) -> Self:
+        if (self.state is FamilyDiveState.DONE) != (self.finding_count is not None):
+            raise ValueError(
+                "a family dive carries a finding count exactly when it is done"
+            )
+        return self
+
+
+def progress_headline(
+    *,
+    packets_total: int,
+    packets_done: int,
+    packets_pending: int,
+    estimated_remaining_seconds: int | None,
+    families: tuple[FamilyDiveProgress, ...],
+) -> str:
+    """Compose the engine's one-line human progress sentence.
+
+    Speaks the person's units: family dives with engine-counted findings on
+    a focused run, packet counts on a guided one, and the observed pace when
+    at least one packet has completed — "about N minutes left at this pace"
+    is an observation, never a promise.  Elapsed time is deliberately not in
+    the line, so it is byte-stable for one stored run state.
+    """
+
+    pieces: list[str] = []
+    if families:
+        for dive in families:
+            if dive.state is FamilyDiveState.DONE:
+                count = dive.finding_count or 0
+                noun = "finding" if count == 1 else "findings"
+                pieces.append(f"{dive.title} dive done — {count} {noun}")
+            else:
+                pieces.append(f"{dive.title} dive {dive.state.value}")
+    else:
+        pieces.append(f"{packets_done} of {packets_total} specialist packets done")
+    if estimated_remaining_seconds is not None and packets_pending > 0:
+        minutes = max(1, -(-estimated_remaining_seconds // 60))
+        noun = "minute" if minutes == 1 else "minutes"
+        pieces.append(f"about {minutes} {noun} left at this pace")
+    return "; ".join(pieces)
+
+
+class WorkProgress(_ValidatedInventoried):
+    """Typed, engine-computed live progress for a run with work in flight.
+
+    Derived on every status read from the issued queue, its receipts'
+    engine-recorded timestamps, and the run checkpoint; never stored as an
+    authority and never host-invented.  ``elapsed_seconds`` is the only
+    clock-dependent field — everything else is byte-stable for one stored
+    run state.  The estimate exists only once at least one packet holds a
+    recorded completion timestamp, so it can never be invented; receipts
+    saved before timing existed simply leave it absent.
+    """
+
+    packets_total: int = Field(ge=1, le=64)
+    packets_done: int = Field(ge=0)
+    packets_pending: int = Field(ge=0)
+    elapsed_seconds: int = Field(ge=0)
+    estimated_remaining_seconds: int | None = Field(default=None, ge=0)
+    families: tuple[FamilyDiveProgress, ...] = ()
+    headline: str = Field(min_length=1, max_length=2400)
+
+    @model_validator(mode="after")
+    def _progress_is_engine_computed(self) -> Self:
+        if self.packets_done + self.packets_pending != self.packets_total:
+            raise ValueError("progress packet counts must partition the issued queue")
+        if self.packets_done == 0 and self.estimated_remaining_seconds is not None:
+            raise ValueError(
+                "a pace estimate requires at least one completed packet"
+            )
+        family_ids = [dive.family_id for dive in self.families]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("progress family rows must name each family exactly once")
+        if family_ids != sorted(family_ids):
+            raise ValueError("progress family rows must be sorted by family identity")
+        expected = progress_headline(
+            packets_total=self.packets_total,
+            packets_done=self.packets_done,
+            packets_pending=self.packets_pending,
+            estimated_remaining_seconds=self.estimated_remaining_seconds,
+            families=self.families,
+        )
+        if self.headline != expected:
+            raise ValueError("progress headline must be the engine-composed sentence")
+        return self
+
+
 class RunIdentity(_ValidatedInventoried):
     """Stable public identity for one diagnosis run."""
 
     run_id: str = Field(pattern=_RUN_ID.pattern)
     engine_version: str = Field(min_length=1, max_length=64)
     input_schema_version: str = Field(min_length=1, max_length=16)
+    analysis_mode: Literal[
+        "inventory-only", "guided-analysis", "focused-analysis"
+    ] = "inventory-only"
     created_at: datetime
 
     @field_validator("created_at")
@@ -191,6 +685,9 @@ class DiagnosisInput(_ValidatedInventoried):
     catalogue_version: int = Field(ge=1)
     catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
     confirmed_jobs: tuple[SuccessContract, ...] = ()
+    analysis_mode: Literal[
+        "inventory-only", "guided-analysis", "focused-analysis"
+    ] = "guided-analysis"
     assessed_at: datetime
 
     @field_validator("assessed_at")
@@ -203,6 +700,35 @@ class DiagnosisInput(_ValidatedInventoried):
         """Digest that changes when scope, catalogue, fingerprint or engine changes."""
 
         return canonical_json_digest(self.dump_for_storage())
+
+
+def upgrade_stored_run_identity_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Upgrade a stored run identity without changing legacy semantics.
+
+  ``analysis_mode`` was introduced after the original durable identity shape.
+  Old checkpoints did not issue semantic work, so a missing field is
+  deliberately upgraded to ``inventory-only`` rather than inheriting the guided
+  default used for newly-created product runs.
+    """
+
+    upgraded = dict(payload)
+    upgraded.setdefault("analysis_mode", "inventory-only")
+    return upgraded
+
+
+def upgrade_stored_input_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    """Upgrade a stored diagnosis input without changing legacy semantics.
+
+    ``analysis_mode`` was introduced after the original durable input shape.
+    Old checkpoints did not issue semantic work, so a missing field is
+    deliberately upgraded to ``inventory-only`` rather than inheriting the
+    guided default used for newly-created product runs.  The operation is
+    idempotent and never mutates the caller's mapping.
+    """
+
+    upgraded = dict(payload)
+    upgraded.setdefault("analysis_mode", "inventory-only")
+    return upgraded
 
 
 class DiagnosisCheckpoint(_ValidatedInventoried):
@@ -242,8 +768,23 @@ class DiagnosisRunView(_ValidatedInventoried):
     run_id: str = Field(pattern=_RUN_ID.pattern)
     stage: DiagnosisStage
     next_action: str = Field(min_length=1, max_length=240)
+    required_step: RequiredStep = RequiredStep.REQUIRED_STEP
     input_identity: str | None = Field(default=None, pattern=_SHA256.pattern)
     approval_url: str | None = Field(default=None, max_length=240)
+    #: Deterministic pass-1 family map, re-derived on every status read once
+    #: the run has passed the family-mapped stage.  Never loaded from the
+    #: stored artifact.
+    family_map: FamilyMap | None = None
+    #: The recorded family multi-select for a focused run, re-validated
+    #: against the re-derived family map on every status read.  ``None`` until
+    #: the person's selection is recorded (and always for guided runs).
+    focus: FocusReceipt | None = None
+    #: Typed, engine-computed live progress, present only while specialist
+    #: work is in flight: packets done/pending, per selected family on a
+    #: focused run, elapsed time, and a bounded pace estimate derived from
+    #: engine-recorded receipt timestamps — absent until one packet has
+    #: completed, so it is never invented.
+    progress: WorkProgress | None = None
 
 
 def advance_to(
@@ -271,6 +812,36 @@ def advance_to(
             checkpoint.artifact_digests if artifact_digests is None else artifact_digests
         ),
         next_action=NEXT_ACTION[stage],
+        engine_version=checkpoint.engine_version,
+        created_at=now,
+    )
+
+
+def advance_inventory_to_compare(
+    checkpoint: DiagnosisCheckpoint,
+    *,
+    now: datetime,
+    artifact_digests: tuple[str, ...] = (),
+) -> DiagnosisCheckpoint:
+    """Advance one legacy inventory-only run across the guided-era stages.
+
+    Checkpoints written before the specialist queue existed must retain their
+    direct comparison semantics.  This narrow transition is deliberately
+    separate from :func:`advance_to`, so ordinary callers cannot use it to
+    bypass the closed stage machine.
+    """
+
+    if checkpoint.stage is not DiagnosisStage.JOBS_CONFIRMED:
+        raise DiagnosisStateError(
+            "inventory-only comparison skip is valid only after jobs-confirmed"
+        )
+    return DiagnosisCheckpoint(
+        run_id=checkpoint.run_id,
+        stage=DiagnosisStage.COMPARED,
+        previous_digest=checkpoint.canonical_digest(),
+        input_identity=checkpoint.input_identity,
+        artifact_digests=(*checkpoint.artifact_digests, *artifact_digests),
+        next_action=NEXT_ACTION[DiagnosisStage.COMPARED],
         engine_version=checkpoint.engine_version,
         created_at=now,
     )

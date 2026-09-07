@@ -33,7 +33,10 @@ from capability_exchange.diagnosis.mcp_server import (
     build_mcp_server,
     canonical_result_bytes,
 )
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    upgrade_stored_fingerprint_payload,
+)
 from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     DiagnosisResult,
@@ -52,6 +55,7 @@ from capability_exchange.diagnosis.run import (
     canonical_json_digest,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
+from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket
 from capability_exchange.reports.store import LensReportStore
 
 __all__ = [
@@ -145,8 +149,9 @@ class _FixedComparer:
         catalogue: VerifiedCatalogueSlice,
         jobs: tuple[object, ...],
         proposals: tuple[object, ...],
+        work_audit: object | None = None,
     ) -> ComparisonLedger:
-        del fingerprint, catalogue, jobs, proposals
+        del fingerprint, catalogue, jobs, proposals, work_audit
         return self.ledger
 
 
@@ -166,9 +171,18 @@ class _IntegrityReportStore(LensReportStore):
 class ReplayHarness:
     """One engine, one store, and the sanitised dependencies for a replay."""
 
-    def __init__(self, bundle: ReplayBundle, directory: Path) -> None:
+    def __init__(
+        self,
+        bundle: ReplayBundle,
+        directory: Path,
+        *,
+        analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
+        work_responder: Callable[[WorkPacket], tuple[object, ...]] | None = None,
+    ) -> None:
         self.bundle = bundle
         self.directory = Path(directory)
+        self.analysis_mode = AnalysisMode(analysis_mode)
+        self.work_responder = work_responder
         self.root = self.directory / "invented-vault"
         self.root.mkdir(parents=True)
         (self.root / "README.md").write_text("invented\n", encoding="utf-8")
@@ -204,7 +218,12 @@ class ReplayHarness:
         return self.engine
 
     def prepare(self) -> DiagnosisRunView:
-        return self.engine.prepare(PrepareDiagnosisRequest.from_roots((self.root,)))
+        return self.engine.prepare(
+            PrepareDiagnosisRequest(
+                roots=(self.root,),
+                analysis_mode=self.analysis_mode,
+            )
+        )
 
     def approve(self) -> ApprovedScopeReceipt:
         return self.consent.approve_from_local_session(
@@ -231,8 +250,25 @@ class ReplayHarness:
                 and not self._proposals_submitted
             ):
                 self.submit_proposals()
+            if view.stage is DiagnosisStage.ANALYSIS_PLANNED:
+                self.complete_guided_work()
             view = self.engine.advance(self.bundle.run_id)
         return view
+
+    def complete_guided_work(self) -> None:
+        """Submit a typed response for every replay work packet.
+
+        Without a ``work_responder`` every packet receives the explicit empty
+        evidence-insufficient response; with one, the guided corpus carries
+        real specialist content instead of proving properties of nothing.
+        """
+
+        while True:
+            packet = self.engine.work(self.bundle.run_id)
+            if packet is None:
+                return
+            proposals = () if self.work_responder is None else tuple(self.work_responder(packet))
+            self.engine.submit_work(self.bundle.run_id, packet.packet_id, proposals)
 
     def run_to_closed(self) -> DiagnosisResult:
         self.prepare()
@@ -298,6 +334,24 @@ class ReplayHarness:
         return self.run_store.load(self.bundle.run_id)
 
     def retained_text(self) -> str:
+        """Everything the run durably wrote plus the sanitised bundle inputs."""
+
+        return "\n".join(
+            (
+                self.stored_run_text(),
+                self.bundle.fingerprint.model_dump_json(),
+                self.bundle.ledger.model_dump_json(),
+            )
+        )
+
+    def stored_run_text(self) -> str:
+        """Every byte the run durably wrote: checkpoints, artifacts, reports.
+
+        Canary tests that deliberately plant hostile content into the bundle
+        inputs scan this surface, because for them the question is exactly
+        whether the engine let the planted input become retained state.
+        """
+
         parts: list[str] = []
         storage = self.run_store.storage
         if storage.is_dir():
@@ -309,8 +363,6 @@ class ReplayHarness:
             for path in sorted(reports.rglob("*")):
                 if path.is_file() and not path.is_symlink():
                     parts.append(path.read_text(encoding="utf-8", errors="replace"))
-        parts.append(self.bundle.fingerprint.model_dump_json())
-        parts.append(self.bundle.ledger.model_dump_json())
         return "\n".join(parts)
 
     def assert_result_matches_bundle(self, result: object) -> None:
@@ -324,10 +376,34 @@ class ReplayHarness:
             raise DiagnosisStateError("hostile count mutation")
         if ledger.catalogue_sha256 != self.bundle.ledger.catalogue_sha256:
             raise DiagnosisStateError("hostile catalogue hash mutation")
+        expected_local = {
+            item.observation_id: (
+                item.kind,
+                item.identity,
+                item.configuration_state,
+                item.runtime_state,
+                item.health_state,
+            )
+            for item in self.bundle.ledger.local_entries
+        }
+        actual_local = {
+            item.observation_id: (
+                item.kind,
+                item.identity,
+                item.configuration_state,
+                item.runtime_state,
+                item.health_state,
+            )
+            for item in ledger.local_entries
+        }
+        if actual_local != expected_local:
+            raise DiagnosisStateError("hostile local axes mutation")
+        if ledger.mcp_tools_by_server != self.bundle.ledger.mcp_tools_by_server:
+            raise DiagnosisStateError("hostile tool appendix mutation")
         allowed_refs = _evidence_references(self.bundle.fingerprint, self.bundle.ledger)
         actual_refs = {
             reference
-            for item in ledger.entries
+            for item in (*ledger.entries, *ledger.local_entries)
             for reference in item.evidence_references
         }
         if not actual_refs.issubset(allowed_refs):
@@ -353,7 +429,11 @@ class ReplayHarness:
         payload = self._artifact_payload(checkpoint, "fingerprint")
         if payload is None:
             return self.bundle.fingerprint
-        return EvidenceFingerprint.model_validate(payload)
+        try:
+            migrated = upgrade_stored_fingerprint_payload(payload)
+            return EvidenceFingerprint.model_validate(migrated)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored replay fingerprint is unreadable") from exc
 
 
 def canonical_replay_bytes(result: DiagnosisResult) -> bytes:
@@ -362,11 +442,19 @@ def canonical_replay_bytes(result: DiagnosisResult) -> bytes:
     return canonical_result_bytes(result.dump_for_storage())
 
 
-def run_direct(replay: ReplayBundle) -> bytes:
+def run_direct(
+    replay: ReplayBundle,
+    *,
+    analysis_mode: AnalysisMode = AnalysisMode.INVENTORY_ONLY,
+) -> bytes:
     """Drive the engine interface with no adapter translation."""
 
     with TemporaryDirectory(prefix="lens-replay-direct-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=analysis_mode,
+        )
         return canonical_replay_bytes(harness.run_to_closed())
 
 
@@ -374,11 +462,23 @@ def run_cli(replay: ReplayBundle) -> bytes:
     """Drive ``diagnosis_main`` against the same injected engine factory."""
 
     with TemporaryDirectory(prefix="lens-replay-cli-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+        )
         diagnosis_cli.bind_consent_surface(_SilentSession(), _SilentServer())
         try:
             with patch.object(diagnosis_cli, "build_engine", lambda: harness.engine):
-                _cli_json(["prepare", "--root", str(harness.root)])
+                _cli_json(
+                    [
+                        "prepare",
+                        "--root",
+                        str(harness.root),
+                        "--mode",
+                        harness.analysis_mode.value,
+                    ]
+                )
                 harness.approve()
                 view = _cli_json(["status", "--run", replay.run_id, "--json"])
                 while view["stage"] != DiagnosisStage.CLOSED.value:
@@ -388,6 +488,11 @@ def run_cli(replay: ReplayBundle) -> bytes:
                         and not harness._proposals_submitted
                     ):
                         _cli_submit(replay, harness)
+                    if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
+                        if harness.analysis_mode is AnalysisMode.GUIDED:
+                            _complete_guided_work_cli(harness)
+                        else:
+                            harness.complete_guided_work()
                     view = _cli_json(["advance", "--run", replay.run_id, "--json"])
                 payload = _cli_json(["result", "--run", replay.run_id, "--format", "json"])
         finally:
@@ -405,7 +510,11 @@ def run_mcp(replay: ReplayBundle, *, discover: DiscoverOrder = "listed") -> byte
     """Drive the MCP adapter with an in-process client over the same engine."""
 
     with TemporaryDirectory(prefix="lens-replay-mcp-") as tmp:
-        harness = ReplayHarness(replay, Path(tmp))
+        harness = ReplayHarness(
+            replay,
+            Path(tmp),
+            analysis_mode=AnalysisMode.INVENTORY_ONLY,
+        )
         return anyio.run(_drive_mcp, harness, discover)
 
 
@@ -436,6 +545,11 @@ async def _drive_mcp(harness: ReplayHarness, discover: DiscoverOrder) -> bytes:
                 and not harness._proposals_submitted
             ):
                 harness.submit_proposals()
+            if view["stage"] == DiagnosisStage.ANALYSIS_PLANNED.value:
+                if harness.analysis_mode is AnalysisMode.GUIDED:
+                    await _complete_guided_work_mcp(client, harness)
+                else:
+                    harness.complete_guided_work()
             view = _tool_payload(
                 await client.call_tool(
                     "advance_diagnosis",
@@ -455,6 +569,46 @@ def _discover_tool_names(names: Sequence[str], discover: DiscoverOrder) -> list[
     if discover == "codex":
         return sorted(names)
     return list(names)
+
+
+def _complete_guided_work_cli(harness: ReplayHarness) -> None:
+    while True:
+        work = _cli_json(["work", "--run", harness.bundle.run_id, "--json"])
+        packet = work.get("packet")
+        if packet is None:
+            return
+        assert isinstance(packet, dict)
+        _cli_json(
+            [
+                "submit",
+                "--run",
+                harness.bundle.run_id,
+                "--packet",
+                str(packet["packet_id"]),
+            ]
+        )
+
+
+async def _complete_guided_work_mcp(client: Client, harness: ReplayHarness) -> None:
+    while True:
+        work = _tool_payload(
+            await client.call_tool(
+                "get_diagnosis_work",
+                {"run_id": harness.bundle.run_id},
+            )
+        )
+        packet = work.get("packet")
+        if packet is None:
+            return
+        assert isinstance(packet, dict)
+        await client.call_tool(
+            "submit_specialist_proposal",
+            {
+                "run_id": harness.bundle.run_id,
+                "packet_id": packet["packet_id"],
+                "proposals": [],
+            },
+        )
 
 
 def _cli_json(argv: list[str]) -> dict[str, object]:

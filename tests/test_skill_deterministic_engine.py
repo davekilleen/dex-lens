@@ -21,6 +21,22 @@ def test_skill_uses_engine_status_instead_of_keeping_its_own_checklist() -> None
     assert "A diagnosis ends only when the engine returns `closed`" in text
 
 
+def test_skill_keeps_the_packaged_fallback_verified_and_engine_owned() -> None:
+    text = SKILL.read_text(encoding="utf-8")
+    fallback = text[
+        text.index("### The bundled signed snapshot") : text.index("## Phase 5")
+    ]
+    prose = " ".join(fallback.split())
+
+    assert "normal pinned Dex key ring" in prose
+    assert "current enriched catalogue is authoritative" in prose
+    assert "Fallback facts are never merged" in prose
+    assert "Do not open, copy, combine or interpret it yourself" in prose
+    assert "dex-lens diagnosis status" in fallback
+    assert "dex-lens diagnosis result" in fallback
+    assert "supplement" not in fallback
+
+
 def test_skill_keeps_repairs_and_sharing_outside_diagnosis() -> None:
     text = SKILL.read_text(encoding="utf-8")
     assert "start a separate, explicitly approved flow" in text

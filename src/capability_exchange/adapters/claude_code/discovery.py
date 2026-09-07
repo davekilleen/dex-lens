@@ -21,17 +21,24 @@ from capability_exchange.adapters.claude_code.contract import (
     INTEGRATION_BASENAMES,
     MCP_CONFIG_BASENAMES,
     RELEASE_BASENAMES,
+    SAFE_PROBE_FOLDERS,
+    external_task_adapter_id,
+    is_backup_proof_probe_path,
+    is_mcp_manifest_path,
 )
 from capability_exchange.adapters.claude_code.snapshot import (
     InspectionSnapshot,
     SnapshotEntry,
     reference_token,
 )
+from capability_exchange.boundary.secret_markers import has_secret_shape_marker
 from capability_exchange.diagnosis.observations import (
+    ConfigurationState,
     EvidenceFingerprint,
+    HealthState,
     Observation,
     ObservationKind,
-    OperationalState,
+    RuntimeState,
     SafeAttribute,
 )
 from capability_exchange.diagnosis.provenance import SourceClass
@@ -57,13 +64,43 @@ _INTEGRATION_PATH_PARTS = frozenset(
     {"integration", "integrations", "connection", "connections", "provider", "providers"}
 )
 _HEALTH_WORDS = frozenset({"doctor", "health", "smoke"})
-_SAFE_PROBE_FOLDERS = frozenset({".scripts", "scripts", "checks", "health", "system"})
+_SAFE_PROVIDER_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
+_PRIVATE_PROVIDER_MARKERS = ("account", "workspace")
+_TEMP_DIRECTORY_ASSIGNMENT = re.compile(
+    r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[\"']?\$\(\s*mktemp\s+-(?:[A-Za-z]*d|-[A-Za-z-]*directory)\b[^)]*\)"
+)
+_BACKUP_FETCH_COMMAND = re.compile(
+    r"^\s*(?:if\s+!\s+)?(?:git\s+clone\b|rclone\s+(?:copy|copyto)|aws\s+s3\s+cp|scp\b|rsync\b|curl\b.*(?:\s-o\b|--output\b)|wget\b.*(?:\s-O\b|--output-document\b))",
+    re.IGNORECASE,
+)
+_BACKUP_RESTORE_COMMAND = re.compile(
+    r"^\s*(?:if\s+!\s+)?(?:git\s+clone\b|tar\b.*(?:\s-x|\s--extract)|unzip\b|restore\b)",
+    re.IGNORECASE,
+)
+_BACKUP_VERIFY_COMMAND = re.compile(
+    r"^\s*(?:git\s+-C\s+\S+\s+fsck\b|sha(?:256|512)sum\s+(?:--check|-c)\b|shasum\b.*\s-c\b|cmp\b|diff\b)",
+    re.IGNORECASE,
+)
+_COMMONJS_ADAPTER_EXPORT = re.compile(
+    r"(?ms)^\s*module\.exports\s*=\s*\{(?P<body>[^{}]{1,4096})\}\s*;?"
+)
+_JS_COMMENT_OR_STRING = re.compile(
+    r'''(?sx)/\*.*?\*/|//[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''
+)
+_COMMONJS_PROPERTY = re.compile(
+    r"^\s*(?P<key>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"(?:\s*:\s*[A-Za-z_$][A-Za-z0-9_$]*)?\s*$"
+)
+_EXTERNAL_TASK_ADAPTER_API = frozenset(
+    {"toExternal", "toDex", "create", "complete", "getChanges"}
+)
 
 
 class _LiveStateLike(Protocol):
     kind: str
     identity: str
-    operational_state: OperationalState
+    runtime_state: RuntimeState
+    health_state: HealthState
 
 
 def _identity(value: str, *, fallback: str = "unnamed") -> str:
@@ -103,19 +140,33 @@ def _entry_observation(
     kind: ObservationKind,
     identity: str,
     label: str,
-    operational_state: OperationalState,
+    configuration_state: ConfigurationState,
+    runtime_state: RuntimeState = RuntimeState.NOT_ASSESSED,
+    health_state: HealthState = HealthState.NOT_ASSESSED,
     attributes: tuple[SafeAttribute, ...] = (),
 ) -> Observation:
-    effective_state = (
-        OperationalState.NOT_ASSESSED
+    effective_configuration = (
+        ConfigurationState.NOT_ASSESSED
         if entry.source.source_class is SourceClass.WORKING_COPY
-        else operational_state
+        else configuration_state
+    )
+    effective_runtime = (
+        RuntimeState.NOT_ASSESSED
+        if entry.source.source_class is SourceClass.WORKING_COPY
+        else runtime_state
+    )
+    effective_health = (
+        HealthState.NOT_ASSESSED
+        if entry.source.source_class is SourceClass.WORKING_COPY
+        else health_state
     )
     return Observation(
         kind=kind,
         identity=_identity(identity),
         label=_label(label),
-        operational_state=effective_state,
+        configuration_state=effective_configuration,
+        runtime_state=effective_runtime,
+        health_state=effective_health,
         evidence=_evidence(entry, collected_at),
         provenance=entry.source,
         attributes=attributes,
@@ -129,7 +180,13 @@ def _all_entries(snapshot: InspectionSnapshot) -> tuple[SnapshotEntry, ...]:
 def _release_version(entry: SnapshotEntry) -> str | None:
     text = entry.content.decode("utf-8", "replace")
     if Path(entry.relative_path).name == "CHANGELOG.md":
-        for line in text.splitlines()[:80]:
+        lines = text.splitlines()[:80]
+        if not any(
+            line.strip() == "All notable changes to Dex will be documented in this file."
+            for line in lines
+        ):
+            return None
+        for line in lines:
             if line.startswith("##"):
                 match = _VERSION.search(line)
                 if match is not None:
@@ -146,10 +203,10 @@ def _release_observations(
         (
             entry
             for entry in _all_entries(snapshot)
-            if Path(entry.relative_path).name in RELEASE_BASENAMES
+            if entry.relative_path in RELEASE_BASENAMES
         ),
         key=lambda entry: (
-            {".dex-version": 0, "VERSION": 1, "CHANGELOG.md": 2}[Path(entry.relative_path).name],
+            {".dex-version": 0, "CHANGELOG.md": 1}[Path(entry.relative_path).name],
             entry.relative_path.count("/"),
             entry.relative_path,
         ),
@@ -167,7 +224,7 @@ def _release_observations(
                     kind=ObservationKind.RELEASE,
                     identity="dex-core",
                     label="Dex Core release",
-                    operational_state=OperationalState.INSTALLED,
+                    configuration_state=ConfigurationState.INSTALLED,
                     attributes=_attributes(_attribute("release-id", version)),
                 )
             )
@@ -179,21 +236,34 @@ def _skill_observations(
     snapshot: InspectionSnapshot, collected_at: datetime
 ) -> tuple[Observation, ...]:
     observations: list[Observation] = []
+    grouped: dict[tuple[str, str], list[SnapshotEntry]] = {}
     for entry in snapshot.entries_named("SKILL.md"):
         name = Path(entry.relative_path).parent.name
-        state = (
-            OperationalState.DISABLED
+        grouped.setdefault((name, entry.source.source_id), []).append(entry)
+    for (name, _source_id), entries in sorted(grouped.items()):
+        entries = sorted(entries, key=lambda item: item.relative_path)
+        states = {
+            ConfigurationState.DISABLED
             if _FRONTMATTER_DISABLED.search(entry.content)
-            else OperationalState.IMPLEMENTED
-        )
+            else ConfigurationState.IMPLEMENTED
+            for entry in entries
+        }
+        state = next(iter(states)) if len(states) == 1 else ConfigurationState.CONFLICTING
+        attributes = ()
+        if len(entries) > 1:
+            attributes = _attributes(
+                _attribute("copy-count", len(entries)),
+                _attribute("variant-count", len({entry.keyed_digest for entry in entries})),
+            )
         observations.append(
             _entry_observation(
-                entry,
+                entries[0],
                 collected_at,
                 kind=ObservationKind.SKILL,
                 identity=name,
                 label=name,
-                operational_state=state,
+                configuration_state=state,
+                attributes=attributes,
             )
         )
     return tuple(observations)
@@ -241,24 +311,45 @@ def _mcp_observations(
 ) -> tuple[Observation, ...]:
     observations: list[Observation] = []
     for entry in _all_entries(snapshot):
-        if Path(entry.relative_path).name not in MCP_CONFIG_BASENAMES:
+        if not is_mcp_manifest_path(entry.relative_path):
             continue
         for document in _documents(entry):
-            for servers in _mapping_values_for_key(document, frozenset({"mcpservers"})):
-                for raw_name, config in servers.items():
-                    name = _label(str(raw_name))
-                    observations.append(
-                        _entry_observation(
-                            entry,
-                            collected_at,
-                            kind=ObservationKind.MCP_SERVER,
-                            identity=name,
-                            label=name,
-                            operational_state=OperationalState.DECLARED,
-                            attributes=_attributes(_attribute("transport", _mcp_transport(config))),
-                        )
+            for raw_name, config in _mcp_server_records(entry, document):
+                name = _label(str(raw_name))
+                observations.append(
+                    _entry_observation(
+                        entry,
+                        collected_at,
+                        kind=ObservationKind.MCP_SERVER,
+                        identity=name,
+                        label=name,
+                        configuration_state=ConfigurationState.DECLARED,
+                        attributes=_attributes(_attribute("transport", _mcp_transport(config))),
                     )
+                )
     return tuple(observations)
+
+
+def _mcp_server_records(
+    entry: SnapshotEntry,
+    document: object,
+) -> tuple[tuple[object, object], ...]:
+    """Return server name/config pairs from closed, secret-safe manifest shapes."""
+
+    if not isinstance(document, Mapping):
+        return ()
+    relative = entry.relative_path.replace("\\", "/").lower()
+    if "/.claude/mcp/" in f"/{relative}" and relative.endswith(".json"):
+        raw_name = document.get("name")
+        name = raw_name if isinstance(raw_name, str) and raw_name.strip() else Path(relative).stem
+        config = document.get("server")
+        return ((name, config),) if isinstance(config, Mapping) else ()
+    if Path(relative).name == "mcp-servers.json":
+        return tuple(document.items())
+    records: list[tuple[object, object]] = []
+    for servers in _mapping_values_for_key(document, frozenset({"mcpservers"})):
+        records.extend(servers.items())
+    return tuple(records)
 
 
 def _action_count(value: object) -> int:
@@ -290,7 +381,7 @@ def _hook_observations(
                             kind=ObservationKind.HOOK,
                             identity=event,
                             label=event,
-                            operational_state=OperationalState.DECLARED,
+                            configuration_state=ConfigurationState.DECLARED,
                             attributes=_attributes(
                                 _attribute("hook-event", event),
                                 _attribute("tool-count", count),
@@ -300,7 +391,23 @@ def _hook_observations(
     return tuple(observations)
 
 
-def _integration_provider_count(entry: SnapshotEntry) -> int:
+def _safe_provider_slug(value: object) -> str | None:
+    """Keep provider *types* only; reject account/workspace and secret-shaped labels."""
+
+    raw = str(value).strip()
+    text = raw.lower()
+    if (
+        not text
+        or has_secret_shape_marker(raw)
+        or has_secret_shape_marker(text)
+        or any(marker in text for marker in _PRIVATE_PROVIDER_MARKERS)
+        or _SAFE_PROVIDER_SLUG.fullmatch(text) is None
+    ):
+        return None
+    return text
+
+
+def _integration_provider_names(entry: SnapshotEntry) -> tuple[str, ...]:
     documents = _documents(entry)
     if documents:
         names: set[str] = set()
@@ -308,8 +415,10 @@ def _integration_provider_count(entry: SnapshotEntry) -> int:
             for block in _mapping_values_for_key(
                 document, frozenset({"providers", "integrations", "connections"})
             ):
-                names.update(str(key) for key in block)
-        return len(names)
+                names.update(
+                    slug for key in block if (slug := _safe_provider_slug(key)) is not None
+                )
+        return tuple(sorted(names))
     text = entry.content.decode("utf-8", "replace")
     in_block = False
     names = set()
@@ -322,8 +431,13 @@ def _integration_provider_count(entry: SnapshotEntry) -> int:
         if in_block:
             match = re.match(r"^\s{2,}([A-Za-z0-9._-]+):", line)
             if match is not None:
-                names.add(match.group(1))
-    return len(names)
+                if slug := _safe_provider_slug(match.group(1)):
+                    names.add(slug)
+    return tuple(sorted(names))
+
+
+def _integration_provider_count(entry: SnapshotEntry) -> int:
+    return len(_integration_provider_names(entry))
 
 
 def _integration_observations(
@@ -339,7 +453,36 @@ def _integration_observations(
     observations: list[Observation] = []
     for source_id in sorted({entry.source.source_id for entry in entries}):
         source_entries = [entry for entry in entries if entry.source.source_id == source_id]
-        provider_count = sum(_integration_provider_count(entry) for entry in source_entries)
+        providers_by_entry = {
+            entry: _integration_provider_names(entry) for entry in source_entries
+        }
+        provider_names = sorted({name for names in providers_by_entry.values() for name in names})
+        for provider_name in provider_names:
+            source_entry = min(
+                (
+                    entry
+                    for entry, names in providers_by_entry.items()
+                    if provider_name in names
+                ),
+                key=lambda item: (item.relative_path.count("/"), item.relative_path),
+            )
+            observations.append(
+                _entry_observation(
+                    source_entry,
+                    collected_at,
+                    kind=ObservationKind.INTEGRATION_PROVIDER,
+                    identity=provider_name,
+                    label=provider_name,
+                    configuration_state=ConfigurationState.DECLARED,
+                    attributes=_attributes(
+                        _attribute(
+                            "source-kind",
+                            Path(source_entry.relative_path).suffix.lstrip(".") or "unknown",
+                        )
+                    ),
+                )
+            )
+        provider_count = len(provider_names)
         source_kinds = sorted(
             {Path(entry.relative_path).suffix.lstrip(".") for entry in source_entries}
         )
@@ -356,10 +499,62 @@ def _integration_observations(
                 kind=ObservationKind.INTEGRATION_REGISTRY,
                 identity="local-integrations",
                 label="Local integrations",
-                operational_state=OperationalState.IMPLEMENTED,
+                configuration_state=ConfigurationState.IMPLEMENTED,
                 attributes=_attributes(
                     _attribute("provider-count", provider_count),
                     _attribute("source-kind", "+".join(source_kinds) or "unknown"),
+                ),
+            )
+        )
+    return tuple(observations)
+
+
+def _declares_external_task_adapter(entry: SnapshotEntry) -> bool:
+    """Recognise one closed CommonJS declaration without retaining its body."""
+
+    text = entry.content.decode("utf-8", "replace")
+    syntax_only = _JS_COMMENT_OR_STRING.sub(" ", text)
+    match = _COMMONJS_ADAPTER_EXPORT.search(syntax_only)
+    if match is None:
+        return False
+    exported_names: set[str] = set()
+    for declaration in match.group("body").split(","):
+        if not declaration.strip():
+            continue
+        property_match = _COMMONJS_PROPERTY.fullmatch(declaration)
+        if property_match is None:
+            return False
+        exported_names.add(property_match.group("key"))
+    return _EXTERNAL_TASK_ADAPTER_API.issubset(exported_names)
+
+
+def _external_task_adapter_observations(
+    snapshot: InspectionSnapshot, collected_at: datetime
+) -> tuple[Observation, ...]:
+    by_source: dict[str, list[tuple[SnapshotEntry, str]]] = {}
+    for entry in _all_entries(snapshot):
+        adapter_id = external_task_adapter_id(entry.relative_path)
+        if adapter_id is None or not _declares_external_task_adapter(entry):
+            continue
+        by_source.setdefault(entry.source.source_id, []).append((entry, adapter_id))
+
+    observations: list[Observation] = []
+    for source_id in sorted(by_source):
+        records = by_source[source_id]
+        source_entry = min(records, key=lambda item: item[0].relative_path)[0]
+        observations.append(
+            _entry_observation(
+                source_entry,
+                collected_at,
+                kind=ObservationKind.INTEGRATION_REGISTRY,
+                identity="external-task-sync",
+                label="External task adapters",
+                configuration_state=ConfigurationState.IMPLEMENTED,
+                attributes=_attributes(
+                    _attribute(
+                        "provider-count", len({adapter_id for _entry, adapter_id in records})
+                    ),
+                    _attribute("source-kind", "claude-hook-adapter"),
                 ),
             )
         )
@@ -420,7 +615,7 @@ def _automation_observations(
                     kind=ObservationKind.AUTOMATION,
                     identity=label,
                     label=label,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=attributes,
                 )
             )
@@ -438,7 +633,7 @@ def _automation_observations(
                         kind=ObservationKind.AUTOMATION,
                         identity=label,
                         label=label,
-                        operational_state=OperationalState.IMPLEMENTED,
+                        configuration_state=ConfigurationState.IMPLEMENTED,
                         attributes=_attributes(
                             _attribute("schedule", match.group(1)),
                             _attribute("source-kind", source_kind),
@@ -454,7 +649,7 @@ def _automation_observations(
                     kind=ObservationKind.AUTOMATION,
                     identity=label,
                     label=label,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(_attribute("source-kind", source_kind)),
                 )
             )
@@ -480,7 +675,8 @@ def _automation_observations(
             upgraded.append(
                 observation.model_copy(
                     update={
-                        "operational_state": OperationalState.NOT_ASSESSED,
+                        "runtime_state": RuntimeState.NOT_ASSESSED,
+                        "health_state": HealthState.NOT_ASSESSED,
                         "attributes": _attributes(*observation.attributes, ambiguity),
                     }
                 )
@@ -500,9 +696,52 @@ def _automation_observations(
             continue
         live = eligible[0]
         upgraded.append(
-            observation.model_copy(update={"operational_state": live.operational_state})
+            observation.model_copy(
+                update={
+                    "runtime_state": live.runtime_state,
+                    "health_state": getattr(live, "health_state", HealthState.NOT_ASSESSED),
+                }
+            )
         )
     return tuple(upgraded)
+
+
+def _has_closed_backup_proof(entry: SnapshotEntry) -> bool:
+    """Require fetch, throwaway restore, and result verification in one script."""
+
+    text = entry.content.decode("utf-8", "replace")
+    for assignment in _TEMP_DIRECTORY_ASSIGNMENT.finditer(text):
+        linked_variables = {assignment.group(1)}
+        changed = True
+        while changed:
+            changed = False
+            alternatives = "|".join(
+                re.escape(item) for item in sorted(linked_variables)
+            )
+            linked_use = re.compile(
+                rf"\$(?:\{{(?:{alternatives})\}}|(?:{alternatives})\b)"
+            )
+            for line in text.splitlines():
+                derived = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+                if (
+                    derived
+                    and linked_use.search(line)
+                    and derived.group(1) not in linked_variables
+                ):
+                    linked_variables.add(derived.group(1))
+                    changed = True
+        alternatives = "|".join(re.escape(item) for item in sorted(linked_variables))
+        linked_use = re.compile(
+            rf"\$(?:\{{(?:{alternatives})\}}|(?:{alternatives})\b)"
+        )
+        linked_lines = [line for line in text.splitlines() if linked_use.search(line)]
+        if (
+            any(_BACKUP_FETCH_COMMAND.search(line) for line in linked_lines)
+            and any(_BACKUP_RESTORE_COMMAND.search(line) for line in linked_lines)
+            and any(_BACKUP_VERIFY_COMMAND.search(line) for line in linked_lines)
+        ):
+            return True
+    return False
 
 
 def _health_and_recovery_observations(
@@ -512,7 +751,7 @@ def _health_and_recovery_observations(
     for entry in _all_entries(snapshot):
         path = Path(entry.relative_path)
         parent_parts = {part.lower() for part in path.parts[:-1]}
-        if not parent_parts & _SAFE_PROBE_FOLDERS:
+        if not parent_parts & SAFE_PROBE_FOLDERS:
             continue
         stem = _identity(path.stem)
         words = frozenset(stem.replace("_", "-").split("-"))
@@ -524,7 +763,7 @@ def _health_and_recovery_observations(
                     kind=ObservationKind.HEALTH_CHECK,
                     identity=stem,
                     label=path.stem,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(
                         _attribute("source-kind", path.suffix.lstrip(".") or "file")
                     ),
@@ -538,10 +777,22 @@ def _health_and_recovery_observations(
                     kind=ObservationKind.RECOVERY_PROOF,
                     identity=stem,
                     label=path.stem,
-                    operational_state=OperationalState.IMPLEMENTED,
+                    configuration_state=ConfigurationState.IMPLEMENTED,
                     attributes=_attributes(
                         _attribute("source-kind", path.suffix.lstrip(".") or "file")
                     ),
+                )
+            )
+        if is_backup_proof_probe_path(entry.relative_path) and _has_closed_backup_proof(entry):
+            observations.append(
+                _entry_observation(
+                    entry,
+                    collected_at,
+                    kind=ObservationKind.RECOVERY_PROOF,
+                    identity="vault-backup",
+                    label="Backup restore proof",
+                    configuration_state=ConfigurationState.IMPLEMENTED,
+                    attributes=_attributes(_attribute("source-kind", "shell")),
                 )
             )
     return tuple(observations)
@@ -581,7 +832,7 @@ def _render_limits(
     unreadable_configs = sum(
         1
         for entry in _all_entries(snapshot)
-        if Path(entry.relative_path).name in MCP_CONFIG_BASENAMES and not _documents(entry)
+        if is_mcp_manifest_path(entry.relative_path) and not _documents(entry)
     )
     if unreadable_configs:
         noun = "file" if unreadable_configs == 1 else "files"
@@ -603,14 +854,26 @@ def discover_fingerprint(
     *,
     collected_at: datetime,
     live_states: tuple[_LiveStateLike, ...] = (),
+    scope_receipt: object | None = None,
 ) -> EvidenceFingerprint:
-    """Build one local-only fingerprint from the approved immutable snapshot."""
+    """Build one local-only fingerprint from the approved immutable snapshot.
+
+    Live host state is accepted only when an explicitly supplied consent
+    receipt includes it.  The omitted-receipt form remains for the legacy
+    standalone inventory command; diagnosis callers pass their receipt.
+    """
+
+    if scope_receipt is not None and not bool(
+        getattr(scope_receipt, "include_live_state", False)
+    ):
+        live_states = ()
     observations = (
         *_release_observations(snapshot, collected_at),
         *_skill_observations(snapshot, collected_at),
         *_mcp_observations(snapshot, collected_at),
         *_hook_observations(snapshot, collected_at),
         *_integration_observations(snapshot, collected_at),
+        *_external_task_adapter_observations(snapshot, collected_at),
         *_automation_observations(snapshot, collected_at, live_states),
         *_health_and_recovery_observations(snapshot, collected_at),
     )

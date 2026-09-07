@@ -19,11 +19,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from pydantic import ValidationError
+
+from capability_exchange.boundary.crashlog import write_crash_log
+from capability_exchange.diagnosis.payload_guard import (
+    REMOVE_ABSOLUTE_PATH,
+    REMOVE_SECRET,
+    HostilePayloadError,
+    parse_specialist_proposal,
+    refuse_hostile_payload,
+)
 from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
 )
+from capability_exchange.diagnosis.specialists import SpecialistProposalError
+from capability_exchange.diagnosis.work import AnalysisMode, WorkQueueError
 
 __all__ = [
     "DeterministicDiagnosisEngine",
@@ -49,6 +61,23 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def advance(self, run_id: str) -> DiagnosisRunView: ...
 
+    def family_map(self, run_id: str) -> object: ...
+
+    def focus(self, run_id: str, family_ids: tuple[str, ...]) -> DiagnosisRunView: ...
+
+    def work(self, run_id: str) -> object: ...
+
+    def pending_work(self, run_id: str) -> tuple[object, ...]: ...
+
+    def work_context(self, run_id: str) -> tuple[object, ...]: ...
+
+    def submit_work(
+        self,
+        run_id: str,
+        packet_id: str,
+        proposals: tuple[object, ...] = (),
+    ) -> DiagnosisRunView: ...
+
     def submit(self, run_id: str, proposal: object) -> DiagnosisRunView: ...
 
     def result(self, run_id: str) -> _DiagnosisResult: ...
@@ -59,6 +88,7 @@ class PrepareDiagnosisRequest:
     """Candidate folders recorded without reading them."""
 
     roots: tuple[Path, ...]
+    analysis_mode: AnalysisMode = AnalysisMode.GUIDED
 
 
 @dataclass
@@ -72,18 +102,22 @@ class _BoundConsentSurface:
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
 _DIAGNOSIS_COMMANDS = frozenset(
-    {"prepare", "approve", "status", "advance", "submit", "result"}
+    {"prepare", "approve", "status", "advance", "map", "focus", "work", "submit", "result"}
 )
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
 
 JSON goes to stdout. Refusals and human guidance go to stderr.
 
-    dex-lens diagnosis prepare --root <folder> [--additional-root <folder>]
+    dex-lens diagnosis prepare --root <folder>
+        [--mode guided-analysis|focused-analysis|inventory-only]
     dex-lens diagnosis approve --run <id>
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
-    dex-lens diagnosis submit --run <id> --proposal <json-file>
+    dex-lens diagnosis map --run <id> [--json]
+    dex-lens diagnosis focus --run <id> --family <id> [--family <id> ...]
+    dex-lens diagnosis work --run <id> --json
+    dex-lens diagnosis submit --run <id> --packet <id> [--proposal <json-file>]
     dex-lens diagnosis result --run <id> --format json|markdown
 
 prepare records candidate folders and returns a run ID. It does not collect.
@@ -205,17 +239,74 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         "approve": _approve,
         "status": _status,
         "advance": _advance,
+        "map": _map,
+        "focus": _focus,
+        "work": _work,
         "submit": _submit,
         "result": _result,
     }
     try:
         return handlers[command](arguments[1:])
     except DiagnosisStateError as exc:
-        print(f"dex-lens: {exc}", file=sys.stderr)
+        print(f"dex-lens: {_guarded_refusal_text(exc)}", file=sys.stderr)
+        return 2
+    except (WorkQueueError, SpecialistProposalError) as exc:
+        print(f"dex-lens: {_guarded_refusal_text(exc)}", file=sys.stderr)
+        return 2
+    except ValidationError:
+        # Never render a pydantic error here: it repeats the offending input
+        # value, which on this path is specialist or vault text.
+        print(
+            "dex-lens: the payload is not a closed typed diagnosis value.",
+            file=sys.stderr,
+        )
         return 2
     except SystemExit as exc:
         code = 0 if exc.code in {None, True} else (1 if exc.code is False else int(exc.code))
         return code
+    except Exception as exc:  # crash boundary — KeyboardInterrupt passes through
+        # First caller of boundary/crashlog.py in src/: the record keeps
+        # structure only. The message is never printed or stored, because a
+        # message is interpolated from runtime values and can carry vault
+        # content — that is the whole point of the module.
+        _record_crash(exc)
+        print(_CRASH_SENTENCE, file=sys.stderr)
+        return 70
+
+
+def _guarded_refusal_text(exc: Exception) -> str:
+    """Refusal text reaches the screen only when it passes the payload guard.
+
+    The CLI screens every outbound payload; a refusal message interpolated
+    from run state must clear the same bar, or the screen gets a fixed
+    sentence instead of the offending text.
+    """
+
+    message = str(exc)
+    try:
+        refuse_hostile_payload(message)
+    except HostilePayloadError:
+        return "diagnosis refused this step"
+    return message
+
+
+#: Fixed by design: no exception text, no path, ever. A crash on this surface
+#: must not become a second way for inspected-system content to reach a screen.
+_CRASH_SENTENCE = (
+    "dex-lens: this command stopped on an unexpected error; "
+    "only a redacted crash log is kept locally."
+)
+
+
+def _record_crash(exc: Exception) -> None:
+    """Write the redacted crash record; a failed write forfeits only the log."""
+
+    try:
+        from capability_exchange.catalogue.subscription import default_lens_app_storage
+
+        write_crash_log(exc, default_lens_app_storage() / "crash-logs")
+    except Exception:  # the crash boundary never propagates
+        pass
 
 
 def _parser(prog: str, description: str) -> argparse.ArgumentParser:
@@ -231,6 +322,25 @@ def _write_canonical_json(payload: object) -> None:
             sort_keys=True,
         )
     )
+
+
+def _write_guarded_canonical_json(payload: object) -> int:
+    """Screen an outbound diagnosis payload exactly as the MCP adapter does.
+
+    ``mcp_server._dump``/``_dump_work`` and the work tool refuse these payloads
+    on the MCP wire; the CLI prints the same payloads, so it must refuse the
+    same ones. The refusal never echoes the offending value. The consent
+    surface prints are deliberately not routed through here: approved roots
+    and the local token are the person's own screen before any reading.
+    """
+
+    try:
+        refuse_hostile_payload(payload)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    _write_canonical_json(payload)
+    return 0
 
 
 def _existing_roots(paths: Sequence[Path]) -> tuple[Path, ...] | None:
@@ -282,6 +392,20 @@ def _prepare(argv: list[str]) -> int:
         help="Another candidate folder. May be repeated. Nothing is read yet.",
     )
     parser.add_argument(
+        "--mode",
+        choices=(
+            AnalysisMode.GUIDED.value,
+            AnalysisMode.FOCUSED.value,
+            AnalysisMode.INVENTORY_ONLY.value,
+        ),
+        default=AnalysisMode.GUIDED.value,
+        help=(
+            "Analysis mode. Guided analysis issues engine-owned specialist work "
+            "across every family; focused analysis waits for a family "
+            "multi-select after the deterministic map and scopes packets to it."
+        ),
+    )
+    parser.add_argument(
         "--consent-surface",
         action="store_true",
         help="Also start the optional local approval page. Not required in chat.",
@@ -304,7 +428,12 @@ def _prepare(argv: list[str]) -> int:
     if roots is None:
         return 2
     engine = build_engine()
-    view = engine.prepare(PrepareDiagnosisRequest(roots=roots))
+    view = engine.prepare(
+        PrepareDiagnosisRequest(
+            roots=roots,
+            analysis_mode=AnalysisMode(args.mode),
+        )
+    )
     if args.consent_surface:
         approval_url = start_or_reuse_consent_surface(
             run_id=view.run_id,
@@ -420,7 +549,28 @@ def _status(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     view = build_engine().status(args.run)
-    _write_canonical_json(view.dump_for_storage())
+    if args.json:
+        # Status now carries the re-derived family map, so it clears the same
+        # outbound payload guard as every other fingerprint-derived surface.
+        return _write_guarded_canonical_json(view.dump_for_storage())
+    lines = [
+        f"Run {args.run}: {view.stage.value}",
+        f"Next: {view.next_action}",
+    ]
+    progress = getattr(view, "progress", None)
+    if progress is not None:
+        # One plain engine-composed line, in the person's units — relayed,
+        # never invented here; its pace clause is observed, not promised.
+        lines.append(f"Progress: {progress.headline}")
+    rendered = "\n".join(lines) + "\n"
+    # The human rendering leaves the process exactly like the JSON payload
+    # does, so it clears the same outbound payload guard.
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    sys.stdout.write(rendered)
     return 0
 
 
@@ -441,25 +591,224 @@ def _advance(argv: list[str]) -> int:
     return 0
 
 
-def _submit(argv: list[str]) -> int:
+def _map_release_line(payload: dict[str, object]) -> str:
+    """One engine-derived release-gap headline for the human map rendering.
+
+    Speaks release identifiers, counts, and signed family identities only.
+    The Unknown branch is deliberately loud and priced: it names the one
+    observation that would establish the distance instead of staying silent.
+    """
+
+    rows = payload.get("rows", [])
+    inspected = payload.get("inspected_release")
+    current = payload.get("current_release")
+    gapped = [row for row in rows if isinstance(row, dict) and row.get("release_delta")]
+    if inspected is None:
+        return (
+            "Release distance: Unknown — the approved snapshot carries no Dex "
+            "Core release observation. A readable release file (`.dex-version` "
+            "or `CHANGELOG.md`) inside an approved folder would establish it."
+        )
+    if gapped:
+        concentrated = ", ".join(
+            "{family} ({newer} newer, {changed} changed)".format(
+                family=row["family_id"],
+                newer=len(row["release_delta"].get("newer_member_ids", [])),
+                changed=len(row["release_delta"].get("changed_member_ids", [])),
+            )
+            for row in gapped
+        )
+        return (
+            f"Release gap: your install identifies Dex Core {inspected}; the "
+            f"signed catalogue describes {current}. The gap concentrates in: "
+            f"{concentrated}."
+        )
+    return (
+        f"Release gap: none derivable from signed lineage — your install "
+        f"identifies Dex Core {inspected} and no signed family-level change "
+        "against this catalogue was established. This is not a claim that you "
+        "are current."
+    )
+
+
+def _row_release_suffix(row: dict[str, object]) -> str:
+    delta = row.get("release_delta")
+    if not isinstance(delta, dict):
+        return ""
+    newer = len(delta.get("newer_member_ids", []))
+    changed = len(delta.get("changed_member_ids", []))
+    outcome = delta.get("outcome", "")
+    return (
+        f" [release gap: {newer} newer, {changed} changed since "
+        f"{delta.get('inspected_release')}; signed outcome: {outcome}]"
+    )
+
+
+def _map(argv: list[str]) -> int:
     parser = _parser(
-        "dex-lens diagnosis submit",
-        "Offer a typed specialist proposal. The engine still owns the facts.",
+        "dex-lens diagnosis map",
+        "Print the deterministic family map, re-derived from verified inputs.",
     )
     parser.add_argument("--run", required=True, help="Diagnosis run ID.")
     parser.add_argument(
-        "--proposal",
-        type=Path,
-        required=True,
-        help="JSON file holding one specialist proposal.",
+        "--json",
+        action="store_true",
+        help="Write the canonical family map as JSON on stdout.",
     )
     args = parser.parse_args(argv)
-    proposal = _load_proposal(args.proposal)
-    if proposal is None:
+    family_map = build_engine().family_map(args.run)
+    dump = getattr(family_map, "model_dump", None)
+    payload = dump(mode="json") if callable(dump) else family_map
+    if args.json:
+        return _write_guarded_canonical_json(payload)
+    lines = [
+        f"Family map for {args.run} (catalogue v{payload['catalogue_version']}):",
+        _map_release_line(payload),
+        *(
+            f"- {row['family_id']} — {row['state']}: {row['reason']}"
+            f"{_row_release_suffix(row)}"
+            for row in payload["rows"]
+        ),
+    ]
+    if payload.get("non_lineage") and payload.get("job_rows"):
+        lines.append(
+            "Non-lineage run: no signed Dex identity matched, so the honest "
+            "comparison is by signed job:"
+        )
+        lines.extend(
+            f"- job {row['job_id']} — {row['state']}: {row['reason']}"
+            for row in payload["job_rows"]
+        )
+    rendered = "\n".join(lines) + "\n"
+    # The human rendering leaves the process exactly like the JSON payload
+    # does, so it clears the same outbound payload guard.
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
         return 2
-    view = build_engine().submit(args.run, proposal)
-    _write_canonical_json(view.dump_for_storage())
+    sys.stdout.write(rendered)
     return 0
+
+
+def _focus(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis focus",
+        "Record the person's family multi-select for a focused-analysis run.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--family",
+        action="append",
+        default=[],
+        required=True,
+        help=(
+            "A selected family ID from the family map — or, on a non-lineage "
+            "run, a selected signed job ID from its job rows. May be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the canonical run view as JSON on stdout.",
+    )
+    args = parser.parse_args(argv)
+    view = build_engine().focus(args.run, tuple(args.family))
+    # The view can now carry the focus receipt (map-bound facts), so it clears
+    # the same outbound payload guard as status.
+    return _write_guarded_canonical_json(view.dump_for_storage())
+
+
+def _work(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis work",
+        "Return the next engine-issued specialist packet, or a typed empty result.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the canonical work payload as JSON on stdout.",
+    )
+    args = parser.parse_args(argv)
+    engine = build_engine()
+    packets = engine.pending_work(args.run)
+    if not packets:
+        payload: dict[str, object] = {"packet": None, "packets": []}
+    else:
+        # ``packets`` is the whole legal round, so a host fans every packet
+        # out to parallel workers from this one fetch; ``packet`` stays the
+        # first pending entry for compatibility. The legend rides alongside
+        # the round exactly once so a host can cite the opaque
+        # evidence/observation tokens without reading engine source. It
+        # never joins any packet's digest-bound identity.
+        dumped = [_json_packet(item) for item in packets]
+        payload = {
+            "packet": dumped[0],
+            "packets": dumped,
+            "evidence_legend": [
+                _json_row(row) for row in engine.work_context(args.run)
+            ],
+        }
+    return _write_guarded_canonical_json(payload)
+
+
+def _json_packet(packet: object) -> object:
+    """Dump one typed work packet; already-plain packets pass through."""
+
+    dump = getattr(packet, "model_dump", None)
+    return dump(mode="json") if callable(dump) else packet
+
+
+def _json_row(row: object) -> object:
+    """Dump one typed legend row; already-plain rows pass through."""
+
+    dump = getattr(row, "model_dump", None)
+    return dump(mode="json") if callable(dump) else row
+
+
+def _submit(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis submit",
+        "Offer typed specialist responses for one engine-issued packet.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--packet",
+        help="Engine-issued packet ID. When omitted, submit one legacy proposal.",
+    )
+    parser.add_argument(
+        "--proposal",
+        type=Path,
+        action="append",
+        default=[],
+        help="JSON file holding one specialist proposal. May be repeated.",
+    )
+    args = parser.parse_args(argv)
+    engine = build_engine()
+    if args.packet:
+        proposals: list[object] = []
+        for path in args.proposal:
+            proposal = _load_proposal(path)
+            if proposal is None:
+                return 2
+            typed = _typed_proposal(proposal)
+            if typed is None:
+                return 2
+            proposals.append(typed)
+        view = engine.submit_work(args.run, args.packet, tuple(proposals))
+    else:
+        if len(args.proposal) != 1:
+            print(
+                "dex-lens: legacy submit requires exactly one --proposal file.",
+                file=sys.stderr,
+            )
+            return 2
+        proposal = _load_proposal(args.proposal[0])
+        if proposal is None:
+            return 2
+        view = engine.submit(args.run, proposal)
+    return _write_guarded_canonical_json(view.dump_for_storage())
 
 
 def _result(argv: list[str]) -> int:
@@ -477,13 +826,21 @@ def _result(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     result = build_engine().result(args.run)
     if args.format == "json":
-        _write_canonical_json(result.dump_for_storage())
-        return 0
+        return _write_guarded_canonical_json(result.dump_for_storage())
     render = getattr(result, "render_markdown", None)
     if not callable(render):
         print("dex-lens: this result has no canonical markdown.", file=sys.stderr)
         return 2
-    sys.stdout.write(str(render()))
+    # WO-022, decided 2026-09-03: the footer now renders its location
+    # home-relative, so the rendered report carries no account name and the
+    # markdown surface is guarded like every other outbound surface.
+    rendered = str(render())
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    sys.stdout.write(rendered)
     return 0
 
 
@@ -499,3 +856,41 @@ def _load_proposal(path: Path) -> object | None:
     except OSError as exc:
         print(f"dex-lens: could not read the proposal: {exc}", file=sys.stderr)
         return None
+
+
+_HOSTILE_GUIDANCE = {
+    REMOVE_SECRET: "dex-lens: secret material is not retained on the diagnosis wire.",
+    REMOVE_ABSOLUTE_PATH: "dex-lens: absolute paths are not retained on the diagnosis wire.",
+}
+
+
+def _typed_proposal(payload: object) -> object | None:
+    """Validate one proposal here, so a bad file never costs a packet attempt.
+
+    The engine records a durable attempt for anything it rejects. MCP parses
+    ahead of the engine for that reason and the CLI must match it, or the same
+    bytes would consume a retry on one adapter and none on the other. Refusals
+    never repeat the offending value.
+    """
+
+    try:
+        typed = parse_specialist_proposal(payload)
+    except ValueError as exc:
+        # ``parse_specialist_proposal`` raises plain ValueError carrying only
+        # fixed rule text plus failing field names — never pydantic messages
+        # or submitted values — so exactly that wording is printed verbatim.
+        # Any other ValueError subclass keeps the closed sentence: its text
+        # could interpolate submitted values.
+        message = (
+            str(exc)
+            if type(exc) is ValueError
+            else "specialist proposal is not a closed typed payload"
+        )
+        print(f"dex-lens: {message}", file=sys.stderr)
+        return None
+    try:
+        refuse_hostile_payload(typed.model_dump())
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return None
+    return typed

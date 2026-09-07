@@ -31,6 +31,7 @@ from capability_exchange.catalogue.bridge import (
 from capability_exchange.catalogue.schema_contract import (
     MINIMUM_LENS_VERSION,
     MINIMUM_VERSION_KEYWORD,
+    SIGNIFICANT_FAMILY_MINIMUM_LENS_VERSION,
     build_catalogue_schema,
     iter_catalogue_schema_errors,
 )
@@ -450,7 +451,12 @@ def test_mixed_four_class_signed_envelope_through_the_whole_pipeline(
 
 def test_exported_schema_declares_the_five_branch_contract() -> None:
     schema = build_catalogue_schema()
-    assert schema[MINIMUM_VERSION_KEYWORD] == MINIMUM_LENS_VERSION == "0.1.9"
+    assert MINIMUM_LENS_VERSION == "0.1.9"
+    assert (
+        schema[MINIMUM_VERSION_KEYWORD]
+        == SIGNIFICANT_FAMILY_MINIMUM_LENS_VERSION
+        == "0.1.16"
+    )
     union = schema["$defs"]["CatalogueCapabilityEntryV2"]
     assert [ref["$ref"].rsplit("/", 1)[1] for ref in union["oneOf"]] == [
         "LegacySkillCapabilityEntryV2",

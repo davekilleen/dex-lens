@@ -176,6 +176,35 @@ def test_both_installers_ask_before_choosing_when_claude_and_codex_exist(
         assert "choose Claude Code or Codex" in completed.stdout, name
 
 
+def test_both_installers_offer_the_choice_in_plain_words(tmp_path: Path) -> None:
+    """The chooser must be readable without knowing terminal idioms.
+
+    The prompt used to end `2) Codex [1]: ` — the default marker sat flush
+    against "Codex" and a non-technical person read it as Codex being
+    option 1. Both installers now list the options and then say, in words,
+    what to type and what pressing Enter does.
+    """
+    for name, installer in _both_installers(tmp_path).items():
+        text = installer.read_text(encoding="utf-8")
+        assert "1) Claude Code   2) Codex" in text, name
+        assert "Type 1 or 2, or just press Enter for Claude Code:" in text, name
+        assert "Codex [1]" not in text, f"{name} still prints the cryptic default marker"
+
+
+def test_both_installers_set_the_startup_pause_expectation(tmp_path: Path) -> None:
+    """The seconds between hand-over and first question must be named.
+
+    A real user watched the briefly blank screen after "Starting your
+    assistant now" and read it as the install having failed. Both installers
+    must say, at hand-over, that the assistant takes a few seconds to start
+    and then asks the first question itself.
+    """
+    for name, installer in _both_installers(tmp_path).items():
+        text = installer.read_text(encoding="utf-8")
+        assert "a few seconds to start" in text, name
+        assert "asks the first question itself" in text, name
+
+
 def test_both_installers_name_the_command_they_installed(tmp_path: Path) -> None:
     """"Exactly what changed" has to include the thing the person will type."""
     for name, installer in _both_installers(tmp_path).items():

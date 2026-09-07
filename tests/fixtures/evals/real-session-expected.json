@@ -23,6 +23,7 @@
     "scope-approved",
     "captured",
     "catalogue-verified",
+    "family-mapped",
     "jobs-confirmed",
     "compared",
     "rendered",
@@ -46,7 +47,7 @@
     "sharing_choice",
     "future_watch_choice"
   ],
-  "max_recommendations": 3,
+  "max_recommendations": 10,
   "requires_strength": true,
   "requires_reciprocal_answer": true
 }

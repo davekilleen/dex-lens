@@ -32,9 +32,14 @@ from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.diagnosis.foundations import FoundationCapability
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,80}$")
+_HOST_ADAPTER_RE = re.compile(r"^[a-z][a-z0-9-]{1,80}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _CatalogueId = Annotated[str, Field(pattern=_ID_RE.pattern)]
+_HostAdapterId = Annotated[str, Field(pattern=_HOST_ADAPTER_RE.pattern)]
 _SemanticVersion = Annotated[str, Field(pattern=_SEMVER_RE.pattern)]
+_ToolName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+_ProviderId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{2,80}$")]
 
 # The four kinds of capability a Dex release can publish, the publisher's
 # reviewed impact ranking, and whether the capability is currently offered.
@@ -48,6 +53,21 @@ CapabilityClassV2 = Literal[
 ]
 ImpactTierV2 = Literal["core", "high", "medium", "niche"]
 CapabilityAvailabilityV2 = Literal["active", "dormant", "parked"]
+
+# Family assessments are deliberately declarative.  A profile names one of
+# Lens's reviewed, read-only detector families; it is not a command, module
+# path, or executable snippet supplied by a catalogue producer.
+AssessmentProfileV2 = Literal[
+    "catalogue",
+    "mcp",
+    "mcp-tool",
+    "filesystem",
+    "source-component",
+    "provider",
+    "scheduled-automation",
+    "health",
+    "doctor",
+]
 
 # A repository-relative path published as public product metadata: never
 # absolute, never traversing upward. Lens only displays these; the pattern
@@ -70,6 +90,7 @@ _FoundationCapabilityId = Literal[
 _CONTRACT_VERSION = "dex-lens-catalogue-v2"
 _CACHE_FILE = "lens-catalogue-v2-cache.json"
 UNIQUE_BY_KEYWORD = "x-dex-lens-unique-by"
+UNIQUE_COMPONENT_IDENTITY_KEYWORD = "x-dex-lens-unique-component-identity"
 
 # Release-owned Dex Core signing keys. Private keys live only in the Dex release
 # environment; Lens ships public keys so catalogues verify locally.
@@ -175,7 +196,7 @@ class CapabilityEvidenceV2(InventoriedModel):
 
 
 class CapabilityCompatibilityV2(InventoriedModel):
-    host_adapters: tuple[_CatalogueId, ...] = Field(
+    host_adapters: tuple[_HostAdapterId, ...] = Field(
         min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
     )
     foundation_capabilities: tuple[_FoundationCapabilityId, ...] = Field(
@@ -192,14 +213,14 @@ class CapabilityCompatibilityV2(InventoriedModel):
     )
     limitations: tuple[str, ...] = Field(min_length=1, max_length=20)
 
-    @field_validator("host_adapters", "foundation_capabilities")
+    @field_validator("host_adapters")
     @classmethod
-    def _ids_are_kebab_case(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def _host_adapter_ids_are_safe(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
-            if not _ID_RE.match(value):
-                raise ValueError(f"{value!r} is not a catalogue id")
+            if not _HOST_ADAPTER_RE.fullmatch(value):
+                raise ValueError(f"{value!r} is not a host adapter id")
         if len(set(values)) != len(values):
-            raise ValueError("duplicate compatibility id")
+            raise ValueError("duplicate host adapter id")
         return values
 
     @field_validator("foundation_capabilities")
@@ -207,6 +228,8 @@ class CapabilityCompatibilityV2(InventoriedModel):
     def _foundation_capabilities_are_known(
         cls, values: tuple[str, ...]
     ) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate foundation capability id")
         known = {capability.value for capability in FoundationCapability}
         unknown = sorted(set(values) - known)
         if unknown:
@@ -355,9 +378,17 @@ class McpServerCapabilityEntryV2(InventoriedModel):
     release_provenance: Literal["core-release"]
     server_name: str = Field(pattern=r"^dex-[a-z0-9-]+$")
     tool_count: int = Field(ge=1)
-    example_tools: tuple[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")], ...] = Field(
+    example_tools: tuple[_ToolName, ...] = Field(
         min_length=1, max_length=5, json_schema_extra={"uniqueItems": True}
     )
+    # Existing v6 catalogues only publish a count and a few examples.  The
+    # fields below are additive so those sampled entries continue to verify;
+    # a complete inventory opts in explicitly and is checked against the
+    # exact tool tuple.
+    tools: tuple[_ToolName, ...] = Field(
+        default=(), max_length=500, json_schema_extra={"uniqueItems": True}
+    )
+    tool_inventory: Literal["sampled", "complete"] = "sampled"
     source_paths: tuple[_SafeRelativePath, ...] = Field(
         min_length=1, max_length=300, json_schema_extra={"uniqueItems": True}
     )
@@ -371,6 +402,127 @@ class McpServerCapabilityEntryV2(InventoriedModel):
         if len(set(values)) != len(values):
             raise ValueError("duplicate example tool on capability entry")
         return values
+
+    @field_validator("tools")
+    @classmethod
+    def _tools_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate tool on capability entry")
+        return values
+
+    @model_validator(mode="after")
+    def _complete_inventory_is_exact(self) -> McpServerCapabilityEntryV2:
+        if self.tool_inventory != "complete":
+            return self
+        if not self.tools:
+            raise ValueError("complete MCP tool inventory must be non-empty")
+        if self.tool_count != len(self.tools):
+            raise ValueError(
+                "complete MCP tool inventory tool_count must equal the number of tools "
+                f"({self.tool_count} != {len(self.tools)})"
+            )
+        missing_examples = sorted(set(self.example_tools) - set(self.tools))
+        if missing_examples:
+            raise ValueError(
+                "complete MCP tool inventory examples must be a subset of tools: "
+                + ", ".join(missing_examples)
+            )
+        return self
+
+
+class CapabilityReferenceV2(InventoriedModel):
+    """A component that points to one signed catalogue capability."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    component_type: Literal["capability"]
+    capability_id: _CatalogueId
+
+
+class McpToolReferenceV2(InventoriedModel):
+    """A component that names one exact tool on one MCP server."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    component_type: Literal["mcp-tool"]
+    server_id: _CatalogueId
+    tool_name: _ToolName
+
+
+class NangoProviderReferenceV2(InventoriedModel):
+    """A safe provider *type* identity from the pinned Nango data package."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    component_type: Literal["nango-provider"]
+    provider_id: _ProviderId
+    source_package: Literal["@nangohq/providers"]
+    source_version: _SemanticVersion
+    # Support and security review are intentionally separate dimensions.  A
+    # provider may be known to Dex but not yet security-reviewed (or vice
+    # versa); no single status field can smuggle one claim into the other.
+    dex_support: Literal["supported", "unsupported"]
+    security_vetted: bool
+
+
+class SourceComponentReferenceV2(InventoriedModel):
+    """A reviewed Lens-side source component identity (never a path)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    component_type: Literal["source-component"]
+    component_id: _CatalogueId
+
+
+CapabilityComponentV2 = Annotated[
+    CapabilityReferenceV2
+    | McpToolReferenceV2
+    | NangoProviderReferenceV2
+    | SourceComponentReferenceV2,
+    Field(discriminator="component_type"),
+]
+
+# Short aliases keep the public contract ergonomic for producers and tests
+# while the longer class names make the generated schema self-explanatory.
+CapabilityRefV2 = CapabilityReferenceV2
+McpToolRefV2 = McpToolReferenceV2
+NangoProviderRefV2 = NangoProviderReferenceV2
+SourceComponentRefV2 = SourceComponentReferenceV2
+
+
+class AutomaticAssessmentV2(InventoriedModel):
+    """A closed reference to one built-in read-only detector profile."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mode: Literal["automatic"]
+    profile: AssessmentProfileV2
+
+
+class ManualOnlyAssessmentV2(InventoriedModel):
+    """A family that intentionally needs a human review rather than a detector."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mode: Literal["manual-only"]
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_safe_text(cls, value: str) -> str:
+        if _CONTROL_RE.search(value):
+            raise ValueError("manual-only reason must be one bounded line")
+        return value
+
+
+CapabilityAssessmentV2 = Annotated[
+    AutomaticAssessmentV2 | ManualOnlyAssessmentV2,
+    Field(discriminator="mode"),
+]
+
+# Public short aliases for callers that use the contract vocabulary directly.
+AutomaticAssessment = AutomaticAssessmentV2
+ManualOnlyAssessment = ManualOnlyAssessmentV2
 
 
 class ScheduledAutomationCapabilityEntryV2(InventoriedModel):
@@ -489,6 +641,82 @@ class PortableBriefContractV2(InventoriedModel):
     safety_boundary: str = Field(min_length=1, max_length=400)
 
 
+class CapabilityAliasV2(InventoriedModel):
+    """One human-friendly alias for a canonical signed capability id."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    alias: _CatalogueId
+    capability_id: _CatalogueId
+
+
+class CapabilityFamilyV2(InventoriedModel):
+    """A signed outcome family whose state is derived from its leaf members.
+
+    Availability is deliberately absent.  The only trustworthy status is
+    calculated by :mod:`capability_exchange.diagnosis.families` from the
+    member entries' existing ``capability_is_active`` result.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    family_id: _CatalogueId
+    title: str = Field(min_length=1, max_length=140)
+    outcome: str = Field(min_length=1, max_length=800)
+    jobs: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    aliases: tuple[_CatalogueId, ...] = Field(
+        max_length=20, json_schema_extra={"uniqueItems": True}
+    )
+    member_capability_ids: tuple[_CatalogueId, ...] = Field(
+        min_length=1, max_length=80, json_schema_extra={"uniqueItems": True}
+    )
+    components: tuple[CapabilityComponentV2, ...] = Field(
+        min_length=1,
+        max_length=120,
+        json_schema_extra={
+            "uniqueItems": True,
+            UNIQUE_COMPONENT_IDENTITY_KEYWORD: True,
+        },
+    )
+    assessment: CapabilityAssessmentV2
+
+    @field_validator("jobs", "aliases", "member_capability_ids")
+    @classmethod
+    def _ids_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("duplicate id in capability family")
+        return values
+
+    @field_validator("title", "outcome")
+    @classmethod
+    def _family_text_is_safe(cls, value: str) -> str:
+        if _CONTROL_RE.search(value):
+            raise ValueError("capability family text must be one bounded line")
+        return value
+
+    @field_validator("components")
+    @classmethod
+    def _components_are_unique(
+        cls, values: tuple[CapabilityComponentV2, ...]
+    ) -> tuple[CapabilityComponentV2, ...]:
+        identities: list[tuple[object, ...]] = []
+        for component in values:
+            if isinstance(component, CapabilityReferenceV2):
+                identity = ("capability", component.capability_id)
+            elif isinstance(component, McpToolReferenceV2):
+                identity = ("mcp-tool", component.server_id, component.tool_name)
+            elif isinstance(component, NangoProviderReferenceV2):
+                identity = ("nango-provider", component.provider_id)
+            else:
+                identity = ("source-component", component.component_id)
+            identities.append(identity)
+        if len(set(identities)) != len(identities):
+            raise ValueError("duplicate component identity in capability family")
+        return values
+
+
 class CatalogueV2(InventoriedModel):
     jobs_taxonomy: tuple[JobTaxonomyEntryV2, ...] = Field(
         min_length=1,
@@ -505,6 +733,16 @@ class CatalogueV2(InventoriedModel):
             "uniqueItems": True,
             UNIQUE_BY_KEYWORD: "capability_id",
         },
+    )
+    capability_aliases: tuple[CapabilityAliasV2, ...] = Field(
+        default=(),
+        max_length=300,
+        json_schema_extra={"uniqueItems": True, UNIQUE_BY_KEYWORD: "alias"},
+    )
+    capability_families: tuple[CapabilityFamilyV2, ...] = Field(
+        default=(),
+        max_length=80,
+        json_schema_extra={"uniqueItems": True, UNIQUE_BY_KEYWORD: "family_id"},
     )
     portable_brief: PortableBriefContractV2
 
@@ -524,7 +762,152 @@ class CatalogueV2(InventoriedModel):
                     f"capability {capability.capability_id!r} references unknown job(s): "
                     f"{', '.join(unknown)}"
                 )
+
+        # Aliases form one closed namespace over canonical capabilities.  A
+        # duplicate or target typo is a schema error, never an unresolved
+        # display hint.
+        aliases = [item.alias for item in self.capability_aliases]
+        if len(set(aliases)) != len(aliases):
+            raise ValueError("duplicate capability alias")
+        canonical_ids = set(capability_ids)
+        colliding_aliases = sorted(set(aliases) & canonical_ids)
+        if colliding_aliases:
+            raise ValueError(
+                "capability aliases cannot collide with canonical IDs: "
+                + ", ".join(colliding_aliases)
+            )
+        for item in self.capability_aliases:
+            if item.capability_id not in canonical_ids:
+                raise ValueError(
+                    f"capability alias {item.alias!r} targets unknown capability "
+                    f"{item.capability_id!r}"
+                )
+
+        # MCP server names are a second lookup key used by typed tool
+        # references.  Keep them unique and prevent one server from borrowing
+        # another entry's canonical ID.  Historical catalogues legitimately
+        # use the server's own capability ID as its server_name.
+        mcp_entries = [
+            entry
+            for entry in self.capabilities
+            if isinstance(entry, McpServerCapabilityEntryV2)
+        ]
+        mcp_server_names = [entry.server_name for entry in mcp_entries]
+        duplicate_server_names = sorted(
+            name
+            for name in set(mcp_server_names)
+            if mcp_server_names.count(name) > 1
+        )
+        if duplicate_server_names:
+            raise ValueError(
+                "duplicate MCP server_name: " + ", ".join(duplicate_server_names)
+            )
+        colliding_server_names = sorted(
+            entry.server_name
+            for entry in mcp_entries
+            if entry.server_name in canonical_ids
+            and entry.server_name != entry.capability_id
+        )
+        if colliding_server_names:
+            raise ValueError(
+                "MCP server_name cannot collide with another capability ID: "
+                + ", ".join(colliding_server_names)
+            )
+
+        # Family IDs and aliases share a namespace so a producer cannot make
+        # two different outcomes resolve from one human-facing name.
+        family_ids = [family.family_id for family in self.capability_families]
+        if len(set(family_ids)) != len(family_ids):
+            raise ValueError("duplicate capability family id")
+        family_id_collisions = sorted(set(family_ids) & (canonical_ids | set(aliases)))
+        if family_id_collisions:
+            collisions = set(family_id_collisions)
+            namespaces: list[str] = []
+            if collisions & canonical_ids:
+                namespaces.append("canonical capability IDs")
+            if collisions & set(aliases):
+                namespaces.append("capability aliases")
+            raise ValueError(
+                "capability family IDs cannot collide with "
+                + " or ".join(namespaces)
+                + ": "
+                + ", ".join(family_id_collisions)
+            )
+        family_aliases = [alias for family in self.capability_families for alias in family.aliases]
+        if len(set(family_aliases)) != len(family_aliases):
+            raise ValueError("duplicate capability family alias")
+        family_alias_collisions = sorted(
+            set(family_aliases) & (canonical_ids | set(family_ids) | set(aliases))
+        )
+        if family_alias_collisions:
+            raise ValueError(
+                "capability family aliases cannot collide with canonical IDs, "
+                "capability aliases, or family IDs: "
+                + ", ".join(family_alias_collisions)
+            )
+        for family in self.capability_families:
+            unknown_family_jobs = sorted(set(family.jobs) - known_jobs)
+            if unknown_family_jobs:
+                raise ValueError(
+                    f"capability family {family.family_id!r} references unknown job(s): "
+                    + ", ".join(unknown_family_jobs)
+                )
+            unknown_members = sorted(set(family.member_capability_ids) - canonical_ids)
+            if unknown_members:
+                raise ValueError(
+                    f"capability family {family.family_id!r} references unknown member "
+                    "capability ID(s): "
+                    + ", ".join(unknown_members)
+                )
+            self._validate_family_components(family, canonical_ids)
         return self
+
+    def _validate_family_components(
+        self, family: CapabilityFamilyV2, canonical_ids: set[str]
+    ) -> None:
+        """Validate component references against this catalogue's leaf truth."""
+        family_members = set(family.member_capability_ids)
+        mcp_by_id: dict[str, McpServerCapabilityEntryV2] = {}
+        for entry in self.capabilities:
+            if isinstance(entry, McpServerCapabilityEntryV2):
+                mcp_by_id[entry.capability_id] = entry
+                mcp_by_id[entry.server_name] = entry
+
+        for component in family.components:
+            if isinstance(component, CapabilityReferenceV2):
+                if component.capability_id not in canonical_ids:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"unknown capability {component.capability_id!r}"
+                    )
+                if component.capability_id not in family_members:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"non-member capability {component.capability_id!r}"
+                    )
+            elif isinstance(component, McpToolReferenceV2):
+                server = mcp_by_id.get(component.server_id)
+                if server is None:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"unknown MCP server {component.server_id!r}"
+                    )
+                if server.capability_id not in family_members:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} component references "
+                        f"tool on non-member MCP server {server.capability_id!r}"
+                    )
+                if server.tool_inventory != "complete":
+                    raise ValueError(
+                        f"capability family {family.family_id!r} MCP server "
+                        f"{component.server_id!r} has no complete tool inventory"
+                    )
+                if component.tool_name not in server.tools:
+                    raise ValueError(
+                        f"capability family {family.family_id!r} references unknown "
+                        f"tool {component.tool_name!r} on MCP server {server.server_name!r}"
+                    )
+
 
 
 class SignedCatalogueEnvelopeV2(InventoriedModel):

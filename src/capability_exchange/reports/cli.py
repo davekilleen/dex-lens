@@ -15,6 +15,7 @@ means the request itself was wrong.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -30,9 +31,11 @@ from capability_exchange.reports.store import (
     DEFAULT_LABEL,
     LensReportStore,
     SavedReport,
+    SelectionMemory,
     default_report_directory,
     missing_comparison_with,
     missing_report_requirements,
+    selection_memory,
 )
 
 __all__ = ["reports_main"]
@@ -192,6 +195,85 @@ def _gate(
     return problems
 
 
+#: The ledger digest a saved report records about itself, exactly as the
+#: canonical fact block writes it. A report that carries this line has named
+#: the one ledger it accounts for, so the ledger offered beside it has to be
+#: that ledger — byte for byte, over every field the digest binds.
+_RECORDED_LEDGER_DIGEST = re.compile(
+    r"^- Ledger digest: (sha256:[0-9a-f]{64})\s*$", re.MULTILINE
+)
+
+
+def _ledger_binding_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether the supplied ledger is the one this report says it accounts for.
+
+    Validating the ledger against the catalogue proves the catalogue-owned
+    rows, but the run-derived rows — insights, expectations, the work audit —
+    have no external truth to re-derive them from. The report's own recorded
+    digest is the only thing that binds them, so beside a supplied ledger the
+    digest line is mandatory: a check that let its absence stand made the
+    binding opt-out, and stripping one line from the report laundered any
+    tamper of the run-derived rows. A report checked *without* a ledger makes
+    no binding claim and nothing new is demanded of it.
+    """
+    if ledger is None:
+        return []
+    recorded = set(_RECORDED_LEDGER_DIGEST.findall(markdown))
+    if not recorded:
+        return [
+            "this report records no ledger digest for the supplied ledger: a "
+            "diagnosis that produced both writes the digest line into the "
+            "report, so its absence means this is not the pair the diagnosis "
+            "wrote. Re-run the diagnosis rather than editing either file."
+        ]
+    from capability_exchange.diagnosis.report import canonical_ledger_digest
+
+    if recorded != {canonical_ledger_digest(ledger)}:
+        return [
+            "the supplied ledger does not match the ledger digest this report "
+            "records: the saved ledger or the report changed after the "
+            "diagnosis wrote them. Re-run the diagnosis rather than editing "
+            "either file."
+        ]
+    return []
+
+
+def _coverage_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether a report owns up to what its ledger says was never examined.
+
+    The first real run left 94 of 115 catalogue entries ``not-assessed`` and
+    the report buried that in its appendix, so the reader concluded the
+    product had missed most of their capability. Beside a supplied ledger
+    whose not-assessed count is nonzero, the report must carry the exact
+    headline coverage block the engine renders from that ledger — counts with
+    their denominator, the signed families the unexamined entries sit in, and
+    the follow-up offer. Checked without a ledger, a report makes no coverage
+    claim and nothing new is demanded of it.
+    """
+    if ledger is None:
+        return []
+    from capability_exchange.diagnosis.report import coverage_block_errors
+
+    return list(coverage_block_errors(markdown, ledger))
+
+
+def _job_axis_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether a non-lineage report keeps the job axis and the loan framing.
+
+    A ledger carrying a job axis was classified non-lineage by the engine —
+    zero signed-identity matches, so no version to diff and no "behind". The
+    report must then carry the exact engine-rendered job-axis block (one row
+    per signed job, evidenced or loudly Unknown) and must not claim a release
+    delta anywhere: "behind Dex" on such a run has nothing to cite. Checked
+    without a ledger, or against a lineage ledger, nothing new is demanded.
+    """
+    if ledger is None:
+        return []
+    from capability_exchange.diagnosis.report import job_axis_errors
+
+    return list(job_axis_errors(markdown, ledger))
+
+
 def _ledger_gate(path: Path | None) -> tuple[ComparisonLedger | None, list[str]]:
     """Validate a supplied ledger against the last locally verified catalogue."""
     if path is None:
@@ -247,7 +329,10 @@ def _check(args: argparse.Namespace) -> int:
         return 2
 
     label = args.label or DEFAULT_LABEL
-    _ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
+    ledger_problems.extend(_coverage_problems(markdown, ledger))
+    ledger_problems.extend(_job_axis_problems(markdown, ledger))
     problems = _gate(markdown, store.last(label=label), ledger_problems)
     if problems:
         _report_problems(problems)
@@ -296,6 +381,9 @@ def _save(args: argparse.Namespace) -> int:
     # that exists. A rule that lives only in the skill's prose holds until the
     # run is long and the assistant is tired.
     ledger, ledger_problems = _ledger_gate(args.ledger)
+    ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
+    ledger_problems.extend(_coverage_problems(markdown, ledger))
+    ledger_problems.extend(_job_axis_problems(markdown, ledger))
     problems = _gate(markdown, previous, ledger_problems)
     if problems:
         _report_problems(problems)
@@ -337,6 +425,55 @@ def _save(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Closed fate → the one-sentence rule it carries, spoken beside the memory so
+#: the next run cannot claim it was never told.
+_SHARE_BACK_RULES = {
+    "shared": "a shared idea is never offered again",
+    "declined": "a declined idea is never offered again",
+    "deferred": "a third deferral counts as a no",
+    "offered": "no answer was recorded",
+}
+
+
+def _selection_memory_lines(memory: SelectionMemory) -> list[str]:
+    """Selection memory, spoken beside the last report (design item 10).
+
+    Every line is derived from saved reports alone — which families past runs
+    recorded as selected, which of the signed manifest families no saved
+    report has ever recorded as selected, and each share-back idea's recorded
+    fate — so the next run can open with "last time you looked at backup and
+    memory; these N areas have never had a deep dive — want one?" without
+    inventing any memory of its own.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    lines: list[str] = []
+    if memory.last_selected:
+        named = ", ".join(memory.last_selected)
+        lines.append(f"dex-lens: last time the focused deep dives were: {named}.")
+    if memory.never_examined:
+        count = len(memory.never_examined)
+        verb = "has" if count == 1 else "have"
+        named = ", ".join(memory.never_examined)
+        lines.append(
+            f"dex-lens: {count} of the {len(WOW_EXPECTATIONS)} signed capability "
+            f"areas {verb} never had a focused deep dive in any saved report: "
+            f"{named}. A deep dive there is one ask away."
+        )
+    else:
+        lines.append(
+            "dex-lens: every signed capability area has had a focused deep "
+            "dive in a saved report."
+        )
+    for fate in memory.share_back_fates:
+        lines.append(
+            f"dex-lens: share-back idea `{fate.idea}` — {fate.fate}; "
+            f"{_SHARE_BACK_RULES[fate.fate]}."
+        )
+    return lines
+
+
 def _show(action: str, args: argparse.Namespace) -> int:
     try:
         store = _store(None)
@@ -365,6 +502,14 @@ def _show(action: str, args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         print(report.read(), end="")
+        # The selection memory rides beside the report, on stderr, so the
+        # report bytes on stdout stay exactly the saved file. It is derived
+        # from every saved report under this label, not just the last one:
+        # "never examined" means never in any saved run.
+        for line in _selection_memory_lines(
+            selection_memory(store.list(label=args.label))
+        ):
+            print(line, file=sys.stderr)
         return 0
 
     reports = store.list(label=args.label)

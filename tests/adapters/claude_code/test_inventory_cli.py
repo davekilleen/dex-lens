@@ -1062,7 +1062,7 @@ class TestWholeSystemSections:
     def test_release_hooks_integrations_health_and_recovery_are_explained(
         self, system: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        (system / "VERSION").write_text("v0.8.3\n", encoding="utf-8")
+        (system / ".dex-version").write_text("v0.8.3\n", encoding="utf-8")
         (system / ".claude" / "settings.json").write_text(
             '{"hooks":{"PostToolUse":[{"hooks":[{"command":"private-runner"}]}]}}',
             encoding="utf-8",
