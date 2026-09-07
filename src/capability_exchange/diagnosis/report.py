@@ -991,10 +991,10 @@ def canonical_job_axis_block(ledger: ComparisonLedger) -> str:
         return ""
     lines = ["## What your system does about Dex's jobs"]
     lines.append(
-        "Nothing in the approved snapshot matched any signed Dex identity "
-        "(Verified: identity matching over the whole fingerprint, never name "
-        "similarity), so there is no version to diff and no such thing as "
-        "being ‘behind’ here. The honest comparison is by job: the signed "
+        "The approved snapshot carries no Dex Core release record (Verified: "
+        "Dex's own release file, which every install has at any age), so Dex "
+        "is not installed here. There is no version to diff and no such thing "
+        "as being ‘behind’. The honest comparison is by job: the signed "
         "jobs Dex organises itself around, and what your system visibly does "
         "about each — read from your own files. Anything Dex offers for a "
         "job below is a loan to consider, never a gap you are behind on."
@@ -1120,30 +1120,42 @@ def canonical_release_gap_block(ledger: ComparisonLedger) -> str:
         for item in ledger.local_entries
     )
     if not lineage_observed:
+        # Dex is not installed here, so there is no distance to be Unknown
+        # about. Asking this person to approve a folder holding a Dex release
+        # file is a dead end — the file cannot exist (AGENTS.md F8). The job
+        # axis carries their comparison, framed as a loan.
         lines.append(
-            "How far this install stands behind the current Dex release is "
-            "Unknown: the approved snapshot carries no Dex Core release "
-            "observation. One observation would establish it — a readable Dex "
-            "Core release file (a `.dex-version` file or a `CHANGELOG.md` naming "
-            "its version) inside an approved folder. That is the whole price: "
-            "approve the folder that holds it and run again, and the distance "
-            "derives from signed release lineage alone."
+            "Nothing here is behind anything: the approved snapshot carries no "
+            "Dex Core release record, so Dex is not installed on this system. "
+            "There is no version to compare and no distance to report. What "
+            "Dex offers is set out by job below — as a loan to consider, never "
+            "a gap you are behind on."
         )
         return "\n".join(lines) + "\n"
     if not ledger.family_entries:
         lines.append(
-            "Your snapshot identifies a Dex Core release, but this catalogue "
-            "signs no capability-family contract, so no per-family release gap "
-            "is derivable against it. Nothing here claims your install is "
-            "behind or current."
+            "How far this install stands behind the current Dex release is "
+            "Unknown. Your snapshot identifies a Dex Core release, but this "
+            "catalogue signs no capability-family contract, so no per-family "
+            "release gap is derivable against it. Nothing here claims your "
+            "install is behind or current."
         )
         return "\n".join(lines) + "\n"
+    # Dex is present and something stopped the distance deriving. This is the
+    # one population for whom naming the release file is the right ask, and
+    # the claim stays refused rather than softened into a bland non-claim.
     lines.append(
-        "Your snapshot identifies a Dex Core release, but no signed release gap "
-        "was derivable from it against this catalogue: the identified release "
-        "may match the catalogue's, the release evidence may conflict, or the "
-        "signed lineage may name no family-level change since it. Nothing here "
-        "claims your install is behind or current."
+        "How far this install stands behind the current Dex release is "
+        "Unknown. Dex is installed here — the approved snapshot carries its "
+        "release record — but no signed release gap was derivable: the "
+        "release may not be readable from the snapshot, it may match the "
+        "catalogue's own, the release evidence may conflict, or the signed "
+        "lineage may name no family-level change since it. Nothing here "
+        "claims your install is behind or current. A readable Dex Core "
+        "release file (a `.dex-version` file or a `CHANGELOG.md` naming its "
+        "version) is what establishes it. That is the whole price: approve "
+        "the folder that holds it and run again, and the distance derives "
+        "from signed release lineage alone."
     )
     return "\n".join(lines) + "\n"
 
@@ -1299,6 +1311,10 @@ def _family_disposition_phrase(value: str) -> str:
         "partial-overlap": "some exact local overlap was found",
         "overlap-observed": "all published building blocks have exact local overlap",
         "not-recommendable": "this release does not make the family recommendable",
+        "postdates-install": (
+            "every building block here arrived after the release your install "
+            "identifies as, so this install cannot carry them"
+        ),
     }[value]
 
 

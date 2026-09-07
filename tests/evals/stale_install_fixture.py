@@ -180,6 +180,17 @@ def _changelog(unreleased_notes: int) -> str:
     return "\n".join(lines)
 
 
+def _own_changelog() -> str:
+    """A changelog belonging to the person, carrying none of Dex's markers."""
+
+    return (
+        "# Changelog\n\n"
+        "Notes I keep about my own system.\n\n"
+        "## Recent\n\n"
+        "- Reorganised my daily notes.\n"
+    )
+
+
 def _skill_files(name: str, *, directory: str) -> tuple[str, str]:
     return (
         f"{directory}/{name}/SKILL.md",
@@ -197,6 +208,7 @@ def stale_install_files(
     unreleased_notes: int = 6,
     hook_count: int = 45,
     note_count: int = 0,
+    dex_present: bool = True,
 ) -> dict[str, str]:
     """The invented file tree, as relative path to content.
 
@@ -205,10 +217,19 @@ def stale_install_files(
     exercise the detection boundary. ``note_count`` inflates the user-owned
     side of the tree towards a realistic file count for tests that care about
     scale rather than classification.
+
+    ``dex_present=False`` builds the same system with Dex never installed: no
+    lineage file of any kind, and a changelog that is the person's own rather
+    than Dex's. Everything else stays, deliberately including a skill whose
+    name collides with a signed capability id — a coincidence a real assistant
+    user is very likely to own, and the one that must not be mistaken for
+    evidence that Dex is present (AGENTS.md F8).
     """
 
     files: dict[str, str] = {
-        "CHANGELOG.md": _changelog(unreleased_notes),
+        "CHANGELOG.md": (
+            _changelog(unreleased_notes) if dex_present else _own_changelog()
+        ),
         "core/provision-contract.json": json.dumps(PROVISION_CONTRACT, indent=2),
         "core/paths.py": "VAULT_ROOT = '.'\n",
         "System/user-profile.yaml": "name: an invented person\n",
@@ -221,6 +242,12 @@ def stale_install_files(
             }
         ),
     }
+
+    if not dex_present:
+        # Dex's own declarative artefacts go with it; the person's system
+        # remains, collision and all.
+        del files["core/provision-contract.json"]
+        del files["core/paths.py"]
 
     for name in (
         *CURRENT_STOCK_SKILLS,
@@ -253,6 +280,7 @@ def write_stale_install(
     unreleased_notes: int = 6,
     hook_count: int = 45,
     note_count: int = 0,
+    dex_present: bool = True,
 ) -> EvidenceFingerprint:
     """Write the invented install under ``root`` and capture it."""
 
@@ -261,6 +289,7 @@ def write_stale_install(
         unreleased_notes=unreleased_notes,
         hook_count=hook_count,
         note_count=note_count,
+        dex_present=dex_present,
     ).items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)

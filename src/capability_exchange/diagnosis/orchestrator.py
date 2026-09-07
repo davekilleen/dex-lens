@@ -834,17 +834,18 @@ class DeterministicDiagnosisEngine:
         fingerprint: EvidenceFingerprint,
         catalogue: VerifiedCatalogueSlice,
     ) -> bool:
-        """The engine-computed non-lineage threshold over loader-derived keys.
+        """Is Dex absent from this system? The engine-computed threshold.
 
         The same pure derivation ``build_family_map`` and the shipped comparer
         use, so the map's classification, the packet slices, and the coverage
-        rule can never disagree about which axis a run is on.
+        rule can never disagree about which axis a run is on. The catalogue is
+        no longer consulted: the question is whether Dex's own release record
+        is present, not whether any of its capability names happen to coincide
+        with something the person built (AGENTS.md F8).
         """
 
-        return is_non_lineage(
-            fingerprint,
-            signed_identity_keys=frozenset(catalogue.signed_identity_keys),
-        )
+        del catalogue
+        return is_non_lineage(fingerprint)
 
     def _require_focus_coverage(
         self,

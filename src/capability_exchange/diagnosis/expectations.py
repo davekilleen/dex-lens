@@ -9,7 +9,6 @@ from capability_exchange.diagnosis.families import build_family_delta
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
 )
-from capability_exchange.diagnosis.origin import signed_identity_keys_for
 from capability_exchange.diagnosis.run import (
     ExpectationState,
     FamilyMap,
@@ -263,9 +262,7 @@ def build_family_map(
     # while every family row stays present with the fixed honest reason, so
     # the equality gates keep holding.  One signed-identity match anywhere
     # (the dex-core release record included) keeps the ordinary family axis.
-    non_lineage = is_non_lineage(
-        fingerprint, signed_identity_keys=signed_identity_keys_for(catalogue)
-    )
+    non_lineage = is_non_lineage(fingerprint)
     deltas = _family_release_deltas(
         catalogue,
         inspected_release=inspected_release,

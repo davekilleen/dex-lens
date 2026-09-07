@@ -32,6 +32,7 @@ from tests.diagnosis.test_orchestrator import _replace_stored_artifact
 from tests.diagnosis.test_real_comparer_guided_run import RealComparerHarness
 from tests.diagnosis.test_significant_family_assessment import (
     _catalogue,
+    _dex_presence_without_version,
     _family,
     _fingerprint,
     _observation,
@@ -101,6 +102,7 @@ def _verified_older_fingerprint():
     return _fingerprint(
         _observation(ObservationKind.SKILL, "workflow-skill"),
         _release_observation(),
+        dex_installed=False,
     )
 
 
@@ -187,16 +189,26 @@ def test_release_gap_headline_leads_the_report() -> None:
     )
 
 
-def test_missing_release_observation_is_a_loud_priced_unknown() -> None:
-    """No release observation → the same slot says Unknown and what fixes it.
+def test_an_unreadable_release_is_a_loud_priced_unknown() -> None:
+    """Dex present, version unreadable → Unknown, and what would fix it.
 
     Observed failing on the unchanged tree: with ``version_distance`` None the
     report said nothing at all about the distance — the exact silence the
     first real run shipped.
+
+    Re-aimed with the presence split (AGENTS.md F8). This slot used to be
+    reached by having no release observation at all, which now means Dex was
+    never installed — a population for whom "approve the folder holding your
+    release file" is a dead end. The priced Unknown belongs to the install
+    that has Dex and cannot read its version, and that is what this builds.
     """
 
     store = _VerifiedStore(_gap_catalogue(), core_release="v1.97.6")
-    fingerprint = _fingerprint(_observation(ObservationKind.SKILL, "workflow-skill"))
+    fingerprint = _fingerprint(
+        _dex_presence_without_version(),
+        _observation(ObservationKind.SKILL, "workflow-skill"),
+        dex_installed=False,
+    )
 
     family_map = UnknownUntilProposedComparer(store).family_map(
         fingerprint=fingerprint,
@@ -215,9 +227,13 @@ def test_missing_release_observation_is_a_loud_priced_unknown() -> None:
     rendered = _report(ledger)
     assert "## Where your install stands" in rendered
     assert (
-        "How far this install stands behind the current Dex release is Unknown: "
-        "the approved snapshot carries no Dex Core release observation."
+        "How far this install stands behind the current Dex release is Unknown."
     ) in rendered
+    # The claim is refused, and the person is told Dex *is* here — the old copy
+    # said the snapshot carried no release record at all, which is the sentence
+    # that made a dead end for someone who never installed Dex (AGENTS.md F8).
+    assert "Dex is installed here" in rendered
+    assert "carries no Dex Core release record" not in rendered
     # Priced, with the one establishing observation named in plain words.
     assert "`.dex-version` file or a `CHANGELOG.md`" in rendered
     assert "approve the folder that holds it and run again" in rendered
@@ -234,6 +250,7 @@ def test_family_free_catalogue_keeps_not_gated_rows_and_claims_no_gap() -> None:
     fingerprint = _fingerprint(
         _observation(ObservationKind.MCP_SERVER, "work-mcp"),
         _release_observation(),
+        dex_installed=False,
     )
 
     family_map = UnknownUntilProposedComparer(store).family_map(
@@ -278,7 +295,7 @@ def test_unknown_branch_lands_without_the_family_contract() -> None:
     assert (
         "How far this install stands behind the current Dex release is Unknown"
     ) in rendered
-    assert "carries no Dex Core release observation" in rendered
+    assert "signs no capability-family contract" in rendered
 
 
 def test_map_derivation_is_deterministic_and_delta_bearing() -> None:

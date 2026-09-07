@@ -1008,7 +1008,7 @@ class UnknownUntilProposedComparer:
         # job id, not a capability mapping, so letting them near the entry
         # ledger would launder a job claim into a capability disposition.
         signed_keys = signed_identity_keys_for(envelope.catalogue)
-        non_lineage = is_non_lineage(fingerprint, signed_identity_keys=signed_keys)
+        non_lineage = is_non_lineage(fingerprint)
         job_proposals = tuple(
             item for item in proposals if item.kind is ProposalKind.JOB_COVERAGE
         )

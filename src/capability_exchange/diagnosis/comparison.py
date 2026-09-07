@@ -901,19 +901,29 @@ class ComparisonLedger(_ValidatedInventoried):
                 "a family cannot be both selected and explicitly not selected"
             )
         if self.job_axis:
-            # The engine-enforced loan framing: a job axis exists only when
-            # nothing ties this system to Dex, so nothing delta-shaped may
-            # coexist with it — no version distance, no matched family
-            # component, no local Dex Core release observation.
+            # The engine-enforced loan framing: a job axis exists only when Dex
+            # is not installed here, so nothing delta-shaped may coexist with
+            # it — no version distance, and no local Dex Core release record.
+            #
+            # A matched family component is deliberately NOT forbidden. It was,
+            # while "not Dex" meant "nothing matched any signed name", which
+            # made the two mutually exclusive by construction. Now that the
+            # classification rests on Dex's own release record (AGENTS.md F8),
+            # a person who never installed Dex can own a skill whose name
+            # coincides with a signed capability id, and most of the
+            # catalogue's ids carry no namespace to prevent it. That
+            # coincidence is real and must not make their ledger unbuildable.
+            #
+            # It should not be read as coverage either: see
+            # RISK-NON-LINEAGE-COMPONENT-MATCH-2026-09-07. The report already
+            # renders such a run on the job axis with the fixed non-lineage
+            # reason on every family row, so no coverage claim reaches the
+            # reader today; suppressing the match at its source is the right
+            # end state and needs a reviewed fixture migration first.
             if self.version_distance is not None:
                 raise ValueError(
                     "a non-lineage job axis cannot coexist with a version "
                     "distance: with no identity match there is no 'behind'"
-                )
-            if any(entry.matched_components for entry in self.family_entries):
-                raise ValueError(
-                    "a non-lineage job axis cannot coexist with matched signed "
-                    "family components"
                 )
             if any(
                 entry.kind is ObservationKind.RELEASE and entry.identity == "dex-core"

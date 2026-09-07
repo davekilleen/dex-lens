@@ -96,9 +96,22 @@ def _signed_store(catalogue: CatalogueV2) -> SimpleNamespace:
     )
 
 
-def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = False) -> (
-    EvidenceFingerprint
-):
+def _fingerprint(
+    observation_count: int = 10,
+    *,
+    differing_skill_copies: bool = False,
+    release_id: str | None = "v1.0.0",
+) -> EvidenceFingerprint:
+    """A guided run's local evidence, on a system Dex is installed on.
+
+    ``release_id`` mints Dex's own release record, which is what makes this a
+    Dex install at all. The harness carried no such record while "Dex is
+    present" was inferred from capability-name overlap instead; that inference
+    is the inversion AGENTS.md F8 records, and a fixture standing in for a Dex
+    install has to carry Dex's own evidence of itself. Pass ``None`` for a
+    system where Dex was never installed.
+    """
+
     attributes: tuple[SafeAttribute, ...] = (
         SafeAttribute(key="source-kind", value="vault-authored"),
     )
@@ -106,6 +119,28 @@ def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = 
         attributes = (
             SafeAttribute(key="copy-count", value="4"),
             SafeAttribute(key="variant-count", value="2"),
+        )
+    release: tuple[Observation, ...] = ()
+    if release_id is not None:
+        release = (
+            Observation(
+                kind=ObservationKind.RELEASE,
+                identity="dex-core",
+                label="Dex Core release",
+                operational_state=OperationalState.IMPLEMENTED,
+                evidence=EvidenceItem(
+                    state=EvidenceState.OBSERVED,
+                    captured_at=NOW,
+                    reference="file-token:CHANGELOG.md",
+                ),
+                provenance={
+                    "source_id": "scope:invented-release",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "c" * 64,
+                    "relative_reference": "CHANGELOG.md",
+                },
+                attributes=(SafeAttribute(key="release-id", value=release_id),),
+            ),
         )
     observations = tuple(
         Observation(
@@ -131,7 +166,7 @@ def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = 
     return EvidenceFingerprint(
         adapter_id="invented-local-adapter",
         collected_at=NOW,
-        observations=observations,
+        observations=release + observations,
     )
 
 

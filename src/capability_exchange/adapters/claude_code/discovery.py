@@ -177,15 +177,31 @@ def _all_entries(snapshot: InspectionSnapshot) -> tuple[SnapshotEntry, ...]:
     return tuple(snapshot.entry_for(path) for path in snapshot.canonical_paths())
 
 
+def _is_dex_lineage_file(entry: SnapshotEntry) -> bool:
+    """Is this file one Dex itself ships to record its own identity?
+
+    Presence and version are different questions, and conflating them sent a
+    person who never installed Dex to a block asking them to approve a folder
+    holding a release file that cannot exist (AGENTS.md F8). A `.dex-version`
+    file is Dex's by name; a `CHANGELOG.md` is Dex's only if it carries Dex's
+    own sentinel line, which a person's own changelog will not.
+    """
+
+    if Path(entry.relative_path).name == ".dex-version":
+        return True
+    if Path(entry.relative_path).name != "CHANGELOG.md":
+        return False
+    text = entry.content.decode("utf-8", "replace")
+    return any(
+        line.strip() == "All notable changes to Dex will be documented in this file."
+        for line in text.splitlines()[:80]
+    )
+
+
 def _release_version(entry: SnapshotEntry) -> str | None:
     text = entry.content.decode("utf-8", "replace")
     if Path(entry.relative_path).name == "CHANGELOG.md":
         lines = text.splitlines()[:80]
-        if not any(
-            line.strip() == "All notable changes to Dex will be documented in this file."
-            for line in lines
-        ):
-            return None
         for line in lines:
             if line.startswith("##"):
                 match = _VERSION.search(line)
@@ -214,9 +230,13 @@ def _release_observations(
     observations: list[Observation] = []
     for source_id in sorted({entry.source.source_id for entry in entries}):
         for entry in (item for item in entries if item.source.source_id == source_id):
-            version = _release_version(entry)
-            if version is None:
+            if not _is_dex_lineage_file(entry):
                 continue
+            # Presence is the claim; the version is an attribute of it. A Dex
+            # install whose version cannot be read still gets its observation,
+            # so the report can price that Unknown instead of concluding that
+            # Dex was never installed.
+            version = _release_version(entry)
             observations.append(
                 _entry_observation(
                     entry,
@@ -225,7 +245,9 @@ def _release_observations(
                     identity="dex-core",
                     label="Dex Core release",
                     configuration_state=ConfigurationState.INSTALLED,
-                    attributes=_attributes(_attribute("release-id", version)),
+                    attributes=_attributes(
+                        _attribute("release-id", version) if version else None
+                    ),
                 )
             )
             break

@@ -43,7 +43,6 @@ from capability_exchange.diagnosis.observations import (
     Observation,
     ObservationKind,
     RuntimeState,
-    signed_identity_key,
 )
 from capability_exchange.evidence import supports_claims
 
@@ -245,26 +244,28 @@ class JobAxisAssessment:
     evidence_references: tuple[str, ...]
 
 
-def is_non_lineage(
-    fingerprint: EvidenceFingerprint,
-    *,
-    signed_identity_keys: frozenset[str] | set[str],
-) -> bool:
-    """The deterministic non-lineage threshold, computed by the engine.
+def is_non_lineage(fingerprint: EvidenceFingerprint) -> bool:
+    """True when the approved snapshot carries none of Dex's own artefacts.
 
-    True exactly when no observation in the approved snapshot carries a
-    kind-qualified identity the signature-verified catalogue names — no
-    capability, alias, MCP server, tool, provider, source component, or
-    dex-core release match across the whole fingerprint.  One signed-identity
-    match (even a doubtful one) defeats the classification: when in doubt the
-    engine keeps the ordinary family axis rather than claiming "this system is
-    not Dex".  No fuzzy or embedding similarity enters here — a plausible
-    name-similarity guess is not evidence, so it cannot move this threshold.
+    This is a question about Dex's *presence*, and it used to be answered by
+    the absence of coincidental name overlap: true only when no observation
+    matched any signed identity, with one match of any kind defeating it. That
+    reasoning was inverted (AGENTS.md F8). Most of the catalogue's capability
+    ids carry no namespace prefix — `journal`, `review`, `daily-plan` — so a
+    person who had never installed Dex needed just one such name of their own
+    to be routed onto the lineage path, where the report asked them to approve
+    a folder holding a Dex release file that could not exist.
+
+    The evidence now is Dex's own release record, which the discovery adapter
+    mints from a file Dex itself ships and which exists at any install age
+    regardless of whether its version can be read. Absent that record, Dex is
+    not installed here, and the run belongs on the job axis where what Dex
+    offers is framed as a loan rather than a gap the person is behind on.
     """
 
-    keys = frozenset(signed_identity_keys)
     return not any(
-        signed_identity_key(observation.kind, observation.identity) in keys
+        observation.kind is ObservationKind.RELEASE
+        and observation.identity == "dex-core"
         for observation in fingerprint.observations
     )
 

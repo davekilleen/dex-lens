@@ -45,7 +45,6 @@ from capability_exchange.diagnosis.expectations import (
 )
 from capability_exchange.diagnosis.observations import ObservationKind
 from capability_exchange.diagnosis.orchestrator import PrepareDiagnosisRequest
-from capability_exchange.diagnosis.origin import signed_identity_keys_for
 from capability_exchange.diagnosis.report import (
     canonical_job_axis_block,
     job_axis_errors,
@@ -161,18 +160,35 @@ ALL_SIGNED_JOB_IDS = tuple(job_id for job_id, _label in SIGNED_JOBS) + (
 
 
 def _g_brain_fingerprint():
-    """240-items-of-their-own-design in miniature: zero signed-identity matches."""
+    """A personal operating system Dex was never installed on.
+
+    No release record of Dex's, whatever capability names happen to coincide.
+    """
 
     return _fingerprint(
         _observation(ObservationKind.SKILL, "g-brain-daily"),
         _observation(ObservationKind.AUTOMATION, "com.gbrain.morning-brief"),
         _observation(ObservationKind.HEALTH_CHECK, "gbrain-doctor"),
         _observation(ObservationKind.HOOK, "gbrain-capture-hook"),
+        dex_installed=False,
     )
 
 
 def _lineage_fingerprint():
-    return _fingerprint(_observation(ObservationKind.SKILL, "workflow-skill"))
+    """A system Dex is genuinely installed on.
+
+    Dex's own release record is what makes this a Dex install. This fixture
+    used to stand in for one with nothing but a skill whose name matched a
+    signed capability id — the fixture encoding the very inversion F8 records,
+    which is how it went unnoticed for so long. The colliding name stays,
+    because a real install has both and the two must not be confused.
+    """
+
+    return _fingerprint(
+        _observation(ObservationKind.RELEASE, "dex-core"),
+        _observation(ObservationKind.SKILL, "workflow-skill"),
+        dex_installed=False,
+    )
 
 
 def _harness(tmp_path: Path, *, lineage: bool = False) -> RealComparerHarness:
@@ -304,8 +320,13 @@ def test_zero_identity_match_map_renders_every_signed_job_row(tmp_path: Path) ->
     assert all(row.reason == NON_LINEAGE_FAMILY_ROW_REASON for row in family_map.rows)
 
 
-def test_the_threshold_is_defeated_by_one_signed_identity_match(tmp_path: Path) -> None:
-    """Lineage runs are untouched: one exact match keeps the family axis."""
+def test_the_threshold_is_defeated_by_dex_s_own_release_record(tmp_path: Path) -> None:
+    """Lineage runs keep the family axis, on evidence that Dex is installed.
+
+    Renamed and re-aimed: this asserted that one signed-identity match of any
+    kind defeated the threshold, which is the inversion AGENTS.md F8 records.
+    A name collision is not evidence of Dex; Dex's release record is.
+    """
 
     harness = _harness(tmp_path, lineage=True)
     run_id = _prepare(harness, AnalysisMode.GUIDED)
@@ -320,16 +341,22 @@ def test_the_threshold_is_defeated_by_one_signed_identity_match(tmp_path: Path) 
 def test_the_threshold_and_job_axis_are_pure_and_deterministic() -> None:
     catalogue = _eight_job_catalogue()
     fingerprint = _g_brain_fingerprint()
-    keys = signed_identity_keys_for(catalogue)
 
-    assert is_non_lineage(fingerprint, signed_identity_keys=keys) is True
-    assert (
-        is_non_lineage(_lineage_fingerprint(), signed_identity_keys=keys) is False
+    assert is_non_lineage(fingerprint) is True
+    assert is_non_lineage(_lineage_fingerprint()) is False
+    # The collision on its own is not Dex: a person who never installed it can
+    # own a skill by that name, and used to be misclassified for it.
+    collision_only = _fingerprint(
+        _observation(ObservationKind.SKILL, "workflow-skill"),
+        dex_installed=False,
     )
+    assert is_non_lineage(collision_only) is True
     # A dex-core release observation alone ties the system to Dex: no version
     # diff can be honest against "not Dex", so the classification is defeated.
-    release = _fingerprint(_observation(ObservationKind.RELEASE, "dex-core"))
-    assert is_non_lineage(release, signed_identity_keys=keys) is False
+    release = _fingerprint(_observation(ObservationKind.RELEASE, "dex-core"),
+        dex_installed=False,
+    )
+    assert is_non_lineage(release) is False
 
     first = build_family_map(
         catalogue, fingerprint, catalogue_version=7, catalogue_sha256="a" * 64
