@@ -61,6 +61,8 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def advance(self, run_id: str) -> DiagnosisRunView: ...
 
+    def family_map(self, run_id: str) -> object: ...
+
     def work(self, run_id: str) -> object: ...
 
     def pending_work(self, run_id: str) -> tuple[object, ...]: ...
@@ -98,7 +100,7 @@ class _BoundConsentSurface:
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
 _DIAGNOSIS_COMMANDS = frozenset(
-    {"prepare", "approve", "status", "advance", "work", "submit", "result"}
+    {"prepare", "approve", "status", "advance", "map", "work", "submit", "result"}
 )
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
@@ -109,6 +111,7 @@ JSON goes to stdout. Refusals and human guidance go to stderr.
     dex-lens diagnosis approve --run <id>
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
+    dex-lens diagnosis map --run <id> [--json]
     dex-lens diagnosis work --run <id> --json
     dex-lens diagnosis submit --run <id> --packet <id> [--proposal <json-file>]
     dex-lens diagnosis result --run <id> --format json|markdown
@@ -232,6 +235,7 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         "approve": _approve,
         "status": _status,
         "advance": _advance,
+        "map": _map,
         "work": _work,
         "submit": _submit,
         "result": _result,
@@ -532,8 +536,9 @@ def _status(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     view = build_engine().status(args.run)
-    _write_canonical_json(view.dump_for_storage())
-    return 0
+    # Status now carries the re-derived family map, so it clears the same
+    # outbound payload guard as every other fingerprint-derived surface.
+    return _write_guarded_canonical_json(view.dump_for_storage())
 
 
 def _advance(argv: list[str]) -> int:
@@ -550,6 +555,42 @@ def _advance(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     view = build_engine().advance(args.run)
     _write_canonical_json(view.dump_for_storage())
+    return 0
+
+
+def _map(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis map",
+        "Print the deterministic family map, re-derived from verified inputs.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the canonical family map as JSON on stdout.",
+    )
+    args = parser.parse_args(argv)
+    family_map = build_engine().family_map(args.run)
+    dump = getattr(family_map, "model_dump", None)
+    payload = dump(mode="json") if callable(dump) else family_map
+    if args.json:
+        return _write_guarded_canonical_json(payload)
+    lines = [
+        f"Family map for {args.run} (catalogue v{payload['catalogue_version']}):",
+        *(
+            f"- {row['family_id']} — {row['state']}: {row['reason']}"
+            for row in payload["rows"]
+        ),
+    ]
+    rendered = "\n".join(lines) + "\n"
+    # The human rendering leaves the process exactly like the JSON payload
+    # does, so it clears the same outbound payload guard.
+    try:
+        refuse_hostile_payload(rendered)
+    except HostilePayloadError as exc:
+        print(_HOSTILE_GUIDANCE[exc.required_step], file=sys.stderr)
+        return 2
+    sys.stdout.write(rendered)
     return 0
 
 

@@ -70,3 +70,36 @@ def test_duplicate_family_assessment_fails_closed() -> None:
     assessments = assess_significant_families(catalogue, fingerprint)
     with pytest.raises(ValueError, match="duplicate"):
         assess_wow_expectations(catalogue, (*assessments, assessments[0]))
+
+
+def test_family_free_catalogue_yields_fourteen_loud_not_gated_rows() -> None:
+    """The silent hole: a family-free catalogue must never return an empty manifest.
+
+    The first real run had no release-gap story and no sentence saying why,
+    because ``assess_wow_expectations`` silently returned ``()`` when the
+    catalogue carried no signed capability families.  Observed failing on the
+    unchanged tree: the rows tuple was empty.
+    """
+
+    catalogue = _catalogue()  # no signed capability families
+    rows = assess_wow_expectations(catalogue, ())
+
+    assert [item.family_id for item in rows] == list(WOW_EXPECTATIONS)
+    assert all(item.state.value == "not-gated" for item in rows)
+    assert all(item.evidence_ids == () for item in rows)
+    reasons = {item.reason for item in rows}
+    assert len(reasons) == 1
+    assert "no signed capability-family contract" in next(iter(reasons)).lower()
+
+
+def test_partially_signed_catalogue_is_also_loud_never_silent() -> None:
+    """A catalogue signing some but not all manifest families is the same hole."""
+
+    catalogue = _all_families_catalogue()
+    partial = catalogue.model_copy(
+        update={"capability_families": catalogue.capability_families[:3]}
+    )
+    rows = assess_wow_expectations(partial, ())
+
+    assert [item.family_id for item in rows] == list(WOW_EXPECTATIONS)
+    assert all(item.state.value == "not-gated" for item in rows)

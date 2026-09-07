@@ -77,6 +77,7 @@ def test_stage_order_is_closed() -> None:
         DiagnosisStage.SCOPE_APPROVED,
         DiagnosisStage.CAPTURED,
         DiagnosisStage.CATALOGUE_VERIFIED,
+        DiagnosisStage.FAMILY_MAPPED,
         DiagnosisStage.JOBS_CONFIRMED,
         DiagnosisStage.ANALYSIS_PLANNED,
         DiagnosisStage.ANALYSIS_COMPLETED,
@@ -146,6 +147,13 @@ def test_guided_stages_are_inserted_between_jobs_and_comparison() -> None:
     assert NEXT_STAGE[DiagnosisStage.JOBS_CONFIRMED] is DiagnosisStage.ANALYSIS_PLANNED
     assert NEXT_STAGE[DiagnosisStage.ANALYSIS_PLANNED] is DiagnosisStage.ANALYSIS_COMPLETED
     assert NEXT_STAGE[DiagnosisStage.ANALYSIS_COMPLETED] is DiagnosisStage.COMPARED
+
+
+def test_family_mapping_stage_sits_between_verification_and_jobs() -> None:
+    """Pass 1 of the two-pass design: the map is derived before any work."""
+
+    assert NEXT_STAGE[DiagnosisStage.CATALOGUE_VERIFIED] is DiagnosisStage.FAMILY_MAPPED
+    assert NEXT_STAGE[DiagnosisStage.FAMILY_MAPPED] is DiagnosisStage.JOBS_CONFIRMED
 
 
 def test_legacy_input_payload_is_explicitly_upgraded_to_inventory_only() -> None:

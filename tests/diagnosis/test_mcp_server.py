@@ -180,7 +180,7 @@ def _tool_payload(result: object) -> dict[str, Any]:
 
 
 @pytest.mark.anyio
-async def test_mcp_exposes_exactly_six_read_only_diagnosis_tools() -> None:
+async def test_mcp_exposes_exactly_the_expected_read_only_diagnosis_tools() -> None:
     server = build_mcp_server(fake_engine())
     async with Client(server, raise_exceptions=True) as client:
         tools = await client.list_tools()
@@ -697,3 +697,75 @@ def test_main_uses_injectable_build_engine(monkeypatch: pytest.MonkeyPatch) -> N
     )
     main()
     assert calls == ["stdio"]
+
+
+def _invented_family_map():
+    """A typed FamilyMap for the MCP read tool, invented end to end."""
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+    from capability_exchange.diagnosis.run import (
+        ExpectationState,
+        FamilyMap,
+        FamilyMapRow,
+    )
+
+    return FamilyMap(
+        catalogue_version=7,
+        catalogue_sha256="b" * 64,
+        rows=tuple(
+            FamilyMapRow(
+                family_id=family_id,
+                title=family_id.replace("-", " ").title(),
+                state=ExpectationState.UNKNOWN,
+                evidence_references=(),
+                reason="No exact supported local evidence matched this signed family.",
+            )
+            for family_id in WOW_EXPECTATIONS
+        ),
+    )
+
+
+class _FamilyMapEngine(FakeEngine):
+    """FakeEngine plus the family-map read surface."""
+
+    def family_map(self, run_id: str):
+        if run_id != RUN_ID:
+            raise DiagnosisStateError("unknown diagnosis run")
+        return _invented_family_map()
+
+
+@pytest.mark.anyio
+async def test_family_map_tool_returns_the_rederived_map() -> None:
+    """``get_diagnosis_family_map`` is a shipped MCP read surface.
+
+    Observed failing on the unchanged tree: the tool did not exist.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    server = build_mcp_server(_FamilyMapEngine())
+    async with Client(server, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "get_diagnosis_family_map",
+            {"run_id": RUN_ID},
+        )
+    payload = _tool_payload(result)
+    assert [row["family_id"] for row in payload["rows"]] == list(WOW_EXPECTATIONS)
+    assert all(row["state"] == "unknown" for row in payload["rows"])
+
+
+@pytest.mark.anyio
+async def test_family_map_tool_refusal_is_typed_and_value_free() -> None:
+    """Observed failing on the unchanged tree: 'Unknown tool', not the typed refusal."""
+
+    server = build_mcp_server(_FamilyMapEngine())
+    async with Client(server, raise_exceptions=True) as client:
+        with pytest.raises(MCPError) as caught:
+            await client.call_tool(
+                "get_diagnosis_family_map",
+                {"run_id": "run:" + "f" * 16},
+            )
+    error = caught.value
+    assert "unknown diagnosis run" in error.message
+    assert error.data is not None
+    assert error.data["error"] == "DiagnosisStateError"

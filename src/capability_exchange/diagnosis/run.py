@@ -26,6 +26,9 @@ __all__ = [
     "DiagnosisRunView",
     "DiagnosisStage",
     "DiagnosisStateError",
+    "ExpectationState",
+    "FamilyMap",
+    "FamilyMapRow",
     "RequiredStep",
     "RunIdentity",
     "advance_to",
@@ -52,6 +55,7 @@ class RequiredStep(StrEnum):
     APPROVE_SCOPE = "approve_scope"
     CAPTURE_FINGERPRINT = "capture_fingerprint"
     VERIFY_CATALOGUE = "verify_catalogue"
+    MAP_FAMILIES = "map_families"
     CONFIRM_JOBS = "confirm_jobs"
     PLAN_ANALYSIS = "plan_analysis"
     SUBMIT_WORK = "submit_work"
@@ -83,6 +87,7 @@ class DiagnosisStage(StrEnum):
     SCOPE_APPROVED = "scope-approved"
     CAPTURED = "captured"
     CATALOGUE_VERIFIED = "catalogue-verified"
+    FAMILY_MAPPED = "family-mapped"
     JOBS_CONFIRMED = "jobs-confirmed"
     ANALYSIS_PLANNED = "analysis-planned"
     ANALYSIS_COMPLETED = "analysis-completed"
@@ -97,7 +102,8 @@ _REQUIRED_STEP_BY_STAGE: dict[DiagnosisStage, RequiredStep] = {
     DiagnosisStage.CREATED: RequiredStep.APPROVE_SCOPE,
     DiagnosisStage.SCOPE_APPROVED: RequiredStep.CAPTURE_FINGERPRINT,
     DiagnosisStage.CAPTURED: RequiredStep.VERIFY_CATALOGUE,
-    DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.CONFIRM_JOBS,
+    DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.MAP_FAMILIES,
+    DiagnosisStage.FAMILY_MAPPED: RequiredStep.CONFIRM_JOBS,
     DiagnosisStage.JOBS_CONFIRMED: RequiredStep.PLAN_ANALYSIS,
     DiagnosisStage.ANALYSIS_PLANNED: RequiredStep.SUBMIT_WORK,
     DiagnosisStage.ANALYSIS_COMPLETED: RequiredStep.COMPARE,
@@ -119,7 +125,8 @@ NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
     DiagnosisStage.CREATED: DiagnosisStage.SCOPE_APPROVED,
     DiagnosisStage.SCOPE_APPROVED: DiagnosisStage.CAPTURED,
     DiagnosisStage.CAPTURED: DiagnosisStage.CATALOGUE_VERIFIED,
-    DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.JOBS_CONFIRMED,
+    DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.FAMILY_MAPPED,
+    DiagnosisStage.FAMILY_MAPPED: DiagnosisStage.JOBS_CONFIRMED,
     DiagnosisStage.JOBS_CONFIRMED: DiagnosisStage.ANALYSIS_PLANNED,
     DiagnosisStage.ANALYSIS_PLANNED: DiagnosisStage.ANALYSIS_COMPLETED,
     DiagnosisStage.ANALYSIS_COMPLETED: DiagnosisStage.COMPARED,
@@ -135,7 +142,8 @@ NEXT_ACTION: dict[DiagnosisStage, str] = {
     ),
     DiagnosisStage.SCOPE_APPROVED: "Capture the consented fingerprint.",
     DiagnosisStage.CAPTURED: "Verify the exact catalogue bytes.",
-    DiagnosisStage.CATALOGUE_VERIFIED: "Confirm the jobs this diagnosis may use.",
+    DiagnosisStage.CATALOGUE_VERIFIED: "Derive the deterministic family map.",
+    DiagnosisStage.FAMILY_MAPPED: "Confirm the jobs this diagnosis may use.",
     DiagnosisStage.JOBS_CONFIRMED: "Plan the bounded specialist analysis.",
     DiagnosisStage.ANALYSIS_PLANNED: "Complete the issued specialist work packets.",
     DiagnosisStage.ANALYSIS_COMPLETED: "Compare the fingerprint with the catalogue.",
@@ -193,6 +201,64 @@ class _ValidatedInventoried(InventoriedModel):
         **values: object,
     ) -> Self:
         return cls.model_validate(values)
+
+
+class ExpectationState(StrEnum):
+    """Closed evidence states for one significant-family expectation row.
+
+    Defined beside the stage machine (and re-exported by ``expectations``)
+    because the deterministic pass-1 family map — embedded in the public run
+    view below — speaks exactly this vocabulary.  ``NOT_GATED`` is the loud
+    typed state a family-free catalogue yields: never a silent empty manifest.
+    """
+
+    PRESENT = "present"
+    PARTIAL = "partial"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+    NOT_RELEVANT = "not-relevant"
+    NOT_CURRENTLY_AVAILABLE = "not-currently-available"
+    NOT_GATED = "not-gated"
+
+
+class FamilyMapRow(_ValidatedInventoried):
+    """One deterministic family-map row. Engine-derived, never host-authored."""
+
+    family_id: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=200)
+    state: ExpectationState
+    evidence_references: tuple[str, ...] = ()
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _evidence_references_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("family map evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("family map evidence references must be sorted")
+        return values
+
+
+class FamilyMap(_ValidatedInventoried):
+    """Deterministic pass-1 family map over the verified catalogue.
+
+    Re-derived from the stored verified inputs on every read; the stored
+    ``family-map`` artifact is a digest-bound audit record, never an input
+    (mirroring the RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT lesson).  Carries no
+    wall-clock so two derivations of the same inputs are byte-identical.
+    """
+
+    catalogue_version: int = Field(ge=1)
+    catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
+    rows: tuple[FamilyMapRow, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _rows_name_each_family_once(self) -> Self:
+        family_ids = [row.family_id for row in self.rows]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("family map rows must name each family exactly once")
+        return self
 
 
 class ApprovedScopeReceipt(_ValidatedInventoried):
@@ -339,6 +405,10 @@ class DiagnosisRunView(_ValidatedInventoried):
     required_step: RequiredStep = RequiredStep.REQUIRED_STEP
     input_identity: str | None = Field(default=None, pattern=_SHA256.pattern)
     approval_url: str | None = Field(default=None, max_length=240)
+    #: Deterministic pass-1 family map, re-derived on every status read once
+    #: the run has passed the family-mapped stage.  Never loaded from the
+    #: stored artifact.
+    family_map: FamilyMap | None = None
 
 
 def advance_to(

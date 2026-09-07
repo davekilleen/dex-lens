@@ -456,3 +456,56 @@ def test_grading_refuses_an_audit_that_is_not_this_ledgers() -> None:
     ledger = _ledger(rich=True).model_copy(update={"work_audit": autonomous_audit()})
     with pytest.raises(ValueError, match="does not belong"):
         grade_wow_run(ledger, audit=_another_runs_audit())
+
+
+def _family_free_not_gated_rows() -> tuple[SignificantExpectation, ...]:
+    """The loud manifest a family-free catalogue must now yield."""
+
+    from tests.diagnosis.test_significant_family_assessment import _catalogue
+
+    from capability_exchange.diagnosis.expectations import assess_wow_expectations
+
+    return assess_wow_expectations(_catalogue(), ())
+
+
+def test_absent_expectations_on_a_family_free_ledger_is_a_hard_failure() -> None:
+    """An empty expectation manifest can never again pass silently.
+
+    Observed failing on the unchanged tree: a family-free ledger with
+    ``expectations == ()`` graded with no ``missing-expectation`` failure —
+    exactly the first real run's silent hole.
+    """
+
+    ledger = _ledger(rich=True).model_copy(update={"expectations": ()})
+    grade = grade_wow_run(ledger, audit=autonomous_audit())
+
+    assert "missing-expectation" in grade.hard_failures
+    assert grade.passed is False
+
+
+def test_a_loud_not_gated_manifest_is_accepted_at_zero_coverage() -> None:
+    """Fourteen explicit not-gated rows are honest, scoreless, and lawful.
+
+    Observed failing on the unchanged tree: ``assess_wow_expectations``
+    returned an empty tuple for a family-free catalogue, so the rows below did
+    not exist at all.
+    """
+
+    rows = _family_free_not_gated_rows()
+    assert len(rows) == 14
+    assert all(item.state.value == "not-gated" for item in rows)
+
+    ledger = _ledger(rich=True).model_copy(update={"expectations": rows})
+    grade = grade_wow_run(ledger, audit=autonomous_audit())
+
+    assert "missing-expectation" not in grade.hard_failures
+    assert "unsupported-claim" not in grade.hard_failures
+    assert grade.significant_coverage == 0
+
+
+def test_the_family_carrying_path_is_unchanged_by_the_not_gated_state() -> None:
+    """Determinate gated rows keep exactly their previous coverage score."""
+
+    grade = grade_wow_run(_ledger(rich=True), audit=autonomous_audit())
+    assert grade.significant_coverage == 25
+    assert grade.hard_failures == ()

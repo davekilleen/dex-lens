@@ -51,6 +51,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisRunView,
     DiagnosisStage,
     DiagnosisStateError,
+    FamilyMap,
     RequiredStep,
     RunIdentity,
     _ValidatedInventoried,
@@ -110,6 +111,19 @@ ADAPTER_VERSION = "injected-collector"
 # constructible for the sceptical packet, so a valid-input run can never wedge
 # there with no exit.
 MAX_FACTOR_TUPLES_PER_CANDIDATE = len(SpecialistRole)
+
+# Stages at which the deterministic family map cannot exist yet: the map is
+# derived from the captured fingerprint and the verified catalogue, so it
+# becomes readable only once the run reaches (or, for runs saved before the
+# stage existed, has passed) FAMILY_MAPPED.
+_PRE_FAMILY_MAP_STAGES = frozenset(
+    {
+        DiagnosisStage.CREATED,
+        DiagnosisStage.SCOPE_APPROVED,
+        DiagnosisStage.CAPTURED,
+        DiagnosisStage.CATALOGUE_VERIFIED,
+    }
+)
 
 
 def _collect_declared_models(
@@ -428,7 +442,53 @@ class DeterministicDiagnosisEngine:
         return view
 
     def status(self, run_id: str) -> DiagnosisRunView:
-        return self._view(self._load(run_id))
+        checkpoint = self._load(run_id)
+        view = self._view(checkpoint)
+        if checkpoint.stage in _PRE_FAMILY_MAP_STAGES:
+            return view
+        try:
+            family_map = self._derived_family_map(checkpoint)
+        except DiagnosisStateError:
+            # Status reports proved progress without advancing; a run whose
+            # stored inputs cannot re-derive the map (for example a tampered
+            # catalogue slice) still shows its stage, while every mutating or
+            # map-specific surface keeps failing closed with the typed error.
+            family_map = None
+        if family_map is None:
+            return view
+        return view.model_copy(update={"family_map": family_map})
+
+    def family_map(self, run_id: str) -> FamilyMap:
+        """Re-derive the deterministic family map for one run's read surfaces.
+
+        Never loads the stored ``family-map`` artifact: the map is re-derived
+        from the stored verified inputs on every read, so a tampered stored
+        map cannot reach a reader (RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT).
+        """
+
+        checkpoint = self._load(run_id)
+        if checkpoint.stage in _PRE_FAMILY_MAP_STAGES:
+            raise DiagnosisStateError(
+                "the family map is derived after catalogue verification",
+                required_step=RequiredStep.MAP_FAMILIES,
+            )
+        family_map = self._derived_family_map(checkpoint)
+        if family_map is None:
+            raise DiagnosisStateError(
+                "this engine's comparer cannot derive a family map"
+            )
+        return family_map
+
+    def _derived_family_map(self, checkpoint: DiagnosisCheckpoint) -> FamilyMap | None:
+        """Derive the map from stored verified inputs, or ``None`` for a
+        comparer without the derivation (injected test doubles)."""
+
+        derive = getattr(self._compare, "family_map", None)
+        if not callable(derive):
+            return None
+        fingerprint = self._fingerprint(checkpoint)
+        catalogue = self._catalogue(checkpoint)
+        return derive(fingerprint=fingerprint, catalogue=catalogue)
 
     def advance(self, run_id: str) -> DiagnosisRunView:
         # Advancing mutates the persisted run, so the whole
@@ -453,6 +513,7 @@ class DeterministicDiagnosisEngine:
             DiagnosisStage.SCOPE_APPROVED: self._approve_scope,
             DiagnosisStage.CAPTURED: self._capture,
             DiagnosisStage.CATALOGUE_VERIFIED: self._verify_catalogue,
+            DiagnosisStage.FAMILY_MAPPED: self._map_families,
             DiagnosisStage.JOBS_CONFIRMED: self._confirm_jobs,
             DiagnosisStage.ANALYSIS_PLANNED: self._plan_analysis,
             DiagnosisStage.ANALYSIS_COMPLETED: self._complete_analysis,
@@ -998,6 +1059,36 @@ class DeterministicDiagnosisEngine:
             input_identity=identity,
         )
 
+    def _map_families(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
+        """Derive and store the pass-1 family map before any specialist work.
+
+        The stored artifact is a digest-bound audit record only: every read
+        surface re-derives the map from the stored verified inputs, and
+        comparison refuses a stored map that disagrees with re-derivation —
+        mirroring the RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT fix.  An engine
+        wired with a comparer that cannot derive maps (injected test doubles)
+        advances without the artifact, exactly like a run saved before this
+        stage existed.
+        """
+
+        # Resolving the mode first keeps the guided-mode integrity checks
+        # (missing or tampered candidate-scope sidecar) failing closed at this
+        # advance, exactly as they did when jobs-confirmed followed catalogue
+        # verification directly.
+        self._analysis_mode(checkpoint)
+        artifacts: tuple[str, ...] = ()
+        family_map = self._derived_family_map(checkpoint)
+        if family_map is not None:
+            payload = family_map.model_dump(mode="json")
+            try:
+                refuse_hostile_payload(payload)
+            except HostilePayloadError as exc:
+                raise DiagnosisStateError(
+                    "family map carries content the engine refuses to retain"
+                ) from exc
+            artifacts = (self._put("family-map", payload),)
+        return self._advance(checkpoint, DiagnosisStage.FAMILY_MAPPED, artifacts=artifacts)
+
     def _confirm_jobs(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
         receipt = self._require_receipt(checkpoint)
         fingerprint = self._fingerprint(checkpoint)
@@ -1107,6 +1198,21 @@ class DeterministicDiagnosisEngine:
     def _compare_ledger(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
+        # The stored family map is an audit record, never an input: comparison
+        # re-derives it and refuses a stored copy that differs in any way —
+        # the same discipline RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT demanded for
+        # reconciled proposals.  A run with no stored map (saved before the
+        # family-mapped stage existed, or driven by a comparer without the
+        # derivation) proceeds: the map is re-derivable on demand, so the
+        # missing audit record must not wedge a lawful run.
+        stored_map = self._find_kind(checkpoint, "family-map")
+        if stored_map is not None:
+            derived_map = self._derived_family_map(checkpoint)
+            if derived_map is None or stored_map != derived_map.model_dump(mode="json"):
+                raise DiagnosisStateError(
+                    "stored family map does not match the re-derived family map; "
+                    "start a new run"
+                )
         mode = self._analysis_mode(checkpoint)
         if mode is AnalysisMode.GUIDED:
             if checkpoint.stage is not DiagnosisStage.ANALYSIS_COMPLETED:

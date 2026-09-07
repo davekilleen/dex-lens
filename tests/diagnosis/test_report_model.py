@@ -330,6 +330,38 @@ def test_report_model_renders_the_canonical_fact_block() -> None:
         )
 
 
+def test_family_free_report_renders_fourteen_visible_not_gated_rows() -> None:
+    """A family-free catalogue may never again produce a silent report.
+
+    Observed failing on the unchanged tree: ``assess_wow_expectations``
+    returned an empty tuple for a family-free catalogue, the ledger carried no
+    expectation rows, and the rendered report said nothing about why there was
+    no release-gap story.
+    """
+
+    from tests.diagnosis.test_significant_family_assessment import _catalogue
+
+    from capability_exchange.diagnosis.expectations import (
+        WOW_EXPECTATIONS,
+        assess_wow_expectations,
+    )
+
+    rows = assess_wow_expectations(_catalogue(), ())
+    assert len(rows) == 14
+    ledger = real_session_ledger().model_copy(update={"expectations": rows})
+    report = ReportModel.from_result(
+        run_identity=run_identity(),
+        ledger=ledger,
+        ledger_sha256=canonical_ledger_digest(ledger),
+        findings=(),
+    )
+
+    rendered = report.render_markdown(ledger)
+    for family_id in WOW_EXPECTATIONS:
+        assert f"`{family_id}` — not-gated" in rendered
+    assert "no signed capability-family contract" in rendered.lower()
+
+
 def _after_coverage(markdown: str) -> str:
     marker = "## What you decided"
     return markdown[markdown.index(marker) :]

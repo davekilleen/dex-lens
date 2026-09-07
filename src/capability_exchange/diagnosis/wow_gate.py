@@ -80,13 +80,30 @@ def _supported_fraction(claims: tuple[object, ...], held: frozenset[str]) -> flo
     return sum(_is_supported(item, held) for item in claims) / len(claims)
 
 
+def _gated_expectations(ledger: ComparisonLedger) -> tuple[object, ...]:
+    """Expectation rows that assert something about the inspected system.
+
+    A ``not-gated`` row is a loud typed placeholder — the catalogue carries no
+    signed family contract, so the row states why nothing could be gated. It
+    is not a claim and carries no evidence by construction; counting it as a
+    claim would turn the placeholder itself into an unsupported-claim hard
+    failure, punishing exactly the loudness item 2 exists to force.
+    """
+
+    return tuple(
+        item
+        for item in ledger.expectations
+        if getattr(item, "state", None) is not ExpectationState.NOT_GATED
+    )
+
+
 def _all_claims(ledger: ComparisonLedger) -> tuple[object, ...]:
     return (
         *ledger.strengths,
         *ledger.reciprocal_lessons,
         *ledger.workflow_insights,
         *ledger.ranked_recommendations,
-        *ledger.expectations,
+        *_gated_expectations(ledger),
     )
 
 
@@ -209,7 +226,10 @@ def _hard_failures(
         WOW_EXPECTATIONS
     ):
         failures.append("missing-expectation")
-    elif ledger.family_entries and not ledger.expectations:
+    elif not ledger.expectations:
+        # An absent manifest is the first real run's silent hole.  Even a
+        # family-free catalogue must yield fourteen loud not-gated rows, so a
+        # ledger carrying no expectation rows at all is a hard failure.
         failures.append("missing-expectation")
     if len(ledger.ranked_recommendations) > MAX_RECOMMENDATIONS:
         failures.append("too-many-recommendations")
@@ -223,7 +243,12 @@ def _hard_failures(
         item.kind is InsightKind.WORKFLOW_CONNECTION for item in ledger.workflow_insights
     ):
         failures.append("unsupported-claim")
-    rich_surprise_required = bool(ledger.workflow_graph.edges) and bool(ledger.expectations)
+    # Not-gated placeholders do not switch on the rich-surprise demand: the
+    # family machinery is absent for such a catalogue, exactly as when the
+    # manifest used to be empty.
+    rich_surprise_required = bool(ledger.workflow_graph.edges) and bool(
+        _gated_expectations(ledger)
+    )
     if rich_surprise_required and not ledger.workflow_insights:
         failures.append("missing-rich-surprise")
     return tuple(failures)

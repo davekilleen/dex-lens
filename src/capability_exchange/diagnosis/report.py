@@ -446,6 +446,7 @@ class ReportModel(InventoriedModel):
             f"{block}"
             f"{extra}"
             f"\n{_render_family_coverage(ledger)}"
+            f"\n{_render_wow_expectations(ledger)}"
             f"\n{appendix}"
             "\n"
             f"{self._render_decisions()}"
@@ -808,6 +809,25 @@ def _render_family_coverage(ledger: ComparisonLedger) -> str:
             f"{_family_availability_phrase(family.signed_availability.value)}; "
             f"{_family_disposition_phrase(family.disposition.value)}."
         )
+    return "\n".join(lines) + "\n"
+
+
+def _render_wow_expectations(ledger: ComparisonLedger) -> str:
+    """Render every expectation row visibly, one plain line each.
+
+    A family-free catalogue yields fourteen loud ``not-gated`` rows, so the
+    absence of a release-gap story always arrives with the sentence saying
+    why — never as silence.  Every line is engine-authored fixed wording
+    joined to engine-derived states; no host text enters this section.
+    """
+
+    if not ledger.expectations:
+        return ""
+    lines = ["## Significant capability expectations"]
+    lines.extend(
+        f"- `{item.family_id}` — {item.state.value}: {item.reason}"
+        for item in ledger.expectations
+    )
     return "\n".join(lines) + "\n"
 
 

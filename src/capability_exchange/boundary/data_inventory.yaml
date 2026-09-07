@@ -3519,6 +3519,114 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "local URL only; no token query string"
 
+  DiagnosisRunView.family_map:
+    description: "deterministic pass-1 family map, re-derived from stored verified inputs on every status read"
+    collection: "derived by the engine from the captured fingerprint and signature-verified catalogue"
+    derivation: "exact-identity family assessment folded into closed expectation states; never loaded from the stored artifact"
+    display: "returned by CLI status/map and the MCP family-map tool once the run passes family-mapped"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "engine-derived map; comparison refuses a stored copy that disagrees with re-derivation"
+
+  FamilyMap.catalogue_version:
+    description: "verified catalogue version the family map was derived against"
+    collection: "copied from the signature-verified catalogue slice"
+    derivation: "positive integer catalog version"
+    display: "names the catalogue release the fourteen rows describe"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "catalogue version only"
+
+  FamilyMap.catalogue_sha256:
+    description: "digest of the exact signed catalogue bytes the family map was derived against"
+    collection: "computed from the signature-verified catalogue envelope"
+    derivation: "sha256 hex digest"
+    display: "binds the map to one exact verified catalogue"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "digest only"
+
+  FamilyMap.rows:
+    description: "one deterministic row per Wow Gate manifest family, in manifest order"
+    collection: "derived by the engine from exact-identity family assessment of the approved fingerprint"
+    derivation: "one FamilyMapRow per manifest family; loud not-gated rows when the catalogue signs no family contract"
+    display: "the complete pass-1 map shown before any specialist work"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "engine-derived rows; re-derived on every read"
+
+  FamilyMapRow.family_id:
+    description: "signed significant-family identity for one family map row"
+    collection: "copied from the Wow Gate manifest"
+    derivation: "must name each manifest family exactly once"
+    display: "anchors one map row to a family"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "family identity only"
+
+  FamilyMapRow.title:
+    description: "signed family title, or the family identity when the catalogue signs no contract"
+    collection: "copied from the signature-verified family contract"
+    derivation: "signed title; falls back to the family identity, never invented text"
+    display: "human name for one map row"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "signed catalogue text only"
+
+  FamilyMapRow.state:
+    description: "closed expectation state for one family map row"
+    collection: "derived locally from the automatic family assessment"
+    derivation: "one ExpectationState value; not-gated when the catalogue signs no family contract"
+    display: "the row's honest state in the pass-1 map"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed state only"
+
+  FamilyMapRow.evidence_references:
+    description: "engine-derived evidence references supporting one family map row"
+    collection: "copied from the family assessment evidence references"
+    derivation: "unique sorted bounded evidence tokens"
+    display: "binds each map row to cited evidence"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "opaque evidence references only"
+
+  FamilyMapRow.reason:
+    description: "engine-authored fixed explanation for one family map row"
+    collection: "copied from the family assessment reason or the fixed not-gated sentence"
+    derivation: "single bounded line of closed product wording"
+    display: "explains the row state in plain language"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed product wording only"
+
   PersistedCandidateScope.analysis_mode:
     description: "closed analysis mode carried from prepare into the durable run input"
     collection: "copied from the diagnosis prepare request"

@@ -97,6 +97,7 @@ class ExpectedStage(StrEnum):
     SCOPE_APPROVED = "scope-approved"
     CAPTURED = "captured"
     CATALOGUE_VERIFIED = "catalogue-verified"
+    FAMILY_MAPPED = "family-mapped"
     JOBS_CONFIRMED = "jobs-confirmed"
     COMPARED = "compared"
     RENDERED = "rendered"

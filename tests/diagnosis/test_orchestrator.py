@@ -353,6 +353,14 @@ def test_each_stage_calls_exactly_its_lawful_dependency(engine: EngineHarness) -
     assert len(engine.catalogue_loader.calls) == 1
     assert engine.comparer.calls == []
 
+    mapped = engine.advance(run_id)
+    assert mapped.stage is DiagnosisStage.FAMILY_MAPPED
+    # A comparer without the family-map derivation (this recording double)
+    # advances without loading anything: the stage stays lawful for old-style
+    # injected comparers exactly as for runs saved before the stage existed.
+    assert len(engine.catalogue_loader.calls) == 1
+    assert engine.comparer.calls == []
+
     jobs = engine.advance(run_id)
     assert jobs.stage is DiagnosisStage.JOBS_CONFIRMED
     # Reloading a stored catalogue slice re-derives it from the verified

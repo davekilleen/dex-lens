@@ -42,7 +42,10 @@ from capability_exchange.diagnosis.comparison import (
     family_entries_from_assessments,
     insights_from_proposals,
 )
-from capability_exchange.diagnosis.expectations import assess_wow_expectations
+from capability_exchange.diagnosis.expectations import (
+    assess_wow_expectations,
+    build_family_map,
+)
 from capability_exchange.diagnosis.families import build_family_delta
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
@@ -66,7 +69,11 @@ from capability_exchange.diagnosis.ranking import (
     RecommendationFactors,
     rank_recommendations,
 )
-from capability_exchange.diagnosis.run import ApprovedScopeReceipt, DiagnosisStateError
+from capability_exchange.diagnosis.run import (
+    ApprovedScopeReceipt,
+    DiagnosisStateError,
+    FamilyMap,
+)
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.significant_families import assess_significant_families
 from capability_exchange.diagnosis.specialists import (
@@ -835,6 +842,33 @@ class UnknownUntilProposedComparer:
     ) -> None:
         self._store = _verified_store(store)
         self._keyring = keyring
+
+    def family_map(
+        self,
+        *,
+        fingerprint: EvidenceFingerprint,
+        catalogue: VerifiedCatalogueSlice,
+    ) -> FamilyMap:
+        """Re-derive the deterministic pass-1 family map from verified inputs.
+
+        Called by the engine at the family-mapped stage and again on every
+        read surface (status, ``diagnosis map``, the MCP tool): per the
+        RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT lesson the stored family-map
+        artifact is a digest-bound audit record, never an input.  The same
+        ``build_family_map`` derivation feeds :meth:`compare`'s expectations,
+        so the early map and the closing ledger cannot drift.
+        """
+
+        envelope = _load_diagnosis_envelope(self._store, self._keyring)
+        digest = _signed_digest(envelope)
+        if digest != catalogue.sha256:
+            raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
+        return build_family_map(
+            envelope.catalogue,
+            fingerprint,
+            catalogue_version=catalogue.version,
+            catalogue_sha256=digest,
+        )
 
     def compare(
         self,

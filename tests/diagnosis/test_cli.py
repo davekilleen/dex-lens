@@ -846,3 +846,80 @@ def test_result_markdown_still_prints_a_clean_report(
     captured = capsys.readouterr()
     assert captured.out == "# Diagnosis\n\nclosed\n"
     assert captured.err == ""
+
+
+def _invented_family_map():
+    """A typed FamilyMap for the CLI's map surface, invented end to end."""
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+    from capability_exchange.diagnosis.run import ExpectationState, FamilyMap, FamilyMapRow
+
+    return FamilyMap(
+        catalogue_version=7,
+        catalogue_sha256="b" * 64,
+        rows=tuple(
+            FamilyMapRow(
+                family_id=family_id,
+                title=family_id.replace("-", " ").title(),
+                state=ExpectationState.UNKNOWN,
+                evidence_references=(),
+                reason="No exact supported local evidence matched this signed family.",
+            )
+            for family_id in WOW_EXPECTATIONS
+        ),
+    )
+
+
+@dataclass
+class MapEngine:
+    """Engine double exposing only the family-map read surface."""
+
+    def family_map(self, run_id: str):
+        if run_id != RUN_ID:
+            raise DiagnosisStateError("unknown diagnosis run")
+        return _invented_family_map()
+
+
+def test_map_prints_the_rederived_family_map_as_canonical_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`dex-lens diagnosis map --run <id> --json` is a shipped read surface.
+
+    Observed failing on the unchanged tree: `map` was not a diagnosis command.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    monkeypatch.setattr(cli, "build_engine", lambda: MapEngine())
+
+    assert diagnosis_main(["map", "--run", RUN_ID, "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["family_id"] for row in payload["rows"]] == list(WOW_EXPECTATIONS)
+    assert all(row["state"] == "unknown" for row in payload["rows"])
+
+
+def test_map_prints_one_plain_line_per_family_without_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    monkeypatch.setattr(cli, "build_engine", lambda: MapEngine())
+
+    assert diagnosis_main(["map", "--run", RUN_ID]) == 0
+
+    out = capsys.readouterr().out
+    for family_id in WOW_EXPECTATIONS:
+        assert family_id in out
+
+
+def test_map_refusal_stays_typed_and_value_free(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "build_engine", lambda: MapEngine())
+
+    assert diagnosis_main(["map", "--run", "run:" + "f" * 16, "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "unknown diagnosis run" in captured.err
