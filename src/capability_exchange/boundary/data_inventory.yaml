@@ -2175,6 +2175,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral aggregate Wow Gate dimension"
 
+  WowGrade.pass_one_completeness:
+    description: "Wow Gate pass-1 completeness sub-score, graded separately from depth"
+    collection: "derived locally from typed expectation rows"
+    derivation: "integer from 0 through 14: manifest rows determinate-with-evidence or loudly priced"
+    display: "aggregate score dimension only"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral aggregate Wow Gate dimension"
+
   WowGrade.hard_failures:
     description: "closed Wow Gate hard-failure reasons for one run"
     collection: "derived locally from typed ledger and audit facts"

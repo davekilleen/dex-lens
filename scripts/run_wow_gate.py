@@ -77,6 +77,9 @@ def _graded_main(argv: list[str] | None = None) -> int:
     output = {
         "score": grade.score,
         "passed": grade.passed,
+        # The pass-1 axis of the two-pass grade: rows out of fourteen that are
+        # determinate-with-evidence or loudly priced. An aggregate count only.
+        "pass_one_completeness": grade.pass_one_completeness,
         "hard_failure_count": len(grade.hard_failures),
         # Names only. Each is a fixed slug from a closed vocabulary, so a
         # failing gate is actionable without re-running the grader in Python

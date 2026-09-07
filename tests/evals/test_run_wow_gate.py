@@ -73,6 +73,19 @@ def test_a_failing_grade_names_what_failed(tmp_path: Path) -> None:
     assert "unsupported-claim" in grade["hard_failures"]
 
 
+def test_the_grade_reports_pass_one_completeness(tmp_path: Path) -> None:
+    """The written grade carries the pass-1 sub-score as its own axis.
+
+    Observed absent on the unchanged tree: the output JSON had no
+    ``pass_one_completeness`` key.
+    """
+
+    code, grade, _ = _run(tmp_path, _write_result(tmp_path, _ledger(rich=True)))
+
+    assert code == 0
+    assert grade["pass_one_completeness"] == 14
+
+
 def test_it_refuses_another_runs_audit(tmp_path: Path) -> None:
     result = _write_result(tmp_path, _ledger(rich=True, audit=autonomous_audit()))
     stranger = tmp_path / "stranger-audit.json"

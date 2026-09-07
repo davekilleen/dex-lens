@@ -1,5 +1,22 @@
 """Aggregate Wow Gate scoring and hard-failure evaluation for guided diagnoses.
 
+The gate grades the two-pass product on two separate axes:
+
+*Pass-1 completeness* — all fourteen expectation rows present, each either
+determinate with evidence the ledger holds or a loud, priced placeholder
+(an ``unknown`` whose reason sentence is rendered, or the full ``not-gated``
+manifest carrying its one fixed sentence).  An unpriced unknown anywhere is
+the ``unpriced-unknown`` hard failure: "could not tell" must be loud, priced,
+and rare, never a bare token.
+
+*Pass-2 depth* — the six scored dimensions.  On a focused run the coverage
+dimension grades the families the person selected, because depth-where-you-
+pointed is what pass 2 promises; completeness across all fourteen is already
+the other axis.  A focused ledger whose selected families hold any silent
+not-assessed member is the ``sampled-selection`` hard failure — the
+gate-level mirror of the engine's close rule, kept as belt and braces
+against tampered stores.
+
 What this grader can and cannot prove, stated plainly because a score is
 easily mistaken for more than it is:
 
@@ -9,12 +26,14 @@ records, that a determinate finding carries evidence, that repeated citation
 of one identity is counted once. It cannot check that the evidence is
 *authentic*, because a ledger declares its own evidence and the grader never
 sees the fingerprint the tokens were minted from. A wholly fabricated but
-internally consistent ledger will therefore grade well here.
+internally consistent ledger can therefore still grade well here on the
+dimensions its fabrications satisfy.
 
 Authenticity is the engine's job, upstream, where the minted token set is
-known. See RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT in docs/RISK-REGISTER.md: while
-guided comparison accepts a stored artifact it never re-derives, a passing
-grade is not evidence that the conclusions came from the inspected system.
+known: comparison re-derives its inputs and refuses stored artifacts that
+disagree (see the closed RISK-GUIDED-COMPARE-TRUSTS-ARTIFACT row in
+docs/RISK-REGISTER.md). A passing grade on a ledger the engine never closed
+is a claim about that ledger's arithmetic, not about any inspected system.
 """
 
 from __future__ import annotations
@@ -23,10 +42,15 @@ from pydantic import Field
 
 from capability_exchange.diagnosis.comparison import (
     ComparisonLedger,
+    Disposition,
     InsightKind,
     ledger_evidence_identities,
 )
-from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS, ExpectationState
+from capability_exchange.diagnosis.expectations import (
+    NOT_GATED_REASON,
+    WOW_EXPECTATIONS,
+    ExpectationState,
+)
 from capability_exchange.diagnosis.payload_guard import (
     HostilePayloadError,
     refuse_hostile_payload,
@@ -38,6 +62,12 @@ from capability_exchange.diagnosis.workflows import WorkflowGraph
 
 __all__ = ["WowGrade", "grade_wow_run"]
 
+#: Audit modes whose packets are engine-issued autonomous work.  FOCUSED is
+#: the two-pass product's default; GUIDED remains the all-families sweep.
+_AUTONOMOUS_MODES = frozenset({AnalysisMode.GUIDED, AnalysisMode.FOCUSED})
+
+_SENTENCE_ENDINGS = (".", "!", "?")
+
 
 class WowGrade(_ValidatedInventoried):
     significant_coverage: int = Field(ge=0, le=25)
@@ -46,6 +76,11 @@ class WowGrade(_ValidatedInventoried):
     reciprocal_quality: int = Field(ge=0, le=15)
     evidence_integrity: int = Field(ge=0, le=15)
     autonomy_and_clarity: int = Field(ge=0, le=5)
+    #: Pass-1 completeness, graded separately from the 100-point depth score:
+    #: how many of the fourteen manifest rows are either determinate with held
+    #: evidence or a loud priced placeholder.  Anything below fourteen also
+    #: carries the hard failure naming what broke.
+    pass_one_completeness: int = Field(ge=0, le=14)
     hard_failures: tuple[str, ...]
 
     @property
@@ -61,7 +96,11 @@ class WowGrade(_ValidatedInventoried):
 
     @property
     def passed(self) -> bool:
-        return self.score >= 90 and not self.hard_failures
+        return (
+            self.score >= 90
+            and self.pass_one_completeness == len(WOW_EXPECTATIONS)
+            and not self.hard_failures
+        )
 
 
 def _is_supported(claim: object, held: frozenset[str]) -> bool:
@@ -80,8 +119,38 @@ def _supported_fraction(claims: tuple[object, ...], held: frozenset[str]) -> flo
     return sum(_is_supported(item, held) for item in claims) / len(claims)
 
 
+def _is_priced(item: object) -> bool:
+    """An unknown is priced when its reason sentence is actually rendered.
+
+    The model type guarantees a non-empty reason, so the check here is the
+    part the type cannot: the reason must read as a sentence a person was
+    shown — more than one word, closed with terminal punctuation — not a
+    bare state token restated.  The truth of the sentence is the engine's
+    job upstream; the gate refuses the silent shape.
+    """
+
+    text = str(getattr(item, "reason", "") or "").strip()
+    return len(text.split()) >= 2 and text.endswith(_SENTENCE_ENDINGS)
+
+
+def _not_gated_is_lawful(item: object, *, whole_manifest_not_gated: bool) -> bool:
+    """A not-gated row is lawful only inside the full loud placeholder manifest.
+
+    ``assess_wow_expectations`` mints not-gated as all fourteen rows or none,
+    each carrying exactly the one fixed sentence and no evidence.  A partial
+    or reworded not-gated manifest is a shape the engine cannot produce, so
+    the gate refuses it rather than trusting a tampered store.
+    """
+
+    return (
+        whole_manifest_not_gated
+        and getattr(item, "reason", None) == NOT_GATED_REASON
+        and not tuple(getattr(item, "evidence_ids", ()) or ())
+    )
+
+
 def _gated_expectations(ledger: ComparisonLedger) -> tuple[object, ...]:
-    """Expectation rows that assert something about the inspected system.
+    """Expectation rows the family machinery actually gated.
 
     A ``not-gated`` row is a loud typed placeholder — the catalogue carries no
     signed family contract, so the row states why nothing could be gated. It
@@ -97,13 +166,34 @@ def _gated_expectations(ledger: ComparisonLedger) -> tuple[object, ...]:
     )
 
 
+def _claim_expectations(ledger: ComparisonLedger) -> tuple[object, ...]:
+    """Expectation rows that assert something and so must cite held evidence.
+
+    Determinate rows always claim.  An ``unknown`` row claims only when it
+    cites evidence — a fabricated citation on an Unknown stays an
+    unsupported claim — while an evidence-free Unknown asserts nothing and is
+    governed by the priced-loudness rule instead, so honesty is never scored
+    as fabrication.
+    """
+
+    return tuple(
+        item
+        for item in ledger.expectations
+        if getattr(item, "state", None) in _DETERMINATE_STATES
+        or (
+            getattr(item, "state", None) is ExpectationState.UNKNOWN
+            and tuple(getattr(item, "evidence_ids", ()) or ())
+        )
+    )
+
+
 def _all_claims(ledger: ComparisonLedger) -> tuple[object, ...]:
     return (
         *ledger.strengths,
         *ledger.reciprocal_lessons,
         *ledger.workflow_insights,
         *ledger.ranked_recommendations,
-        *_gated_expectations(ledger),
+        *_claim_expectations(ledger),
     )
 
 
@@ -138,25 +228,77 @@ _DETERMINATE_STATES = frozenset(
 )
 
 
-def _significant_coverage(expectations: tuple[object, ...], held: frozenset[str]) -> int:
+def _manifest_in_order(ledger: ComparisonLedger) -> bool:
+    return (
+        tuple(getattr(item, "family_id", None) for item in ledger.expectations)
+        == WOW_EXPECTATIONS
+    )
+
+
+def _significant_coverage(ledger: ComparisonLedger, held: frozenset[str]) -> int:
     """Score what was determined, not how many rows were emitted.
 
     ``UNKNOWN`` earns nothing: "we could not tell" is an honest answer but it
     is not coverage. A determinate state earns nothing either unless it cites
     evidence the ledger holds, because a verdict without evidence is a guess
     wearing a verdict's clothes.
+
+    On a focused run the denominator is the selected families: pass-2 depth
+    is graded where the person pointed, and completeness across all fourteen
+    rows is the separate pass-1 axis.  A guided or inventory ledger keeps the
+    original 25-point logic over the whole manifest, unchanged.
     """
 
-    if not expectations:
+    if not ledger.expectations or not _manifest_in_order(ledger):
         return 0
-    if tuple(getattr(item, "family_id", None) for item in expectations) != WOW_EXPECTATIONS:
+    selected = set(ledger.focus_selected_family_ids)
+    scored = (
+        tuple(item for item in ledger.expectations if item.family_id in selected)
+        if selected
+        else ledger.expectations
+    )
+    if not scored:
         return 0
     determined = sum(
         1
-        for item in expectations
+        for item in scored
         if getattr(item, "state", None) in _DETERMINATE_STATES and _is_supported(item, held)
     )
-    return min(25, round(25 * determined / len(WOW_EXPECTATIONS)))
+    return min(25, round(25 * determined / len(scored)))
+
+
+def _pass_one_completeness(ledger: ComparisonLedger, held: frozenset[str]) -> int:
+    """Count manifest rows that are either determinate-with-evidence or loud.
+
+    The count is the pass-1 axis of the two-pass grade: fourteen rows, each
+    determinate with held evidence, or an Unknown whose price sentence is
+    rendered, or part of the full lawful not-gated manifest.  A row failing
+    all three earns nothing here and also raises its own hard failure, so
+    the sub-score never silently substitutes for the refusal.
+    """
+
+    if not _manifest_in_order(ledger):
+        return 0
+    whole_manifest_not_gated = all(
+        getattr(item, "state", None) is ExpectationState.NOT_GATED
+        for item in ledger.expectations
+    )
+    count = 0
+    for item in ledger.expectations:
+        state = getattr(item, "state", None)
+        if state in _DETERMINATE_STATES and _is_supported(item, held):
+            count += 1
+        elif state is ExpectationState.NOT_GATED and _not_gated_is_lawful(
+            item, whole_manifest_not_gated=whole_manifest_not_gated
+        ):
+            count += 1
+        elif (
+            state is ExpectationState.UNKNOWN
+            and _is_priced(item)
+            and (not item.evidence_ids or _is_supported(item, held))
+        ):
+            count += 1
+    return count
 
 
 def _recommendation_quality(ledger: ComparisonLedger, held: frozenset[str]) -> int:
@@ -202,13 +344,53 @@ def _evidence_integrity(ledger: ComparisonLedger, held: frozenset[str]) -> int:
 def _autonomy_and_clarity(audit: WorkAudit | None) -> int:
     if audit is None:
         return 0
-    if audit.mode is not AnalysisMode.GUIDED:
+    if audit.mode not in _AUTONOMOUS_MODES:
         return 0
     if audit.completed_count < audit.packet_count:
         return 1
     if audit.unresolved_count:
         return 2
     return 5
+
+
+def _sampled_selection(ledger: ComparisonLedger, audit: WorkAudit | None) -> bool:
+    """True when a focused ledger's selected families hold silent members.
+
+    The engine already refuses to close such a run; this is the gate-level
+    mirror, belt and braces against tampered stores.  A member is *silent*
+    when its entry is ``not-assessed`` with no evidence references — exactly
+    the seeded row no proposal ever cited.  A loud could-not-tell (a recorded
+    dispute or withheld method verdict) carries its proposals' evidence and
+    is lawful.  Missing selection facts on a focused ledger fail closed: a
+    FOCUSED audit with no recorded selection, or a selected family with no
+    ledger row, is a shape the engine cannot mint.
+    """
+
+    focused = bool(ledger.focus_selected_family_ids) or (
+        audit is not None and audit.mode is AnalysisMode.FOCUSED
+    )
+    if not focused:
+        return False
+    selected = ledger.focus_selected_family_ids
+    if not selected:
+        return True
+    families = {item.family_id: item for item in ledger.family_entries}
+    entries = {item.catalogue_id: item for item in ledger.entries}
+    for family_id in selected:
+        family = families.get(family_id)
+        if family is None:
+            return True
+        members = (*family.available_member_ids, *family.unavailable_member_ids)
+        for member_id in members:
+            entry = entries.get(member_id)
+            if entry is None:
+                return True
+            if (
+                entry.disposition is Disposition.NOT_ASSESSED
+                and not entry.evidence_references
+            ):
+                return True
+    return False
 
 
 def _hard_failures(
@@ -219,18 +401,36 @@ def _hard_failures(
     # restated invariants WorkAudit already enforces on itself, so neither
     # could ever fire; `_audit_for` asks the question the model cannot, which
     # is whether this audit belongs to this ledger.
-    if audit is not None and audit.mode is AnalysisMode.GUIDED:
+    if audit is not None and audit.mode in _AUTONOMOUS_MODES:
         if audit.completed_count < audit.packet_count:
             failures.append("incomplete-packets")
-    if ledger.expectations and tuple(item.family_id for item in ledger.expectations) != (
-        WOW_EXPECTATIONS
-    ):
+    if ledger.expectations and not _manifest_in_order(ledger):
         failures.append("missing-expectation")
     elif not ledger.expectations:
         # An absent manifest is the first real run's silent hole.  Even a
         # family-free catalogue must yield fourteen loud not-gated rows, so a
         # ledger carrying no expectation rows at all is a hard failure.
         failures.append("missing-expectation")
+    whole_manifest_not_gated = bool(ledger.expectations) and all(
+        getattr(item, "state", None) is ExpectationState.NOT_GATED
+        for item in ledger.expectations
+    )
+    if any(
+        (
+            getattr(item, "state", None) is ExpectationState.UNKNOWN
+            and not _is_priced(item)
+        )
+        or (
+            getattr(item, "state", None) is ExpectationState.NOT_GATED
+            and not _not_gated_is_lawful(
+                item, whole_manifest_not_gated=whole_manifest_not_gated
+            )
+        )
+        for item in ledger.expectations
+    ):
+        failures.append("unpriced-unknown")
+    if _sampled_selection(ledger, audit):
+        failures.append("sampled-selection")
     if len(ledger.ranked_recommendations) > MAX_RECOMMENDATIONS:
         failures.append("too-many-recommendations")
     if any(not _is_supported(item, held) for item in _all_claims(ledger)):
@@ -285,11 +485,12 @@ def grade_wow_run(ledger: ComparisonLedger, audit: WorkAudit | None = None) -> W
     held = ledger_evidence_identities(ledger)
     hard_failures = _hard_failures(ledger, audit, held)
     return WowGrade(
-        significant_coverage=_significant_coverage(ledger.expectations, held),
+        significant_coverage=_significant_coverage(ledger, held),
         workflow_quality=_workflow_quality(ledger.workflow_graph, held),
         recommendation_quality=_recommendation_quality(ledger, held),
         reciprocal_quality=_reciprocal_quality(ledger, held),
         evidence_integrity=_evidence_integrity(ledger, held),
         autonomy_and_clarity=_autonomy_and_clarity(audit),
+        pass_one_completeness=_pass_one_completeness(ledger, held),
         hard_failures=hard_failures,
     )
