@@ -29,6 +29,7 @@ __all__ = [
     "ExpectationState",
     "FamilyMap",
     "FamilyMapRow",
+    "FamilyReleaseDelta",
     "RequiredStep",
     "RunIdentity",
     "advance_to",
@@ -47,6 +48,10 @@ _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SCOPE_REF = re.compile(r"^scope:sha256:[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# The bounded SemVer forms Lens accepts for release identities, matching the
+# signed lineage fields and the version-distance contract in ``comparison``.
+_SEMVERISH = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+_MEMBER_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,119}$")
 
 
 class RequiredStep(StrEnum):
@@ -221,6 +226,44 @@ class ExpectationState(StrEnum):
     NOT_GATED = "not-gated"
 
 
+class FamilyReleaseDelta(_ValidatedInventoried):
+    """Per-family signed release gap for one map row, where derivable.
+
+    The minimal honest subset of ``build_family_delta``: which signed skill
+    members of this family are newer than the person's proven Dex Core
+    lineage, which changed since it, and the family's signed ``outcome``
+    string — the only lawful source for saying what having the gap closed
+    would do.  Derived by the engine at map time from signed lineage fields
+    plus one Verified local release observation; never host-authored, and
+    re-derived on every read like the rest of the map.
+    """
+
+    inspected_release: str = Field(pattern=_SEMVERISH.pattern)
+    current_release: str = Field(pattern=_SEMVERISH.pattern)
+    newer_member_ids: tuple[str, ...] = ()
+    changed_member_ids: tuple[str, ...] = ()
+    outcome: str = Field(min_length=1, max_length=800)
+
+    @field_validator("newer_member_ids", "changed_member_ids")
+    @classmethod
+    def _member_ids_are_bounded_and_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("family release-delta member IDs must be unique")
+        if any(_MEMBER_ID.fullmatch(value) is None for value in values):
+            raise ValueError("family release-delta member ID is invalid")
+        return values
+
+    @model_validator(mode="after")
+    def _delta_names_a_real_signed_gap(self) -> Self:
+        if not self.newer_member_ids and not self.changed_member_ids:
+            raise ValueError("a family release delta must name at least one signed change")
+        if set(self.newer_member_ids) & set(self.changed_member_ids):
+            raise ValueError("newer and changed family members must not overlap")
+        if self.inspected_release == self.current_release:
+            raise ValueError("a family release delta requires two distinct releases")
+        return self
+
+
 class FamilyMapRow(_ValidatedInventoried):
     """One deterministic family-map row. Engine-derived, never host-authored."""
 
@@ -229,6 +272,10 @@ class FamilyMapRow(_ValidatedInventoried):
     state: ExpectationState
     evidence_references: tuple[str, ...] = ()
     reason: str = Field(min_length=1, max_length=600)
+    #: Signed release gap for this family, present only when the run's
+    #: observations establish a Verified dex-core lineage AND the signed
+    #: catalogue carries this family — never invented without the contract.
+    release_delta: FamilyReleaseDelta | None = None
 
     @field_validator("evidence_references")
     @classmethod
@@ -252,12 +299,45 @@ class FamilyMap(_ValidatedInventoried):
     catalogue_version: int = Field(ge=1)
     catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
     rows: tuple[FamilyMapRow, ...] = Field(min_length=1)
+    #: Dex Core release the signed catalogue metadata names, when present.
+    current_release: str | None = Field(default=None, pattern=_SEMVERISH.pattern)
+    #: The one Dex Core release the approved snapshot proves, or ``None`` when
+    #: lineage could not be established (no release observation, conflicting
+    #: release identities, or a non-release-shaped identity).  ``None`` is the
+    #: loud Unknown branch every map surface must speak, never a silence.
+    inspected_release: str | None = Field(default=None, pattern=_SEMVERISH.pattern)
+    #: Evidence references of the release observations proving the lineage.
+    release_evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+
+    @field_validator("release_evidence_references")
+    @classmethod
+    def _release_evidence_is_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("family map release evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("family map release evidence references must be sorted")
+        return values
 
     @model_validator(mode="after")
     def _rows_name_each_family_once(self) -> Self:
         family_ids = [row.family_id for row in self.rows]
         if len(family_ids) != len(set(family_ids)):
             raise ValueError("family map rows must name each family exactly once")
+        if (self.inspected_release is None) != (not self.release_evidence_references):
+            raise ValueError(
+                "an established release lineage and its evidence references come together"
+            )
+        for row in self.rows:
+            delta = row.release_delta
+            if delta is None:
+                continue
+            if (
+                delta.inspected_release != self.inspected_release
+                or delta.current_release != self.current_release
+            ):
+                raise ValueError(
+                    "family release deltas must share the map's proven release pair"
+                )
         return self
 
 

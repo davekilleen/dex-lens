@@ -45,8 +45,12 @@ from capability_exchange.diagnosis.comparison import (
 from capability_exchange.diagnosis.expectations import (
     assess_wow_expectations,
     build_family_map,
+    observed_release_lineage,
 )
-from capability_exchange.diagnosis.families import build_family_delta
+from capability_exchange.diagnosis.families import (
+    build_family_delta,
+    newer_signed_release_ids,
+)
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     HealthState,
@@ -215,26 +219,8 @@ def _version_distance(
 
     if current_version is None or not catalogue.capability_families:
         return None
-    release_observations = tuple(
-        observation
-        for observation in fingerprint.observations
-        if observation.kind is ObservationKind.RELEASE and observation.identity == "dex-core"
-    )
-    observed_versions = {
-        attribute.value
-        for observation in release_observations
-        for attribute in observation.attributes
-        if attribute.key == "release-id"
-    }
-    if len(observed_versions) != 1:
-        return None
-    inspected_version = next(iter(observed_versions))
-    if inspected_version == current_version:
-        return None
-    evidence = tuple(
-        sorted({observation.evidence.reference for observation in release_observations})
-    )[:8]
-    if not evidence:
+    inspected_version, evidence = observed_release_lineage(fingerprint)
+    if inspected_version is None or inspected_version == current_version:
         return None
     entries_by_id = {entry.capability_id: entry for entry in catalogue.capabilities}
     try:
@@ -253,6 +239,11 @@ def _version_distance(
             )
             is not None
         )
+        newer_release_ids = newer_signed_release_ids(
+            catalogue.capabilities,
+            inspected_version=inspected_version,
+            current_version=current_version,
+        )
     except ValueError:
         return None
     if not families:
@@ -262,6 +253,7 @@ def _version_distance(
         current_version=current_version,
         evidence_references=evidence,
         families=families,
+        newer_release_ids=newer_release_ids,
     )
 
 
@@ -868,6 +860,10 @@ class UnknownUntilProposedComparer:
             fingerprint,
             catalogue_version=catalogue.version,
             catalogue_sha256=digest,
+            # The release endpoint comes from the signature-verified envelope
+            # on every read, never from the stored catalogue slice, so a
+            # tampered stored artifact can never mint or move a release gap.
+            core_release=getattr(envelope.metadata, "core_release", None),
         )
 
     def compare(

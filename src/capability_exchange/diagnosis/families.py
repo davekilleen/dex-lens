@@ -33,6 +33,7 @@ __all__ = [
     "FamilyAvailability",
     "FamilyDelta",
     "build_family_delta",
+    "newer_signed_release_ids",
     "summarise_family",
     "summarize_family",
 ]
@@ -235,6 +236,43 @@ def _release_changed_after(
 ) -> bool:
     release_key = _semver_key(release)
     return _semver_key(inspected_version) < release_key <= _semver_key(current_version)
+
+
+def newer_signed_release_ids(
+    entries: Iterable[CatalogueCapabilityEntryV2],
+    *,
+    inspected_version: str,
+    current_version: str,
+) -> tuple[str, ...]:
+    """Distinct signed release identifiers newer than the inspected release.
+
+    Bounded strictly to what the signed catalogue itself names: skill
+    ``since_release`` and ``changed_in`` values inside the compared interval,
+    plus the catalogue's own current release when it is newer than the
+    inspected one.  The count of these identifiers is therefore an honest
+    lower bound on how many releases the inspected install is behind — never
+    an invented total, because Lens holds no complete release list.  Duplicate
+    spellings of one release (``1.2.3`` beside ``v1.2.3``) collapse to one
+    identifier, and the result is sorted oldest-first by release order.
+    """
+
+    candidates: set[str] = set()
+    if _semver_key(inspected_version) < _semver_key(current_version):
+        candidates.add(current_version)
+    for entry in entries:
+        if not isinstance(entry, (LegacySkillCapabilityEntryV2, ActiveSkillCapabilityEntryV2)):
+            continue
+        for release in (entry.since_release, *entry.changed_in):
+            if _release_changed_after(
+                release,
+                inspected_version=inspected_version,
+                current_version=current_version,
+            ):
+                candidates.add(release)
+    by_key: dict[tuple[tuple[int, int, int], tuple[tuple[int, object], ...]], str] = {}
+    for value in sorted(candidates):
+        by_key.setdefault(_semver_key(value), value)
+    return tuple(by_key[key] for key in sorted(by_key))
 
 
 def build_family_delta(

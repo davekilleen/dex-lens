@@ -558,6 +558,59 @@ def _advance(argv: list[str]) -> int:
     return 0
 
 
+def _map_release_line(payload: dict[str, object]) -> str:
+    """One engine-derived release-gap headline for the human map rendering.
+
+    Speaks release identifiers, counts, and signed family identities only.
+    The Unknown branch is deliberately loud and priced: it names the one
+    observation that would establish the distance instead of staying silent.
+    """
+
+    rows = payload.get("rows", [])
+    inspected = payload.get("inspected_release")
+    current = payload.get("current_release")
+    gapped = [row for row in rows if isinstance(row, dict) and row.get("release_delta")]
+    if inspected is None:
+        return (
+            "Release distance: Unknown — the approved snapshot carries no Dex "
+            "Core release observation. A readable release file (`.dex-version` "
+            "or `CHANGELOG.md`) inside an approved folder would establish it."
+        )
+    if gapped:
+        concentrated = ", ".join(
+            "{family} ({newer} newer, {changed} changed)".format(
+                family=row["family_id"],
+                newer=len(row["release_delta"].get("newer_member_ids", [])),
+                changed=len(row["release_delta"].get("changed_member_ids", [])),
+            )
+            for row in gapped
+        )
+        return (
+            f"Release gap: your install identifies Dex Core {inspected}; the "
+            f"signed catalogue describes {current}. The gap concentrates in: "
+            f"{concentrated}."
+        )
+    return (
+        f"Release gap: none derivable from signed lineage — your install "
+        f"identifies Dex Core {inspected} and no signed family-level change "
+        "against this catalogue was established. This is not a claim that you "
+        "are current."
+    )
+
+
+def _row_release_suffix(row: dict[str, object]) -> str:
+    delta = row.get("release_delta")
+    if not isinstance(delta, dict):
+        return ""
+    newer = len(delta.get("newer_member_ids", []))
+    changed = len(delta.get("changed_member_ids", []))
+    outcome = delta.get("outcome", "")
+    return (
+        f" [release gap: {newer} newer, {changed} changed since "
+        f"{delta.get('inspected_release')}; signed outcome: {outcome}]"
+    )
+
+
 def _map(argv: list[str]) -> int:
     parser = _parser(
         "dex-lens diagnosis map",
@@ -577,8 +630,10 @@ def _map(argv: list[str]) -> int:
         return _write_guarded_canonical_json(payload)
     lines = [
         f"Family map for {args.run} (catalogue v{payload['catalogue_version']}):",
+        _map_release_line(payload),
         *(
             f"- {row['family_id']} — {row['state']}: {row['reason']}"
+            f"{_row_release_suffix(row)}"
             for row in payload["rows"]
         ),
     ]

@@ -20,7 +20,11 @@ from capability_exchange.diagnosis.comparison import (
     ledger_evidence_identities,
 )
 from capability_exchange.diagnosis.finding import Finding
-from capability_exchange.diagnosis.observations import HealthState, RuntimeState
+from capability_exchange.diagnosis.observations import (
+    HealthState,
+    ObservationKind,
+    RuntimeState,
+)
 from capability_exchange.diagnosis.receipts import (
     DecisionState,
     RecommendationDecision,
@@ -37,6 +41,7 @@ __all__ = [
     "canonical_ledger_appendix",
     "canonical_ledger_digest",
     "canonical_ledger_payload",
+    "canonical_release_gap_block",
     "coverage_block_errors",
     "ledger_appendix_errors",
     "ledger_derived_fact_errors",
@@ -173,6 +178,7 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
                     )
                 ],
                 "inspected_version": ledger.version_distance.inspected_version,
+                "newer_release_ids": list(ledger.version_distance.newer_release_ids),
             }
             if ledger.version_distance is not None
             else None
@@ -435,6 +441,7 @@ class ReportModel(InventoriedModel):
             "# Diagnosis\n\n"
             f"{_render_what_was_read(ledger)}"
             f"\n{canonical_coverage_block(ledger)}"
+            f"\n{canonical_release_gap_block(ledger)}"
             f"\n{_render_version_distance(ledger)}"
             f"\n{_render_grounded_strengths(ledger)}"
             f"\n{_render_strengths(ledger)}"
@@ -753,6 +760,101 @@ def coverage_block_errors(report_markdown: str, ledger: ComparisonLedger) -> tup
             "editing it.",
         )
     return ()
+
+
+def canonical_release_gap_block(ledger: ComparisonLedger) -> str:
+    """Headline release-gap story: behind, Unknown, or honestly no claim.
+
+    Persona A's whole point — "your install is N releases behind, and the gap
+    concentrates in these areas" — was computed only at compare time and never
+    surfaced before the appendix, and when lineage could not be established
+    the report said nothing at all. This block is the fix, and like
+    :func:`canonical_coverage_block` it is rendered from the ledger alone so
+    equivalent ledgers render it byte-identically. It speaks release
+    identifiers, counts, and signed family titles only — never a label, path,
+    or other content from the inspected system — and it always says
+    *something*: a Verified gap with its honest lower bound, a loud priced
+    Unknown naming the one observation that would establish the distance, or
+    an explicit refusal to claim anything. What a named area would do for the
+    person is quoted only from its signed family ``outcome`` (carried on the
+    family-map row and in the what-changed section below), never invented.
+    """
+
+    lines = ["## Where your install stands"]
+    distance = ledger.version_distance
+    if distance is not None:
+        releases = len(distance.newer_release_ids)
+        families = sorted(
+            distance.families,
+            key=lambda item: (
+                -(len(item.introduced_member_ids) + len(item.changed_member_ids)),
+                item.family_id,
+            ),
+        )
+        lines.append(
+            f"Your install identifies Dex Core {distance.inspected_version} "
+            "(Verified: your own release evidence, cited in the appendix); the "
+            f"signed catalogue describes {distance.current_version}. The signed "
+            f"catalogue names {releases} {_plural(releases, 'release')} newer than "
+            f"yours, so your install is at least {releases} "
+            f"{_plural(releases, 'release')} behind. The gap concentrates in "
+            f"{len(families)} signed capability {_plural(len(families), 'area')}:"
+        )
+        for family in families:
+            newer = len(family.introduced_member_ids)
+            changed = len(family.changed_member_ids)
+            parts: list[str] = []
+            if newer:
+                parts.append(
+                    f"{newer} signed {_plural(newer, 'capability', 'capabilities')} "
+                    "newer than your release"
+                )
+            if changed:
+                parts.append(
+                    f"{changed} signed {_plural(changed, 'capability', 'capabilities')} "
+                    "changed since it"
+                )
+            lines.append(
+                f"- {family.title} (`{family.family_id}`): " + " and ".join(parts) + "."
+            )
+        lines.append(
+            "Each named area keeps its own row in the deterministic family map "
+            "(`dex-lens diagnosis map`), and what each area does is quoted from "
+            "its signed outcome in ‘What has changed since your identified Dex "
+            "release’ below — the signed catalogue's own words, nothing invented."
+        )
+        return "\n".join(lines) + "\n"
+    lineage_observed = any(
+        item.kind is ObservationKind.RELEASE and item.identity == "dex-core"
+        for item in ledger.local_entries
+    )
+    if not lineage_observed:
+        lines.append(
+            "How far this install stands behind the current Dex release is "
+            "Unknown: the approved snapshot carries no Dex Core release "
+            "observation. One observation would establish it — a readable Dex "
+            "Core release file (a `.dex-version` file or a `CHANGELOG.md` naming "
+            "its version) inside an approved folder. That is the whole price: "
+            "approve the folder that holds it and run again, and the distance "
+            "derives from signed release lineage alone."
+        )
+        return "\n".join(lines) + "\n"
+    if not ledger.family_entries:
+        lines.append(
+            "Your snapshot identifies a Dex Core release, but this catalogue "
+            "signs no capability-family contract, so no per-family release gap "
+            "is derivable against it. Nothing here claims your install is "
+            "behind or current."
+        )
+        return "\n".join(lines) + "\n"
+    lines.append(
+        "Your snapshot identifies a Dex Core release, but no signed release gap "
+        "was derivable from it against this catalogue: the identified release "
+        "may match the catalogue's, the release evidence may conflict, or the "
+        "signed lineage may name no family-level change since it. Nothing here "
+        "claims your install is behind or current."
+    )
+    return "\n".join(lines) + "\n"
 
 
 def canonical_fact_block(ledger: ComparisonLedger) -> str:

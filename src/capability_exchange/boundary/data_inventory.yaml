@@ -1615,6 +1615,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral public family release comparison"
 
+  VersionDistance.newer_release_ids:
+    description: "distinct signed release identifiers newer than the inspected release, deduplicated by release order"
+    collection: "derived from signature-verified skill since_release and changed_in fields plus the catalogue's own current release"
+    derivation: "honest lower bound behind the at-least-N-releases-behind headline; re-derived and refused on reload"
+    display: "counts the headline release gap; never presented as a complete release history"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral public catalogue release lineage"
+
   FamilyDelta.family_id:
     description: "signed identity of the capability family in a version-distance row"
     collection: "copied from the signature-verified family contract"
@@ -3626,6 +3636,114 @@ fields:
     sharing: never
     deletion: delete-diagnosis-run-state
     audit: "closed product wording only"
+
+  FamilyMapRow.release_delta:
+    description: "optional signed release gap for one family map row"
+    collection: "derived from signed skill lineage fields plus one proven local Dex Core release observation"
+    derivation: "present only with a Verified dex-core lineage and a signed family contract; re-derived on every read"
+    display: "carries the per-family release-gap story on the pass-1 map"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "engine-derived signed release comparison; comparison refuses a stored copy that disagrees"
+
+  FamilyMap.current_release:
+    description: "Dex Core release named by the signature-verified catalogue metadata, when present"
+    collection: "copied from the verified signed catalogue envelope on every read"
+    derivation: "signature-verified public release metadata; absent when the metadata names none"
+    display: "the current endpoint of the map's release-gap story"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue release identity only"
+
+  FamilyMap.inspected_release:
+    description: "the one Dex Core release the approved snapshot proves, or absent when lineage is Unknown"
+    collection: "copied from the allowlisted release-id attribute on the approved release observations"
+    derivation: "retained only when all release observations agree on one release-shaped identity"
+    display: "the inspected endpoint of the map's release-gap story; absence is the loud Unknown branch"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "bounded release identity only"
+
+  FamilyMap.release_evidence_references:
+    description: "bounded approved references proving the inspected Dex Core release identity"
+    collection: "copied from the approved release observations"
+    derivation: "deduplicated, sorted, and capped at eight references; empty exactly when lineage is Unknown"
+    display: "binds the map's release lineage to cited evidence"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "opaque evidence references only"
+
+  FamilyReleaseDelta.inspected_release:
+    description: "Dex Core release proven by the approved local snapshot for one map-row delta"
+    collection: "copied from the allowlisted release-id attribute on one approved release observation"
+    derivation: "validated to equal the parent family map's proven release pair"
+    display: "anchors one row's release gap to the proven local release"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "bounded release identity only"
+
+  FamilyReleaseDelta.current_release:
+    description: "Dex Core release named by the signature-verified catalogue metadata for one map-row delta"
+    collection: "copied from the verified signed catalogue envelope"
+    derivation: "validated to equal the parent family map's proven release pair"
+    display: "anchors one row's release gap to the current signed release"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "public catalogue release identity only"
+
+  FamilyReleaseDelta.newer_member_ids:
+    description: "signed family members whose since_release is newer than the inspected release"
+    collection: "derived from signature-verified skill since_release fields via build_family_delta"
+    derivation: "exact ordered subset of signed family membership with bounded SemVer comparison"
+    display: "names how much of this family is newer than the person's lineage"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyReleaseDelta.changed_member_ids:
+    description: "signed family members with a changed_in release newer than the inspected release"
+    collection: "derived from signature-verified skill changed_in fields via build_family_delta"
+    derivation: "exact ordered family subset excluding entries already classified as newer"
+    display: "names the signed members changed since the person's lineage"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "ephemeral public catalogue release lineage"
+
+  FamilyReleaseDelta.outcome:
+    description: "the family's signed outcome sentence, the only lawful source for what closing the gap would do"
+    collection: "copied verbatim from the signature-verified family contract"
+    derivation: "signed catalogue text only; never invented or paraphrased by a host"
+    display: "the educational half of a named gap, in the signer's own words"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound audit record only"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "signed catalogue text only"
 
   PersistedCandidateScope.analysis_mode:
     description: "closed analysis mode carried from prepare into the durable run input"

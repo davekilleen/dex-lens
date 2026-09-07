@@ -23,6 +23,7 @@ from capability_exchange.diagnosis.families import (
     FamilyAvailability,
     FamilyDelta,
     build_family_delta,
+    newer_signed_release_ids,
     summarise_family,
 )
 from capability_exchange.diagnosis.observations import (
@@ -244,6 +245,11 @@ class VersionDistance(InventoriedModel):
     )
     evidence_references: tuple[str, ...] = Field(min_length=1, max_length=8)
     families: tuple[FamilyDelta, ...] = Field(min_length=1, max_length=80)
+    #: Distinct signed release identifiers newer than the inspected release —
+    #: the honest lower bound behind the report's "at least N releases behind"
+    #: headline.  Derived only from signed skill lineage fields plus the
+    #: catalogue's own current release; re-derived and refused on reload.
+    newer_release_ids: tuple[str, ...] = Field(min_length=1, max_length=400)
 
     @field_validator("evidence_references")
     @classmethod
@@ -254,6 +260,18 @@ class VersionDistance(InventoriedModel):
             reason = reference_rejection_reason(value)
             if reason is not None:
                 raise ValueError(reason)
+        return values
+
+    @field_validator("newer_release_ids")
+    @classmethod
+    def _newer_release_ids_are_release_shaped(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("version-distance newer release identifiers must be unique")
+        if any(
+            re.fullmatch(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$", value) is None
+            for value in values
+        ):
+            raise ValueError("version-distance newer release identifier is invalid")
         return values
 
     @model_validator(mode="after")
@@ -930,6 +948,16 @@ class ComparisonLedger(_ValidatedInventoried):
                 raise _model_validation_error(
                     "version distance must equal exact signed release lineage",
                     version_distance.families,
+                )
+            expected_newer = newer_signed_release_ids(
+                catalogue.capabilities,
+                inspected_version=version_distance.inspected_version,
+                current_version=version_distance.current_version,
+            )
+            if version_distance.newer_release_ids != expected_newer:
+                raise _model_validation_error(
+                    "version distance newer releases must equal exact signed release lineage",
+                    version_distance.newer_release_ids,
                 )
         return cls(
             catalogue_version=catalogue_version,
