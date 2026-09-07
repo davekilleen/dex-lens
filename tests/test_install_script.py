@@ -259,6 +259,36 @@ class TestDryRun:
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout
 
+    def test_the_assistant_chooser_speaks_plain_words(self, script: str) -> None:
+        """The chooser prompt must not need a terminal idiom to be read.
+
+        It used to print `1) Claude Code   2) Codex [1]: ` — the default
+        marker `[1]` sat flush against "Codex", and a non-technical person
+        read it as Codex being option 1. The options and the instruction are
+        now separate plain sentences, and the cryptic marker must not return.
+        """
+        assert "I found both Claude Code and Codex" in script
+        assert "1) Claude Code   2) Codex" in script
+        assert "Type 1 or 2, or just press Enter for Claude Code:" in script
+        assert "[1]" not in script, "the default marker reads as Codex being option 1"
+
+    def test_the_hand_over_sets_the_startup_pause_expectation(
+        self, script: str
+    ) -> None:
+        """A full-screen assistant takes a few seconds to come up.
+
+        A real user watched the briefly blank screen after "Starting your
+        assistant now" and read it as the install having failed. Both the
+        launch block and the wrong-folder paste instruction must say the
+        pause is expected and that the assistant asks the first question
+        itself.
+        """
+        assert script.count("a few seconds to start") >= 2, (
+            "both the launch block and the wrong-folder fallback must warn "
+            "about the startup pause"
+        )
+        assert "asks the first question itself" in script
+
     def test_the_claude_launch_puts_the_question_before_the_allowlist_flag(
         self, script: str
     ) -> None:

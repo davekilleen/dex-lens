@@ -189,6 +189,14 @@ After scope approval, keep following the engine until it closes:
    that takes an afternoon: the deep look costs real model time, the packet
    round is the expensive stretch, and parallel is how it stays short.
    Sequential processing in this conversation is the fallback, not the norm.
+   While dispatched workers are running, do not schedule wakeup timers,
+   polling loops, or self-reminders to check on them: worker completion
+   arrives as its own notification on every host that supports fan-out, and
+   a failed timer call prints an error the person reads as something being
+   broken (a real session hit "Error: `prompt` is required when `stop` is
+   not true" doing exactly this). Wait for the completions; if the host
+   truly has no completion notifications, work the packets sequentially
+   instead.
 4. Give each worker only its own packet — its question and its identity
    lists — plus the shared legend. Not the other packets, and not a second
    copy of anything the packet already carries. As each worker returns,

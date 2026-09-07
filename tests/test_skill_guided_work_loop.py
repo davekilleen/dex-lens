@@ -66,6 +66,22 @@ def test_skill_fans_out_the_whole_round_from_one_work_fetch() -> None:
     assert "order does not matter" in text
 
 
+def test_skill_forbids_wakeup_timers_while_workers_run() -> None:
+    """Hosts must wait for worker completions, not schedule timers.
+
+    A real session scheduled a wakeup timer to check on its dispatched
+    workers and the host's timer call failed with "Error: `prompt` is
+    required when `stop` is not true" — an error the person watching read
+    as something being broken. Completion arrives as its own notification
+    on every host that supports fan-out; a host without completion
+    notifications should work sequentially instead.
+    """
+    text = " ".join(SKILL.read_text(encoding="utf-8").split())
+    assert "do not schedule wakeup timers, polling loops, or self-reminders" in text
+    assert "worker completion arrives as its own notification" in text
+    assert "work the packets sequentially instead" in text
+
+
 def test_skill_polls_status_at_stage_transitions_only() -> None:
     text = " ".join(SKILL.read_text(encoding="utf-8").split())
     assert "at stage transitions" in text.lower()

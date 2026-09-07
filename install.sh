@@ -368,8 +368,9 @@ choose_assistant() {
   esac
 
   say "I found both Claude Code and Codex. Which would you like to open?"
+  say "  1) Claude Code   2) Codex"
   while :; do
-    printf '  1) Claude Code   2) Codex [1]: '
+    printf 'Type 1 or 2, or just press Enter for Claude Code: '
     IFS= read -r choice || fail "No choice was received. Nothing was started."
     case "$choice" in
       "" | 1 | claude | Claude | "Claude Code")
@@ -402,6 +403,9 @@ if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; the
       say ""
       step "$ASSISTANT \"$DEX_LENS_ASK\""
       say ""
+      say "After you paste it, the assistant takes a few seconds to start,"
+      say "then asks the first question itself."
+      say ""
       ;;
     *)
       choose_assistant
@@ -409,6 +413,8 @@ if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; the
       step "$PWD"
       say "Dex Lens reads nothing until you tell it which folder it may look at,"
       say "and it never changes what it looks at."
+      say "The assistant takes a few seconds to start — a briefly blank screen"
+      say "just means it is starting. It asks the first question itself."
       say ""
       # The assistant will call `dex-lens` by name, and on a fresh machine the
       # command's folder may not be on PATH yet — the warning above says exactly
