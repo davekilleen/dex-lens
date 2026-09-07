@@ -32,6 +32,17 @@ change) — attack that allowance in particular: can it be used to substitute a
 question, replay an old packet into a new run, or mint a packet digest the
 engine did not issue?
 
+Also new since the first draft of this brief: the founder approved the
+significant-family contract, and that approval is recorded in
+`scripts/generate_family_contract.py` (`_FOUNDER_RESOLUTION`), which now
+emits every family's review with zero open TODOs. Attack the boundary this
+must preserve: the resolved draft is still UNSIGNED and must never be
+treated as release truth — verify that nothing in the Lens runtime accepts
+the draft file, or any unsigned `capability_families`, in place of families
+carried inside a signature-verified catalogue envelope; and check the
+evolved test (`test_every_family_carries_the_founders_recorded_resolution`)
+still holds the original guarantee rather than merely matching new strings.
+
 Hunt specifically for:
 
 1. **Tests true by construction** — assertions a type constraint, fixture, or
