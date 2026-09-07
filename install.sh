@@ -390,16 +390,41 @@ choose_assistant() {
 # deaf, the report printed and every keystroke dead. When stdin is the pipe,
 # the honest hand-over is the exact command, ready to paste.
 if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; then
-  choose_assistant
-  say "Starting your assistant now. Dex Lens reads nothing until you tell it"
-  say "which folder it may look at, and it never changes what it looks at."
-  say ""
-  # The assistant will call `dex-lens` by name, and on a fresh machine the
-  # command's folder may not be on PATH yet — the warning above says exactly
-  # that. The launched process gets it either way; the person's own shell
-  # still needs the line above, once.
-  export PATH="$BIN_DIR:$PATH"
-  exec "$ASSISTANT" "$DEX_LENS_ASK"
+  # The look starts wherever the assistant is opened, so opening it inside
+  # Dex Lens's own folders would point the first question at the tool
+  # instead of at the person's system. The first outside tester hit exactly
+  # this. Hand over the command instead of launching somewhere wrong.
+  case "$PWD" in
+    "$INSTALL_FROM" | "$INSTALL_FROM"/* | "$LENS_HOME" | "$LENS_HOME"/*)
+      say "You are inside Dex Lens's own folder, so the assistant was not started here."
+      say "Open your Terminal in the folder where your AI system lives — your"
+      say "instructions, skills and notes — and paste:"
+      say ""
+      step "$ASSISTANT \"$DEX_LENS_ASK\""
+      say ""
+      ;;
+    *)
+      choose_assistant
+      say "Starting your assistant now, in this folder:"
+      step "$PWD"
+      say "Dex Lens reads nothing until you tell it which folder it may look at,"
+      say "and it never changes what it looks at."
+      say ""
+      # The assistant will call `dex-lens` by name, and on a fresh machine the
+      # command's folder may not be on PATH yet — the warning above says exactly
+      # that. The launched process gets it either way; the person's own shell
+      # still needs the line above, once.
+      export PATH="$BIN_DIR:$PATH"
+      if [ "$ASSISTANT" = "claude" ]; then
+        # Pre-approve dex-lens commands only — a read-only tool — so the
+        # host's permission layer cannot silently refuse the consent step.
+        # Everything else stays behind the assistant's normal guardrails;
+        # this is deliberately NOT a bypass-permissions launch.
+        exec "$ASSISTANT" --allowedTools "Bash(dex-lens:*)" "$DEX_LENS_ASK"
+      fi
+      exec "$ASSISTANT" "$DEX_LENS_ASK"
+      ;;
+  esac
 fi
 
 if [ -n "$ASSISTANT" ]; then

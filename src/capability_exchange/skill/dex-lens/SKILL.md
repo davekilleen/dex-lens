@@ -533,9 +533,12 @@ root when the person tells you their system is somewhere else, or when the
 engine says the current folder has no instruction files, settings or skills
 and so is not a personal AI system.
 
-Tell them the exact folder in one sentence. If shared assistant settings
-often live in `~/.claude`, say that in the same breath, as an optional extra
-they can name now. Wait for a clear yes. Then:
+Tell them the exact folder in one sentence. Never suggest the assistant's
+own settings folder (`~/.claude` or its equivalents) — not as an option, not
+as an example. Most people would say yes by reflex, and that folder can pull
+in automations and preferences that live outside the system they asked you
+to look at. Extra folders enter a run only when the person names them
+themselves, unprompted. Wait for a clear yes. Then:
 
 ```
 dex-lens diagnosis approve --run <id>
@@ -544,6 +547,17 @@ dex-lens diagnosis approve --run <id>
 Do not open a browser. Do not start a local page. The yes in this chat is
 the approval.
 
+Your host environment may refuse to run a `dex-lens` command on your behalf
+— its own permission layer, not Lens, deciding that a word like "approve"
+needs a human hand. That refusal is not an error and not a dead end. Do not
+retry the same call, do not reach for a broader permission mode, and do not
+stop the run. Show the person the exact command on its own line and ask them
+to paste it into their terminal, then continue once it has run. For the
+approval step in particular this is the strongest form of consent there is:
+their own hand typed the yes. The same fallback applies to any other
+`dex-lens` command the host declines — hand over the exact line, wait, carry
+on.
+
 Then, so you can explain what you see, read the inventory the same way:
 
 ```
@@ -551,12 +565,13 @@ dex-lens inventory --out /tmp/dex-lens-inventory.md
 ```
 
 The first inventory may tell you that important assistant configuration sits
-outside the folder it was allowed to read. Do not quietly widen the search.
-Name the exact additional folder and ask one plain question, for example:
-"Your shared assistant settings may be in `~/.claude`. Would you like me to
-include that folder in this read-only look?" Wait for the answer. Only
-after a clear yes may you name it on `prepare` as `--additional-root` and
-rerun the inventory:
+outside the folder it was allowed to read. Do not quietly widen the search,
+and do not propose a folder yourself — the same rule as above: the
+assistant's own settings folder is never yours to suggest. Report what the
+inventory said in one plain sentence and stop there. If the person then
+names another folder of their own and asks you to include it, confirm the
+exact path back to them and wait for a clear yes. Only then may you name it
+on `prepare` as `--additional-root` and rerun the inventory:
 
 ```
 dex-lens inventory <folder> --also <the-exact-approved-folder> --out /tmp/dex-lens-inventory.md
@@ -722,8 +737,8 @@ instruction files actually say.
 
 Report only what you actually saw. If the search comes back clean, say that,
 and name the instruction file you read — "I checked the rules in
-`~/.claude/CLAUDE.md` against your skills and found no conflicts" is a real
-finding and worth the sentence. The path is what separates a hunt that ran
+`CLAUDE.md` at the top of your folder against your skills and found no
+conflicts" is a real finding and worth the sentence. The path is what separates a hunt that ran
 from a sentence about a hunt, and `dex-lens reports save` will refuse the
 sentence without it.
 
@@ -1083,8 +1098,8 @@ What it would cost: <time, overlap, what it duplicates>
 
 ## Fragility and contradictions
 (Required. If the hunt came back clean, this whole section is one sentence
-that names the file you checked: "I checked the rules in
-`~/.claude/CLAUDE.md` against your skills and found no conflicts."
+that names the file you checked: "I checked the rules in `CLAUDE.md` at the
+top of your folder against your skills and found no conflicts."
 Otherwise, one block per conflict:)
 ### <the rule that is being broken>
 The rule:
