@@ -97,6 +97,28 @@ Newest first. Each row is a belief reality contradicted. **Add a row every
 time that happens — the ledger is the only artifact in this repo that
 compounds.** Rows are never deleted, only annotated.
 
+### F8 — "Not Dex" was inferred from the absence of name matches
+*2026-09-07.* `canonical_job_axis_block` is the right answer for a person who
+never installed Dex: one row per signed job, framed as a loan Dex offers
+rather than a gap they are behind on, with no version to diff. Its trigger is
+wrong. `is_non_lineage` fires only when *zero* observations match a signed
+identity — "one signed-identity match, even a doubtful one, defeats the
+classification" — and 85 of the catalogue's 117 capability ids carry no
+namespace prefix: `journal`, `review`, `daily-plan`, `create-skill`,
+`prompt-improver`, `meeting-prep`. A serious assistant user who has never
+heard of Dex very plausibly has one of those names. That single coincidence
+drops them onto the lineage path, where the release-gap block tells them to
+approve a folder containing a Dex release file they do not have and run
+again. A dead end, delivered to the population Lens most needs to convince.
+
+The trigger must be evidence about Dex's *presence* — the provisioning
+ownership contract, the Dex changelog sentinel, Dex's own module paths, all
+of which exist at any install age and are absent when Dex is not installed —
+never the absence of coincidental name matches. Three populations, three
+honest voices: no Dex (the loan), Dex present but its version unreadable (the
+priced Unknown, which only then makes sense), and Dex present with a known
+version (the delta story).
+
 ### F7 — Absence of a signed match was read as evidence of authorship
 *2026-09-07.* `derive_observation_origin` classified anything the current
 catalogue does not name as `AUTHORED`, and `AUTHORED` is the only class that
@@ -161,6 +183,19 @@ and the confession branch is reserved for genuine shortfall.
 
 Hunt these first, in review and in your own diffs:
 
+- **Absence of evidence used as a positive finding** — the repeat offender in
+  this repository, and F7 and F8 are the same bug pointing in opposite
+  directions. "The catalogue does not name it" became "the person wrote it";
+  "nothing matched a signed name" became "Dex is not installed". Whenever a
+  branch turns *no signal* into a claim, name the third state instead:
+  unattributed, unreadable, not established. Then decide what a person reads
+  in it.
+- **A name treated as a capability** — identity overlap is weak evidence and
+  its failure mode differs by population. On a stale install a name match
+  hides a real gap by crediting a years-old version as present. On a system
+  with no Dex a coincidental match hijacks the whole report's voice. On a
+  current install it is harmless, which is why fixtures built from current
+  installs never catch either.
 - **Authority laundering** — a stored artifact believed instead of
   re-derived. Anywhere.
 - **Silent degradation** — a missing precondition producing a bland sentence
