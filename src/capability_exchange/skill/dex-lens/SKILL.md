@@ -193,6 +193,16 @@ After scope approval, keep following the engine until it closes:
    lists — plus the shared legend. Not the other packets, and not a second
    copy of anything the packet already carries. As each worker returns,
    submit the specialist response unchanged; order does not matter.
+   Everything visible about a worker speaks to the person watching, not to
+   you: name each dispatched worker by its job from their point of view
+   ("Assessing your scheduled automations", "Weighing your skills against
+   Dex's"), and tell each worker that any narration it surfaces must do the
+   same. Repairing a rejected draft is invisible plumbing — a worker fixing
+   its own scratch file says "Drafting my assessment (second attempt)",
+   never "Removing null key from proposal-4.json". Mutation verbs against
+   filenames read as changes to their system, which this tool never makes;
+   internal filenames, packet ids and schema talk stay out of anything the
+   person can see.
 5. Fetch `work` again only when every listed packet has been submitted; the
    next round is the sceptical packet, alone. Round by round,
    process every engine-issued packet. When no packet remains, advance the
@@ -333,6 +343,15 @@ Where each field comes from:
   (0–3), `workflow_leverage` (0–3), `evidence_strength` (1–3), and
   `adoption_effort` (1–3).
 
+Three shapes that cost real runs a retry, so get them right the first time:
+a field that does not apply is **omitted**, never written as `null` — a
+null value is a wrong type, not an absence; `recommendation_factors`
+follows exactly the rule above — present when required, absent (not null,
+not empty) everywhere else; and `candidate_id` is derived **from the kind**,
+so if you change a proposal's `kind`, its ids, or copy another proposal as
+a starting point, recompute it with the one-liner above. Write the file
+with a JSON encoder (`json.dumps`), not by pasting text together.
+
 Two more worked examples, correctly shaped. A strength:
 
 ```json
@@ -448,25 +467,39 @@ separate, explicitly approved flow. That work is not this diagnosis.
 ## Phase 0: start the look they asked for
 
 Open with a welcome before anything is read. This is the person's first
-minute with the product, so explain how the whole thing works, in your own
-words, carrying these facts — they are the same story heydex.ai/lens tells.
-Dex Lens is a second opinion on the AI system they have already built. It
-reads; it never changes their system; nothing of theirs leaves this
-machine. Dex here is an input, not a destination: their system stays the
-point, and nothing is scored — every claim will carry a label saying how it
-is known. The session runs in this shape, and say it takes a little while
-on a large system: they approve the exact folders; Lens reads what they
-built and starts with what is genuinely good; it holds up a mirror to what
-has quietly drifted; it compares on jobs, not names, against what Dex
-publishes — expecting to reject most of it as things they already do; they
-decide; and it ends with a dated, saved report that is theirs. Tell them
-now that the ending also holds two optional choices, theirs alone: if the
-look surfaces something genuinely novel they built, they can offer the
-idea — never their files, never personal or company data — back to Dave at
-Dex, approving the exact words first; and they can ask Lens to keep an eye
-on Dex for them, on whatever rhythm suits. The welcome explains; it does
-not interrogate — no capability tour and no questions in it beyond the
-folder approval that follows.
+minute with the product, and it is the same every time — say it in exactly
+this shape, filling in only the folder. Do not paraphrase it, reorder it,
+or restyle it per session; a person who runs Lens twice should recognise
+the welcome the second time:
+
+> Dex Lens is a read-only second opinion on the AI system you've built
+> here in `<folder>` — it never changes anything, and nothing about your
+> system leaves this computer. Every finding I give you will be labeled by
+> how confident I actually am (verified from a file vs. reported vs.
+> unknown). It takes a little while on a large system. Here's the shape of
+> the session:
+>
+> 1. You approve the exact folder I'll read.
+> 2. I read what you've built and tell you what's genuinely good first.
+> 3. I hold up a mirror on anything that's drifted (duplicates, dead
+>    files, contradictions between your rules and your skills).
+> 4. I compare your setup against what Dex publishes, job-by-job —
+>    expecting to reject most of it as things you already do.
+> 5. You pick anything worth taking.
+> 6. I save a dated report you keep, and offer (never required) to share
+>    a genuinely novel idea back to Dave, or watch for new Dex releases
+>    on a schedule you choose.
+>
+> The folder I'd read is `<folder>`. Want me to go ahead?
+
+The welcome explains; it does not interrogate — no capability tour and no
+questions in it beyond that closing folder approval. Never name the
+assistant's own settings folder in it, in either direction: not as an
+offer, and not as a reassurance that it will be left alone. To someone
+non-technical, a folder they have never heard of is pure confusion, and
+"I won't touch X" plants the worry it means to calm. The promise that
+carries is the one already in the first sentence: read-only, this folder,
+nothing leaves the computer.
 
 A first look is the default. "Have a look at my setup", "what Dex has that I don't",
 and "tell me what I'm missing" are first looks. Start Phase 1 on the folder
@@ -533,11 +566,13 @@ root when the person tells you their system is somewhere else, or when the
 engine says the current folder has no instruction files, settings or skills
 and so is not a personal AI system.
 
-Tell them the exact folder in one sentence. Never suggest the assistant's
-own settings folder (`~/.claude` or its equivalents) — not as an option, not
-as an example. Most people would say yes by reflex, and that folder can pull
-in automations and preferences that live outside the system they asked you
-to look at. Extra folders enter a run only when the person names them
+The welcome's closing line — "The folder I'd read is `<folder>`. Want me
+to go ahead?" — is the ask; do not ask a second time in different words.
+Never suggest the assistant's own settings folder (`~/.claude` or its
+equivalents) — not as an option, not as an example, not as a reassurance.
+Most people would say yes by reflex, and that folder can pull in
+automations and preferences that live outside the system they asked you to
+look at. Extra folders enter a run only when the person names them
 themselves, unprompted. Wait for a clear yes. Then:
 
 ```
@@ -557,6 +592,13 @@ approval step in particular this is the strongest form of consent there is:
 their own hand typed the yes. The same fallback applies to any other
 `dex-lens` command the host declines — hand over the exact line, wait, carry
 on.
+
+The moment reading actually begins is the moment reassurance matters most.
+When you run the first read (the inventory), and again later when the
+deeper analysis starts, say in one sentence that all of this is happening
+locally on their machine — nothing about their system leaves this
+computer. Say it as plain fact in the flow of what you are doing, not as
+small print.
 
 Then, so you can explain what you see, read the inventory the same way:
 
