@@ -6,3 +6,6 @@ __pycache__/
 .hypothesis/
 dist/
 build/
+
+# Agent worktrees: machine-local scratch checkouts, never repository content.
+.claude/worktrees/
