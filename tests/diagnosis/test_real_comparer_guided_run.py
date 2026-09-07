@@ -59,6 +59,7 @@ from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.specialists import (
     ProposalKind,
     SpecialistProposal,
+    SpecialistProposalError,
     SpecialistRole,
     ValidatedProposal,
     candidate_id_for,
@@ -642,6 +643,72 @@ def test_insight_evidence_never_exceeds_what_the_ledger_holds(
     for insight in (*ledger.strengths, *ledger.reciprocal_lessons, *ledger.workflow_insights):
         assert set(insight.evidence_ids) <= held
         assert insight.evidence_ids
+
+
+#: Finding A2 (2026-09-07 adversarial review): the Unicode arrow was not a
+#: recognised boundary, so this exact reason passed the wire guard, survived
+#: submission and ledger retention, and printed the absolute path verbatim in
+#: the closed report. Every name here is invented.
+_ARROW_PATH_REASON = (
+    "Found→/Users/invented-owner/vault/Acquisition-Plan.md during the invented run."
+)
+_LEAKED_PATH = "/Users/invented-owner/vault/Acquisition-Plan.md"
+
+
+def test_a_reason_smuggling_an_absolute_path_never_reaches_the_closed_report(
+    harness: RealComparerHarness,
+) -> None:
+    """The A2 leak end to end: refused at submission, absent from everything.
+
+    Reproduced before the fix: smuggled into the uncontested reciprocal
+    proposal (whose reason the sceptical reconciler never rewrites), this
+    exact reason passed submission and the absolute path printed verbatim in
+    the closed report markdown and in the retained ledger. Now the hostile
+    submission must be refused (consuming the bounded attempt), the refusal
+    must not echo the path, and after a clean retry drives the run through
+    the REAL comparer to CLOSED, the path must appear nowhere — not in the
+    rendered markdown, not in the ledger, and not in any byte the run
+    durably stored.
+    """
+
+    prepared = harness.engine.prepare(
+        PrepareDiagnosisRequest(roots=(harness.root,), analysis_mode=AnalysisMode.GUIDED)
+    )
+    harness.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
+    hostile_refused = False
+    while True:
+        packet = harness.engine.work(prepared.run_id)
+        if packet is None:
+            break
+        proposals = _proposals_for_packet(packet)
+        if not hostile_refused and any(
+            item.kind is ProposalKind.RECIPROCAL and item.catalogue_id == RECIPROCAL_ID
+            for item in proposals
+        ):
+            hostile = tuple(
+                item.model_copy(update={"reason": _ARROW_PATH_REASON})
+                if item.kind is ProposalKind.RECIPROCAL
+                and item.catalogue_id == RECIPROCAL_ID
+                else item
+                for item in proposals
+            )
+            with pytest.raises(SpecialistProposalError) as caught:
+                harness.engine.submit_work(prepared.run_id, packet.packet_id, hostile)
+            # The refusal names the rule, never the offending value.
+            assert _LEAKED_PATH not in str(caught.value)
+            assert "/Users/" not in str(caught.value)
+            hostile_refused = True
+        harness.engine.submit_work(prepared.run_id, packet.packet_id, proposals)
+    assert hostile_refused
+    closed = harness.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    assert closed.stage is DiagnosisStage.CLOSED
+
+    result = harness.engine.result(prepared.run_id)
+    assert _LEAKED_PATH not in result.render_markdown()
+    assert _LEAKED_PATH not in result.ledger.model_dump_json()
+    for stored in sorted(harness.run_store.storage.rglob("*")):
+        if stored.is_file() and not stored.is_symlink():
+            assert _LEAKED_PATH not in stored.read_text(encoding="utf-8", errors="replace")
 
 
 class _InconsistentComparer:

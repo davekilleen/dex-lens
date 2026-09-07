@@ -1075,6 +1075,16 @@ The engine saves the report to Lens's own storage —
 Tell the person where the report was saved, in one line: they will want it
 next week. The next run reads it only if they ask what changed.
 
+The report is local, and because it is local it is allowed to be specific:
+it may quote the person's own labels, file names and vault-relative paths
+from the inspected system — the path is what separates a hunt that ran from
+a sentence about a hunt. What leaves the machine follows a different rule
+entirely: a share-back carries only the card the person previewed, the wow
+gate's grade JSON carries only scores and fixed failure slugs, and refusals
+and crash logs name rules and types, never content. Nothing quoted in the
+report rides out on any of those unless the person deliberately writes it
+into a share card and approves the exact preview.
+
 The shape below is what a finished report looks like. It is not a form for
 you to fill with numbers you calculated. **Saving refuses a report that has not shown its work.** `dex-lens reports check` is how that refusal is
 proved: the report must say what you read, give earned praise and a

@@ -29,12 +29,21 @@ SESSION_CANARY = "INVENTED_SESSION_CANARY_NEVER_RETAIN"
 
 # The guard refuses absolute-path SHAPE, not substrings. A guarded prefix
 # counts only where an absolute path can actually start: at the beginning of
-# the string, or immediately after a non-path boundary character — whitespace,
-# a quote, an opening bracket, ``=`` or ``:`` — the ways an absolute path is
-# embedded in surrounding text. It never counts mid-relative-path after a
-# path segment, so a vault folder named ``private``, ``home`` or ``Users``
-# below the root (``notes/private/journal.md``) stays diagnosable: every
-# relative reference provenance validation accepts must pass this guard.
+# the string, or after any character that cannot continue a path segment.
+# The boundary class is inverted on purpose — finding A2 (2026-09-07
+# adversarial review) showed that enumerating boundary characters leaks:
+# ``Found→/Users/...`` slipped past a list that named whitespace, quotes,
+# brackets, ``=`` and ``:`` but not the Unicode arrow, and with it every
+# other unlisted separator (em dash, ellipsis, bullets, ``;``, ``,``, ``)``
+# …). Only word characters (Unicode letters, digits, underscore) and the
+# in-segment punctuation ``.``, ``~`` and ``-`` continue a path, so a
+# guarded prefix never counts mid-relative-path after a path segment, and a
+# vault folder named ``private``, ``home`` or ``Users`` below the root
+# (``notes/private/journal.md``) stays diagnosable: every relative reference
+# provenance validation accepts must pass this guard. A ``/`` deliberately
+# does NOT continue a path here — ``//Users/...`` reads as an absolute path
+# and treating the slash as continuation would make one extra slash a
+# bypass.
 #
 # The vocabulary deliberately has no bare ``/var/`` or ``/tmp/``: macOS
 # temporary directories live under ``/var/folders/...`` and Linux test
@@ -50,7 +59,7 @@ _ABSOLUTE_PREFIXES = (
     "/Volumes/",
     "/var/home/",
 )
-_BOUNDARY = r"(?:^|(?<=[\s\"'`([{<=:]))"
+_BOUNDARY = r"(?:^|(?<![\w.~-]))"
 ABSOLUTE_PATH = re.compile(
     _BOUNDARY
     + "(?:"

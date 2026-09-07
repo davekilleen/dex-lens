@@ -11,6 +11,13 @@ Finding C4: the vocabulary missed real absolute home and system roots
 ``/var/`` and ``/tmp/`` must stay out — macOS temporary directories live under
 ``/var/folders/...`` and Linux test fixtures under ``/tmp/...``, and the
 replay and MCP result paths depend on those strings passing.
+
+Finding A2 (2026-09-07 adversarial review): the boundary class enumerated the
+separators it recognised, so any separator it did not name — a Unicode arrow,
+an em dash, an ellipsis, a bullet, a plain ``;`` or ``,`` — let an anchored
+absolute path through the guard and all the way into a closed report. The
+boundary is now inverted: anything that cannot continue a path segment is a
+boundary.
 """
 
 from __future__ import annotations
@@ -88,6 +95,51 @@ def test_guard_refuses_an_absolute_path_embedded_after_a_space(path: str) -> Non
 def test_guard_refuses_an_absolute_path_after_a_text_boundary(text: str) -> None:
     with pytest.raises(HostilePayloadError):
         refuse_hostile_payload(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The reproduced A2 leak: a Unicode arrow is not a path character.
+        "Found→/Users/invented-owner/vault/Acquisition-Plan.md",
+        # And the rest of the unlisted-separator family the old enumerated
+        # boundary let through.
+        "Found—/Users/invented-owner/vault/Acquisition-Plan.md",  # em dash
+        "Found…/Users/invented-owner/vault/Acquisition-Plan.md",  # ellipsis
+        "Found /Users/invented-owner/vault/note.md",  # non-breaking space
+        "path:/Users/invented-owner/vault/note.md",  # colon (already worked)
+        "path：/Users/invented-owner/vault/note.md",  # fullwidth colon
+        "found;/home/invented-owner/notes.md",
+        "found,/home/invented-owner/notes.md",
+        "•/home/invented-owner/notes.md",  # bullet
+        "(done)/root/.config/invented.md",  # closing paren
+        "*/srv/invented-share/data.md",
+        "count+/opt/invented-tool/config.md",
+        "see//Users/invented-owner/note.md",  # a slash never continues a path
+    ],
+)
+def test_guard_refuses_an_absolute_path_after_any_non_path_separator(text: str) -> None:
+    """Finding A2: the boundary covers every separator, not an allowlist."""
+
+    with pytest.raises(HostilePayloadError) as caught:
+        refuse_hostile_payload(text)
+    assert caught.value.required_step == "remove_absolute_path"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Word characters and in-segment punctuation continue a path, so a
+        # guarded name mid-relative-path stays lawful — including after the
+        # path characters ``.``, ``~`` and ``-`` that end real segment names.
+        "notes.d/private/journal.md",
+        "backup~/home/config.md",
+        "wip-/Users/list.md",
+        "café/private/menu.md",  # Unicode letters are path characters too
+    ],
+)
+def test_guard_passes_guarded_names_after_path_continuation_characters(text: str) -> None:
+    refuse_hostile_payload(text)
 
 
 def test_guard_refuses_a_windows_drive_path() -> None:
