@@ -434,6 +434,46 @@ def test_empty_decisions_use_the_honest_empty_answer() -> None:
 
     assert "No decisions were on the table this time." in decided
     assert "taken" not in decided
+    assert "Share-back offer" not in decided
+
+
+def test_share_back_fates_join_the_decisions_record() -> None:
+    """Design item 10: the share-back offer's engine-known fate is a decision.
+
+    The decisions section is what the next run reads back, so the offer's fate
+    must be recorded there — from the typed share state and receipt only,
+    never host prose. A run that never offered records nothing (tested above).
+    """
+
+    ledger, offered = _report(share_state=ShareState.OFFERED)
+    decided = _after_coverage(offered.render_markdown(ledger))
+    assert "- Share-back offer — offered; nothing was sent." in decided
+    assert "No decisions were on the table this time." not in decided
+
+    preview = ShareReceipt.preview(
+        disclosure_sha256="a" * 64,
+        created_at=NOW,
+        run_id=RUN_ID,
+        session_receipt_id=SESSION,
+    )
+    ledger, previewed = _report(share_state=ShareState.PREVIEWED, share_receipt=preview)
+    decided = _after_coverage(previewed.render_markdown(ledger))
+    assert "- Share-back offer — previewed; nothing was sent." in decided
+
+    sent = ShareReceipt.sent(
+        disclosure_sha256="a" * 64,
+        created_at=NOW,
+        destination_class=DestinationClass.CONTRIBUTION_INTAKE,
+        response_receipt_digest=RESPONSE_DIGEST,
+        run_id=RUN_ID,
+        session_receipt_id=SESSION,
+    )
+    ledger, shared = _report(share_state=ShareState.SENT, share_receipt=sent)
+    decided = _after_coverage(shared.render_markdown(ledger))
+    assert (
+        "- Share-back offer — shared; a shared idea is never offered again."
+        in decided
+    )
 
 
 def test_preview_share_never_renders_as_shared() -> None:

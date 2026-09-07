@@ -36,10 +36,13 @@ from capability_exchange.diagnosis.ranking import MAX_RECOMMENDATIONS
 __all__ = [
     "DEFAULT_LABEL",
     "LensReportStore",
-    "missing_comparison_with",
+    "RecordedShareBackFate",
     "SavedReport",
+    "SelectionMemory",
     "default_report_directory",
+    "missing_comparison_with",
     "missing_report_requirements",
+    "selection_memory",
 ]
 
 #: Sorts chronologically as text, carries no path separators, and survives a
@@ -825,6 +828,107 @@ def _is_finding(level: str, section: str, headings: list[re.Match[str]], index: 
         return False
     following = headings[index + 1 :]
     return not following or following[0].group(1) == "##"
+
+
+#: The engine's exact focused-selection line inside "What you decided"
+#: (``ReportModel._render_decisions`` writes it; the SKILL template copies its
+#: shape). Family identities are bounded lowercase ids, so a template
+#: placeholder like ``<family-ids>`` can never parse as memory.
+_FOCUS_SELECTED_LINE = re.compile(
+    r"^- Focused this run on: "
+    r"(?P<ids>[a-z0-9][a-z0-9-]{0,119}(?:, [a-z0-9][a-z0-9-]{0,119})*)$",
+    re.MULTILINE,
+)
+
+#: One recorded share-back fate inside "What you decided". The idea is a
+#: bounded lowercase slug in backticks and the fate is the closed vocabulary
+#: the skill records, so placeholders and free prose contribute nothing.
+_SHARE_BACK_LINE = re.compile(
+    r"^- Share-back idea `(?P<idea>[a-z0-9][a-z0-9 ._:-]{0,119})` — "
+    r"(?P<fate>offered|shared|declined|deferred)\b",
+    re.MULTILINE,
+)
+
+
+@dataclass(frozen=True)
+class RecordedShareBackFate:
+    """One share-back idea's most recently recorded fate, and when."""
+
+    idea: str
+    fate: str
+    recorded_at: datetime
+
+
+@dataclass(frozen=True)
+class SelectionMemory:
+    """What every saved report says was ever examined or offered by choice.
+
+    Derived from the saved reports alone — the "What you decided" sections the
+    engine and the skill write — never from anything a host asserts at read
+    time. ``never_examined`` is the signed 14-family manifest minus every
+    family any saved report has ever recorded as selected, in manifest order:
+    the list the next run opens with ("these N areas have never had a deep
+    dive — want one?"). ``share_back_fates`` carries each idea's latest
+    recorded fate so the once-per-idea-ever rule holds across runs.
+    """
+
+    last_selected: tuple[str, ...]
+    last_selected_at: datetime | None
+    ever_selected: tuple[str, ...]
+    never_examined: tuple[str, ...]
+    share_back_fates: tuple[RecordedShareBackFate, ...]
+
+
+def _decided_bodies(markdown: str) -> list[str]:
+    """The "What you decided" sections, with pasted templates excluded."""
+
+    return _section_bodies(_without_code_fences(markdown), "what you decided")
+
+
+def selection_memory(reports: Iterable[SavedReport]) -> SelectionMemory:
+    """Read the selection and share-back memory out of saved reports.
+
+    Walks the reports oldest-first so "latest" means what it says. A report
+    that cannot be read, or whose decided section holds no parseable line,
+    contributes nothing — memory is only ever what a saved report actually
+    recorded.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    ordered = sorted(reports, key=lambda report: (report.saved_at, report.path.name))
+    ever_selected: set[str] = set()
+    last_selected: tuple[str, ...] = ()
+    last_selected_at: datetime | None = None
+    fates: dict[str, RecordedShareBackFate] = {}
+    for report in ordered:
+        try:
+            text = report.read()
+        except OSError:
+            continue
+        for body in _decided_bodies(text):
+            for match in _FOCUS_SELECTED_LINE.finditer(body):
+                selected = tuple(match.group("ids").split(", "))
+                ever_selected.update(selected)
+                last_selected = selected
+                last_selected_at = report.saved_at
+            for match in _SHARE_BACK_LINE.finditer(body):
+                fates[match.group("idea")] = RecordedShareBackFate(
+                    idea=match.group("idea"),
+                    fate=match.group("fate"),
+                    recorded_at=report.saved_at,
+                )
+    return SelectionMemory(
+        last_selected=last_selected,
+        last_selected_at=last_selected_at,
+        ever_selected=tuple(sorted(ever_selected)),
+        never_examined=tuple(
+            family_id
+            for family_id in WOW_EXPECTATIONS
+            if family_id not in ever_selected
+        ),
+        share_back_fates=tuple(sorted(fates.values(), key=lambda fate: fate.idea)),
+    )
 
 
 def _findings_without_evidence(markdown: str) -> list[str]:

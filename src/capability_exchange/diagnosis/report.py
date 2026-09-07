@@ -32,6 +32,9 @@ from capability_exchange.diagnosis.receipts import (
     ShareState,
 )
 from capability_exchange.diagnosis.run import RunIdentity
+from capability_exchange.diagnosis.significant_families import (
+    FamilyAssessmentDisposition,
+)
 
 __all__ = [
     "LedgerSummary",
@@ -492,13 +495,25 @@ class ReportModel(InventoriedModel):
                 "- Explicitly not selected this run: "
                 + ", ".join(ledger.focus_unselected_family_ids)
             )
-        if not self.decisions:
-            if not ledger.focus_selected_family_ids:
-                lines.append("No decisions were on the table this time.")
-            return "\n".join(lines) + "\n"
+        # The share-back offer's fate joins the same decisions record (design
+        # item 10), derived only from the typed share state and its receipt:
+        # a shared idea is never offered again, and the next run reads this
+        # section before offering anything. Declined and deferred answers are
+        # given after this report is rendered, so they are recorded by the
+        # host flow in its own "Share-back idea" lines, never invented here.
+        if self.share_state is ShareState.SENT:
+            lines.append(
+                "- Share-back offer — shared; a shared idea is never offered again."
+            )
+        elif self.share_state is ShareState.PREVIEWED:
+            lines.append("- Share-back offer — previewed; nothing was sent.")
+        elif self.share_state is ShareState.OFFERED:
+            lines.append("- Share-back offer — offered; nothing was sent.")
         for decision in self.decisions:
             fate = "offered" if decision.state is DecisionState.OFFERED else "taken"
             lines.append(f"- {decision.catalogue_id} — {fate}")
+        if len(lines) == 1:
+            lines.append("No decisions were on the table this time.")
         return "\n".join(lines) + "\n"
 
     def _render_share_choice(self) -> str:
@@ -688,21 +703,128 @@ def _named_with_remainder(identities: tuple[str, ...]) -> str:
     return named
 
 
+#: Small counts spelled out, the way the block speaks them ("All fourteen
+#: signed capability areas"). Anything larger stays a numeral; both render
+#: deterministically.
+_COUNT_WORDS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+    "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+)
+
+
+def _count_words(count: int) -> str:
+    return _COUNT_WORDS[count] if 0 <= count < len(_COUNT_WORDS) else str(count)
+
+
+def _joined_titles(titles: tuple[str, ...]) -> str:
+    if len(titles) == 1:
+        return titles[0]
+    return ", ".join(titles[:-1]) + " and " + titles[-1]
+
+
+def _map_coverage_lines(
+    ledger: ComparisonLedger, summary: LedgerSummary
+) -> tuple[str, ...] | None:
+    """The coverage-first voice, or ``None`` when this ledger cannot carry it.
+
+    The voice is honest only when the ledger carries real map coverage: every
+    signed family row actually assessed by the deterministic matcher (a
+    ``not-assessed`` row is not coverage), and — when a focused selection is
+    recorded — every selected family named by the map with every one of its
+    members individually examined. A focused ledger that violates its own
+    coverage gate falls back to the confession rather than borrowing the
+    triumphant voice.
+    """
+
+    if not ledger.family_entries:
+        return None
+    if any(
+        family.disposition is FamilyAssessmentDisposition.NOT_ASSESSED
+        for family in ledger.family_entries
+    ):
+        return None
+    families_by_id = {family.family_id: family for family in ledger.family_entries}
+    selected = ledger.focus_selected_family_ids
+    if not set(selected) <= set(families_by_id):
+        return None
+    not_assessed = {
+        entry.catalogue_id
+        for entry in ledger.entries
+        if entry.disposition is Disposition.NOT_ASSESSED
+    }
+    for family_id in selected:
+        family = families_by_id[family_id]
+        members = {*family.available_member_ids, *family.unavailable_member_ids}
+        if members & not_assessed:
+            return None
+    area_count = len(ledger.family_entries)
+    lines = [
+        f"All {_count_words(area_count)} signed capability "
+        f"{_plural(area_count, 'area')} of Dex "
+        f"{_plural(area_count, 'was', 'were')} assessed against your system."
+    ]
+    if selected:
+        titles = _joined_titles(
+            tuple(
+                f"{families_by_id[family_id].title} (`{family_id}`)"
+                for family_id in selected
+            )
+        )
+        inside = "it" if len(selected) == 1 else "them"
+        lines.append(
+            f"You took deep dives into {titles}; every capability inside "
+            f"{inside} was examined individually, one by one."
+        )
+    if summary.unknown == 0:
+        lines.append(
+            f"Every one of the {summary.total} "
+            f"{_plural(summary.total, 'entry', 'entries')} in the signed Dex "
+            "catalogue was examined individually."
+        )
+    elif selected:
+        other = area_count - len(selected)
+        if other == 1:
+            lines.append(
+                "The other area is covered at the map level — a deeper look "
+                "at it is one ask away."
+            )
+        elif other:
+            lines.append(
+                f"The other {_count_words(other)} areas are covered at the "
+                "map level — a deeper look at any of them is one ask away."
+            )
+    else:
+        lines.append(
+            "Every area is covered at the map level — a deeper look at any "
+            "of them is one ask away."
+        )
+    return tuple(lines)
+
+
 def canonical_coverage_block(ledger: ComparisonLedger) -> str:
-    """Headline coverage: how much of the signed catalogue this run examined.
+    """Headline coverage: lead with what was covered; confess only real holes.
 
     The first real run assessed 21 of 115 entries and the 94 left
-    ``not-assessed`` hid in the appendix, so the person concluded — correctly —
-    that the product had missed most of their capability. This block is the
-    fix: the counts with their denominator, the signed families the unexamined
-    entries concentrate in, and the follow-up offered in one plain sentence.
-    It names signed catalogue and family identities only — never a label or
-    path from the inspected system — and equivalent ledgers render it
-    byte-identically.
+    ``not-assessed`` hid in the appendix, so the first fix made this block a
+    loud confession. The founder then rejected the failure-count voice for the
+    two-pass product (2026-09-07): when the ledger carries real map coverage —
+    every signed family row assessed, and any focused selection's members each
+    individually examined — the block leads with what WAS covered: all areas
+    assessed, the deep dives named, everything else covered at the map level
+    and one ask away. The original confession stands verbatim as the fallback
+    for a ledger lacking that map coverage, and the words "not examined"
+    appear only there. Either way the block names signed catalogue and family
+    identities only — never a label or path from the inspected system — and
+    equivalent ledgers render it byte-identically.
     """
 
     summary = LedgerSummary.from_ledger(ledger)
     lines = ["## How much was examined"]
+    story = _map_coverage_lines(ledger, summary)
+    if story is not None:
+        lines.extend(story)
+        return "\n".join(lines) + "\n"
     if summary.unknown == 0:
         lines.append(
             f"All {summary.total} {_plural(summary.total, 'entry', 'entries')} in the "
@@ -766,27 +888,40 @@ def canonical_coverage_block(ledger: ComparisonLedger) -> str:
 
 
 def coverage_block_errors(report_markdown: str, ledger: ComparisonLedger) -> tuple[str, ...]:
-    """Refuse a report that hides a nonzero not-assessed count from its headline.
+    """Refuse a report shipped without its coverage story, whichever branch applies.
 
     The rule is byte-exact on purpose, like :func:`ledger_derived_fact_errors`:
     the block is rendered from the ledger alone, so the only report that lacks
     it is one that was edited after rendering or written around the engine —
-    both of which are how 94 unexamined entries hid in an appendix once. A
-    fully assessed ledger owes nothing here.
+    both of which are how 94 unexamined entries hid in an appendix once. Two
+    branches owe the block: a ledger with unexamined entries owes the
+    confession, and a ledger carrying map coverage owes the coverage-first
+    story even when every entry was assessed. Only a fully assessed ledger
+    with no map coverage owes nothing here.
     """
 
     summary = LedgerSummary.from_ledger(ledger)
-    if summary.unknown == 0:
+    map_story = _map_coverage_lines(ledger, summary) is not None
+    if summary.unknown == 0 and not map_story:
         return ()
-    if canonical_coverage_block(ledger) not in report_markdown:
+    if canonical_coverage_block(ledger) in report_markdown:
+        return ()
+    if map_story:
         return (
-            f"say near the top how much was examined: this ledger left {summary.unknown} "
-            f"of its {summary.total} signed catalogue entries not assessed, and the "
-            "report does not carry the exact '## How much was examined' block naming "
-            "where they sit. Render the report from the diagnosis engine rather than "
-            "editing it.",
+            "say near the top how much was examined: this ledger carries the "
+            "signed family-map coverage story — every signed capability area "
+            "assessed, with any deep dives named — and the report does not "
+            "carry the exact '## How much was examined' block telling it. "
+            "Render the report from the diagnosis engine rather than editing "
+            "it.",
         )
-    return ()
+    return (
+        f"say near the top how much was examined: this ledger left {summary.unknown} "
+        f"of its {summary.total} signed catalogue entries not assessed, and the "
+        "report does not carry the exact '## How much was examined' block naming "
+        "where they sit. Render the report from the diagnosis engine rather than "
+        "editing it.",
+    )
 
 
 def canonical_release_gap_block(ledger: ComparisonLedger) -> str:

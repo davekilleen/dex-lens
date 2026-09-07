@@ -76,3 +76,44 @@ def test_the_decisions_loop_is_closed() -> None:
     assert "Declined twice" in phase_zero
     assert "Taken" in phase_zero
     assert "Only if they ask what has changed" in phase_zero
+
+
+def test_phase_zero_reads_the_selection_memory() -> None:
+    """Design item 10: the focused selection and the never-examined remainder
+    are read back at the start, so the next run can open with "last time you
+    looked at X; these N areas have never had a deep dive — want one?"."""
+    text = SKILL.read_text(encoding="utf-8")
+    phase_zero = text[text.index("## Phase 0") : text.index("## Phase 1")]
+
+    assert "selection memory" in phase_zero
+    assert "never had a focused deep dive" in phase_zero
+    assert "Share-back idea" in phase_zero
+    assert "spans runs" in phase_zero
+
+
+def test_phase_six_records_every_fate_for_the_next_run() -> None:
+    """Design item 10: the fates recorded at Phase 6 are what Phase 0 reads."""
+    text = SKILL.read_text(encoding="utf-8")
+    phase_six = text[text.index("## Phase 6") : text.index("## Phase 7")]
+
+    assert "What you decided" in phase_six
+    assert "Share-back idea" in phase_six
+    assert "Focused this run on" in phase_six
+
+
+def test_the_template_carries_the_selection_and_share_back_lines() -> None:
+    """The template's line shapes are what the store's memory parser reads."""
+    template = _template()
+
+    assert "- Focused this run on:" in template
+    assert "- Explicitly not selected this run:" in template
+    assert "- Share-back idea `" in template
+
+
+def test_the_share_back_rules_record_a_parseable_fate_line() -> None:
+    """"Once per idea, ever" only holds across runs if the fate is recorded
+    in the exact line shape the next run's memory parser reads."""
+    text = SKILL.read_text(encoding="utf-8")
+    sharing = text[text.index("## Sharing an idea back") : text.index("## Phase 10")]
+
+    assert "Share-back idea" in sharing

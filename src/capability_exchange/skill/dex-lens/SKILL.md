@@ -575,6 +575,21 @@ it bind what you do in Phases 5 and 6:
   words that a third deferral will be treated as a no. A read-only tool that
   quietly counts non-answers is more assertive than it advertises.
 
+The command also prints selection memory, derived from every saved report on
+this machine and nothing else: which areas the last focused run examined by
+choice ("Focused this run on: …"), and which of the 14 signed capability
+areas have never had a focused deep dive in any saved report. Open the delta
+with it — "last time you took deep dives into backup and memory; these N
+areas have never had a deep dive — want one of those?" — and never present a
+never-examined area as if it had been assessed.
+
+Share-back ideas obey the same memory, and their rule spans runs, not
+sessions. "What you decided" records each share-back offer's fate on its own
+line — `` - Share-back idea `<idea>` — shared | declined | deferred `` — and
+once per idea means ever: an idea any saved report records as shared or
+declined is never offered again, and a deferred one gets at most one gentle
+mention before it counts as a no.
+
 If they asked for a delta and the previous report is from the same day, say
 so and offer the short version first: a pass that checks what changed and
 answers their question, rather than a full restatement twenty minutes after
@@ -1078,6 +1093,15 @@ suggesting, give them one short paragraph:
 
 Then ask which ones they want. Not all of them. Expect them to take one.
 
+Whatever they choose, every fate lands in "What you decided", because that
+section is what the next run reads before suggesting anything. Each
+suggestion is recorded as taken, declined, or deferred in their own words.
+On a focused run the engine's own lines record the selection —
+"Focused this run on: …" and "Explicitly not selected this run: …" — do not
+restate them in your own wording. And a share-back offer, whenever one is made, records its
+fate on its own `` Share-back idea `` line (the exact shape is in the
+template). Memory is only as honest as the lines it reads back.
+
 ## Phase 7: hand over the brief
 
 For each capability they choose:
@@ -1227,7 +1251,10 @@ Why it matters: <which behaviour is now unpredictable>
 - Unknown: <anything the evidence could not prove>
 
 ## What you decided
+- Focused this run on: <family-ids, exactly as the engine recorded them — focused runs only>
+- Explicitly not selected this run: <family-ids the person saw and left — focused runs only>
 - `<capability-id>` — taken | declined | deferred<, " because <their words>" when they gave a reason>
+- Share-back idea `<idea-slug>` — shared | declined | deferred<, " because <their words>" when they gave a reason>
 - (First run, or nothing suggested: "No decisions were on the table this time.")
 
 ## What happens next
@@ -1329,9 +1356,11 @@ The rules, exactly:
   meetings into person pages is unusual and good; want to share the idea
   back?" Any session qualifies, the first included — what earns the offer
   is the finding, not the run number.
-- **Once per idea, ever.** Record the offer's fate in "What you decided"
-  (shared, declined, deferred) and never re-offer a declined idea. An
-  invitation repeated is a collection funnel wearing manners.
+- **Once per idea, ever — across runs.** Record the offer's fate in "What
+  you decided" on its own line, exactly this shape so the next run's memory
+  can read it back: `` - Share-back idea `<idea-slug>` — shared | declined |
+  deferred ``. Never re-offer an idea any saved report records as shared or
+  declined. An invitation repeated is a collection funnel wearing manners.
 - **Not a ritual.** A session with nothing distinctive has no offer. Most
   sessions should have no offer.
 

@@ -1,12 +1,17 @@
-"""The headline coverage block: not-assessed is loud, placed, and offered a follow-up.
+"""The headline coverage block: lead with what was covered; confess only holes.
 
 The first real run assessed 21 of 115 catalogue entries and the 94 left
 ``not-assessed`` hid in the appendix; the person concluded the product had
-missed a tonne of capability — correctly. These tests hold the guarantees
-that prevent a recurrence: the rendered report says near the top how many
-signed entries were examined and where the rest sit, and ``reports check``
-refuses a report whose ledger carries unexamined entries but whose markdown
-lost that block.
+missed a tonne of capability — correctly. The first fix made the block a loud
+confession. The founder then rejected the failure-count voice for the two-pass
+product (2026-09-07): when the ledger carries a real family map — every signed
+area assessed by the deterministic matcher, and any focused selection's
+members individually examined — the block leads with what WAS covered, and the
+words "not examined" appear only in the fallback branch for a ledger lacking
+that map coverage, where the original confession stands verbatim. These tests
+hold both voices, the branch condition between them, and the check gate that
+refuses a report shipped without its coverage story — whichever branch
+applies.
 """
 
 from __future__ import annotations
@@ -78,7 +83,14 @@ def _entries(assessed: int, total: int) -> tuple[CatalogueDisposition, ...]:
     )
 
 
-def _family(family_id: str, title: str, member_ids: tuple[str, ...]) -> dict[str, object]:
+def _family(
+    family_id: str,
+    title: str,
+    member_ids: tuple[str, ...],
+    *,
+    disposition: FamilyAssessmentDisposition = FamilyAssessmentDisposition.NOT_ASSESSED,
+    reason: str = "Not assessed yet.",
+) -> dict[str, object]:
     return {
         "family_id": family_id,
         "title": title,
@@ -91,12 +103,15 @@ def _family(family_id: str, title: str, member_ids: tuple[str, ...]) -> dict[str
         "matched_observation_ids": [],
         "unresolved_components": [],
         "evidence_references": [],
-        "disposition": FamilyAssessmentDisposition.NOT_ASSESSED.value,
-        "reason": "Not assessed yet.",
+        "disposition": disposition.value,
+        "reason": reason,
     }
 
 
 #: Three signed areas: one wholly unexamined, one partly, one fully assessed.
+#: Every row is disposition ``not-assessed`` on purpose: a ledger whose family
+#: rows were never assessed carries no map coverage, so these families pin the
+#: fallback confession voice.
 _FAMILIES = (
     _family(
         "meeting-follow-through",
@@ -115,12 +130,40 @@ _FAMILIES = (
     ),
 )
 
+#: The same three signed areas as a real family map: every row assessed by
+#: the deterministic matcher, so the coverage-first voice applies.
+_MAPPED_FAMILIES = (
+    _family(
+        "meeting-follow-through",
+        "Meeting follow-through",
+        tuple(_entry_id(index) for index in range(21, 27)),
+        disposition=FamilyAssessmentDisposition.UNRESOLVED,
+        reason="No exact local overlap was proven.",
+    ),
+    _family(
+        "memory",
+        "Memory",
+        (_entry_id(6), _entry_id(27), _entry_id(28)),
+        disposition=FamilyAssessmentDisposition.UNRESOLVED,
+        reason="No exact local overlap was proven.",
+    ),
+    _family(
+        "backup-safety",
+        "Backup safety",
+        tuple(_entry_id(index) for index in range(6)),
+        disposition=FamilyAssessmentDisposition.OVERLAP_OBSERVED,
+        reason="Every published component matched exactly.",
+    ),
+)
+
 
 def _ledger(
     *,
     assessed: int = ASSESSED,
     total: int = TOTAL,
     families: tuple[dict[str, object], ...] = _FAMILIES,
+    focus_selected: tuple[str, ...] = (),
+    focus_unselected: tuple[str, ...] = (),
 ) -> ComparisonLedger:
     return ComparisonLedger.model_validate(
         {
@@ -130,6 +173,8 @@ def _ledger(
             "entries": [entry.model_dump(mode="json") for entry in _entries(assessed, total)],
             "family_entries": list(families),
             "reciprocal_answer": "No transferable method cleared the evidence bar.",
+            "focus_selected_family_ids": list(focus_selected),
+            "focus_unselected_family_ids": list(focus_unselected),
         }
     )
 
@@ -148,6 +193,15 @@ def _report(ledger: ComparisonLedger) -> ReportModel:
 
 
 class TestTheCoverageBlockIsLoudAndPlaced:
+    """Intent shift, 2026-09-07: these tests now pin the FALLBACK voice.
+
+    The fixture families all carry disposition ``not-assessed``, so the ledger
+    lacks map coverage and the original confession — counts with their
+    denominator, the areas the unexamined entries sit in — must stand
+    verbatim. The coverage-first voice for map-covered ledgers is pinned by
+    :class:`TestTheCoverageFirstVoice` below.
+    """
+
     def test_the_block_names_the_counts_with_their_denominator(self) -> None:
         block = canonical_coverage_block(_ledger())
 
@@ -205,7 +259,11 @@ class TestTheCoverageBlockIsLoudAndPlaced:
         assert markdown.index(block) < markdown.index("## What is working especially well")
         assert markdown.index(block) < markdown.index("## Coverage and limits")
 
-    def test_a_fully_assessed_ledger_says_so_plainly(self) -> None:
+    def test_a_fully_assessed_unmapped_ledger_says_so_plainly(self) -> None:
+        """Intent shift: without map coverage the plain all-assessed line
+        stands; a fully assessed ledger WITH map coverage now speaks the
+        coverage-first voice (see TestTheCoverageFirstVoice)."""
+
         ledger = _ledger(assessed=TOTAL)
         block = canonical_coverage_block(ledger)
 
@@ -229,6 +287,142 @@ class TestTheCoverageBlockIsLoudAndPlaced:
         assert canonical_coverage_block(ledger) == canonical_coverage_block(reordered)
 
 
+class TestTheCoverageFirstVoice:
+    """The founder-directed rewording for the two-pass product (2026-09-07).
+
+    When every family row was actually assessed by the deterministic matcher
+    — and, on a focused run, every member of every selected family carries an
+    individual verdict — the block leads with what WAS covered: all areas
+    assessed, the deep dives named, everything else covered at the map level
+    and one ask away. It never leads with a failure count, and the words
+    "not examined" never appear in this voice.
+    """
+
+    @staticmethod
+    def _mapped(
+        *,
+        assessed: int = ASSESSED,
+        selected: tuple[str, ...] = (),
+        unselected: tuple[str, ...] = (),
+    ) -> ComparisonLedger:
+        return _ledger(
+            assessed=assessed,
+            families=_MAPPED_FAMILIES,
+            focus_selected=selected,
+            focus_unselected=unselected,
+        )
+
+    def test_a_mapped_ledger_leads_with_what_was_covered(self) -> None:
+        block = canonical_coverage_block(self._mapped())
+
+        assert block.startswith(
+            "## How much was examined\n"
+            "All three signed capability areas of Dex were assessed against "
+            "your system.\n"
+        )
+        assert "not examined" not in block
+
+    def test_an_unfocused_mapped_ledger_offers_the_map_level_line(self) -> None:
+        block = canonical_coverage_block(self._mapped())
+
+        assert (
+            "Every area is covered at the map level — a deeper look at any of "
+            "them is one ask away." in block
+        )
+
+    def test_a_focused_selection_names_its_deep_dives(self) -> None:
+        block = canonical_coverage_block(
+            self._mapped(
+                assessed=29,
+                selected=("backup-safety", "memory"),
+                unselected=("meeting-follow-through",),
+            )
+        )
+
+        assert (
+            "You took deep dives into Backup safety (`backup-safety`) and "
+            "Memory (`memory`); every capability inside them was examined "
+            "individually, one by one." in block
+        )
+        assert (
+            "The other area is covered at the map level — a deeper look at it "
+            "is one ask away." in block
+        )
+        assert "not examined" not in block
+
+    def test_the_voice_never_leads_with_a_failure_count(self) -> None:
+        block = canonical_coverage_block(self._mapped())
+        first_sentence_line = block.splitlines()[1]
+
+        assert not first_sentence_line.startswith("Of the ")
+        assert "94" not in block
+
+    def test_a_silent_hole_in_a_selected_family_falls_back_to_the_confession(
+        self,
+    ) -> None:
+        """A focused ledger that violates its own coverage gate — a selected
+        family member left not-assessed — does not get the triumphant voice."""
+
+        block = canonical_coverage_block(
+            self._mapped(
+                assessed=3,
+                selected=("backup-safety",),
+                unselected=("meeting-follow-through", "memory"),
+            )
+        )
+
+        assert "were not examined at all" in block
+
+    def test_a_map_with_an_unassessed_row_keeps_the_confession(self) -> None:
+        """Family rows the matcher never assessed are not map coverage."""
+
+        block = canonical_coverage_block(_ledger())
+
+        assert "were not examined at all" in block
+
+    def test_a_fully_assessed_mapped_ledger_counts_every_entry(self) -> None:
+        block = canonical_coverage_block(self._mapped(assessed=TOTAL))
+
+        assert (
+            "All three signed capability areas of Dex were assessed against "
+            "your system." in block
+        )
+        assert (
+            "Every one of the 115 entries in the signed Dex catalogue was "
+            "examined individually." in block
+        )
+        assert "not examined" not in block
+
+    def test_the_check_gate_demands_the_story_for_a_mapped_ledger(self) -> None:
+        """A report must still refuse to ship without its coverage story,
+        whichever branch applies — here, the coverage-first branch."""
+
+        ledger = self._mapped()
+
+        errors = coverage_block_errors("# Diagnosis\n", ledger)
+        assert len(errors) == 1
+        assert "How much was examined" in errors[0]
+        assert "family-map coverage story" in errors[0]
+
+        carrying = f"# Diagnosis\n\n{canonical_coverage_block(ledger)}"
+        assert coverage_block_errors(carrying, ledger) == ()
+
+    def test_the_check_gate_demands_the_story_even_fully_assessed(self) -> None:
+        ledger = self._mapped(assessed=TOTAL)
+
+        assert coverage_block_errors("# Diagnosis\n", ledger) != ()
+
+    def test_the_rendered_report_carries_the_coverage_first_block(self) -> None:
+        ledger = self._mapped(
+            assessed=29,
+            selected=("backup-safety", "memory"),
+            unselected=("meeting-follow-through",),
+        )
+        markdown = _report(ledger).render_markdown(ledger)
+
+        assert canonical_coverage_block(ledger) in markdown
+
+
 class TestTheCheckRefusesAReportThatLostTheBlock:
     def test_errors_name_the_missing_block_when_not_assessed_is_nonzero(self) -> None:
         ledger = _ledger()
@@ -240,8 +434,12 @@ class TestTheCheckRefusesAReportThatLostTheBlock:
         assert len(errors) == 1
         assert "94" in errors[0] and "115" in errors[0]
 
-    def test_a_fully_assessed_ledger_demands_no_block(self) -> None:
-        ledger = _ledger(assessed=TOTAL)
+    def test_a_fully_assessed_unmapped_ledger_demands_no_block(self) -> None:
+        """Intent shift: only a ledger with neither unexamined entries nor map
+        coverage owes nothing — a map-covered ledger always owes its story
+        (see TestTheCoverageFirstVoice)."""
+
+        ledger = _ledger(assessed=TOTAL, families=())
 
         assert coverage_block_errors("# Diagnosis\n", ledger) == ()
 

@@ -31,9 +31,11 @@ from capability_exchange.reports.store import (
     DEFAULT_LABEL,
     LensReportStore,
     SavedReport,
+    SelectionMemory,
     default_report_directory,
     missing_comparison_with,
     missing_report_requirements,
+    selection_memory,
 )
 
 __all__ = ["reports_main"]
@@ -404,6 +406,55 @@ def _save(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Closed fate → the one-sentence rule it carries, spoken beside the memory so
+#: the next run cannot claim it was never told.
+_SHARE_BACK_RULES = {
+    "shared": "a shared idea is never offered again",
+    "declined": "a declined idea is never offered again",
+    "deferred": "a third deferral counts as a no",
+    "offered": "no answer was recorded",
+}
+
+
+def _selection_memory_lines(memory: SelectionMemory) -> list[str]:
+    """Selection memory, spoken beside the last report (design item 10).
+
+    Every line is derived from saved reports alone — which families past runs
+    recorded as selected, which of the signed manifest families no saved
+    report has ever recorded as selected, and each share-back idea's recorded
+    fate — so the next run can open with "last time you looked at backup and
+    memory; these N areas have never had a deep dive — want one?" without
+    inventing any memory of its own.
+    """
+
+    from capability_exchange.diagnosis.expectations import WOW_EXPECTATIONS
+
+    lines: list[str] = []
+    if memory.last_selected:
+        named = ", ".join(memory.last_selected)
+        lines.append(f"dex-lens: last time the focused deep dives were: {named}.")
+    if memory.never_examined:
+        count = len(memory.never_examined)
+        verb = "has" if count == 1 else "have"
+        named = ", ".join(memory.never_examined)
+        lines.append(
+            f"dex-lens: {count} of the {len(WOW_EXPECTATIONS)} signed capability "
+            f"areas {verb} never had a focused deep dive in any saved report: "
+            f"{named}. A deep dive there is one ask away."
+        )
+    else:
+        lines.append(
+            "dex-lens: every signed capability area has had a focused deep "
+            "dive in a saved report."
+        )
+    for fate in memory.share_back_fates:
+        lines.append(
+            f"dex-lens: share-back idea `{fate.idea}` — {fate.fate}; "
+            f"{_SHARE_BACK_RULES[fate.fate]}."
+        )
+    return lines
+
+
 def _show(action: str, args: argparse.Namespace) -> int:
     try:
         store = _store(None)
@@ -432,6 +483,14 @@ def _show(action: str, args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         print(report.read(), end="")
+        # The selection memory rides beside the report, on stderr, so the
+        # report bytes on stdout stay exactly the saved file. It is derived
+        # from every saved report under this label, not just the last one:
+        # "never examined" means never in any saved run.
+        for line in _selection_memory_lines(
+            selection_memory(store.list(label=args.label))
+        ):
+            print(line, file=sys.stderr)
         return 0
 
     reports = store.list(label=args.label)
