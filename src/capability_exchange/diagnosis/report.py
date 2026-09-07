@@ -32,10 +32,12 @@ from capability_exchange.diagnosis.run import RunIdentity
 __all__ = [
     "LedgerSummary",
     "ReportModel",
+    "canonical_coverage_block",
     "canonical_fact_block",
     "canonical_ledger_appendix",
     "canonical_ledger_digest",
     "canonical_ledger_payload",
+    "coverage_block_errors",
     "ledger_appendix_errors",
     "ledger_derived_fact_errors",
 ]
@@ -432,6 +434,7 @@ class ReportModel(InventoriedModel):
         return (
             "# Diagnosis\n\n"
             f"{_render_what_was_read(ledger)}"
+            f"\n{canonical_coverage_block(ledger)}"
             f"\n{_render_version_distance(ledger)}"
             f"\n{_render_grounded_strengths(ledger)}"
             f"\n{_render_strengths(ledger)}"
@@ -633,6 +636,123 @@ class ReportModel(InventoriedModel):
         if not _FROM_RESULT.get():
             raise TypeError("ReportModel can only be created with from_result()")
         return cls.model_validate(values)
+
+
+#: How many unexamined catalogue identities the coverage block names outright
+#: before counting the remainder. Enough to orient the reader; the complete
+#: accounting is always one appendix away.
+_COVERAGE_NAMED_BOUND = 8
+
+
+def _named_with_remainder(identities: tuple[str, ...]) -> str:
+    """The first few identities verbatim, and the rest counted, never hidden."""
+
+    named = ", ".join(f"`{item}`" for item in identities[:_COVERAGE_NAMED_BOUND])
+    remainder = len(identities) - min(len(identities), _COVERAGE_NAMED_BOUND)
+    if remainder:
+        return f"{named} and {remainder} more in the ledger appendix"
+    return named
+
+
+def canonical_coverage_block(ledger: ComparisonLedger) -> str:
+    """Headline coverage: how much of the signed catalogue this run examined.
+
+    The first real run assessed 21 of 115 entries and the 94 left
+    ``not-assessed`` hid in the appendix, so the person concluded — correctly —
+    that the product had missed most of their capability. This block is the
+    fix: the counts with their denominator, the signed families the unexamined
+    entries concentrate in, and the follow-up offered in one plain sentence.
+    It names signed catalogue and family identities only — never a label or
+    path from the inspected system — and equivalent ledgers render it
+    byte-identically.
+    """
+
+    summary = LedgerSummary.from_ledger(ledger)
+    lines = ["## How much was examined"]
+    if summary.unknown == 0:
+        lines.append(
+            f"All {summary.total} {_plural(summary.total, 'entry', 'entries')} in the "
+            f"signed Dex catalogue {_plural(summary.total, 'was', 'were')} assessed "
+            "against your system in this run."
+        )
+        return "\n".join(lines) + "\n"
+    lines.append(
+        f"Of the {summary.total} {_plural(summary.total, 'entry', 'entries')} in the "
+        f"signed Dex catalogue, {summary.assessed} "
+        f"{_plural(summary.assessed, 'was', 'were')} assessed against your system and "
+        f"{summary.unknown} {_plural(summary.unknown, 'was', 'were')} not examined "
+        "at all. Not examined means exactly that: nothing here says those "
+        "capabilities are present or absent."
+    )
+    not_assessed = tuple(
+        sorted(
+            entry.catalogue_id
+            for entry in ledger.entries
+            if entry.disposition is Disposition.NOT_ASSESSED
+        )
+    )
+    if ledger.family_entries:
+        in_named_areas: set[str] = set()
+        rows: list[tuple[int, str, str, int, int]] = []
+        for family in ledger.family_entries:
+            members = {*family.available_member_ids, *family.unavailable_member_ids}
+            unexamined = members.intersection(not_assessed)
+            if not unexamined:
+                continue
+            in_named_areas.update(unexamined)
+            rows.append(
+                (-len(unexamined), family.family_id, family.title, len(unexamined), len(members))
+            )
+        rows.sort()
+        if rows:
+            lines.append("The entries not examined sit in these signed capability areas:")
+            for _negated, family_id, title, unexamined_count, member_count in rows:
+                lines.append(
+                    f"- {title} (`{family_id}`): {unexamined_count} of its {member_count} "
+                    f"signed {_plural(member_count, 'member')} "
+                    f"{_plural(unexamined_count, 'was', 'were')} not examined."
+                )
+        outside = tuple(item for item in not_assessed if item not in in_named_areas)
+        if outside:
+            lines.append(
+                "- Outside every signed capability area: "
+                f"{_named_with_remainder(outside)}."
+            )
+    else:
+        lines.append(
+            "No signed capability-family contract was present in this catalogue, so "
+            "the entries not examined are named directly: "
+            f"{_named_with_remainder(not_assessed)}."
+        )
+    lines.append(
+        "A deeper look at these areas is a second, shorter run — it examines only "
+        "what you point at."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def coverage_block_errors(report_markdown: str, ledger: ComparisonLedger) -> tuple[str, ...]:
+    """Refuse a report that hides a nonzero not-assessed count from its headline.
+
+    The rule is byte-exact on purpose, like :func:`ledger_derived_fact_errors`:
+    the block is rendered from the ledger alone, so the only report that lacks
+    it is one that was edited after rendering or written around the engine —
+    both of which are how 94 unexamined entries hid in an appendix once. A
+    fully assessed ledger owes nothing here.
+    """
+
+    summary = LedgerSummary.from_ledger(ledger)
+    if summary.unknown == 0:
+        return ()
+    if canonical_coverage_block(ledger) not in report_markdown:
+        return (
+            f"say near the top how much was examined: this ledger left {summary.unknown} "
+            f"of its {summary.total} signed catalogue entries not assessed, and the "
+            "report does not carry the exact '## How much was examined' block naming "
+            "where they sit. Render the report from the diagnosis engine rather than "
+            "editing it.",
+        )
+    return ()
 
 
 def canonical_fact_block(ledger: ComparisonLedger) -> str:

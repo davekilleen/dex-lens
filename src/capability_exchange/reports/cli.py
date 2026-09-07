@@ -236,6 +236,25 @@ def _ledger_binding_problems(markdown: str, ledger: ComparisonLedger | None) -> 
     return []
 
 
+def _coverage_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether a report owns up to what its ledger says was never examined.
+
+    The first real run left 94 of 115 catalogue entries ``not-assessed`` and
+    the report buried that in its appendix, so the reader concluded the
+    product had missed most of their capability. Beside a supplied ledger
+    whose not-assessed count is nonzero, the report must carry the exact
+    headline coverage block the engine renders from that ledger — counts with
+    their denominator, the signed families the unexamined entries sit in, and
+    the follow-up offer. Checked without a ledger, a report makes no coverage
+    claim and nothing new is demanded of it.
+    """
+    if ledger is None:
+        return []
+    from capability_exchange.diagnosis.report import coverage_block_errors
+
+    return list(coverage_block_errors(markdown, ledger))
+
+
 def _ledger_gate(path: Path | None) -> tuple[ComparisonLedger | None, list[str]]:
     """Validate a supplied ledger against the last locally verified catalogue."""
     if path is None:
@@ -293,6 +312,7 @@ def _check(args: argparse.Namespace) -> int:
     label = args.label or DEFAULT_LABEL
     ledger, ledger_problems = _ledger_gate(args.ledger)
     ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
+    ledger_problems.extend(_coverage_problems(markdown, ledger))
     problems = _gate(markdown, store.last(label=label), ledger_problems)
     if problems:
         _report_problems(problems)
@@ -342,6 +362,7 @@ def _save(args: argparse.Namespace) -> int:
     # run is long and the assistant is tired.
     ledger, ledger_problems = _ledger_gate(args.ledger)
     ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
+    ledger_problems.extend(_coverage_problems(markdown, ledger))
     problems = _gate(markdown, previous, ledger_problems)
     if problems:
         _report_problems(problems)

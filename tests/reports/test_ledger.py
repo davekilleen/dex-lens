@@ -32,6 +32,7 @@ from capability_exchange.diagnosis.observations import (
     RuntimeState,
 )
 from capability_exchange.diagnosis.report import (
+    canonical_coverage_block,
     canonical_fact_block,
     canonical_ledger_digest,
     canonical_ledger_payload,
@@ -392,6 +393,7 @@ def _grounded_report(ledger: ComparisonLedger) -> str:
 ## What I read
 - Invented inventory: `file-token:invented-inventory.md`
 
+{canonical_coverage_block(ledger)}
 ## What is working especially well
 ### Invented review checkpoint — Verified
 > Confirm the invented checkpoint before the next step.
