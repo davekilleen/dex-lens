@@ -37,15 +37,19 @@ from capability_exchange.diagnosis.comparison import (
     FamilyLedgerEntry,
     GroundedInsight,
     HumanCapability,
+    JobAxisState,
+    JobCoverageEntry,
     LocalObservationDisposition,
     VersionDistance,
     family_entries_from_assessments,
     insights_from_proposals,
 )
 from capability_exchange.diagnosis.expectations import (
+    NON_LINEAGE_JOB_UNKNOWN_REASON,
     assess_wow_expectations,
     build_family_map,
     observed_release_lineage,
+    supported_job_reason,
 )
 from capability_exchange.diagnosis.families import (
     build_family_delta,
@@ -80,7 +84,11 @@ from capability_exchange.diagnosis.run import (
     FocusReceipt,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
-from capability_exchange.diagnosis.significant_families import assess_significant_families
+from capability_exchange.diagnosis.significant_families import (
+    assess_job_axis,
+    assess_significant_families,
+    is_non_lineage,
+)
 from capability_exchange.diagnosis.specialists import (
     MAX_RECOMMENDATIONS,
     ProposalKind,
@@ -256,6 +264,86 @@ def _version_distance(
         families=families,
         newer_release_ids=newer_release_ids,
     )
+
+
+def _job_axis_entries(
+    catalogue: object,
+    fingerprint: EvidenceFingerprint,
+    job_proposals: tuple[ValidatedProposal, ...],
+) -> tuple[JobCoverageEntry, ...]:
+    """One durable row per signed job: pass-2 verdicts over pass-1 admission.
+
+    The deterministic pass-1 layer (kind-admitted evidence → Supported, else
+    the loud Unknown) is derived exactly as the family map derives it, so the
+    early map and the closing ledger cannot drift.  A validated, undisputed
+    job-coverage proposal overlays its closed verdict with its own evidence
+    and reason; a disputed one coalesces to the loud Unknown carrying the
+    dispute sentence.  Rows are sorted by job id — the ledger's canonical
+    order.
+    """
+
+    by_job: dict[str, ValidatedProposal] = {}
+    for proposal in job_proposals:
+        if proposal.catalogue_id in by_job:
+            raise SpecialistProposalError(
+                "reconciled job-coverage proposals must name each signed job at most once"
+            )
+        by_job[proposal.catalogue_id] = proposal
+    rows: list[JobCoverageEntry] = []
+    for assessment in sorted(
+        assess_job_axis(catalogue, fingerprint), key=lambda item: item.job_id
+    ):
+        proposal = by_job.pop(assessment.job_id, None)
+        if proposal is not None and not proposal.disputed and proposal.job_coverage is not None:
+            rows.append(
+                JobCoverageEntry(
+                    job_id=assessment.job_id,
+                    label=assessment.label,
+                    state=JobAxisState(proposal.job_coverage),
+                    evidence_references=tuple(sorted(proposal.evidence_ids))[:8],
+                    observation_ids=tuple(sorted(proposal.observation_ids))[:8],
+                    reason=proposal.reason,
+                )
+            )
+            continue
+        if proposal is not None:
+            # A disputed job verdict stays honestly Unknown, loudly, with the
+            # engine's dispute sentence and the union evidence the coalesce
+            # retained — never a tie broken with confidence.
+            rows.append(
+                JobCoverageEntry(
+                    job_id=assessment.job_id,
+                    label=assessment.label,
+                    state=JobAxisState.UNKNOWN,
+                    evidence_references=tuple(sorted(proposal.evidence_ids))[:8],
+                    observation_ids=tuple(sorted(proposal.observation_ids))[:8],
+                    reason=proposal.reason,
+                )
+            )
+            continue
+        rows.append(
+            JobCoverageEntry(
+                job_id=assessment.job_id,
+                label=assessment.label,
+                state=(
+                    JobAxisState.SUPPORTED
+                    if assessment.evidence_references
+                    else JobAxisState.UNKNOWN
+                ),
+                evidence_references=assessment.evidence_references,
+                observation_ids=assessment.observation_ids,
+                reason=(
+                    supported_job_reason(len(assessment.evidence_references))
+                    if assessment.evidence_references
+                    else NON_LINEAGE_JOB_UNKNOWN_REASON
+                ),
+            )
+        )
+    if by_job:
+        raise SpecialistProposalError(
+            "a job-coverage proposal names a job the signed taxonomy does not carry"
+        )
+    return tuple(rows)
 
 
 def _verified_store(store: VerifiedCatalogueStore | None) -> VerifiedCatalogueStore:
@@ -829,6 +917,27 @@ class CachedCatalogueLoader:
                     catalogue.capability_families, key=lambda item: item.family_id
                 )
             ),
+            # And for the signed jobs taxonomy: a non-lineage run validates
+            # job-coverage proposals and derives job-keyed focus slices from
+            # exactly these loader-derived sets, never a stored artifact.
+            signed_job_ids=tuple(
+                sorted(job.job_id for job in catalogue.jobs_taxonomy)
+            ),
+            signed_job_members=tuple(
+                (
+                    job.job_id,
+                    tuple(
+                        sorted(
+                            entry.capability_id
+                            for entry in catalogue.capabilities
+                            if job.job_id in entry.jobs
+                        )
+                    ),
+                )
+                for job in sorted(
+                    catalogue.jobs_taxonomy, key=lambda item: item.job_id
+                )
+            ),
         )
 
 
@@ -892,6 +1001,29 @@ class UnknownUntilProposedComparer:
             raise DiagnosisStateError("verified catalogue identity drifted; start a new run")
         workflows = build_workflow_graph(fingerprint)
         assessments = assess_significant_families(envelope.catalogue, fingerprint)
+        # The engine-computed non-lineage threshold, the same derivation the
+        # pass-1 family map used: zero signed-identity matches across the
+        # whole fingerprint.  Job-coverage proposals are lawful only on such a
+        # run and never enter the catalogue-entry flows — they carry a signed
+        # job id, not a capability mapping, so letting them near the entry
+        # ledger would launder a job claim into a capability disposition.
+        signed_keys = signed_identity_keys_for(envelope.catalogue)
+        non_lineage = is_non_lineage(fingerprint, signed_identity_keys=signed_keys)
+        job_proposals = tuple(
+            item for item in proposals if item.kind is ProposalKind.JOB_COVERAGE
+        )
+        proposals = tuple(
+            item for item in proposals if item.kind is not ProposalKind.JOB_COVERAGE
+        )
+        if job_proposals and not non_lineage:
+            raise SpecialistProposalError(
+                "job-coverage proposals are lawful only on a non-lineage run"
+            )
+        job_axis = (
+            _job_axis_entries(envelope.catalogue, fingerprint, job_proposals)
+            if non_lineage
+            else ()
+        )
         proposals = _automatic_proposals(
             fingerprint=fingerprint,
             catalogue=catalogue,
@@ -932,6 +1064,7 @@ class UnknownUntilProposedComparer:
         held = {token for item in entries for token in item.evidence_references}
         held.update(token for item in local_entries for token in item.evidence_references)
         held.update(token for item in family_entries for token in item.evidence_references)
+        held.update(token for item in job_axis for token in item.evidence_references)
         strengths, reciprocal_lessons, workflow_insights = (
             _insights_within_held(group, held)
             for group in insights_from_proposals(proposals)
@@ -947,7 +1080,7 @@ class UnknownUntilProposedComparer:
         # feed both reciprocal share-back moments.
         unique_to_you = unique_to_you_observation_ids(
             fingerprint,
-            signed_identity_keys=signed_identity_keys_for(envelope.catalogue),
+            signed_identity_keys=signed_keys,
         )
         return ComparisonLedger.for_catalogue_and_fingerprint(
             envelope.catalogue,
@@ -979,6 +1112,7 @@ class UnknownUntilProposedComparer:
             focus_unselected_family_ids=(
                 focus.unselected_family_ids if focus is not None else ()
             ),
+            job_axis=job_axis,
         )
 
 

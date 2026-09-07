@@ -257,6 +257,23 @@ def _coverage_problems(markdown: str, ledger: ComparisonLedger | None) -> list[s
     return list(coverage_block_errors(markdown, ledger))
 
 
+def _job_axis_problems(markdown: str, ledger: ComparisonLedger | None) -> list[str]:
+    """Whether a non-lineage report keeps the job axis and the loan framing.
+
+    A ledger carrying a job axis was classified non-lineage by the engine —
+    zero signed-identity matches, so no version to diff and no "behind". The
+    report must then carry the exact engine-rendered job-axis block (one row
+    per signed job, evidenced or loudly Unknown) and must not claim a release
+    delta anywhere: "behind Dex" on such a run has nothing to cite. Checked
+    without a ledger, or against a lineage ledger, nothing new is demanded.
+    """
+    if ledger is None:
+        return []
+    from capability_exchange.diagnosis.report import job_axis_errors
+
+    return list(job_axis_errors(markdown, ledger))
+
+
 def _ledger_gate(path: Path | None) -> tuple[ComparisonLedger | None, list[str]]:
     """Validate a supplied ledger against the last locally verified catalogue."""
     if path is None:
@@ -315,6 +332,7 @@ def _check(args: argparse.Namespace) -> int:
     ledger, ledger_problems = _ledger_gate(args.ledger)
     ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
     ledger_problems.extend(_coverage_problems(markdown, ledger))
+    ledger_problems.extend(_job_axis_problems(markdown, ledger))
     problems = _gate(markdown, store.last(label=label), ledger_problems)
     if problems:
         _report_problems(problems)
@@ -365,6 +383,7 @@ def _save(args: argparse.Namespace) -> int:
     ledger, ledger_problems = _ledger_gate(args.ledger)
     ledger_problems.extend(_ledger_binding_problems(markdown, ledger))
     ledger_problems.extend(_coverage_problems(markdown, ledger))
+    ledger_problems.extend(_job_axis_problems(markdown, ledger))
     problems = _gate(markdown, previous, ledger_problems)
     if problems:
         _report_problems(problems)

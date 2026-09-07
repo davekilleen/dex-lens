@@ -34,6 +34,7 @@ from capability_exchange.diagnosis.observations import (
 from capability_exchange.diagnosis.report import (
     canonical_coverage_block,
     canonical_fact_block,
+    canonical_job_axis_block,
     canonical_ledger_digest,
     canonical_ledger_payload,
 )
@@ -118,6 +119,19 @@ def _full_ledger(verified) -> ComparisonLedger:
     unique_observation_id = "observation:sha256:" + "b" * 64
     payload.update(
         {
+            "job_axis": [
+                {
+                    "job_id": "remember-what-matters",
+                    "label": "Remember what matters",
+                    "state": "supported",
+                    "evidence_references": [_EVIDENCE],
+                    "observation_ids": [],
+                    "reason": (
+                        "Invented kind-admitted evidence shows something of "
+                        "the right shape exists."
+                    ),
+                }
+            ],
             "workflow_graph": WorkflowGraph(nodes=(node,), edges=()).model_dump(mode="json"),
             "work_audit": audit.model_dump(mode="json"),
             "expectations": [expectation.model_dump(mode="json")],
@@ -176,6 +190,7 @@ _LEDGER_FIELDS = {
     "unique_to_you",
     "focus_selected_family_ids",
     "focus_unselected_family_ids",
+    "job_axis",
 }
 
 #: The run-derived fields ``for_catalogue`` used to drop on reload, keyed to a
@@ -203,6 +218,7 @@ _RUN_DERIVED_TAMPERS = {
     "focus_unselected_family_ids": lambda payload: payload.update(
         {"focus_unselected_family_ids": ["forged-family-remainder"]}
     ),
+    "job_axis": lambda payload: payload["job_axis"][0].update({"state": "unknown"}),
 }
 
 
@@ -404,6 +420,7 @@ def _grounded_report(ledger: ComparisonLedger) -> str:
 - Invented inventory: `file-token:invented-inventory.md`
 
 {canonical_coverage_block(ledger)}
+{canonical_job_axis_block(ledger)}
 ## What is working especially well
 ### Invented review checkpoint — Verified
 > Confirm the invented checkpoint before the next step.

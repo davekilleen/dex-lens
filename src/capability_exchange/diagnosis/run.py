@@ -33,6 +33,9 @@ __all__ = [
     "FamilyMapRow",
     "FamilyReleaseDelta",
     "FocusReceipt",
+    "JOB_VERDICT_STATES",
+    "JobAxisState",
+    "JobMapRow",
     "RequiredStep",
     "RunIdentity",
     "WorkProgress",
@@ -235,6 +238,75 @@ class ExpectationState(StrEnum):
     NOT_GATED = "not-gated"
 
 
+class JobAxisState(StrEnum):
+    """Closed states for one signed-job row on the job axis.
+
+    Defined beside the stage machine (like :class:`ExpectationState`) because
+    the non-lineage family map embeds job rows in the public run view.  The
+    pass-1 deterministic map may only ever speak ``SUPPORTED`` ("something of
+    the right shape exists"; kind-level evidence, never method verification)
+    or the loud ``UNKNOWN``.  The three verdict states are mintable only by a
+    validated pass-2 ``job-coverage`` specialist proposal, each carrying its
+    evidence — including ``DOES_NOT_SERVE``, whose cited evidence is the
+    search itself: absence is never scored from silence.
+    """
+
+    SUPPORTED = "supported"
+    UNKNOWN = "unknown"
+    SERVES = "serves"
+    PARTIALLY_SERVES = "partially-serves"
+    DOES_NOT_SERVE = "does-not-serve"
+
+
+#: The specialist-mintable subset of :class:`JobAxisState`: the closed verdict
+#: vocabulary a ``job-coverage`` proposal may claim for one signed job.
+JOB_VERDICT_STATES = frozenset(
+    {
+        JobAxisState.SERVES,
+        JobAxisState.PARTIALLY_SERVES,
+        JobAxisState.DOES_NOT_SERVE,
+    }
+)
+
+#: The pass-1 deterministic map may only speak these two job-row states.
+_MAP_JOB_STATES = frozenset({JobAxisState.SUPPORTED, JobAxisState.UNKNOWN})
+
+
+class JobMapRow(_ValidatedInventoried):
+    """One deterministic signed-job row on a non-lineage family map.
+
+    Engine-derived from the signed jobs taxonomy plus kind-admitted
+    observations; never host-authored.  Pass 1 never asserts a verdict, so
+    the state is restricted to ``supported`` or the loud ``unknown``.
+    """
+
+    job_id: str = Field(min_length=1, max_length=160)
+    label: str = Field(min_length=1, max_length=200)
+    state: JobAxisState
+    evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _evidence_references_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("job map evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("job map evidence references must be sorted")
+        return values
+
+    @model_validator(mode="after")
+    def _map_rows_never_assert_a_verdict(self) -> Self:
+        if self.state not in _MAP_JOB_STATES:
+            raise ValueError(
+                "a pass-1 job map row may only be supported or unknown; job "
+                "verdicts are mintable only by a validated job-coverage proposal"
+            )
+        if self.state is JobAxisState.SUPPORTED and not self.evidence_references:
+            raise ValueError("a supported job map row requires admitted evidence")
+        return self
+
+
 class FamilyReleaseDelta(_ValidatedInventoried):
     """Per-family signed release gap for one map row, where derivable.
 
@@ -317,6 +389,16 @@ class FamilyMap(_ValidatedInventoried):
     inspected_release: str | None = Field(default=None, pattern=_SEMVERISH.pattern)
     #: Evidence references of the release observations proving the lineage.
     release_evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+    #: Engine-computed non-lineage classification: True exactly when no
+    #: observation in the approved snapshot matches any signed Dex identity
+    #: (capability, alias, MCP server, tool, provider, source component, or
+    #: the dex-core release record).  The deterministic threshold, computed by
+    #: the engine and never the host: on a non-lineage run the map renders the
+    #: signed job axis and the report's framing is a loan, never a delta.
+    non_lineage: StrictBool = False
+    #: One deterministic row per signed job, in signed taxonomy order.
+    #: Present exactly when the run is non-lineage.
+    job_rows: tuple[JobMapRow, ...] = ()
 
     @field_validator("release_evidence_references")
     @classmethod
@@ -347,6 +429,19 @@ class FamilyMap(_ValidatedInventoried):
                 raise ValueError(
                     "family release deltas must share the map's proven release pair"
                 )
+        job_ids = [row.job_id for row in self.job_rows]
+        if len(job_ids) != len(set(job_ids)):
+            raise ValueError("job map rows must name each signed job exactly once")
+        if self.non_lineage != bool(self.job_rows):
+            raise ValueError(
+                "a non-lineage map carries the signed job rows, and only a "
+                "non-lineage map may carry them"
+            )
+        if self.non_lineage and self.inspected_release is not None:
+            raise ValueError(
+                "a non-lineage map cannot carry a release lineage: with no "
+                "identity match there is no version to diff and no 'behind'"
+            )
         return self
 
 
@@ -395,6 +490,11 @@ class FocusReceipt(_ValidatedInventoried):
     re-validates the receipt against the re-derived map on every consuming
     read, so a stored receipt that no longer matches this run's map is refused
     rather than trusted (the same artifact discipline as the family map).
+
+    On a NON-LINEAGE run — where the map's story is the signed job axis — the
+    same two tuples carry signed JOB identities instead, partitioning the
+    map's job rows exactly.  The field names keep their family spelling so
+    stored receipts and their digests stay stable across both axes.
     """
 
     run_id: str = Field(pattern=_RUN_ID.pattern)

@@ -12,20 +12,27 @@ from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     ObservationKind,
 )
+from capability_exchange.diagnosis.origin import signed_identity_keys_for
 from capability_exchange.diagnosis.run import (
     ExpectationState,
     FamilyMap,
     FamilyMapRow,
     FamilyReleaseDelta,
+    JobAxisState,
+    JobMapRow,
     _ValidatedInventoried,
 )
 from capability_exchange.diagnosis.significant_families import (
     FamilyAssessmentDisposition,
     SignificantFamilyAssessment,
+    assess_job_axis,
     assess_significant_families,
+    is_non_lineage,
 )
 
 __all__ = [
+    "NON_LINEAGE_FAMILY_ROW_REASON",
+    "NON_LINEAGE_JOB_UNKNOWN_REASON",
     "NOT_GATED_REASON",
     "WOW_EXPECTATIONS",
     "ExpectationState",
@@ -33,6 +40,7 @@ __all__ = [
     "assess_wow_expectations",
     "build_family_map",
     "observed_release_lineage",
+    "supported_job_reason",
 ]
 
 #: The bounded SemVer forms Lens accepts for release identities — the same
@@ -63,6 +71,35 @@ NOT_GATED_REASON = (
     "No signed capability-family contract is present in this catalogue; "
     "family coverage cannot be assessed against it."
 )
+
+#: The one fixed sentence every family row carries on a non-lineage run.  The
+#: equality gates still demand one row per family — nothing is silently
+#: skipped — but the honest story for a system with zero signed-identity
+#: matches is the job axis, never a wall of unresolved name lookups.
+NON_LINEAGE_FAMILY_ROW_REASON = (
+    "No identity lineage ties this system to Dex, so no name overlap is "
+    "expected here; this run is assessed on the signed job axis instead, and "
+    "this row exists so nothing is silently skipped."
+)
+
+#: The loud, priced Unknown a job row speaks when no structurally relevant
+#: observation kind was admitted for it.
+NON_LINEAGE_JOB_UNKNOWN_REASON = (
+    "No observation of a kind structurally relevant to this job was admitted "
+    "from the approved snapshot; could not tell. Absence of admitted evidence "
+    "is not evidence of absence — a focused dive on this job (about one "
+    "specialist packet) would settle it."
+)
+
+
+def supported_job_reason(evidence_count: int) -> str:
+    references = "reference" if evidence_count == 1 else "references"
+    return (
+        f"{evidence_count} admitted-kind evidence {references} show something "
+        "of the right shape exists and runs (Supported: kind-level evidence "
+        "from your own files, not method verification, and never name "
+        "similarity)."
+    )
 
 
 class SignificantExpectation(_ValidatedInventoried):
@@ -238,8 +275,12 @@ def build_family_map(
     lineage and the signed catalogue carries families, each row also carries
     its signed release delta; when lineage cannot be established the map's
     ``inspected_release`` is ``None`` — the loud Unknown every map surface
-    renders.  Pure and clock-free: two derivations over the same inputs are
-    byte-identical, and nothing host-supplied enters a row.
+    renders.  When no observation matches any signed identity the map is
+    classified non-lineage: it carries one deterministic row per signed job
+    (kind-admitted evidence or a loud Unknown, never a name match) and every
+    family row keeps its place with the fixed honest reason.  Pure and
+    clock-free: two derivations over the same inputs are byte-identical, and
+    nothing host-supplied enters a row.
     """
 
     if assessments is None:
@@ -252,24 +293,58 @@ def build_family_map(
         if core_release is not None and _RELEASE_SHAPE.fullmatch(core_release) is not None
         else None
     )
+    # The deterministic non-lineage threshold (engine-computed, never the
+    # host): zero signed-identity matches across the whole fingerprint.  A
+    # non-lineage run is rendered on the signed job axis — kind-admitted
+    # evidence or a loud priced Unknown per job, never a fuzzy name matcher —
+    # while every family row stays present with the fixed honest reason, so
+    # the equality gates keep holding.  One signed-identity match anywhere
+    # (the dex-core release record included) keeps the ordinary family axis.
+    non_lineage = is_non_lineage(
+        fingerprint, signed_identity_keys=signed_identity_keys_for(catalogue)
+    )
     deltas = _family_release_deltas(
         catalogue,
         inspected_release=inspected_release,
         current_release=current_release,
     )
+    job_rows: tuple[JobMapRow, ...] = ()
+    if non_lineage:
+        job_rows = tuple(
+            JobMapRow(
+                job_id=row.job_id,
+                label=row.label,
+                state=(
+                    JobAxisState.SUPPORTED
+                    if row.evidence_references
+                    else JobAxisState.UNKNOWN
+                ),
+                evidence_references=row.evidence_references,
+                reason=(
+                    supported_job_reason(len(row.evidence_references))
+                    if row.evidence_references
+                    else NON_LINEAGE_JOB_UNKNOWN_REASON
+                ),
+            )
+            for row in assess_job_axis(catalogue, fingerprint)
+        )
     return FamilyMap(
         catalogue_version=catalogue_version,
         catalogue_sha256=catalogue_sha256,
         current_release=current_release,
         inspected_release=inspected_release,
         release_evidence_references=release_evidence,
+        non_lineage=non_lineage,
+        job_rows=job_rows,
         rows=tuple(
             FamilyMapRow(
                 family_id=item.family_id,
                 title=titles.get(item.family_id, item.family_id),
                 state=item.state,
                 evidence_references=tuple(sorted(item.evidence_ids)),
-                reason=item.reason,
+                reason=(
+                    NON_LINEAGE_FAMILY_ROW_REASON if non_lineage else item.reason
+                ),
                 release_delta=deltas.get(item.family_id),
             )
             for item in expectations

@@ -41,11 +41,13 @@ __all__ = [
     "ReportModel",
     "canonical_coverage_block",
     "canonical_fact_block",
+    "canonical_job_axis_block",
     "canonical_ledger_appendix",
     "canonical_ledger_digest",
     "canonical_ledger_payload",
     "canonical_release_gap_block",
     "coverage_block_errors",
+    "job_axis_errors",
     "ledger_appendix_errors",
     "ledger_derived_fact_errors",
 ]
@@ -63,6 +65,17 @@ _COVERAGE_CLAIM = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+
+def _job_axis_row(item: object) -> dict[str, object]:
+    return {
+        "job_id": item.job_id,
+        "label": item.label,
+        "state": item.state.value,
+        "evidence_references": list(item.evidence_references),
+        "observation_ids": list(item.observation_ids),
+        "reason": item.reason,
+    }
 
 
 def _insight_row(item: GroundedInsight) -> dict[str, object]:
@@ -263,6 +276,14 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
             if ledger.focus_selected_family_ids or ledger.focus_unselected_family_ids
             else {}
         ),
+        # Present only on a non-lineage run, so every lineage ledger —
+        # including every one saved before the job axis existed — keeps its
+        # exact digest, while a non-lineage ledger's digest binds its job rows.
+        **(
+            {"job_axis": [_job_axis_row(item) for item in ledger.job_axis]}
+            if ledger.job_axis
+            else {}
+        ),
     }
 
 
@@ -457,6 +478,7 @@ class ReportModel(InventoriedModel):
             f"{_render_what_was_read(ledger)}"
             f"\n{canonical_coverage_block(ledger)}"
             f"\n{canonical_release_gap_block(ledger)}"
+            f"\n{_render_job_axis(ledger)}"
             f"\n{_render_version_distance(ledger)}"
             f"\n{_render_grounded_strengths(ledger)}"
             f"\n{_render_strengths(ledger)}"
@@ -922,6 +944,113 @@ def coverage_block_errors(report_markdown: str, ledger: ComparisonLedger) -> tup
         "where they sit. Render the report from the diagnosis engine rather than "
         "editing it.",
     )
+
+
+#: Delta-shaped phrasings a non-lineage report may never carry: with zero
+#: signed-identity matches there is no version to diff, so "behind Dex" has
+#: nothing to cite.  The patterns are deliberately narrow — the engine's own
+#: honest release-gap wording ("stands behind the current Dex release is
+#: Unknown", "is behind or current") must never trip them.
+_NON_LINEAGE_DELTA_CLAIM = re.compile(
+    r"\bbehind\s+dex\b|\breleases?\s+behind\b|\bnew\s+since\s+your\b",
+    re.IGNORECASE,
+)
+
+_JOB_STATE_PHRASES: dict[str, str] = {
+    "serves": "you do this (specialist-reviewed; evidence cited)",
+    "partially-serves": "you do part of this (specialist-reviewed; evidence cited)",
+    "does-not-serve": (
+        "nothing found doing this (specialist-reviewed; the cited evidence is "
+        "the search itself)"
+    ),
+    "supported": (
+        "something of the right shape exists (Supported: kind-level evidence "
+        "only, not method verification)"
+    ),
+    "unknown": "could not tell (loud, priced)",
+}
+
+
+def canonical_job_axis_block(ledger: ComparisonLedger) -> str:
+    """The non-lineage headline: the signed job axis, framed as a loan.
+
+    Persona C — a person who never installed Dex — used to get a wall of
+    UNRESOLVED family rows that read as "your system is invisible to us".
+    When the engine classifies a run non-lineage (zero signed-identity
+    matches; ``ledger.job_axis`` is the marker), this block renders one row
+    per signed job: a validated pass-2 verdict with its evidence, the
+    deterministic Supported from kind-admitted observations, or a loud priced
+    Unknown.  The framing is engine-enforced as a loan, never a delta —
+    "here is what Dex offers for this job", with no "behind" to cite.  Like
+    :func:`canonical_coverage_block` it renders from the ledger alone, speaks
+    signed job identities and closed states only, and equivalent ledgers
+    render it byte-identically.  Empty on every lineage run.
+    """
+
+    if not ledger.job_axis:
+        return ""
+    lines = ["## What your system does about Dex's jobs"]
+    lines.append(
+        "Nothing in the approved snapshot matched any signed Dex identity "
+        "(Verified: identity matching over the whole fingerprint, never name "
+        "similarity), so there is no version to diff and no such thing as "
+        "being ‘behind’ here. The honest comparison is by job: the signed "
+        "jobs Dex organises itself around, and what your system visibly does "
+        "about each — read from your own files. Anything Dex offers for a "
+        "job below is a loan to consider, never a gap you are behind on."
+    )
+    for row in ledger.job_axis:
+        pointer = (
+            f" {_render_human_evidence(row.evidence_references)}"
+            if row.evidence_references
+            else ""
+        )
+        lines.append(
+            f"- {row.label} (`{row.job_id}`) — "
+            f"{_JOB_STATE_PHRASES[row.state.value]}: {row.reason}{pointer}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def job_axis_errors(report_markdown: str, ledger: ComparisonLedger) -> tuple[str, ...]:
+    """Refuse a non-lineage report that drops the job axis or claims a delta.
+
+    Applies only to a ledger carrying a job axis (the engine's non-lineage
+    marker); every lineage ledger owes nothing here.  Two byte-exact rules,
+    in the coverage-block mould: the exact engine-rendered job-axis block
+    must be present, and no delta-framed claim ("behind Dex", "N releases
+    behind", "new since your …") may appear anywhere — with zero identity
+    matches such a claim has nothing to cite, so a report making it was
+    edited after rendering or written around the engine.
+    """
+
+    if not ledger.job_axis:
+        return ()
+    errors: list[str] = []
+    if canonical_job_axis_block(ledger) not in report_markdown:
+        errors.append(
+            "render the signed job axis: this ledger is non-lineage (no "
+            "signed Dex identity matched), and the report does not carry the "
+            "exact '## What your system does about Dex's jobs' block with one "
+            "row per signed job. Render the report from the diagnosis engine "
+            "rather than editing it."
+        )
+    claims = sorted(
+        {match.group(0) for match in _NON_LINEAGE_DELTA_CLAIM.finditer(report_markdown)}
+    )
+    if claims:
+        quoted = ", ".join(f"'{claim}'" for claim in claims)
+        errors.append(
+            "drop the release-delta framing: nothing ties this system to Dex, "
+            f"so a claim like {quoted} has nothing to cite. A non-lineage "
+            "comparison is a loan — here is what Dex offers for each job — "
+            "never a delta."
+        )
+    return tuple(errors)
+
+
+def _render_job_axis(ledger: ComparisonLedger) -> str:
+    return canonical_job_axis_block(ledger)
 
 
 def canonical_release_gap_block(ledger: ComparisonLedger) -> str:
@@ -1633,6 +1762,19 @@ def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
         )
         for item in sorted(ledger.family_entries, key=lambda item: item.family_id)
     )
+    if ledger.job_axis:
+        # Rendered only on a non-lineage run, so lineage appendixes stay
+        # byte-identical to what they were before the job axis existed.
+        lines.append("### Signed job coverage")
+        lines.extend(
+            json.dumps(
+                {"row_type": "job-coverage", **_job_axis_row(item)},
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            for item in ledger.job_axis
+        )
     lines.append("### Proven release changes")
     if ledger.version_distance is not None:
         lines.extend(

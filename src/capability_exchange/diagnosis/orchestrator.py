@@ -66,11 +66,14 @@ from capability_exchange.diagnosis.run import (
     required_step_for_stage,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
+from capability_exchange.diagnosis.significant_families import is_non_lineage
 from capability_exchange.diagnosis.specialists import (
+    JOB_DISAGREEMENT_REASON,
     MAX_EVIDENCE_IDS,
     MAX_RECOMMENDATIONS,
     CandidateBaseline,
     ProposalContext,
+    ProposalKind,
     SpecialistProposal,
     SpecialistProposalError,
     SpecialistRole,
@@ -90,6 +93,7 @@ from capability_exchange.diagnosis.work import (
     WorkReceipt,
     WorkStatus,
     build_work_queue,
+    focus_job_primary_role,
     focus_primary_role,
 )
 from capability_exchange.reports.store import LensReportStore
@@ -309,6 +313,15 @@ class VerifiedCatalogueSlice:
     #: every packet's catalogue/capability identity slice from exactly this
     #: set, so nothing host-supplied can enter a slice.
     signed_family_members: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    #: Signed jobs-taxonomy identities, loader-derived from the
+    #: signature-verified envelope on every load.  On a non-lineage run these
+    #: are the only identities a job-coverage proposal may name.
+    signed_job_ids: tuple[str, ...] = ()
+    #: (job_id, capability ids serving that job) pairs, loader-derived from
+    #: the signature-verified envelope on every load.  Focused non-lineage
+    #: runs derive every packet's identity slice from exactly this set —
+    #: job-keyed slices, never host-supplied.
+    signed_job_members: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -581,36 +594,73 @@ class DeterministicDiagnosisEngine:
         family_map = self._derived_family_map(checkpoint)
         if family_map is None:
             raise DiagnosisStateError("this engine's comparer cannot derive a family map")
-        map_ids = {row.family_id for row in family_map.rows}
-        outside = len(set(selection) - map_ids)
-        if outside:
-            raise DiagnosisStateError(
-                f"the focus selection names {outside} "
-                f"famil{'y' if outside == 1 else 'ies'} outside this run's family map"
-            )
         catalogue = self._catalogue(checkpoint)
-        members_by_family = dict(catalogue.signed_family_members)
-        unsigned = len([item for item in selection if item not in members_by_family])
-        if unsigned:
-            raise DiagnosisStateError(
-                f"the focus selection names {unsigned} "
-                f"famil{'y' if unsigned == 1 else 'ies'} the signed catalogue "
-                "carries no member contract for"
-            )
-        # The full-coverage rule demands one verdict per member on the
-        # family's primary packet, and a packet response is bounded by the
-        # proposal cap — so a selection whose per-role member load cannot fit
-        # one response is refused now, not wedged later.
         load_by_role: dict[str, set[str]] = {}
-        for family_id in selection:
-            role = focus_primary_role(family_id)
-            load_by_role.setdefault(role.value, set()).update(members_by_family[family_id])
-        if any(len(members) > MAX_PROPOSALS_PER_PACKET for members in load_by_role.values()):
-            raise DiagnosisStateError(
-                "this focus selection needs more per-member verdicts than one "
-                f"specialist packet may carry ({MAX_PROPOSALS_PER_PACKET}); "
-                "select fewer families"
-            )
+        if family_map.non_lineage:
+            # On a non-lineage run the selection names signed JOBS from the
+            # map's job rows.  With zero identity matches, per-member
+            # capability verdicts would be exactly the name-matching game the
+            # design refuses, so the dive is scoped — and later covered — by
+            # job instead.
+            map_ids = {row.job_id for row in family_map.job_rows}
+            outside = len(set(selection) - map_ids)
+            if outside:
+                raise DiagnosisStateError(
+                    f"the focus selection names {outside} "
+                    f"job{'' if outside == 1 else 's'} outside this run's "
+                    "job map"
+                )
+            members_by_job = dict(catalogue.signed_job_members)
+            unsigned = len([item for item in selection if item not in members_by_job])
+            if unsigned:
+                raise DiagnosisStateError(
+                    f"the focus selection names {unsigned} "
+                    f"job{'' if unsigned == 1 else 's'} the signed jobs "
+                    "taxonomy does not carry"
+                )
+            # The coverage rule demands one job-coverage verdict per selected
+            # job on its primary packet; a packet response is bounded by the
+            # proposal cap, so an unpacketable selection is refused now.
+            for job_id in selection:
+                role = focus_job_primary_role(job_id)
+                load_by_role.setdefault(role.value, set()).add(job_id)
+            if any(len(jobs) > MAX_PROPOSALS_PER_PACKET for jobs in load_by_role.values()):
+                raise DiagnosisStateError(
+                    "this focus selection needs more job-coverage verdicts than "
+                    f"one specialist packet may carry ({MAX_PROPOSALS_PER_PACKET}); "
+                    "select fewer jobs"
+                )
+        else:
+            map_ids = {row.family_id for row in family_map.rows}
+            outside = len(set(selection) - map_ids)
+            if outside:
+                raise DiagnosisStateError(
+                    f"the focus selection names {outside} "
+                    f"famil{'y' if outside == 1 else 'ies'} outside this run's family map"
+                )
+            members_by_family = dict(catalogue.signed_family_members)
+            unsigned = len([item for item in selection if item not in members_by_family])
+            if unsigned:
+                raise DiagnosisStateError(
+                    f"the focus selection names {unsigned} "
+                    f"famil{'y' if unsigned == 1 else 'ies'} the signed catalogue "
+                    "carries no member contract for"
+                )
+            # The full-coverage rule demands one verdict per member on the
+            # family's primary packet, and a packet response is bounded by the
+            # proposal cap — so a selection whose per-role member load cannot fit
+            # one response is refused now, not wedged later.
+            for family_id in selection:
+                role = focus_primary_role(family_id)
+                load_by_role.setdefault(role.value, set()).update(
+                    members_by_family[family_id]
+                )
+            if any(len(members) > MAX_PROPOSALS_PER_PACKET for members in load_by_role.values()):
+                raise DiagnosisStateError(
+                    "this focus selection needs more per-member verdicts than one "
+                    f"specialist packet may carry ({MAX_PROPOSALS_PER_PACKET}); "
+                    "select fewer families"
+                )
         map_digest = canonical_json_digest(family_map.model_dump(mode="json"))
         unselected = tuple(sorted(map_ids - set(selection)))
         receipt = FocusReceipt(
@@ -664,7 +714,12 @@ class DeterministicDiagnosisEngine:
         if family_map is None:
             raise DiagnosisStateError("this engine's comparer cannot derive a family map")
         map_digest = canonical_json_digest(family_map.model_dump(mode="json"))
-        map_ids = tuple(sorted(row.family_id for row in family_map.rows))
+        # On a non-lineage run the receipt partitions the map's signed JOB
+        # rows; on every other run, its family rows.
+        if family_map.non_lineage:
+            map_ids = tuple(sorted(row.job_id for row in family_map.job_rows))
+        else:
+            map_ids = tuple(sorted(row.family_id for row in family_map.rows))
         partition = tuple(
             sorted((*receipt.selected_family_ids, *receipt.unselected_family_ids))
         )
@@ -690,10 +745,36 @@ class DeterministicDiagnosisEngine:
         self,
         focus: FocusReceipt,
         catalogue: VerifiedCatalogueSlice,
+        *,
+        non_lineage: bool = False,
     ) -> tuple[str, ...]:
-        """The engine-derived identity slice: the union of the selected
-        families' signed member lists, sorted.  Never host-supplied."""
+        """The engine-derived identity slice, sorted; never host-supplied.
 
+        On an ordinary run: the union of the selected families' signed member
+        lists.  On a non-lineage run the receipt names signed jobs, so the
+        slice is the union of the capabilities serving the selected jobs —
+        the borrow-side comparison surface the design calls job-keyed slices.
+        """
+
+        if non_lineage:
+            members_by_job = dict(catalogue.signed_job_members)
+            missing_jobs = [
+                item for item in focus.selected_family_ids if item not in members_by_job
+            ]
+            if missing_jobs:
+                raise DiagnosisStateError(
+                    "stored focus receipt selects a job the signed jobs "
+                    "taxonomy does not carry; start a new run"
+                )
+            return tuple(
+                sorted(
+                    {
+                        member
+                        for job_id in focus.selected_family_ids
+                        for member in members_by_job[job_id]
+                    }
+                )
+            )
         members_by_family = dict(catalogue.signed_family_members)
         missing = [
             item for item in focus.selected_family_ids if item not in members_by_family
@@ -729,6 +810,42 @@ class DeterministicDiagnosisEngine:
             for member in members_by_family.get(family_id, ())
         )
 
+    def _focus_role_required_jobs(
+        self,
+        focus: FocusReceipt,
+        role: SpecialistRole,
+    ) -> frozenset[str]:
+        """Selected job ids this role's packet must give a coverage verdict.
+
+        The non-lineage translation of the full-coverage rule: per-member
+        capability verdicts would be the identity-matching game a non-lineage
+        run honestly cannot play, so each selected job demands one validated
+        job-coverage verdict on its fixed primary packet instead.
+        """
+
+        return frozenset(
+            job_id
+            for job_id in focus.selected_family_ids
+            if focus_job_primary_role(job_id) is role
+        )
+
+    def _run_is_non_lineage(
+        self,
+        fingerprint: EvidenceFingerprint,
+        catalogue: VerifiedCatalogueSlice,
+    ) -> bool:
+        """The engine-computed non-lineage threshold over loader-derived keys.
+
+        The same pure derivation ``build_family_map`` and the shipped comparer
+        use, so the map's classification, the packet slices, and the coverage
+        rule can never disagree about which axis a run is on.
+        """
+
+        return is_non_lineage(
+            fingerprint,
+            signed_identity_keys=frozenset(catalogue.signed_identity_keys),
+        )
+
     def _require_focus_coverage(
         self,
         checkpoint: DiagnosisCheckpoint,
@@ -740,11 +857,30 @@ class DeterministicDiagnosisEngine:
 
         The founder's rule made mechanical: every member of every selected
         family carries a verdict — an explicit proposal citation, including a
-        loud dispute — before the run may compare or close.  The typed refusal
-        names the count, never the content.
+        loud dispute — before the run may compare or close.  On a non-lineage
+        run the selection names signed jobs, and the same rule demands one
+        job-coverage verdict per selected job.  The typed refusal names the
+        count, never the content.
         """
 
-        required = set(self._focus_member_slice(focus, self._catalogue(checkpoint)))
+        catalogue = self._catalogue(checkpoint)
+        if self._run_is_non_lineage(self._fingerprint(checkpoint), catalogue):
+            required_jobs = set(focus.selected_family_ids)
+            cited_jobs = {
+                item.catalogue_id
+                for item in proposals
+                if item.kind is ProposalKind.JOB_COVERAGE
+            }
+            missing_jobs = len(required_jobs - cited_jobs)
+            if missing_jobs:
+                raise DiagnosisStateError(
+                    f"a focused diagnosis cannot continue while {missing_jobs} "
+                    f"selected job{'' if missing_jobs == 1 else 's'} "
+                    f"hold{'s' if missing_jobs == 1 else ''} no job-coverage "
+                    "verdict; every selected job is assessed one by one"
+                )
+            return
+        required = set(self._focus_member_slice(focus, catalogue))
         cited = {item.catalogue_id for item in proposals}
         missing = len(required - cited)
         if missing:
@@ -1106,15 +1242,25 @@ class DeterministicDiagnosisEngine:
         # packet's role leads zero or more selected families, and its response
         # must give every member of those families a verdict, one by one.
         focus_required: frozenset[str] = frozenset()
+        focus_required_jobs: frozenset[str] = frozenset()
         if (
             self._analysis_mode(checkpoint) is AnalysisMode.FOCUSED
             and packet.role is not SpecialistRole.SCEPTICAL_RECONCILER
         ):
-            focus_required = self._focus_role_required_members(
-                self._require_focus(checkpoint),
-                self._catalogue(checkpoint),
-                packet.role,
-            )
+            focus = self._require_focus(checkpoint)
+            catalogue = self._catalogue(checkpoint)
+            if self._run_is_non_lineage(self._fingerprint(checkpoint), catalogue):
+                # Job-keyed coverage: on a non-lineage run per-member
+                # capability verdicts would be the identity-matching game the
+                # design refuses, so each selected job demands one validated
+                # job-coverage verdict on its primary packet instead.
+                focus_required_jobs = self._focus_role_required_jobs(
+                    focus, packet.role
+                )
+            else:
+                focus_required = self._focus_role_required_members(
+                    focus, catalogue, packet.role
+                )
         # Aggregate recommendation state is engine-owned run state, so it is
         # also computed outside the bounded-attempt block: a corrupted store
         # stays a run-state error rather than a burned retry.  The packet's
@@ -1159,6 +1305,24 @@ class DeterministicDiagnosisEngine:
                         "selected-family member"
                         f"{'' if uncovered == 1 else 's'} without a verdict; "
                         "every member of a selected family is assessed one by one"
+                    )
+            if focus_required_jobs:
+                # No sampling across a chosen job selection either: an
+                # accepted job packet response carries one job-coverage
+                # verdict per assigned selected job.  Same bounded-retry
+                # shape, same count-only refusal.
+                covered_jobs = {
+                    item.catalogue_id
+                    for item in validated
+                    if item.kind is ProposalKind.JOB_COVERAGE
+                }
+                uncovered_jobs = len(focus_required_jobs - covered_jobs)
+                if uncovered_jobs:
+                    raise SpecialistProposalError(
+                        f"a focused job packet response leaves {uncovered_jobs} "
+                        f"selected job{'' if uncovered_jobs == 1 else 's'} "
+                        "without a job-coverage verdict; every selected job is "
+                        "assessed one by one"
                     )
             if prior_recommendations is not None:
                 prospective = prior_recommendations | {
@@ -1853,11 +2017,18 @@ class DeterministicDiagnosisEngine:
             run_id=checkpoint.run_id,
             fingerprint_digest=fingerprint_digest_for(self._fingerprint(checkpoint)),
         )
-        # ``signed_identity_keys`` and ``signed_family_members`` are
-        # deliberately absent from the stored artifact: both are loader-derived
-        # from the signed envelope on every load, so the equality check covers
-        # exactly the stored fields and authority stays with the derived slice.
-        if stored != replace(derived, signed_identity_keys=(), signed_family_members=()):
+        # ``signed_identity_keys``, ``signed_family_members``, and the signed
+        # job sets are deliberately absent from the stored artifact: all are
+        # loader-derived from the signed envelope on every load, so the
+        # equality check covers exactly the stored fields and authority stays
+        # with the derived slice.
+        if stored != replace(
+            derived,
+            signed_identity_keys=(),
+            signed_family_members=(),
+            signed_job_ids=(),
+            signed_job_members=(),
+        ):
             raise DiagnosisStateError(
                 "stored catalogue facts do not match the verified catalogue; "
                 "start a new run"
@@ -1888,12 +2059,29 @@ class DeterministicDiagnosisEngine:
         catalogue_ids = catalogue.catalogue_ids
         capability_ids = catalogue.capability_ids
         held_ids = catalogue.unavailable_ids
+        # The non-lineage threshold is re-derived here from the loader's
+        # signature-derived identity keys on every context build — packet
+        # issue, queue re-derivation, and stored-response re-validation — so a
+        # job-coverage proposal is lawful exactly when the run's own evidence
+        # says no signed identity matched, never when a stored artifact says
+        # so.  On a lineage run ``job_ids`` stays empty and the kind is
+        # refused outright.
+        non_lineage = self._run_is_non_lineage(fingerprint, catalogue)
         focus = self._focus_receipt(checkpoint)
         if focus is not None:
-            member_slice = self._focus_member_slice(focus, catalogue)
+            member_slice = self._focus_member_slice(
+                focus, catalogue, non_lineage=non_lineage
+            )
             catalogue_ids = member_slice
             capability_ids = member_slice
             held_ids = tuple(sorted(set(held_ids) & set(member_slice)))
+        job_ids: tuple[str, ...] = ()
+        if non_lineage:
+            job_ids = (
+                focus.selected_family_ids
+                if focus is not None
+                else catalogue.signed_job_ids
+            )
         signed_keys = frozenset(catalogue.signed_identity_keys)
         evidence_ids: list[str] = []
         observation_ids: list[str] = []
@@ -1925,6 +2113,7 @@ class DeterministicDiagnosisEngine:
             family_contract_present=catalogue.family_contract_present,
             authored_observation_ids=tuple(sorted(authored_observation_ids)),
             authored_evidence_ids=tuple(sorted(authored_evidence_ids)),
+            job_ids=job_ids,
         )
 
     def _proposal_context_for_packet(
@@ -2295,10 +2484,18 @@ class DeterministicDiagnosisEngine:
             dispositions = {item.disposition for item in group}
             factors = {item.recommendation_factors for item in group}
             recommendation_factors = next(iter(factors)) if len(factors) == 1 else None
+            coverage_states = {item.job_coverage for item in group}
+            job_coverage = (
+                sample.job_coverage if len(coverage_states) == 1 else None
+            )
             disputed = False
-            if len(dispositions) != 1 or (
-                any(item.recommendation_factors is not None for item in group)
-                and len(factors) != 1
+            if (
+                len(dispositions) != 1
+                or len(coverage_states) != 1
+                or (
+                    any(item.recommendation_factors is not None for item in group)
+                    and len(factors) != 1
+                )
             ):
                 # The structural record of the dispute: ledger assembly keys
                 # its disagreement priority on this engine-set fact, never on
@@ -2306,8 +2503,22 @@ class DeterministicDiagnosisEngine:
                 disputed = True
                 disposition = Disposition.NOT_ASSESSED
                 recommendation_factors = None
-                reason = disagreement_reason(dispositions)
-                if sample.candidate_id is not None:
+                job_coverage = None
+                reason = (
+                    JOB_DISAGREEMENT_REASON
+                    if sample.kind is ProposalKind.JOB_COVERAGE
+                    else disagreement_reason(dispositions)
+                )
+                if (
+                    sample.candidate_id is not None
+                    and sample.kind is ProposalKind.JOB_COVERAGE
+                ):
+                    # A disputed job verdict stays a loud Unknown on the job
+                    # axis; it never becomes a sceptical candidate baseline —
+                    # the reconciler's vocabulary is catalogue dispositions,
+                    # not job verdicts, and it must not adjudicate one.
+                    pass
+                elif sample.candidate_id is not None:
                     disputes[sample.candidate_id] = _CandidateDispute(
                         dispositions=tuple(
                             sorted(dispositions, key=lambda item: item.value)
@@ -2355,6 +2566,7 @@ class DeterministicDiagnosisEngine:
                     candidate_id=sample.candidate_id,
                     disposition=disposition,
                     recommendation_factors=recommendation_factors,
+                    job_coverage=job_coverage,
                     evidence_ids=evidence_ids,
                     reason=reason,
                     observation_ids=observation_ids,

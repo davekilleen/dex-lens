@@ -41,16 +41,21 @@ from capability_exchange.diagnosis.observations import (
     Observation,
     ObservationKind,
     RuntimeState,
+    signed_identity_key,
 )
 from capability_exchange.evidence import supports_claims
 
 __all__ = [
+    "JOB_OBSERVATION_RULES",
     "ComponentMatchBasis",
     "FamilyAssessmentDisposition",
+    "JobAxisAssessment",
     "MatchedFamilyComponent",
     "SignificantFamilyAssessment",
     "UnsupportedAssessmentProfileError",
+    "assess_job_axis",
     "assess_significant_families",
+    "is_non_lineage",
 ]
 
 
@@ -187,6 +192,112 @@ _PRESENT_HEALTH_STATES = frozenset(
         HealthState.DISABLED,
     }
 )
+
+
+# The closed, reviewed job-admission table: which observation KINDS are
+# structurally relevant to one signed job — the same closed profile-rules idea
+# as _PROFILE_RULES, keyed by signed job id instead of family.  Admission is by
+# kind only, never by name similarity, so an admitted row can claim at most
+# "something of the right shape exists" (Supported) and never method
+# equivalence.  A signed job outside this table — or one whose set is
+# deliberately empty because no observation kind structurally implies it —
+# admits nothing and renders as a loud, priced Unknown; nothing is ever
+# silently skipped.  Catalogue data can name a job but cannot add a key or
+# broaden a set.
+JOB_OBSERVATION_RULES: dict[str, frozenset[ObservationKind]] = {
+    "capture-without-friction": frozenset({ObservationKind.HOOK}),
+    "start-each-day-focused": frozenset({ObservationKind.AUTOMATION}),
+    "track-people-and-relationships": frozenset(),
+    "manage-tasks-reliably": frozenset(),
+    "reflect-and-improve-continuously": frozenset(),
+    "keep-projects-on-track": frozenset(),
+    "track-career-growth": frozenset(),
+    "evolve-the-system-itself": frozenset(
+        {ObservationKind.HEALTH_CHECK, ObservationKind.RECOVERY_PROOF}
+    ),
+}
+
+
+@dataclass(frozen=True)
+class JobAxisAssessment:
+    """Deterministic kind-admitted evidence for one signed job.
+
+    Pure identity-free structure: the observations admitted here share only a
+    *kind* the reviewed table names for this job.  That supports "something of
+    the right shape exists", never presence of a method or an outcome, and an
+    empty row is the honest could-not-tell — absence of admitted evidence is
+    not evidence of absence.
+    """
+
+    job_id: str
+    label: str
+    observation_ids: tuple[str, ...]
+    evidence_references: tuple[str, ...]
+
+
+def is_non_lineage(
+    fingerprint: EvidenceFingerprint,
+    *,
+    signed_identity_keys: frozenset[str] | set[str],
+) -> bool:
+    """The deterministic non-lineage threshold, computed by the engine.
+
+    True exactly when no observation in the approved snapshot carries a
+    kind-qualified identity the signature-verified catalogue names — no
+    capability, alias, MCP server, tool, provider, source component, or
+    dex-core release match across the whole fingerprint.  One signed-identity
+    match (even a doubtful one) defeats the classification: when in doubt the
+    engine keeps the ordinary family axis rather than claiming "this system is
+    not Dex".  No fuzzy or embedding similarity enters here — a plausible
+    name-similarity guess is not evidence, so it cannot move this threshold.
+    """
+
+    keys = frozenset(signed_identity_keys)
+    return not any(
+        signed_identity_key(observation.kind, observation.identity) in keys
+        for observation in fingerprint.observations
+    )
+
+
+def assess_job_axis(
+    catalogue: CatalogueV2,
+    fingerprint: EvidenceFingerprint,
+) -> tuple[JobAxisAssessment, ...]:
+    """Deterministic kind-admitted evidence per signed job, in taxonomy order.
+
+    Pure over two validated models.  Each signed job admits only observations
+    whose kind the closed :data:`JOB_OBSERVATION_RULES` table names for it and
+    that can support a presence claim; everything else stays out, so the row
+    can never smuggle a name-similarity match.  Evidence is deduplicated,
+    sorted, and bounded to eight references per row.
+    """
+
+    if not isinstance(catalogue, CatalogueV2):
+        raise TypeError("catalogue must be a validated CatalogueV2")
+    if not isinstance(fingerprint, EvidenceFingerprint):
+        raise TypeError("fingerprint must be a validated EvidenceFingerprint")
+    observations = _observation_index(fingerprint)
+    rows: list[JobAxisAssessment] = []
+    for job in catalogue.jobs_taxonomy:
+        admitted_kinds = JOB_OBSERVATION_RULES.get(job.job_id, frozenset())
+        admitted = tuple(
+            observation
+            for kind in sorted(admitted_kinds, key=lambda item: item.value)
+            for observation in observations.get(kind, ())
+        )
+        rows.append(
+            JobAxisAssessment(
+                job_id=job.job_id,
+                label=job.label,
+                observation_ids=tuple(
+                    sorted({item.observation_id for item in admitted})
+                )[:8],
+                evidence_references=tuple(
+                    sorted({item.evidence.reference for item in admitted})
+                )[:8],
+            )
+        )
+    return tuple(rows)
 
 
 def _component_reference(component: CapabilityComponentV2) -> str:

@@ -21,6 +21,7 @@ from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_j
 from capability_exchange.diagnosis.specialists import SpecialistRole
 
 __all__ = [
+    "FOCUS_JOB_PRIMARY_ROLES",
     "FOCUS_PRIMARY_ROLES",
     "MAX_ATTEMPTS_PER_PACKET",
     "MAX_EVIDENCE_IDS_PER_PACKET",
@@ -28,6 +29,7 @@ __all__ = [
     "MAX_PROPOSALS_PER_PACKET",
     "NORMAL_ROLES",
     "AnalysisMode",
+    "focus_job_primary_role",
     "focus_primary_role",
     "WorkAudit",
     "WorkPacket",
@@ -178,6 +180,37 @@ def focus_primary_role(family_id: str) -> SpecialistRole:
     """
 
     return FOCUS_PRIMARY_ROLES.get(family_id, SpecialistRole.WORKFLOW_SYNTHESIS)
+
+
+# The fixed (signed job -> primary role) table for focused NON-LINEAGE runs,
+# where the person's selection names signed jobs instead of families.  Each
+# selected job is led by exactly one normal specialist role; that packet's
+# receipt is accepted as completed only when its response carries one
+# job-coverage verdict per assigned selected job — the founder's full-coverage
+# rule, translated to the axis a non-lineage run can honestly assess.  Keys
+# are the signed jobs-taxonomy identities; catalogue data can select a job but
+# cannot add a key or move one to a different role.
+FOCUS_JOB_PRIMARY_ROLES: dict[str, SpecialistRole] = {
+    "capture-without-friction": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "start-each-day-focused": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "track-people-and-relationships": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "manage-tasks-reliably": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "reflect-and-improve-continuously": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "keep-projects-on-track": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "track-career-growth": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "evolve-the-system-itself": SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+}
+
+
+def focus_job_primary_role(job_id: str) -> SpecialistRole:
+    """Return the fixed primary role leading one signed job's focused dive.
+
+    A signed job outside the fixed table falls back deterministically to the
+    workflow-synthesis specialist, so a future taxonomy addition can never
+    make coverage enforcement silently skip a selected job.
+    """
+
+    return FOCUS_JOB_PRIMARY_ROLES.get(job_id, SpecialistRole.WORKFLOW_SYNTHESIS)
 
 
 # Superseded wordings stay loadable: stored packets carry the question they

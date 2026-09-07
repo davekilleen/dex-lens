@@ -670,6 +670,15 @@ def _map(argv: list[str]) -> int:
             for row in payload["rows"]
         ),
     ]
+    if payload.get("non_lineage") and payload.get("job_rows"):
+        lines.append(
+            "Non-lineage run: no signed Dex identity matched, so the honest "
+            "comparison is by signed job:"
+        )
+        lines.extend(
+            f"- job {row['job_id']} — {row['state']}: {row['reason']}"
+            for row in payload["job_rows"]
+        )
     rendered = "\n".join(lines) + "\n"
     # The human rendering leaves the process exactly like the JSON payload
     # does, so it clears the same outbound payload guard.
@@ -693,7 +702,10 @@ def _focus(argv: list[str]) -> int:
         action="append",
         default=[],
         required=True,
-        help="A selected family ID from the family map. May be repeated.",
+        help=(
+            "A selected family ID from the family map — or, on a non-lineage "
+            "run, a selected signed job ID from its job rows. May be repeated."
+        ),
     )
     parser.add_argument(
         "--json",

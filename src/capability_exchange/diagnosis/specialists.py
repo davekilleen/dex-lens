@@ -22,11 +22,18 @@ from capability_exchange.diagnosis.ranking import (
     MAX_RECOMMENDATIONS,
     RecommendationFactors,
 )
-from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_json_digest
+from capability_exchange.diagnosis.run import (
+    JOB_VERDICT_STATES,
+    JobAxisState,
+    _ValidatedInventoried,
+    canonical_json_digest,
+)
 
 __all__ = [
     "DISAGREEMENT_REASON",
+    "JOB_DISAGREEMENT_REASON",
     "CandidateBaseline",
+    "JobAxisState",
     "MAX_EVIDENCE_IDS",
     "MAX_REASON_LENGTH",
     "MAX_RECOMMENDATIONS",
@@ -108,6 +115,14 @@ _NON_AUTHORED_STRENGTH_REFUSAL = (
     "observation; stock Dex and assistant-shipped items cannot ground it"
 )
 
+#: Fixed engine-authored sentence a coalesced job-coverage dispute carries.
+#: Deliberately not shaped like the catalogue disagreement sentinel, and the
+#: structural :attr:`ValidatedProposal.disputed` fact — never this text — is
+#: what downstream assembly keys on.
+JOB_DISAGREEMENT_REASON = (
+    "Specialist job-coverage proposals disagreed; the job remains Unknown."
+)
+
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PACKET_ID = re.compile(r"^packet:sha256:[0-9a-f]{64}$")
@@ -143,6 +158,13 @@ class ProposalKind(StrEnum):
     FRAGILITY = "fragility"
     RECOMMENDATION = "recommendation"
     RELEASE_DISTANCE = "release-distance"
+    #: The persona-C claim: this person's system serves / partially serves /
+    #: does not serve one signed job.  The job id rides in ``catalogue_id``
+    #: and ``capability_id`` (which must be equal), the closed verdict in
+    #: ``job_coverage``, and validation checks the id against the signed jobs
+    #: taxonomy — lawful only on a non-lineage run.  It never mints a
+    #: catalogue disposition: no fuzzy name mapping hides inside it.
+    JOB_COVERAGE = "job-coverage"
 
 
 #: Proposal kinds that can only ever speak about the person's own work: a
@@ -219,6 +241,43 @@ def _validate_model_bindings(
         disposition=disposition,
         recommendation_factors=recommendation_factors,
     )
+
+
+def _validate_job_coverage_bindings(
+    *,
+    kind: ProposalKind,
+    catalogue_id: str,
+    capability_id: str,
+    disposition: Disposition,
+    job_coverage: JobAxisState | None,
+    disputed: bool = False,
+) -> None:
+    """Keep the closed job-coverage vocabulary closed on every model route."""
+
+    if kind is ProposalKind.JOB_COVERAGE:
+        if catalogue_id != capability_id:
+            raise ValueError(
+                "a job-coverage proposal names one signed job id in both "
+                "identity fields"
+            )
+        if disposition is not Disposition.NOT_ASSESSED:
+            raise ValueError(
+                "a job-coverage proposal never mints a catalogue disposition; "
+                "its closed verdict lives in job_coverage"
+            )
+        if job_coverage is None:
+            if not disputed:
+                raise ValueError(
+                    "a job-coverage proposal requires one closed job_coverage "
+                    "verdict: serves, partially-serves, or does-not-serve"
+                )
+        elif job_coverage not in JOB_VERDICT_STATES:
+            raise ValueError(
+                "job_coverage must be one of the closed verdict states: "
+                "serves, partially-serves, or does-not-serve"
+            )
+    elif job_coverage is not None:
+        raise ValueError("job_coverage is only valid on job-coverage proposals")
 
 
 def _unique_identities(values: tuple[str, ...], label: str) -> tuple[str, ...]:
@@ -406,6 +465,9 @@ class SpecialistProposal(_ValidatedInventoried):
     candidate_id: str | None = Field(default=None, pattern=_ID.pattern)
     disposition: Disposition
     recommendation_factors: RecommendationFactors | None = None
+    #: The closed job-coverage verdict, required exactly when ``kind`` is
+    #: ``job-coverage`` and forbidden otherwise.
+    job_coverage: JobAxisState | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     observation_ids: tuple[str, ...] = ()
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
@@ -447,6 +509,13 @@ class SpecialistProposal(_ValidatedInventoried):
             disposition=self.disposition,
             recommendation_factors=self.recommendation_factors,
         )
+        _validate_job_coverage_bindings(
+            kind=self.kind,
+            catalogue_id=self.catalogue_id,
+            capability_id=self.capability_id,
+            disposition=self.disposition,
+            job_coverage=self.job_coverage,
+        )
         return self
 
 
@@ -478,11 +547,21 @@ class ProposalContext(_ValidatedInventoried):
     #: authorship rule enforced.
     authored_observation_ids: tuple[str, ...] | None = None
     authored_evidence_ids: tuple[str, ...] | None = None
+    #: Signed job identities a job-coverage proposal may lawfully name.
+    #: Engine-derived from the signature-verified jobs taxonomy, and populated
+    #: only on a non-lineage run (narrowed to the focus selection on a focused
+    #: run) — empty means job-coverage proposals are refused outright.
+    job_ids: tuple[str, ...] = ()
 
     @field_validator("evidence_ids")
     @classmethod
     def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_tokens(values, "context evidence tokens")
+
+    @field_validator("job_ids")
+    @classmethod
+    def _job_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _unique_identities(values, "context signed job identities")
 
     @field_validator("authored_observation_ids")
     @classmethod
@@ -602,6 +681,10 @@ class ValidatedProposal(_ValidatedInventoried):
     candidate_id: str | None = Field(default=None, pattern=_ID.pattern)
     disposition: Disposition
     recommendation_factors: RecommendationFactors | None = None
+    #: The closed job-coverage verdict carried through validation.  ``None``
+    #: on every other kind, and on a job-coverage result only when the
+    #: engine-set ``disputed`` fact records a specialist disagreement.
+    job_coverage: JobAxisState | None = None
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_EVIDENCE_IDS)
     reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
     observation_ids: tuple[str, ...] = ()
@@ -638,6 +721,8 @@ class ValidatedProposal(_ValidatedInventoried):
                 raise ValueError("a disputed proposal must coalesce to not-assessed")
             if self.recommendation_factors is not None:
                 raise ValueError("a disputed proposal cannot carry recommendation factors")
+            if self.job_coverage is not None:
+                raise ValueError("a disputed proposal cannot carry a job-coverage verdict")
         _validate_model_bindings(
             packet_id=self.packet_id,
             packet_digest=self.packet_digest,
@@ -647,6 +732,14 @@ class ValidatedProposal(_ValidatedInventoried):
             capability_id=self.capability_id,
             disposition=self.disposition,
             recommendation_factors=self.recommendation_factors,
+        )
+        _validate_job_coverage_bindings(
+            kind=self.kind,
+            catalogue_id=self.catalogue_id,
+            capability_id=self.capability_id,
+            disposition=self.disposition,
+            job_coverage=self.job_coverage,
+            disputed=self.disputed,
         )
         return self
 
@@ -870,10 +963,30 @@ def validate_proposal(
         raise SpecialistProposalError(
             f"catalogue identity {proposal.catalogue_id} is not available to recommend"
         )
-    if proposal.catalogue_id not in set(context.catalogue_ids):
-        raise SpecialistProposalError("proposal catalogue identity is not in the issued shard")
-    if proposal.capability_id not in set(context.capability_ids):
-        raise SpecialistProposalError("proposal capability identity is not in the issued shard")
+    if proposal.kind is ProposalKind.JOB_COVERAGE:
+        # A job-coverage claim is validated against the signed jobs taxonomy,
+        # never the catalogue identity slice: its identity fields carry one
+        # signed job id.  An empty context job set means the run is not
+        # non-lineage (or the caller never derived the signed jobs), so the
+        # kind is refused outright rather than guessing at a frame.
+        if not context.job_ids:
+            raise SpecialistProposalError(
+                "job-coverage proposals are lawful only on a non-lineage run "
+                "with signed jobs in scope"
+            )
+        if proposal.catalogue_id not in set(context.job_ids):
+            raise SpecialistProposalError(
+                "proposal names a job outside the signed jobs in scope for this run"
+            )
+    else:
+        if proposal.catalogue_id not in set(context.catalogue_ids):
+            raise SpecialistProposalError(
+                "proposal catalogue identity is not in the issued shard"
+            )
+        if proposal.capability_id not in set(context.capability_ids):
+            raise SpecialistProposalError(
+                "proposal capability identity is not in the issued shard"
+            )
     if _claims_usable_family_distance(proposal) and not context.family_contract_present:
         raise SpecialistProposalError(
             "release-distance analysis is disabled until a signed capability-family contract exists"
@@ -889,6 +1002,7 @@ def validate_proposal(
         recommendation_factors=(
             proposal.recommendation_factors if _is_recommendation(proposal) else None
         ),
+        job_coverage=proposal.job_coverage,
         evidence_ids=tuple(sorted(proposal.evidence_ids)),
         reason=proposal.reason,
         observation_ids=tuple(sorted(proposal.observation_ids)),
@@ -934,6 +1048,7 @@ def _recommendation_factors_conflict(group: list[ValidatedProposal]) -> bool:
 
 def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
     dispositions = {item.disposition for item in group}
+    job_coverage_states = {item.job_coverage for item in group}
     # Several agreeing specialists each citing bounded evidence is normal
     # behaviour, so the union across a group may lawfully exceed the
     # per-proposal ceiling.  Evidence breadth is corroboration, not the
@@ -945,7 +1060,11 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
     )[:MAX_EVIDENCE_IDS]
     observation_ids = tuple(sorted({token for item in group for token in item.observation_ids}))
     sample = group[0]
-    if len(dispositions) == 1 and not _recommendation_factors_conflict(group):
+    if (
+        len(dispositions) == 1
+        and len(job_coverage_states) == 1
+        and not _recommendation_factors_conflict(group)
+    ):
         reasons = sorted(item.reason for item in group)
         return ValidatedProposal(
             kind=sample.kind,
@@ -956,6 +1075,7 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
             candidate_id=sample.candidate_id,
             disposition=sample.disposition,
             recommendation_factors=_coalesced_recommendation_factors(group),
+            job_coverage=sample.job_coverage,
             evidence_ids=evidence_ids,
             reason=reasons[0],
             observation_ids=observation_ids,
@@ -969,8 +1089,13 @@ def _coalesce_group(group: list[ValidatedProposal]) -> ValidatedProposal:
         candidate_id=sample.candidate_id,
         disposition=Disposition.NOT_ASSESSED,
         recommendation_factors=None,
+        job_coverage=None,
         evidence_ids=evidence_ids,
-        reason=disagreement_reason(dispositions),
+        reason=(
+            JOB_DISAGREEMENT_REASON
+            if sample.kind is ProposalKind.JOB_COVERAGE
+            else disagreement_reason(dispositions)
+        ),
         observation_ids=observation_ids,
         # The structural record of the dispute: ledger assembly keys its
         # disagreement priority on this engine-set fact, never on the reason.

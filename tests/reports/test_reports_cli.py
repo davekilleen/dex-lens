@@ -95,6 +95,7 @@ class TestSave:
         # in tests/reports/test_coverage_block.py) are stubbed out with it.
         monkeypatch.setattr(cli, "_ledger_binding_problems", lambda _markdown, _ledger: [])
         monkeypatch.setattr(cli, "_coverage_problems", lambda _markdown, _ledger: [])
+        monkeypatch.setattr(cli, "_job_axis_problems", lambda _markdown, _ledger: [])
 
         assert (
             cli.reports_main(

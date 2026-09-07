@@ -42,7 +42,11 @@ from capability_exchange.diagnosis.ranking import (
     RecommendationCandidate,
     rank_recommendations,
 )
-from capability_exchange.diagnosis.run import _ValidatedInventoried
+from capability_exchange.diagnosis.run import (
+    JOB_VERDICT_STATES,
+    JobAxisState,
+    _ValidatedInventoried,
+)
 from capability_exchange.diagnosis.significant_families import (
     ComponentMatchBasis,
     FamilyAssessmentDisposition,
@@ -61,6 +65,8 @@ __all__ = [
     "GroundedInsight",
     "HumanCapability",
     "InsightKind",
+    "JobAxisState",
+    "JobCoverageEntry",
     "LocalObservationDisposition",
     "McpToolInventory",
     "MAX_RECOMMENDATIONS",
@@ -427,6 +433,72 @@ class FamilyLedgerEntry(InventoriedModel):
         return self
 
 
+class JobCoverageEntry(InventoriedModel):
+    """One durable signed-job row for a non-lineage run's job axis.
+
+    Populated only when the engine classifies the run non-lineage (zero
+    signed-identity matches across the whole fingerprint).  A row's state is
+    either the deterministic pass-1 result (``supported`` from kind-admitted
+    evidence, or the loud ``unknown``) or one validated pass-2 job-coverage
+    verdict — and every verdict, ``does-not-serve`` included, carries its
+    evidence: absence needs the search, quoted, never silence.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    job_id: str = Field(pattern=_ID_PATTERN)
+    label: str = Field(min_length=1, max_length=200)
+    state: JobAxisState
+    evidence_references: tuple[str, ...] = Field(default=(), max_length=8)
+    observation_ids: tuple[str, ...] = Field(default=(), max_length=8)
+    reason: str = Field(min_length=1, max_length=600)
+
+    @field_validator("evidence_references")
+    @classmethod
+    def _job_evidence_is_safe_and_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("job coverage evidence references must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("job coverage evidence references must be sorted")
+        for value in values:
+            if not value.strip():
+                raise ValueError("job coverage evidence references must be non-empty")
+            reason = reference_rejection_reason(value)
+            if reason is not None:
+                raise ValueError(reason)
+        return values
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _job_observations_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("job coverage observation identities must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("job coverage observation identities must be sorted")
+        if any(re.fullmatch(_OBSERVATION_ID_PATTERN, value) is None for value in values):
+            raise ValueError("job coverage observation identity is invalid")
+        return values
+
+    @field_validator("reason", "label")
+    @classmethod
+    def _job_text_is_one_safe_line(cls, value: str) -> str:
+        if _CONTROL.search(value):
+            raise ValueError("job coverage text must be one bounded line")
+        return value
+
+    @model_validator(mode="after")
+    def _claims_have_evidence(self) -> Self:
+        needs_evidence = self.state in JOB_VERDICT_STATES or (
+            self.state is JobAxisState.SUPPORTED
+        )
+        if needs_evidence and not self.evidence_references:
+            raise ValueError(
+                "a job coverage claim requires cited evidence; only the loud "
+                "unknown may stand without it"
+            )
+        return self
+
+
 class LocalObservationDisposition(InventoriedModel):
     """One explicit, source-bound disposition for a local observation.
 
@@ -700,6 +772,24 @@ class ComparisonLedger(_ValidatedInventoried):
     #: what was never examined by choice.
     focus_selected_family_ids: tuple[str, ...] = ()
     focus_unselected_family_ids: tuple[str, ...] = ()
+    #: The non-lineage job axis: one signed-job row each, sorted by job id.
+    #: Non-empty exactly when the engine classified this run non-lineage —
+    #: zero signed-identity matches — and structurally incompatible with any
+    #: release-delta claim (see the model validator below).  Empty on every
+    #: lineage run, so those ledgers keep their exact digests.
+    job_axis: tuple[JobCoverageEntry, ...] = ()
+
+    @field_validator("job_axis")
+    @classmethod
+    def _job_axis_is_canonical(
+        cls, values: tuple[JobCoverageEntry, ...]
+    ) -> tuple[JobCoverageEntry, ...]:
+        job_ids = [item.job_id for item in values]
+        if len(job_ids) != len(set(job_ids)):
+            raise ValueError("job axis must name each signed job exactly once")
+        if job_ids != sorted(job_ids):
+            raise ValueError("job axis rows must be sorted by job identity")
+        return values
 
     @field_validator("focus_selected_family_ids", "focus_unselected_family_ids")
     @classmethod
@@ -810,6 +900,29 @@ class ComparisonLedger(_ValidatedInventoried):
             raise ValueError(
                 "a family cannot be both selected and explicitly not selected"
             )
+        if self.job_axis:
+            # The engine-enforced loan framing: a job axis exists only when
+            # nothing ties this system to Dex, so nothing delta-shaped may
+            # coexist with it — no version distance, no matched family
+            # component, no local Dex Core release observation.
+            if self.version_distance is not None:
+                raise ValueError(
+                    "a non-lineage job axis cannot coexist with a version "
+                    "distance: with no identity match there is no 'behind'"
+                )
+            if any(entry.matched_components for entry in self.family_entries):
+                raise ValueError(
+                    "a non-lineage job axis cannot coexist with matched signed "
+                    "family components"
+                )
+            if any(
+                entry.kind is ObservationKind.RELEASE and entry.identity == "dex-core"
+                for entry in self.local_entries
+            ):
+                raise ValueError(
+                    "a non-lineage job axis cannot coexist with a local Dex "
+                    "Core release observation"
+                )
         if self.version_distance is not None:
             delta_by_id = {item.family_id: item for item in self.version_distance.families}
             family_by_id = {item.family_id: item for item in self.family_entries}
@@ -853,6 +966,7 @@ class ComparisonLedger(_ValidatedInventoried):
         unique_to_you: tuple[str, ...] | None = None,
         focus_selected_family_ids: tuple[str, ...] | None = None,
         focus_unselected_family_ids: tuple[str, ...] | None = None,
+        job_axis: tuple[JobCoverageEntry, ...] | None = None,
     ) -> ComparisonLedger:
         """Validate a ledger against the exact verified catalogue identity set.
 
@@ -889,6 +1003,7 @@ class ComparisonLedger(_ValidatedInventoried):
                 unique_to_you=unique_to_you,
                 focus_selected_family_ids=focus_selected_family_ids,
                 focus_unselected_family_ids=focus_unselected_family_ids,
+                job_axis=job_axis,
             )
         expected = {item.capability_id for item in catalogue.capabilities}
         actual = [item.catalogue_id for item in entries]
@@ -950,6 +1065,20 @@ class ComparisonLedger(_ValidatedInventoried):
                 mcp_tools_by_server,
             )
         exact_family_entries = _validate_family_entries(catalogue, family_entries or ())
+        exact_job_axis = tuple(job_axis or ())
+        if exact_job_axis:
+            # The job axis is an equality gate over the signed jobs taxonomy:
+            # every signed job exactly once, carrying its exact signed label —
+            # nothing omitted, nothing invented.
+            signed_jobs = {job.job_id: job.label for job in catalogue.jobs_taxonomy}
+            axis_ids = [entry.job_id for entry in exact_job_axis]
+            if axis_ids != sorted(signed_jobs) or any(
+                entry.label != signed_jobs[entry.job_id] for entry in exact_job_axis
+            ):
+                raise _model_validation_error(
+                    "job axis must equal the signed jobs taxonomy, one exact row each",
+                    axis_ids,
+                )
         if version_distance is not None:
             entries_by_id = {item.capability_id: item for item in catalogue.capabilities}
             expected_deltas = tuple(
@@ -1003,6 +1132,7 @@ class ComparisonLedger(_ValidatedInventoried):
             unique_to_you=unique_to_you or (),
             focus_selected_family_ids=focus_selected_family_ids or (),
             focus_unselected_family_ids=focus_unselected_family_ids or (),
+            job_axis=exact_job_axis,
         )
 
     @classmethod
@@ -1030,6 +1160,7 @@ class ComparisonLedger(_ValidatedInventoried):
         unique_to_you: tuple[str, ...] | None = None,
         focus_selected_family_ids: tuple[str, ...] | None = None,
         focus_unselected_family_ids: tuple[str, ...] | None = None,
+        job_axis: tuple[JobCoverageEntry, ...] | None = None,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
 
@@ -1056,6 +1187,7 @@ class ComparisonLedger(_ValidatedInventoried):
             family_entries=assessed_family_entries,
             version_distance=version_distance,
             reciprocal_answer=reciprocal_answer,
+            job_axis=job_axis,
         )
         expected_observation_ids = tuple(
             observation_id_for(item) for item in fingerprint.observations
@@ -1138,6 +1270,7 @@ class ComparisonLedger(_ValidatedInventoried):
             unique_to_you=unique_to_you or (),
             focus_selected_family_ids=focus_selected_family_ids or (),
             focus_unselected_family_ids=focus_unselected_family_ids or (),
+            job_axis=base.job_axis,
         )
 
     def derived_summary(self) -> LedgerSummary:
@@ -1323,6 +1456,9 @@ def ledger_evidence_identities(ledger: ComparisonLedger) -> frozenset[str]:
     for entry in ledger.family_entries:
         held.update(entry.evidence_references)
         held.update(entry.matched_observation_ids)
+    for entry in ledger.job_axis:
+        held.update(entry.evidence_references)
+        held.update(entry.observation_ids)
     return frozenset(held)
 
 
