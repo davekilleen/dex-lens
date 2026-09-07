@@ -9,6 +9,7 @@ and every unsupported component remains explicit.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
@@ -32,6 +33,7 @@ from capability_exchange.catalogue.v2 import (
 )
 from capability_exchange.diagnosis.families import (
     FamilyAvailability,
+    _semver_key,
     summarise_family,
 )
 from capability_exchange.diagnosis.observations import (
@@ -55,6 +57,7 @@ __all__ = [
     "UnsupportedAssessmentProfileError",
     "assess_job_axis",
     "assess_significant_families",
+    "observed_release_lineage",
     "is_non_lineage",
 ]
 
@@ -82,6 +85,13 @@ class FamilyAssessmentDisposition(StrEnum):
     PARTIAL_OVERLAP = "partial-overlap"
     OVERLAP_OBSERVED = "overlap-observed"
     NOT_RECOMMENDABLE = "not-recommendable"
+    #: Nothing matched, and the signed lineage says why: every component of
+    #: this family names a capability introduced after the install being
+    #: inspected, so it could not have been present. Unlike ``UNRESOLVED``
+    #: this is evidence of absence rather than an absence of evidence, and it
+    #: is the state that lets a stale install's report make its gap undeniable
+    #: instead of reporting a wall of Unknown.
+    POSTDATES_INSTALL = "postdates-install"
 
 
 @dataclass(frozen=True)
@@ -366,16 +376,87 @@ def _expected_observation_kind(
     raise TypeError("catalogue capability must be a validated capability entry")
 
 
+#: The release-identifier shape the signed catalogue and the local release
+#: record share.  Defined here rather than imported so the lineage derivation
+#: below can live beside the matcher that consumes it without a cycle.
+_RELEASE_SHAPE = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+
+
+def observed_release_lineage(
+    fingerprint: EvidenceFingerprint,
+) -> tuple[str | None, tuple[str, ...]]:
+    """The one Dex Core release the approved snapshot proves, with its evidence.
+
+    Returns ``(None, ())`` — the loud Unknown branch — unless the release
+    observations agree on exactly one release-shaped ``release-id``.  This is
+    the single lineage derivation the family matcher, the pass-1 family map and
+    the closing ``_version_distance`` all consume, so no two of them can
+    disagree about whether lineage was established or what it said.
+    """
+
+    release_observations = tuple(
+        observation
+        for observation in fingerprint.observations
+        if observation.kind is ObservationKind.RELEASE
+        and observation.identity == "dex-core"
+    )
+    observed_versions = {
+        attribute.value
+        for observation in release_observations
+        for attribute in observation.attributes
+        if attribute.key == "release-id"
+    }
+    if len(observed_versions) != 1:
+        return None, ()
+    inspected_version = next(iter(observed_versions))
+    if _RELEASE_SHAPE.fullmatch(inspected_version) is None:
+        return None, ()
+    evidence = tuple(
+        sorted({observation.evidence.reference for observation in release_observations})
+    )[:8]
+    if not evidence:
+        return None, ()
+    return inspected_version, evidence
+
+
+def _postdates_install(
+    entry: CatalogueCapabilityEntryV2, *, inspected_release: str | None
+) -> bool:
+    """Did this signed capability arrive after the install being inspected?
+
+    A capability introduced after the person's own release cannot have been
+    present at that release, so a local artifact sharing its name is not that
+    capability — it is an older thing Dex shipped under the same name, or the
+    person's own work, and either way the name is not evidence of coverage
+    (AGENTS.md F-class "a name treated as a capability").
+
+    Unreadable lineage on either side answers False: without both endpoints
+    the question is not decidable, and the conservative direction here is to
+    leave the ordinary exact match alone rather than invent a disqualification.
+    """
+
+    since_release = getattr(entry, "since_release", None)
+    if inspected_release is None or not isinstance(since_release, str):
+        return False
+    try:
+        return _semver_key(since_release) > _semver_key(inspected_release)
+    except ValueError:
+        return False
+
+
 def _capability_matches(
     component: CapabilityReferenceV2,
     *,
     capabilities: dict[str, CatalogueCapabilityEntryV2],
     aliases_by_target: dict[str, frozenset[str]],
     observations: dict[ObservationKind, tuple[Observation, ...]],
+    inspected_release: str | None = None,
 ) -> tuple[tuple[Observation, ComponentMatchBasis], ...]:
     entry = capabilities[component.capability_id]
     expected_kind = _expected_observation_kind(entry)
     if expected_kind is None:
+        return ()
+    if _postdates_install(entry, inspected_release=inspected_release):
         return ()
     aliases = aliases_by_target.get(component.capability_id, frozenset())
     identities = {component.capability_id, *aliases}
@@ -471,6 +552,7 @@ def _matches_for_component(
     capabilities: dict[str, CatalogueCapabilityEntryV2],
     aliases_by_target: dict[str, frozenset[str]],
     observations: dict[ObservationKind, tuple[Observation, ...]],
+    inspected_release: str | None = None,
 ) -> tuple[tuple[Observation, ComponentMatchBasis], ...]:
     if component.component_type not in rules.component_types:
         return ()
@@ -480,6 +562,7 @@ def _matches_for_component(
             capabilities=capabilities,
             aliases_by_target=aliases_by_target,
             observations=observations,
+            inspected_release=inspected_release,
         )
     if isinstance(component, McpToolReferenceV2):
         return _mcp_tool_matches(
@@ -523,6 +606,13 @@ def _reason_for(
         return (
             "No exact supported local evidence matched this signed family. "
             "This is unresolved, not proof that the capability is absent."
+        )
+    if disposition is FamilyAssessmentDisposition.POSTDATES_INSTALL:
+        return (
+            "Every signed component of this family names a capability Dex "
+            "introduced after the release this install identifies as, so this "
+            "install cannot carry it. A local item sharing one of those names "
+            "is an older thing under the same name, not this capability."
         )
     if disposition is FamilyAssessmentDisposition.PARTIAL_OVERLAP:
         return (
@@ -569,6 +659,10 @@ def assess_significant_families(
         raise TypeError("fingerprint must be a validated EvidenceFingerprint")
     _validate_profiles(catalogue)
 
+    # Derived here, never taken as an argument: every caller of this function
+    # then compares against the same install release by construction, so the
+    # pass-1 map and the closing ledger cannot drift apart on it.
+    inspected_release, _release_evidence = observed_release_lineage(fingerprint)
     capabilities = {entry.capability_id: entry for entry in catalogue.capabilities}
     aliases_by_target = _aliases_by_target(catalogue)
     observations = _observation_index(fingerprint)
@@ -607,13 +701,23 @@ def assess_significant_families(
         rules = _PROFILE_RULES[str(family.assessment.profile)]
         matched: list[MatchedFamilyComponent] = []
         unresolved: list[str] = []
+        # Components whose signed capability post-dates the install. Tracked
+        # separately from "did not match" so the fold below can tell evidence
+        # of absence from an absence of evidence.
+        postdating: list[str] = []
         for component in sorted(family.components, key=_component_reference):
+            if isinstance(component, CapabilityReferenceV2) and _postdates_install(
+                capabilities[component.capability_id],
+                inspected_release=inspected_release,
+            ):
+                postdating.append(_component_reference(component))
             matches = _matches_for_component(
                 component,
                 rules=rules,
                 capabilities=capabilities,
                 aliases_by_target=aliases_by_target,
                 observations=observations,
+                inspected_release=inspected_release,
             )
             if matches:
                 matched.append(_matched_component(component, matches))
@@ -622,6 +726,8 @@ def assess_significant_families(
 
         if summary.availability is FamilyAvailability.UNAVAILABLE:
             disposition = FamilyAssessmentDisposition.NOT_RECOMMENDABLE
+        elif not matched and postdating and len(postdating) == len(unresolved):
+            disposition = FamilyAssessmentDisposition.POSTDATES_INSTALL
         elif not matched:
             disposition = FamilyAssessmentDisposition.UNRESOLVED
         elif unresolved:

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
 from pydantic import Field, field_validator
 
 from capability_exchange.catalogue.v2 import CatalogueV2
 from capability_exchange.diagnosis.families import build_family_delta
 from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
-    ObservationKind,
 )
 from capability_exchange.diagnosis.origin import signed_identity_keys_for
 from capability_exchange.diagnosis.run import (
@@ -23,11 +20,13 @@ from capability_exchange.diagnosis.run import (
     _ValidatedInventoried,
 )
 from capability_exchange.diagnosis.significant_families import (
+    _RELEASE_SHAPE,
     FamilyAssessmentDisposition,
     SignificantFamilyAssessment,
     assess_job_axis,
     assess_significant_families,
     is_non_lineage,
+    observed_release_lineage,
 )
 
 __all__ = [
@@ -42,10 +41,6 @@ __all__ = [
     "observed_release_lineage",
     "supported_job_reason",
 ]
-
-#: The bounded SemVer forms Lens accepts for release identities — the same
-#: contract ``VersionDistance`` and the map's release fields enforce.
-_RELEASE_SHAPE = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 WOW_EXPECTATIONS: tuple[str, ...] = (
     "meeting-follow-through",
@@ -125,6 +120,10 @@ def _state_for_assessment(assessment: SignificantFamilyAssessment) -> Expectatio
         return ExpectationState.PARTIAL
     if assessment.disposition is FamilyAssessmentDisposition.NOT_RECOMMENDABLE:
         return ExpectationState.NOT_CURRENTLY_AVAILABLE
+    if assessment.disposition is FamilyAssessmentDisposition.POSTDATES_INSTALL:
+        # Evidence of absence, not an absence of evidence: the signed lineage
+        # proves this install predates every component of the family.
+        return ExpectationState.ABSENT
     if assessment.disposition is FamilyAssessmentDisposition.UNRESOLVED:
         return ExpectationState.UNKNOWN
     return ExpectationState.UNKNOWN
@@ -170,42 +169,6 @@ def assess_wow_expectations(
             )
         )
     return tuple(rows)
-
-
-def observed_release_lineage(
-    fingerprint: EvidenceFingerprint,
-) -> tuple[str | None, tuple[str, ...]]:
-    """The one Dex Core release the approved snapshot proves, with its evidence.
-
-    Returns ``(None, ())`` — the loud Unknown branch — unless the release
-    observations agree on exactly one release-shaped ``release-id``.  This is
-    the single lineage derivation both the pass-1 family map and the closing
-    ``_version_distance`` consume, so the early map and the final ledger can
-    never disagree about whether lineage was established.
-    """
-
-    release_observations = tuple(
-        observation
-        for observation in fingerprint.observations
-        if observation.kind is ObservationKind.RELEASE and observation.identity == "dex-core"
-    )
-    observed_versions = {
-        attribute.value
-        for observation in release_observations
-        for attribute in observation.attributes
-        if attribute.key == "release-id"
-    }
-    if len(observed_versions) != 1:
-        return None, ()
-    inspected_version = next(iter(observed_versions))
-    if _RELEASE_SHAPE.fullmatch(inspected_version) is None:
-        return None, ()
-    evidence = tuple(
-        sorted({observation.evidence.reference for observation in release_observations})
-    )[:8]
-    if not evidence:
-        return None, ()
-    return inspected_version, evidence
 
 
 def _family_release_deltas(
