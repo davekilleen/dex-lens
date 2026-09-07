@@ -102,7 +102,8 @@ _ROLE_QUESTIONS: dict[SpecialistRole, str] = {
     ),
     SpecialistRole.AUTOMATIONS_AND_LIVE_STATE: (
         "What automations and health signals are configured, running, and producing "
-        "a proved outcome?"
+        "a proved outcome — and what, if anything, watches the system's own health "
+        "so it keeps the promises its owner relies on?"
     ),
     SpecialistRole.PEOPLE_AND_WORK_CONTINUITY: (
         "How do people, meetings, commitments, and follow-through remain connected "
@@ -110,7 +111,8 @@ _ROLE_QUESTIONS: dict[SpecialistRole, str] = {
     ),
     SpecialistRole.OPERATING_RHYTHM_AND_MEMORY: (
         "What planning, review, decision, and durable-memory practices preserve "
-        "continuity across sessions?"
+        "continuity across sessions — and how does the system learn from its own "
+        "use and compound, becoming more effective over time?"
     ),
     SpecialistRole.STRENGTH_AND_RECIPROCAL: (
         "Which distinctive methods are especially strong, and what transferable "
@@ -131,6 +133,26 @@ _ROLE_QUESTIONS: dict[SpecialistRole, str] = {
     SpecialistRole.SCEPTICAL_RECONCILER: (
         "Which accepted strengths, lessons, surprises, and recommendations survive "
         "a final evidence and contradiction check?"
+    ),
+}
+
+# Superseded wordings stay loadable: stored packets carry the question they
+# were issued with and are re-validated on load, so a run saved before a
+# question was sharpened must not wedge on upgrade. New packets are always
+# issued with the current wording; anything not current or listed here is
+# still refused as a substituted question.
+_SUPERSEDED_ROLE_QUESTIONS: dict[SpecialistRole, frozenset[str]] = {
+    SpecialistRole.AUTOMATIONS_AND_LIVE_STATE: frozenset(
+        {
+            "What automations and health signals are configured, running, and "
+            "producing a proved outcome?"
+        }
+    ),
+    SpecialistRole.OPERATING_RHYTHM_AND_MEMORY: frozenset(
+        {
+            "What planning, review, decision, and durable-memory practices preserve "
+            "continuity across sessions?"
+        }
     ),
 }
 
@@ -297,8 +319,10 @@ class WorkPacket(_ValidatedInventoried):
 
     @model_validator(mode="after")
     def _digest_binds_packet_content(self) -> Self:
-        expected_question = _ROLE_QUESTIONS[self.role]
-        if self.question != expected_question:
+        accepted_questions = {_ROLE_QUESTIONS[self.role]} | _SUPERSEDED_ROLE_QUESTIONS.get(
+            self.role, frozenset()
+        )
+        if self.question not in accepted_questions:
             raise ValueError("work packet question must match the closed question for its role")
         expected = canonical_json_digest(self.canonical_payload())
         if self.packet_digest != expected:

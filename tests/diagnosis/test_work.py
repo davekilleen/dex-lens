@@ -338,6 +338,57 @@ def test_question_is_closed_and_cannot_be_substituted_with_a_recomputed_digest()
         WorkPacket.model_validate(values)
 
 
+def test_the_two_sharpened_questions_ask_about_self_improvement_and_health() -> None:
+    """The first real run never asked how the system compounds or is watched.
+
+    Its report assessed neither proactive health nor the learning loop, and
+    the founder called both out as the core of what was missed. The two
+    packets whose remit those angles fall under must ask for them by name.
+    """
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    by_role = {packet.role: packet.question for packet in queue.packets}
+    assert "watches the system's own health" in by_role[SpecialistRole.AUTOMATIONS_AND_LIVE_STATE]
+    assert "compound" in by_role[SpecialistRole.OPERATING_RHYTHM_AND_MEMORY]
+
+
+def test_a_packet_saved_under_a_superseded_question_still_loads() -> None:
+    """Sharpening a question must not wedge a run saved before the upgrade.
+
+    Stored packets carry the question they were issued with and are
+    re-validated on load; a superseded wording therefore stays acceptable
+    for exactly the roles whose question changed, while an alien question is
+    still refused (see the attacker-substitution test above).
+    """
+    queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
+    legacy_texts = {
+        SpecialistRole.AUTOMATIONS_AND_LIVE_STATE: (
+            "What automations and health signals are configured, running, and producing "
+            "a proved outcome?"
+        ),
+        SpecialistRole.OPERATING_RHYTHM_AND_MEMORY: (
+            "What planning, review, decision, and durable-memory practices preserve "
+            "continuity across sessions?"
+        ),
+    }
+    for packet in queue.packets:
+        legacy = legacy_texts.get(packet.role)
+        if legacy is None:
+            continue
+        payload = packet.canonical_payload()
+        payload["question"] = legacy
+        digest = canonical_json_digest(payload)
+        values = packet.model_dump()
+        values.update(
+            {
+                "packet_id": f"packet:{digest}",
+                "packet_digest": digest,
+                "question": legacy,
+            }
+        )
+        loaded = WorkPacket.model_validate(values)
+        assert loaded.question == legacy
+
+
 def test_guided_queue_packets_share_the_exact_context_and_limits() -> None:
     queue = build_work_queue(context=fixed_context(), mode=AnalysisMode.GUIDED)
     altered_context = fixed_context().model_copy(

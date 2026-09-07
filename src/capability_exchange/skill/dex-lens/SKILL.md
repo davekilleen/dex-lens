@@ -328,7 +328,16 @@ Where each field comes from:
 
 - `disposition` — the verdict: `strong-here`, `shared`, `worth-borrowing`,
   `dex-should-learn`, `fragile-or-contradictory`, `not-relevant`, or
-  `not-assessed`.
+  `not-assessed`. `strong-here` and `shared` are the pair to get right,
+  because getting them wrong cost a real run its credibility: a capability
+  that **is Dex's own** — the stock skill from a Dex install, even an older
+  copy of it — is `shared`, never `strong-here`, no matter how impressive
+  the file reads. Praising Dex's own shipped work back to the person as
+  their standout strength is confusing at best and hollow at worst, and it
+  crowds out the strengths that are actually theirs. Reserve `strong-here`
+  for what they built beyond the catalogue, or a genuinely better method
+  than the catalogue's own. When in doubt, ask: would this file exist in a
+  fresh Dex install? If yes, it is `shared`.
 - `evidence_ids` — one to eight tokens, every one from the packet's
   `evidence_ids`, chosen through the legend. A token from anywhere else is
   refused.
@@ -410,6 +419,17 @@ And a fragility:
 2. Decide, from the legend and from the person's files you actually read,
    which observations bear on which catalogue entries. This is the
    judgement the packet is asking for; nothing else supplies it.
+   The packet's catalogue lists are a coverage duty, not a menu. Every
+   entry you leave without a proposal is reported to the person as
+   `not-assessed` — which they read, correctly, as "Lens never looked at
+   this". The first real run assessed 21 of 115 catalogue entries and its
+   owner's verdict was that it missed a tonne of capability; the entries it
+   skipped included exactly the ones he cared about. Cheap verdicts are
+   still verdicts: `shared` for a stock Dex capability present here,
+   `not-relevant` for one that has no bearing on this system. Spend your
+   proposal budget (`max_proposals` allows 24) on breadth first, depth
+   second, and leave an entry unassessed only when you genuinely could not
+   tell from the evidence available.
 3. Write up to `max_proposals` proposals, one JSON file each, and submit
    them together, once:
 
