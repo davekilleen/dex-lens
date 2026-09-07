@@ -259,6 +259,30 @@ class TestDryRun:
         assert "DEX_LENS_NO_LAUNCH" in script
         assert "Starting your assistant" not in dry_run.stdout
 
+    def test_the_claude_launch_puts_the_question_before_the_allowlist_flag(
+        self, script: str
+    ) -> None:
+        """--allowedTools is variadic: it consumes every argument after it.
+
+        The first scoped-allowlist launch shipped as
+        `--allowedTools "Bash(dex-lens:*)" "$DEX_LENS_ASK"`, and Claude Code
+        swallowed the question as one more tool name: the assistant opened
+        with an empty prompt and the run never started. The question must
+        come before the flag, where it parses as the prompt argument.
+        """
+        launch_lines = [
+            line
+            for line in script.splitlines()
+            if "--allowedTools" in line and not line.lstrip().startswith("#")
+        ]
+        assert launch_lines, "the scoped-allowlist launch must exist"
+        for line in launch_lines:
+            assert '"$DEX_LENS_ASK"' in line, line
+            assert line.index('"$DEX_LENS_ASK"') < line.index("--allowedTools"), (
+                "the question must precede --allowedTools, which is variadic "
+                "and swallows every argument after it: " + line
+            )
+
     def test_the_dry_run_names_the_conditional_skill_homes(
         self, tmp_path: Path, script: str
     ) -> None:

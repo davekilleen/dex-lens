@@ -420,7 +420,9 @@ if [ "${DEX_LENS_NO_LAUNCH:-0}" != "1" ] && [ -n "$ASSISTANT" ] && [ -t 0 ]; the
         # host's permission layer cannot silently refuse the consent step.
         # Everything else stays behind the assistant's normal guardrails;
         # this is deliberately NOT a bypass-permissions launch.
-        exec "$ASSISTANT" --allowedTools "Bash(dex-lens:*)" "$DEX_LENS_ASK"
+        # The question must come before the flag: --allowedTools is
+        # variadic and swallows every argument after it, question included.
+        exec "$ASSISTANT" "$DEX_LENS_ASK" --allowedTools "Bash(dex-lens:*)"
       fi
       exec "$ASSISTANT" "$DEX_LENS_ASK"
       ;;
