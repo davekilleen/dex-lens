@@ -56,6 +56,10 @@ from capability_exchange.diagnosis.orchestrator import (
     DeterministicDiagnosisEngine,
     VerifiedCatalogueSlice,
 )
+from capability_exchange.diagnosis.origin import (
+    signed_identity_keys_for,
+    unique_to_you_observation_ids,
+)
 from capability_exchange.diagnosis.ranking import (
     RankedRecommendation,
     RecommendationCandidate,
@@ -813,6 +817,10 @@ class CachedCatalogueLoader:
             unavailable_ids=unavailable,
             family_contract_present=bool(catalogue.capability_families),
             core_release=getattr(envelope.metadata, "core_release", None),
+            # Loader-derived from the signature-verified envelope on every
+            # load, never read back from a stored artifact: the engine keys
+            # each observation's authorship origin on this set.
+            signed_identity_keys=tuple(sorted(signed_identity_keys_for(catalogue))),
         )
 
 
@@ -893,6 +901,14 @@ class UnknownUntilProposedComparer:
             current_version=catalogue.core_release,
             catalogue=envelope.catalogue,
         )
+        # The authorship axis, re-derived here from the verified envelope (the
+        # A1 lesson: never a stored flag): authored observations matching no
+        # signed identity are the engine-owned unique-to-you candidates that
+        # feed both reciprocal share-back moments.
+        unique_to_you = unique_to_you_observation_ids(
+            fingerprint,
+            signed_identity_keys=signed_identity_keys_for(envelope.catalogue),
+        )
         return ComparisonLedger.for_catalogue_and_fingerprint(
             envelope.catalogue,
             fingerprint=fingerprint,
@@ -911,6 +927,7 @@ class UnknownUntilProposedComparer:
             strengths=strengths,
             reciprocal_lessons=reciprocal_lessons,
             workflow_insights=workflow_insights,
+            unique_to_you=unique_to_you,
         )
 
 

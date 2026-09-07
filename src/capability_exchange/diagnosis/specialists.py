@@ -100,6 +100,14 @@ _SENTINEL_REASON_REFUSAL = (
     "rephrase this reason in the specialist's own words"
 )
 
+#: Fixed typed refusal for a strength/reciprocal proposal grounded entirely in
+#: non-authored observations.  Same shape as an unknown-evidence refusal; it
+#: names the rule and carries no inspected-system content.
+_NON_AUTHORED_STRENGTH_REFUSAL = (
+    "a strength or reciprocal proposal must cite at least one authored "
+    "observation; stock Dex and assistant-shipped items cannot ground it"
+)
+
 _RUN_ID = re.compile(r"^run:[a-z0-9]{16,64}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PACKET_ID = re.compile(r"^packet:sha256:[0-9a-f]{64}$")
@@ -135,6 +143,14 @@ class ProposalKind(StrEnum):
     FRAGILITY = "fragility"
     RECOMMENDATION = "recommendation"
     RELEASE_DISTANCE = "release-distance"
+
+
+#: Proposal kinds that can only ever speak about the person's own work: a
+#: strength praises what they built, a reciprocal claims Dex should learn from
+#: it.  Grounded in stock Dex or assistant-vendored files, either one is the
+#: vendor praising its own cargo, so both require at least one authored
+#: citation whenever the engine-built context carries the authorship axis.
+_AUTHORSHIP_BOUND_KINDS = frozenset({ProposalKind.STRENGTH, ProposalKind.RECIPROCAL})
 
 
 def candidate_id_for(
@@ -453,11 +469,40 @@ class ProposalContext(_ValidatedInventoried):
     collapsed_provenance_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
     observation_ids: tuple[str, ...] = ()
+    #: Engine-derived authorship classification (the observation ``origin``
+    #: axis), re-derived from the fingerprint and the signature-verified
+    #: catalogue every time a context is built — never accepted from a
+    #: submitted proposal or a stored artifact.  ``None`` means the caller
+    #: never derived authorship (direct library use); every engine-built
+    #: context carries both tuples, and only then is the strength/reciprocal
+    #: authorship rule enforced.
+    authored_observation_ids: tuple[str, ...] | None = None
+    authored_evidence_ids: tuple[str, ...] | None = None
 
     @field_validator("evidence_ids")
     @classmethod
     def _evidence_ids_are_bounded(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _unique_tokens(values, "context evidence tokens")
+
+    @field_validator("authored_observation_ids")
+    @classmethod
+    def _authored_observation_ids_are_bounded(
+        cls,
+        values: tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if values is None:
+            return None
+        return _unique_identities(values, "context authored observation identities")
+
+    @field_validator("authored_evidence_ids")
+    @classmethod
+    def _authored_evidence_ids_are_bounded(
+        cls,
+        values: tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if values is None:
+            return None
+        return _unique_tokens(values, "context authored evidence tokens")
 
     @field_validator("catalogue_ids")
     @classmethod
@@ -533,6 +578,16 @@ class ProposalContext(_ValidatedInventoried):
                 )
         elif self.accepted_candidate_ids or self.accepted_candidates:
             raise ValueError("accepted candidates are only valid for a guided sceptical packet")
+        if self.authored_observation_ids is not None and not set(
+            self.authored_observation_ids
+        ) <= set(self.observation_ids):
+            raise ValueError(
+                "authored observation identities must be context observation identities"
+            )
+        if self.authored_evidence_ids is not None and not set(
+            self.authored_evidence_ids
+        ) <= set(self.evidence_ids):
+            raise ValueError("authored evidence tokens must be context evidence tokens")
         return self
 
 
@@ -793,6 +848,24 @@ def validate_proposal(
             raise SpecialistProposalError(
                 "proposal observation identity is not present in the current fingerprint"
             )
+    authorship_classified = (
+        context.authored_observation_ids is not None
+        or context.authored_evidence_ids is not None
+    )
+    if proposal.kind in _AUTHORSHIP_BOUND_KINDS and authorship_classified:
+        # The engine derived the origin axis for this run's fingerprint: a
+        # strength or reciprocal claim stands only on at least one authored
+        # citation — cited directly or through its engine-minted evidence
+        # token.  Stock Dex and harness-shipped items can corroborate, never
+        # ground.  This is the mechanical form of SKILL.md rule 5 ("would this
+        # file exist in a fresh Dex install?").
+        authored_observations = set(context.authored_observation_ids or ())
+        authored_evidence = set(context.authored_evidence_ids or ())
+        if not (
+            set(proposal.observation_ids) & authored_observations
+            or set(proposal.evidence_ids) & authored_evidence
+        ):
+            raise SpecialistProposalError(_NON_AUTHORED_STRENGTH_REFUSAL)
     if _is_recommendation(proposal) and proposal.catalogue_id in set(context.held_ids):
         raise SpecialistProposalError(
             f"catalogue identity {proposal.catalogue_id} is not available to recommend"

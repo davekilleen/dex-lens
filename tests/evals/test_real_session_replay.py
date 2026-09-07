@@ -33,7 +33,11 @@ from tests.evals.real_session_fixture import (
 from capability_exchange.diagnosis import cli as diagnosis_cli
 from capability_exchange.diagnosis.comparison import ComparisonLedger, Disposition
 from capability_exchange.diagnosis.mcp_server import build_mcp_server
-from capability_exchange.diagnosis.observations import EvidenceFingerprint
+from capability_exchange.diagnosis.observations import (
+    EvidenceFingerprint,
+    SourceClass,
+    observation_key_for,
+)
 from capability_exchange.diagnosis.orchestrator import (
     ComparisonBuilder,
     VerifiedCatalogueSlice,
@@ -45,6 +49,7 @@ from capability_exchange.diagnosis.specialists import (
     SpecialistProposalError,
     SpecialistRole,
     candidate_id_for,
+    mint_evidence_token,
 )
 from capability_exchange.diagnosis.work import AnalysisMode, WorkPacket
 from capability_exchange.evaluation.diagnosis import evaluate_diagnosis
@@ -382,6 +387,19 @@ def _drive_mcp_advance_error(harness: ReplayHarness) -> str:
 
 
 def _strength_proposal(packet: WorkPacket, *, reason: str) -> SpecialistProposal:
+    # A strength must cite at least one authored observation; the digest-sorted
+    # packet lists could put the harness-bundled release observation first, so
+    # the vault-authored base observation is picked deterministically.
+    authored = next(
+        item
+        for item in real_session_fingerprint().observations
+        if item.provenance.source_class is SourceClass.VAULT_AUTHORED
+    )
+    authored_token = mint_evidence_token(
+        run_id=packet.run_id,
+        fingerprint_digest=packet.fingerprint_digest,
+        observation_key=observation_key_for(authored),
+    )
     return SpecialistProposal(
         role=packet.role,
         kind=ProposalKind.STRENGTH,
@@ -398,8 +416,8 @@ def _strength_proposal(packet: WorkPacket, *, reason: str) -> SpecialistProposal
             packet.capability_ids[0],
         ),
         disposition=Disposition.STRONG_HERE,
-        evidence_ids=(packet.evidence_ids[0],),
-        observation_ids=(packet.observation_ids[0],),
+        evidence_ids=(authored_token,),
+        observation_ids=(authored.observation_id,),
         reason=reason,
     )
 

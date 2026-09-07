@@ -239,6 +239,7 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
         "strengths": [_insight_row(item) for item in ledger.strengths],
         "reciprocal_lessons": [_insight_row(item) for item in ledger.reciprocal_lessons],
         "workflow_insights": [_insight_row(item) for item in ledger.workflow_insights],
+        "unique_to_you": list(ledger.unique_to_you),
     }
 
 
@@ -435,6 +436,7 @@ class ReportModel(InventoriedModel):
             f"\n{_render_grounded_strengths(ledger)}"
             f"\n{_render_strengths(ledger)}"
             f"\n{_render_reciprocal_learning(ledger)}"
+            f"\n{_render_unique_to_you(ledger)}"
             f"\n{_render_ranked_recommendations(ledger)}"
             f"\n{_render_recommendations(ledger)}"
             f"\n{_render_workflow_connections(ledger)}"
@@ -832,6 +834,17 @@ def _validate_ledger_insights(ledger: ComparisonLedger) -> None:
 
 def _render_grounded_strengths(ledger: ComparisonLedger) -> str:
     if not ledger.strengths:
+        # A guided run ran the strength packet, and by construction only
+        # observations the person authored can ground a strength — stock Dex
+        # and assistant-shipped files never qualify.  An empty result is
+        # therefore a real answer and gets the honest sentence, never a
+        # silently missing section or padding.  Inventory-only runs never
+        # assessed strengths, so they render nothing here.
+        if ledger.work_audit is not None:
+            return (
+                "## What is especially strong here\n"
+                "Nothing beyond stock Dex cleared the strength bar.\n"
+            )
         return ""
     lines = ["## What is especially strong here"]
     for insight in ledger.strengths:
@@ -1036,6 +1049,43 @@ def _render_reciprocal_learning(ledger: ComparisonLedger) -> str:
             )
         )
     lines.extend(line for line in body[1:] if line)
+    return "\n".join(lines) + "\n"
+
+
+def _render_unique_to_you(ledger: ComparisonLedger) -> str:
+    """List the engine-computed authored, catalogue-unmatched items.
+
+    Minimal by design: each row is the item's existing ledger identity and
+    kind with the usual evidence pointer.  The list itself is engine-derived
+    (the observation origin axis), so the host can read it aloud but cannot
+    flatter by invention; it is the deterministic candidate list for the
+    reciprocal share-back offers, and nothing is ever shared without the
+    person approving exact words in a separate flow.
+    """
+
+    if not ledger.unique_to_you:
+        return ""
+    local_by_id = {entry.observation_id: entry for entry in ledger.local_entries}
+    rows = sorted(
+        (local_by_id[observation_id] for observation_id in ledger.unique_to_you),
+        key=lambda entry: (entry.identity, entry.kind.value),
+    )
+    count = len(rows)
+    lines = [
+        "## Unique to you",
+        (
+            f"{count} {_plural(count, 'item')} in your system "
+            f"{_plural(count, 'matches', 'match')} no signed Dex identity and did "
+            "not arrive with the assistant (engine-derived identity matching, not "
+            "judgement). These are yours alone — and the candidates worth offering "
+            "back as ideas, only ever in words you approve first."
+        ),
+    ]
+    lines.extend(
+        f"- `{entry.identity}` ({entry.kind.value}) — "
+        f"{_render_human_evidence(entry.evidence_references)}"
+        for entry in rows
+    )
     return "\n".join(lines) + "\n"
 
 

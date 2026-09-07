@@ -8,7 +8,7 @@ observed capability has progressed from declaration to a verified outcome.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -33,11 +33,14 @@ __all__ = [
     "HealthState",
     "Observation",
     "ObservationKind",
+    "ObservationOrigin",
     "OperationalState",
     "RuntimeState",
     "RunningState",
     "SafeAttribute",
     "SourceProvenance",
+    "derive_observation_origin",
+    "signed_identity_key",
     "upgrade_stored_fingerprint_payload",
     "upgrade_stored_observation_payload",
     "observation_id_for",
@@ -327,6 +330,87 @@ class ObservationKind(StrEnum):
     INTEGRATION_PROVIDER = "integration-provider"
     HEALTH_CHECK = "health-check"
     RECOVERY_PROOF = "recovery-proof"
+
+
+class ObservationOrigin(StrEnum):
+    """Closed authorship classes for one captured observation.
+
+    The axis exists to make one failure structurally impossible: Lens praising
+    stock Dex files back to their own vendor as the person's standout
+    strengths.  ``dex-stock`` means the observed item carries an identity the
+    signature-verified catalogue itself names, matched under the same reviewed
+    kind-aware rules the significant-family assessor uses — a signed fact, not
+    a fuzzy guess.  The signed catalogue publishes no per-item content digests,
+    so a dex-stock classification claims exactly "this identity is Dex's own
+    signed identity", never "this file is byte-identical to Dex's copy"; a
+    local rewrite kept under Dex's signed name stays ``dex-stock`` because,
+    with content unverifiable, the engine cannot distinguish it from the stock
+    file — and the conservative direction for strength eligibility is that an
+    indistinguishable item never grounds personal praise.  ``harness-shipped``
+    is the assistant's own vendored material (the ``anthropic-*`` set, plugin
+    or harness-bundled sources): SKILL.md's report rules already exclude it
+    from authorship claims.  ``authored`` is everything else — the person's
+    own work, the only class that may ground a strength or reciprocal claim
+    and the class the unique-to-you list is computed from.
+
+    The origin is engine-derived, deterministically, from capture-time
+    provenance facts plus the signed identity set of the run's verified
+    catalogue.  It is never stored on the observation and never accepted from
+    a submitted proposal or stored artifact: every consumer re-derives it
+    (the RISK-EXTERNAL-PASS-2026-09-07 A1 lesson — an unsigned stored flag is
+    an authority-laundering channel).
+    """
+
+    DEX_STOCK = "dex-stock"
+    HARNESS_SHIPPED = "harness-shipped"
+    AUTHORED = "authored"
+
+
+#: Source classes that arrive with the assistant itself rather than the
+#: person's system.  SKILL.md rule 5: harness-shipped is not authored.
+_HARNESS_SOURCE_CLASSES = frozenset(
+    {SourceClass.HARNESS_BUNDLED, SourceClass.PLUGIN_OR_VENDOR}
+)
+#: The assistant-vendored skill namespace named by SKILL.md's report rules.
+_HARNESS_IDENTITY_PREFIX = "anthropic-"
+
+
+def signed_identity_key(kind: ObservationKind | str, identity: str) -> str:
+    """One kind-qualified token in the signed-identity namespace.
+
+    Keys are kind-qualified on purpose: a signed skill id reused as the name
+    of a local automation is not that signed skill, exactly as the reviewed
+    family matcher refuses the equivalence.
+    """
+
+    return f"{ObservationKind(kind).value}:{identity}"
+
+
+def derive_observation_origin(
+    observation: Observation,
+    *,
+    signed_identity_keys: Collection[str],
+) -> ObservationOrigin:
+    """Derive one observation's authorship origin, deterministically.
+
+    ``signed_identity_keys`` is the engine-computed set of kind-qualified
+    identities the signature-verified catalogue names (see
+    :func:`capability_exchange.diagnosis.origin.signed_identity_keys_for`).
+    Harness-shipped wins over a signed-identity match: a vendored copy of a
+    Dex skill is the assistant's cargo, neither the person's strength nor a
+    fact about their vault's stock install.
+    """
+
+    if (
+        observation.provenance.source_class in _HARNESS_SOURCE_CLASSES
+        or observation.identity.startswith(_HARNESS_IDENTITY_PREFIX)
+    ):
+        return ObservationOrigin.HARNESS_SHIPPED
+    if signed_identity_key(observation.kind, observation.identity) in set(
+        signed_identity_keys
+    ):
+        return ObservationOrigin.DEX_STOCK
+    return ObservationOrigin.AUTHORED
 
 
 class SafeAttribute(InventoriedModel):

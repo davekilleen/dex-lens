@@ -29,6 +29,8 @@ from capability_exchange.diagnosis.observations import (
     ObservationKind,
     OperationalState,
     SafeAttribute,
+    SourceClass,
+    observation_key_for,
 )
 from capability_exchange.diagnosis.orchestrator import (
     MAX_FACTOR_TUPLES_PER_CANDIDATE,
@@ -804,7 +806,7 @@ def test_issued_packets_accept_out_of_order_interleaved_submission(
                     catalogue_id=CATALOGUE_ID,
                     capability_id=CAPABILITY_ID,
                     disposition=Disposition.STRONG_HERE,
-                    evidence_ids=(packet.evidence_ids[0],),
+                    evidence_ids=(_authored_citation(packet)[0],),
                     reason="The approved evidence shows a distinctive reliable method.",
                 ),
             )
@@ -919,6 +921,7 @@ def test_guided_normal_and_sceptical_proposals_reconcile_from_stored_work(
     engine.run_to(prepared.run_id, DiagnosisStage.ANALYSIS_PLANNED)
     normal = engine.engine.work(prepared.run_id)
     assert normal is not None
+    authored_token, authored_observation_id = _authored_citation(normal)
     proposal = SpecialistProposal(
         role=normal.role,
         kind=ProposalKind.STRENGTH,
@@ -935,8 +938,8 @@ def test_guided_normal_and_sceptical_proposals_reconcile_from_stored_work(
             normal.capability_ids[0],
         ),
         disposition=Disposition.STRONG_HERE,
-        evidence_ids=(normal.evidence_ids[0],),
-        observation_ids=(normal.observation_ids[0],),
+        evidence_ids=(authored_token,),
+        observation_ids=(authored_observation_id,),
         reason="The approved evidence shows a distinctive reliable method.",
     )
     engine.engine.submit_work(prepared.run_id, normal.packet_id, (proposal,))
@@ -1080,7 +1083,7 @@ def _drive_disputed_strength_run(engine: EngineHarness) -> tuple[str, WorkPacket
                 catalogue_id=CATALOGUE_ID,
                 capability_id=CAPABILITY_ID,
                 disposition=Disposition.STRONG_HERE,
-                evidence_ids=(first.evidence_ids[0],),
+                evidence_ids=(_authored_citation(first)[0],),
                 reason="The approved evidence shows a distinctive reliable method.",
             ),
         ),
@@ -1097,7 +1100,7 @@ def _drive_disputed_strength_run(engine: EngineHarness) -> tuple[str, WorkPacket
                 catalogue_id=CATALOGUE_ID,
                 capability_id=CAPABILITY_ID,
                 disposition=Disposition.FRAGILE_OR_CONTRADICTORY,
-                evidence_ids=(second.evidence_ids[0],),
+                evidence_ids=(_authored_citation(second)[0],),
                 reason="The same approved evidence shows a material contradiction.",
             ),
         ),
@@ -1152,7 +1155,7 @@ def test_sceptical_review_adjudicates_a_dispute_only_to_a_proposed_disposition(
             catalogue_id=CATALOGUE_ID,
             capability_id=CAPABILITY_ID,
             disposition=disposition,
-            evidence_ids=(sceptical.evidence_ids[0],),
+            evidence_ids=(_authored_citation(sceptical)[0],),
             reason=reason,
         )
 
@@ -1357,6 +1360,28 @@ def _bound_proposal(
         evidence_ids=evidence_ids,
         reason=reason,
     )
+
+
+def _authored_citation(packet: WorkPacket) -> tuple[str, str]:
+    """The minted (evidence token, observation id) of one authored observation.
+
+    A strength or reciprocal proposal must cite at least one authored
+    observation.  ``packet.evidence_ids`` is digest-sorted, so ``[0]`` could
+    land on the shared fixture's harness-bundled release token depending on
+    the run identity — pick the vault-authored observation deterministically.
+    """
+
+    observation = next(
+        item
+        for item in real_session_fingerprint().observations
+        if item.provenance.source_class is SourceClass.VAULT_AUTHORED
+    )
+    token = mint_evidence_token(
+        run_id=packet.run_id,
+        fingerprint_digest=packet.fingerprint_digest,
+        observation_key=observation_key_for(observation),
+    )
+    return token, observation.observation_id
 
 
 def test_guided_run_completes_when_agreeing_specialists_overflow_the_evidence_cap(
@@ -1626,7 +1651,7 @@ def _drive_honest_guided_analysis(engine: EngineHarness) -> str:
                 catalogue_id=CATALOGUE_ID,
                 capability_id=CAPABILITY_ID,
                 disposition=Disposition.STRONG_HERE,
-                evidence_ids=(first.evidence_ids[0],),
+                evidence_ids=(_authored_citation(first)[0],),
                 reason="The approved evidence shows a distinctive reliable method.",
             ),
         ),
@@ -1955,7 +1980,7 @@ def test_concurrent_submit_work_cannot_lose_or_replace_receipts(
         catalogue_id=CATALOGUE_ID,
         capability_id=CAPABILITY_ID,
         disposition=Disposition.STRONG_HERE,
-        evidence_ids=(packet_a.evidence_ids[0],),
+        evidence_ids=(_authored_citation(packet_a)[0],),
         reason="The approved evidence shows a distinctive reliable method.",
     )
     engine.engine.submit_work(prepared.run_id, packet_a.packet_id, (proposal_a,))

@@ -114,6 +114,7 @@ def _full_ledger(verified) -> ComparisonLedger:
         evidence_ids=(_EVIDENCE,),
         reason="Invented expectation grounded in the fixture evidence.",
     )
+    unique_observation_id = "observation:sha256:" + "b" * 64
     payload.update(
         {
             "workflow_graph": WorkflowGraph(nodes=(node,), edges=()).model_dump(mode="json"),
@@ -126,6 +127,23 @@ def _full_ledger(verified) -> ComparisonLedger:
             "workflow_insights": [
                 _insight("connection", InsightKind.WORKFLOW_CONNECTION).model_dump(mode="json")
             ],
+            "local_entries": [
+                {
+                    "observation_id": unique_observation_id,
+                    "kind": "skill",
+                    "identity": "invented-authored-skill",
+                    "configuration_state": ConfigurationState.IMPLEMENTED.value,
+                    "runtime_state": RuntimeState.NOT_ASSESSED.value,
+                    "health_state": HealthState.NOT_ASSESSED.value,
+                    "disposition": "not-assessed",
+                    "mapped_catalogue_ids": [],
+                    "mapped_capability_ids": [],
+                    "evidence_references": [_EVIDENCE],
+                    "reason": "Not assessed.",
+                    "limitation": "No local comparison was made.",
+                }
+            ],
+            "unique_to_you": [unique_observation_id],
         }
     )
     return ComparisonLedger.model_validate(payload)
@@ -152,6 +170,7 @@ _LEDGER_FIELDS = {
     "strengths",
     "reciprocal_lessons",
     "workflow_insights",
+    "unique_to_you",
 }
 
 #: The run-derived fields ``for_catalogue`` used to drop on reload, keyed to a
@@ -172,6 +191,7 @@ _RUN_DERIVED_TAMPERS = {
     "workflow_insights": lambda payload: payload["workflow_insights"][0].update(
         {"explanation": "Forged insight explanation."}
     ),
+    "unique_to_you": lambda payload: payload.update({"unique_to_you": []}),
 }
 
 

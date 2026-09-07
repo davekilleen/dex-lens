@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +21,8 @@ from capability_exchange.diagnosis.observations import (
     EvidenceFingerprint,
     Observation,
     ObservationKind,
+    ObservationOrigin,
+    derive_observation_origin,
     observation_key_for,
     upgrade_stored_fingerprint_payload,
 )
@@ -274,6 +276,12 @@ class VerifiedCatalogueSlice:
     unavailable_ids: tuple[str, ...] = ()
     family_contract_present: bool = False
     core_release: str | None = None
+    #: Kind-qualified identities the signed catalogue names, derived by the
+    #: loader from the signature-verified envelope on every load.  The engine
+    #: keys each observation's authorship origin on this set; it is never
+    #: written to or read back from the stored catalogue artifact, so a stored
+    #: copy can never launder a different identity set into the derivation.
+    signed_identity_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1282,7 +1290,11 @@ class DeterministicDiagnosisEngine:
             run_id=checkpoint.run_id,
             fingerprint_digest=fingerprint_digest_for(self._fingerprint(checkpoint)),
         )
-        if stored != derived:
+        # ``signed_identity_keys`` is deliberately absent from the stored
+        # artifact: it is loader-derived from the signed envelope on every
+        # load, so the equality check covers exactly the stored fields and
+        # authority stays with the derived slice.
+        if stored != replace(derived, signed_identity_keys=()):
             raise DiagnosisStateError(
                 "stored catalogue facts do not match the verified catalogue; "
                 "start a new run"
@@ -1296,27 +1308,43 @@ class DeterministicDiagnosisEngine:
         catalogue: VerifiedCatalogueSlice,
     ) -> ProposalContext:
         digest = fingerprint_digest_for(fingerprint)
-        evidence_ids = tuple(
-            mint_evidence_token(
+        # The authorship axis is re-derived on every context build from the
+        # fingerprint plus the loader's signature-derived identity keys —
+        # never accepted from a submitted proposal or a stored artifact (the
+        # RISK-EXTERNAL-PASS-2026-09-07 A1 lesson).  Strength and reciprocal
+        # proposals must cite at least one authored observation, directly or
+        # through its minted evidence token.
+        signed_keys = frozenset(catalogue.signed_identity_keys)
+        evidence_ids: list[str] = []
+        observation_ids: list[str] = []
+        authored_evidence_ids: list[str] = []
+        authored_observation_ids: list[str] = []
+        for item in fingerprint.observations:
+            token = mint_evidence_token(
                 run_id=checkpoint.run_id,
                 fingerprint_digest=digest,
                 observation_key=(
                     f"{item.kind.value}:{item.identity}:{item.provenance.source_id}"
                 ),
             )
-            for item in fingerprint.observations
-        )
-        observation_ids = tuple(item.observation_id for item in fingerprint.observations)
+            evidence_ids.append(token)
+            observation_ids.append(item.observation_id)
+            origin = derive_observation_origin(item, signed_identity_keys=signed_keys)
+            if origin is ObservationOrigin.AUTHORED:
+                authored_evidence_ids.append(token)
+                authored_observation_ids.append(item.observation_id)
         return ProposalContext(
             run_id=checkpoint.run_id,
             fingerprint_digest=digest,
             catalogue_digest="sha256:" + catalogue.sha256,
-            evidence_ids=evidence_ids,
+            evidence_ids=tuple(evidence_ids),
             catalogue_ids=catalogue.catalogue_ids,
             capability_ids=catalogue.capability_ids,
-            observation_ids=observation_ids,
+            observation_ids=tuple(observation_ids),
             held_ids=catalogue.unavailable_ids,
             family_contract_present=catalogue.family_contract_present,
+            authored_observation_ids=tuple(sorted(authored_observation_ids)),
+            authored_evidence_ids=tuple(sorted(authored_evidence_ids)),
         )
 
     def _proposal_context_for_packet(

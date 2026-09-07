@@ -87,6 +87,7 @@ def load_and_validate_ledger(
             strengths=ledger.strengths,
             reciprocal_lessons=ledger.reciprocal_lessons,
             workflow_insights=ledger.workflow_insights,
+            unique_to_you=ledger.unique_to_you,
         )
     except ValidationError as exc:
         return None, [f"the comparison ledger is incomplete: {exc.errors()[0]['msg']}"]

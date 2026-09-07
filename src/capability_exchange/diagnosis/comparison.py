@@ -669,6 +669,12 @@ class ComparisonLedger(_ValidatedInventoried):
     strengths: tuple[GroundedInsight, ...] = ()
     reciprocal_lessons: tuple[GroundedInsight, ...] = ()
     workflow_insights: tuple[GroundedInsight, ...] = ()
+    #: Engine-computed unique-to-you candidates: observation identities whose
+    #: derived origin is ``authored`` — matching no signed Dex identity and not
+    #: assistant-shipped.  This list feeds both reciprocal share-back moments;
+    #: it is derived at comparison from the fingerprint and the signed
+    #: catalogue, never proposed by a specialist or a host.
+    unique_to_you: tuple[str, ...] = ()
 
     @field_validator("reciprocal_answer")
     @classmethod
@@ -758,6 +764,14 @@ class ComparisonLedger(_ValidatedInventoried):
         family_ids = [item.family_id for item in self.family_entries]
         if len(family_ids) != len(set(family_ids)):
             raise ValueError("comparison ledger contains a duplicate family identity")
+        if self.unique_to_you != tuple(sorted(set(self.unique_to_you))):
+            raise ValueError(
+                "unique-to-you observation identities must be unique and canonically sorted"
+            )
+        if not set(self.unique_to_you) <= set(observation_ids):
+            raise ValueError(
+                "unique-to-you must reference this ledger's local observation rows"
+            )
         if self.version_distance is not None:
             delta_by_id = {item.family_id: item for item in self.version_distance.families}
             family_by_id = {item.family_id: item for item in self.family_entries}
@@ -798,6 +812,7 @@ class ComparisonLedger(_ValidatedInventoried):
         strengths: tuple[GroundedInsight, ...] | None = None,
         reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
         workflow_insights: tuple[GroundedInsight, ...] | None = None,
+        unique_to_you: tuple[str, ...] | None = None,
     ) -> ComparisonLedger:
         """Validate a ledger against the exact verified catalogue identity set.
 
@@ -831,6 +846,7 @@ class ComparisonLedger(_ValidatedInventoried):
                 strengths=strengths,
                 reciprocal_lessons=reciprocal_lessons,
                 workflow_insights=workflow_insights,
+                unique_to_you=unique_to_you,
             )
         expected = {item.capability_id for item in catalogue.capabilities}
         actual = [item.catalogue_id for item in entries]
@@ -932,6 +948,7 @@ class ComparisonLedger(_ValidatedInventoried):
             strengths=strengths or (),
             reciprocal_lessons=reciprocal_lessons or (),
             workflow_insights=workflow_insights or (),
+            unique_to_you=unique_to_you or (),
         )
 
     @classmethod
@@ -956,6 +973,7 @@ class ComparisonLedger(_ValidatedInventoried):
         strengths: tuple[GroundedInsight, ...] | None = None,
         reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
         workflow_insights: tuple[GroundedInsight, ...] | None = None,
+        unique_to_you: tuple[str, ...] | None = None,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
 
@@ -1061,6 +1079,7 @@ class ComparisonLedger(_ValidatedInventoried):
             strengths=strengths or (),
             reciprocal_lessons=reciprocal_lessons or (),
             workflow_insights=workflow_insights or (),
+            unique_to_you=unique_to_you or (),
         )
 
     def derived_summary(self) -> LedgerSummary:

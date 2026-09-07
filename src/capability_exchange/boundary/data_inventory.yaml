@@ -1945,6 +1945,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral grounded strength insights"
 
+  ComparisonLedger.unique_to_you:
+    description: "observation identities the engine classified as the person's own authored work"
+    collection: "re-derived at comparison from the fingerprint and the signed catalogue identities"
+    derivation: "origin axis: authored observations matching no signed Dex identity, sorted"
+    display: "shown under Unique to you; feeds the reciprocal share-back offers"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived unique-to-you candidate identities"
+
   ComparisonLedger.reciprocal_lessons:
     description: "evidence-bound reciprocal lessons for Dex"
     collection: "derived locally from reconciled specialist proposals"
@@ -9736,6 +9746,26 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral engine-owned observation identities"
+
+  ProposalContext.authored_observation_ids:
+    description: "observation identities the engine classified as the person's own work"
+    collection: "re-derived per context from the fingerprint and the signed catalogue identities"
+    derivation: "origin axis: not harness-shipped and matching no signed Dex identity"
+    display: "gates strength and reciprocal proposals; never rendered itself"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived authorship classification"
+
+  ProposalContext.authored_evidence_ids:
+    description: "engine-minted evidence tokens of the authored observations"
+    collection: "re-derived per context from the fingerprint and the signed catalogue identities"
+    derivation: "the minted evidence token of each authored observation"
+    display: "gates strength and reciprocal proposals; never rendered itself"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral engine-derived authorship classification"
 
   ValidatedProposal.observation_ids:
     description: "validated local observation identities retained on a proposal"
