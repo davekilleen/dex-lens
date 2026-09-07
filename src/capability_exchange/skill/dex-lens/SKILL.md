@@ -918,6 +918,31 @@ answer each packet the way "How to work one packet" above describes —
 proposals cite only evidence the engine already holds. Ask for `status`
 again when the round is done, not between submissions.
 
+**Focused mode: the person steers after the family map.** A run prepared
+with `--mode focused-analysis` pauses after the deterministic family map.
+Read the map back to the person (one line per family, in the map's own
+states) and offer the multi-select: which areas are worth a real look. When
+they choose, record exactly their words' worth of families —
+
+```
+dex-lens diagnosis focus --run <id> --family <family-id> [--family <id> ...]
+```
+
+— and the engine mints the focus receipt (`status` shows it) and scopes
+every packet's catalogue/capability identity slice to the selected
+families' signed member lists. Never assemble that slice yourself. Inside a
+selected family, **every member capability gets its own verdict, one by
+one** — shared, not relevant, worth borrowing, or an explicit reasoned
+could-not-tell. The engine refuses a family packet response that leaves a
+member silent, and refuses to compare or close while any selected-family
+member holds a silent not-assessed row. Unselected families are not
+demanded; they stay loudly not-assessed and are named in "What you
+decided". Speak the verdicts in the offer voice, not an audit's: what Dex
+has that this person *appears not to have* (with the map row or quoted
+search as the basis), and what having it would improve for *their* system —
+both halves evidenced, never "you scored 3 of 6". `--mode guided-analysis`
+remains the default and still assesses everything.
+
 The engine owns the ledger. Do not calculate or rewrite catalogue totals.
 Unavailable entries cannot be recommended.
 

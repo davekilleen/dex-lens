@@ -248,6 +248,18 @@ def canonical_ledger_payload(ledger: ComparisonLedger) -> dict[str, object]:
         "reciprocal_lessons": [_insight_row(item) for item in ledger.reciprocal_lessons],
         "workflow_insights": [_insight_row(item) for item in ledger.workflow_insights],
         "unique_to_you": list(ledger.unique_to_you),
+        # Present only when a focused run recorded a selection, so every
+        # guided/inventory ledger — including every one saved before the mode
+        # existed — keeps its exact digest, while a focused ledger's digest
+        # binds the selection facts the decisions section renders.
+        **(
+            {
+                "focus_selected_family_ids": list(ledger.focus_selected_family_ids),
+                "focus_unselected_family_ids": list(ledger.focus_unselected_family_ids),
+            }
+            if ledger.focus_selected_family_ids or ledger.focus_unselected_family_ids
+            else {}
+        ),
     }
 
 
@@ -459,15 +471,30 @@ class ReportModel(InventoriedModel):
             f"\n{_render_wow_expectations(ledger)}"
             f"\n{appendix}"
             "\n"
-            f"{self._render_decisions()}"
+            f"{self._render_decisions(ledger)}"
             "\n"
             f"{self._render_close(ledger)}"
         )
 
-    def _render_decisions(self) -> str:
+    def _render_decisions(self, ledger: ComparisonLedger) -> str:
         lines = ["## What you decided"]
+        # A focused run's family multi-select is itself a decision the next
+        # run must remember: what was examined by choice, and what was
+        # explicitly left for later.  The facts come from the ledger, which
+        # copied them from the engine-validated focus receipt.
+        if ledger.focus_selected_family_ids:
+            lines.append(
+                "- Focused this run on: "
+                + ", ".join(ledger.focus_selected_family_ids)
+            )
+        if ledger.focus_unselected_family_ids:
+            lines.append(
+                "- Explicitly not selected this run: "
+                + ", ".join(ledger.focus_unselected_family_ids)
+            )
         if not self.decisions:
-            lines.append("No decisions were on the table this time.")
+            if not ledger.focus_selected_family_ids:
+                lines.append("No decisions were on the table this time.")
             return "\n".join(lines) + "\n"
         for decision in self.decisions:
             fate = "offered" if decision.state is DecisionState.OFFERED else "taken"

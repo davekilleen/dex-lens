@@ -88,6 +88,8 @@ def load_and_validate_ledger(
             reciprocal_lessons=ledger.reciprocal_lessons,
             workflow_insights=ledger.workflow_insights,
             unique_to_you=ledger.unique_to_you,
+            focus_selected_family_ids=ledger.focus_selected_family_ids,
+            focus_unselected_family_ids=ledger.focus_unselected_family_ids,
         )
     except ValidationError as exc:
         return None, [f"the comparison ledger is incomplete: {exc.errors()[0]['msg']}"]

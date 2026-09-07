@@ -145,6 +145,8 @@ def _full_ledger(verified) -> ComparisonLedger:
                 }
             ],
             "unique_to_you": [unique_observation_id],
+            "focus_selected_family_ids": ["backup-and-restore-confidence"],
+            "focus_unselected_family_ids": ["durable-work-memory"],
         }
     )
     return ComparisonLedger.model_validate(payload)
@@ -172,6 +174,8 @@ _LEDGER_FIELDS = {
     "reciprocal_lessons",
     "workflow_insights",
     "unique_to_you",
+    "focus_selected_family_ids",
+    "focus_unselected_family_ids",
 }
 
 #: The run-derived fields ``for_catalogue`` used to drop on reload, keyed to a
@@ -193,6 +197,12 @@ _RUN_DERIVED_TAMPERS = {
         {"explanation": "Forged insight explanation."}
     ),
     "unique_to_you": lambda payload: payload.update({"unique_to_you": []}),
+    "focus_selected_family_ids": lambda payload: payload.update(
+        {"focus_selected_family_ids": ["forged-family-choice"]}
+    ),
+    "focus_unselected_family_ids": lambda payload: payload.update(
+        {"focus_unselected_family_ids": ["forged-family-remainder"]}
+    ),
 }
 
 

@@ -55,6 +55,7 @@ EXPECTED_TOOLS = {
     "get_diagnosis_status",
     "advance_diagnosis",
     "get_diagnosis_family_map",
+    "confirm_diagnosis_focus",
     "get_diagnosis_work",
     "submit_specialist_proposal",
     "get_diagnosis_result",
@@ -113,6 +114,7 @@ class DiagnosisEngine(Protocol):
     def status(self, run_id: str) -> StoredResult: ...
     def advance(self, run_id: str) -> StoredResult: ...
     def family_map(self, run_id: str) -> object: ...
+    def focus(self, run_id: str, family_ids: tuple[str, ...]) -> StoredResult: ...
     def work(self, run_id: str) -> object: ...
     def pending_work(self, run_id: str) -> tuple[object, ...]: ...
     def work_context(self, run_id: str) -> tuple[object, ...]: ...
@@ -218,6 +220,7 @@ def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:
     _register_advance_tool(server, engine)
     register_prepare_tool(server, engine)
     register_family_map_tool(server, engine)
+    register_focus_tool(server, engine)
     register_work_tool(server, engine)
     register_proposal_tool(server, engine)
     register_result_tool(server, engine)
@@ -259,6 +262,19 @@ def register_family_map_tool(server: MCPServer, engine: DiagnosisEngine) -> None
                 raise ToolError("family map is not a closed typed payload")
             _refuse_hostile_payload(payload)
             return payload
+
+
+def register_focus_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
+    @server.tool(annotations=_READ_ONLY)
+    def confirm_diagnosis_focus(
+        run_id: str,
+        family_ids: list[str],
+    ) -> dict[str, object]:
+        """Record the person's family multi-select for a focused-analysis run."""
+        with _crash_boundary():
+            if not family_ids or not all(isinstance(item, str) for item in family_ids):
+                raise ToolError("focus requires at least one family identity string")
+            return _dump(engine.focus, run_id, tuple(family_ids))
 
 
 def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:

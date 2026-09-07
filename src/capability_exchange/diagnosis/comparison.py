@@ -693,6 +693,22 @@ class ComparisonLedger(_ValidatedInventoried):
     #: it is derived at comparison from the fingerprint and the signed
     #: catalogue, never proposed by a specialist or a host.
     unique_to_you: tuple[str, ...] = ()
+    #: The focused run's recorded selection, copied from the engine-validated
+    #: focus receipt at comparison: the families the person selected and the
+    #: families explicitly not selected.  Empty on guided and inventory runs.
+    #: These facts feed the report's decisions section so a later run knows
+    #: what was never examined by choice.
+    focus_selected_family_ids: tuple[str, ...] = ()
+    focus_unselected_family_ids: tuple[str, ...] = ()
+
+    @field_validator("focus_selected_family_ids", "focus_unselected_family_ids")
+    @classmethod
+    def _focus_family_ids_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if values != tuple(sorted(set(values))):
+            raise ValueError(
+                "focus family identities must be unique and canonically sorted"
+            )
+        return values
 
     @field_validator("reciprocal_answer")
     @classmethod
@@ -790,6 +806,10 @@ class ComparisonLedger(_ValidatedInventoried):
             raise ValueError(
                 "unique-to-you must reference this ledger's local observation rows"
             )
+        if set(self.focus_selected_family_ids) & set(self.focus_unselected_family_ids):
+            raise ValueError(
+                "a family cannot be both selected and explicitly not selected"
+            )
         if self.version_distance is not None:
             delta_by_id = {item.family_id: item for item in self.version_distance.families}
             family_by_id = {item.family_id: item for item in self.family_entries}
@@ -831,6 +851,8 @@ class ComparisonLedger(_ValidatedInventoried):
         reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
         workflow_insights: tuple[GroundedInsight, ...] | None = None,
         unique_to_you: tuple[str, ...] | None = None,
+        focus_selected_family_ids: tuple[str, ...] | None = None,
+        focus_unselected_family_ids: tuple[str, ...] | None = None,
     ) -> ComparisonLedger:
         """Validate a ledger against the exact verified catalogue identity set.
 
@@ -865,6 +887,8 @@ class ComparisonLedger(_ValidatedInventoried):
                 reciprocal_lessons=reciprocal_lessons,
                 workflow_insights=workflow_insights,
                 unique_to_you=unique_to_you,
+                focus_selected_family_ids=focus_selected_family_ids,
+                focus_unselected_family_ids=focus_unselected_family_ids,
             )
         expected = {item.capability_id for item in catalogue.capabilities}
         actual = [item.catalogue_id for item in entries]
@@ -977,6 +1001,8 @@ class ComparisonLedger(_ValidatedInventoried):
             reciprocal_lessons=reciprocal_lessons or (),
             workflow_insights=workflow_insights or (),
             unique_to_you=unique_to_you or (),
+            focus_selected_family_ids=focus_selected_family_ids or (),
+            focus_unselected_family_ids=focus_unselected_family_ids or (),
         )
 
     @classmethod
@@ -1002,6 +1028,8 @@ class ComparisonLedger(_ValidatedInventoried):
         reciprocal_lessons: tuple[GroundedInsight, ...] | None = None,
         workflow_insights: tuple[GroundedInsight, ...] | None = None,
         unique_to_you: tuple[str, ...] | None = None,
+        focus_selected_family_ids: tuple[str, ...] | None = None,
+        focus_unselected_family_ids: tuple[str, ...] | None = None,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
 
@@ -1108,6 +1136,8 @@ class ComparisonLedger(_ValidatedInventoried):
             reciprocal_lessons=reciprocal_lessons or (),
             workflow_insights=workflow_insights or (),
             unique_to_you=unique_to_you or (),
+            focus_selected_family_ids=focus_selected_family_ids or (),
+            focus_unselected_family_ids=focus_unselected_family_ids or (),
         )
 
     def derived_summary(self) -> LedgerSummary:

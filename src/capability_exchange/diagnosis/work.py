@@ -20,12 +20,14 @@ from capability_exchange.diagnosis.run import _ValidatedInventoried, canonical_j
 from capability_exchange.diagnosis.specialists import SpecialistRole
 
 __all__ = [
+    "FOCUS_PRIMARY_ROLES",
     "MAX_ATTEMPTS_PER_PACKET",
     "MAX_EVIDENCE_IDS_PER_PACKET",
     "MAX_PACKET_EVIDENCE_IDS",
     "MAX_PROPOSALS_PER_PACKET",
     "NORMAL_ROLES",
     "AnalysisMode",
+    "focus_primary_role",
     "WorkAudit",
     "WorkPacket",
     "WorkQueue",
@@ -66,6 +68,12 @@ class AnalysisMode(StrEnum):
 
     INVENTORY_ONLY = "inventory-only"
     GUIDED = "guided-analysis"
+    #: The two-pass product mode: after the deterministic family map the
+    #: person multi-selects families, the engine mints a focus receipt, and
+    #: every packet's catalogue/capability identity slice is the union of the
+    #: selected families' signed member lists — engine-derived, never
+    #: host-supplied.  GUIDED remains the untouched all-families default.
+    FOCUSED = "focused-analysis"
 
 
 class WorkStatus(StrEnum):
@@ -135,6 +143,41 @@ _ROLE_QUESTIONS: dict[SpecialistRole, str] = {
         "a final evidence and contradiction check?"
     ),
 }
+
+# The fixed (family -> primary role) table for focused runs.  Each selected
+# family is led by exactly one normal specialist role; that packet's receipt
+# is accepted as completed only when its proposals give every member of its
+# assigned selected families a verdict (the founder's full-coverage rule).
+# Keys are the signed Wow Gate manifest family identities — catalogue data can
+# select a family but cannot add a key or move one to a different role.
+FOCUS_PRIMARY_ROLES: dict[str, SpecialistRole] = {
+    "meeting-follow-through": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "living-people-company-context": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "durable-task-continuity": SpecialistRole.PEOPLE_AND_WORK_CONTINUITY,
+    "external-task-interoperability": SpecialistRole.TOOLS_AND_INTEGRATIONS,
+    "connected-work-context": SpecialistRole.TOOLS_AND_INTEGRATIONS,
+    "pipedrive-pipeline-continuity": SpecialistRole.TOOLS_AND_INTEGRATIONS,
+    "daily-weekly-operating-rhythm": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "durable-work-memory": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "career-growth-evidence": SpecialistRole.OPERATING_RHYTHM_AND_MEMORY,
+    "proactive-health-and-recovery": SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+    "backup-and-restore-confidence": SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+    "safe-change-and-rewind": SpecialistRole.AUTOMATIONS_AND_LIVE_STATE,
+    "capability-discovery-and-adoption": SpecialistRole.RELEASE_DISTANCE,
+    "privacy-safe-feedback-loop": SpecialistRole.CONTRADICTIONS_AND_RELIABILITY,
+}
+
+
+def focus_primary_role(family_id: str) -> SpecialistRole:
+    """Return the fixed primary role leading one family's focused dive.
+
+    A signed family outside the fixed table falls back deterministically to
+    the workflow-synthesis specialist, so a future manifest addition can never
+    make coverage enforcement silently skip a selected family.
+    """
+
+    return FOCUS_PRIMARY_ROLES.get(family_id, SpecialistRole.WORKFLOW_SYNTHESIS)
+
 
 # Superseded wordings stay loadable: stored packets carry the question they
 # were issued with and are re-validated on load, so a run saved before a
@@ -384,6 +427,9 @@ class WorkQueue(_ValidatedInventoried):
             if self.packets or self.receipts or self.sceptical_packet_id is not None:
                 raise ValueError("inventory-only work queue must contain no packets")
             return self
+        # GUIDED and FOCUSED share the queue shape: the exact normal roles in
+        # order plus the locked sceptical packet.  A focused queue differs only
+        # in its (still shared) engine-derived identity slice.
         if tuple(item.role for item in self.packets) != expected_roles:
             raise ValueError(
                 "guided work queue must contain the exact normal roles followed by "
@@ -603,7 +649,9 @@ class WorkAudit(_ValidatedInventoried):
         final_ids = {
             receipt.packet_id for receipt in self.receipts if receipt.status in _FINAL_STATUSES
         }
-        if self.mode is AnalysisMode.GUIDED and self.packet_ids[-1] in set(receipt_ids):
+        if self.mode is not AnalysisMode.INVENTORY_ONLY and self.packet_ids[-1] in set(
+            receipt_ids
+        ):
             if not set(self.packet_ids[:-1]) <= final_ids:
                 raise ValueError("sceptical audit receipt requires final normal receipts")
         expected_completed = sum(

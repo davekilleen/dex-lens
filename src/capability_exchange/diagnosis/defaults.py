@@ -77,6 +77,7 @@ from capability_exchange.diagnosis.run import (
     ApprovedScopeReceipt,
     DiagnosisStateError,
     FamilyMap,
+    FocusReceipt,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.significant_families import assess_significant_families
@@ -820,6 +821,14 @@ class CachedCatalogueLoader:
             # load, never read back from a stored artifact: the engine keys
             # each observation's authorship origin on this set.
             signed_identity_keys=tuple(sorted(signed_identity_keys_for(catalogue))),
+            # Same discipline for the signed family member lists: focused runs
+            # derive every packet's identity slice from exactly this set.
+            signed_family_members=tuple(
+                (family.family_id, tuple(family.member_capability_ids))
+                for family in sorted(
+                    catalogue.capability_families, key=lambda item: item.family_id
+                )
+            ),
         )
 
 
@@ -874,6 +883,7 @@ class UnknownUntilProposedComparer:
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
         work_audit: WorkAudit | None = None,
+        focus: FocusReceipt | None = None,
     ) -> ComparisonLedger:
         del jobs
         envelope = _load_diagnosis_envelope(self._store, self._keyring)
@@ -958,6 +968,17 @@ class UnknownUntilProposedComparer:
             reciprocal_lessons=reciprocal_lessons,
             workflow_insights=workflow_insights,
             unique_to_you=unique_to_you,
+            # The engine-validated focus receipt is the only source of these
+            # selection facts: the ledger (and through it the report's
+            # decisions section) records what was selected and what was
+            # explicitly not, so a later delta run knows what was never
+            # examined by choice.
+            focus_selected_family_ids=(
+                focus.selected_family_ids if focus is not None else ()
+            ),
+            focus_unselected_family_ids=(
+                focus.unselected_family_ids if focus is not None else ()
+            ),
         )
 
 

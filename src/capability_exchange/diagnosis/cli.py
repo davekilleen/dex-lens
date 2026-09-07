@@ -63,6 +63,8 @@ class DeterministicDiagnosisEngine(Protocol):
 
     def family_map(self, run_id: str) -> object: ...
 
+    def focus(self, run_id: str, family_ids: tuple[str, ...]) -> DiagnosisRunView: ...
+
     def work(self, run_id: str) -> object: ...
 
     def pending_work(self, run_id: str) -> tuple[object, ...]: ...
@@ -100,18 +102,20 @@ class _BoundConsentSurface:
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
 _DIAGNOSIS_COMMANDS = frozenset(
-    {"prepare", "approve", "status", "advance", "map", "work", "submit", "result"}
+    {"prepare", "approve", "status", "advance", "map", "focus", "work", "submit", "result"}
 )
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
 
 JSON goes to stdout. Refusals and human guidance go to stderr.
 
-    dex-lens diagnosis prepare --root <folder> [--mode guided-analysis|inventory-only]
+    dex-lens diagnosis prepare --root <folder>
+        [--mode guided-analysis|focused-analysis|inventory-only]
     dex-lens diagnosis approve --run <id>
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
     dex-lens diagnosis map --run <id> [--json]
+    dex-lens diagnosis focus --run <id> --family <id> [--family <id> ...]
     dex-lens diagnosis work --run <id> --json
     dex-lens diagnosis submit --run <id> --packet <id> [--proposal <json-file>]
     dex-lens diagnosis result --run <id> --format json|markdown
@@ -236,6 +240,7 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         "status": _status,
         "advance": _advance,
         "map": _map,
+        "focus": _focus,
         "work": _work,
         "submit": _submit,
         "result": _result,
@@ -388,9 +393,17 @@ def _prepare(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--mode",
-        choices=(AnalysisMode.GUIDED.value, AnalysisMode.INVENTORY_ONLY.value),
+        choices=(
+            AnalysisMode.GUIDED.value,
+            AnalysisMode.FOCUSED.value,
+            AnalysisMode.INVENTORY_ONLY.value,
+        ),
         default=AnalysisMode.GUIDED.value,
-        help="Analysis mode. Guided analysis issues engine-owned specialist work.",
+        help=(
+            "Analysis mode. Guided analysis issues engine-owned specialist work "
+            "across every family; focused analysis waits for a family "
+            "multi-select after the deterministic map and scopes packets to it."
+        ),
     )
     parser.add_argument(
         "--consent-surface",
@@ -647,6 +660,31 @@ def _map(argv: list[str]) -> int:
         return 2
     sys.stdout.write(rendered)
     return 0
+
+
+def _focus(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis focus",
+        "Record the person's family multi-select for a focused-analysis run.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--family",
+        action="append",
+        default=[],
+        required=True,
+        help="A selected family ID from the family map. May be repeated.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the canonical run view as JSON on stdout.",
+    )
+    args = parser.parse_args(argv)
+    view = build_engine().focus(args.run, tuple(args.family))
+    # The view can now carry the focus receipt (map-bound facts), so it clears
+    # the same outbound payload guard as status.
+    return _write_guarded_canonical_json(view.dump_for_storage())
 
 
 def _work(argv: list[str]) -> int:

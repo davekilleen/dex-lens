@@ -30,6 +30,7 @@ __all__ = [
     "FamilyMap",
     "FamilyMapRow",
     "FamilyReleaseDelta",
+    "FocusReceipt",
     "RequiredStep",
     "RunIdentity",
     "advance_to",
@@ -61,6 +62,10 @@ class RequiredStep(StrEnum):
     CAPTURE_FINGERPRINT = "capture_fingerprint"
     VERIFY_CATALOGUE = "verify_catalogue"
     MAP_FAMILIES = "map_families"
+    #: A focused run cannot confirm jobs until the person's family selection
+    #: is recorded as a focus receipt.  Not a stage of its own: the refusal on
+    #: the family-mapped -> jobs-confirmed transition names this step.
+    CONFIRM_FOCUS = "confirm_focus"
     CONFIRM_JOBS = "confirm_jobs"
     PLAN_ANALYSIS = "plan_analysis"
     SUBMIT_WORK = "submit_work"
@@ -374,13 +379,72 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
         return self
 
 
+_FAMILY_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,119}$")
+
+
+class FocusReceipt(_ValidatedInventoried):
+    """Typed record of the person's family multi-select for one focused run.
+
+    Minted by the engine after the deterministic family map: it binds the
+    exact families selected AND the families explicitly not selected, plus the
+    digest of the family map the choice was made against.  The engine
+    re-validates the receipt against the re-derived map on every consuming
+    read, so a stored receipt that no longer matches this run's map is refused
+    rather than trusted (the same artifact discipline as the family map).
+    """
+
+    run_id: str = Field(pattern=_RUN_ID.pattern)
+    family_map_digest: str = Field(pattern=_SHA256.pattern)
+    selected_family_ids: tuple[str, ...] = Field(min_length=1)
+    unselected_family_ids: tuple[str, ...] = ()
+    focus_digest: str = Field(pattern=_SHA256.pattern)
+    confirmed_at: datetime
+
+    @field_validator("selected_family_ids", "unselected_family_ids")
+    @classmethod
+    def _family_ids_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("focus receipt family identities must be unique")
+        if tuple(sorted(values)) != tuple(values):
+            raise ValueError("focus receipt family identities must be sorted")
+        for value in values:
+            if _FAMILY_ID.fullmatch(value) is None:
+                raise ValueError("focus receipt family identities must be bounded ids")
+        return values
+
+    @field_validator("confirmed_at")
+    @classmethod
+    def _confirmed_at_is_aware(cls, value: datetime) -> datetime:
+        return _require_aware(value, "confirmed_at")
+
+    @model_validator(mode="after")
+    def _digest_binds_the_exact_selection(self) -> Self:
+        if set(self.selected_family_ids) & set(self.unselected_family_ids):
+            raise ValueError(
+                "a family cannot be both selected and explicitly not selected"
+            )
+        expected = canonical_json_digest(
+            {
+                "family_map_digest": self.family_map_digest,
+                "run_id": self.run_id,
+                "selected_family_ids": list(self.selected_family_ids),
+                "unselected_family_ids": list(self.unselected_family_ids),
+            }
+        )
+        if self.focus_digest != expected:
+            raise ValueError("focus_digest must bind the exact recorded selection")
+        return self
+
+
 class RunIdentity(_ValidatedInventoried):
     """Stable public identity for one diagnosis run."""
 
     run_id: str = Field(pattern=_RUN_ID.pattern)
     engine_version: str = Field(min_length=1, max_length=64)
     input_schema_version: str = Field(min_length=1, max_length=16)
-    analysis_mode: Literal["inventory-only", "guided-analysis"] = "inventory-only"
+    analysis_mode: Literal[
+        "inventory-only", "guided-analysis", "focused-analysis"
+    ] = "inventory-only"
     created_at: datetime
 
     @field_validator("created_at")
@@ -401,7 +465,9 @@ class DiagnosisInput(_ValidatedInventoried):
     catalogue_version: int = Field(ge=1)
     catalogue_sha256: str = Field(pattern=_HEX_SHA256.pattern)
     confirmed_jobs: tuple[SuccessContract, ...] = ()
-    analysis_mode: Literal["inventory-only", "guided-analysis"] = "guided-analysis"
+    analysis_mode: Literal[
+        "inventory-only", "guided-analysis", "focused-analysis"
+    ] = "guided-analysis"
     assessed_at: datetime
 
     @field_validator("assessed_at")
@@ -489,6 +555,10 @@ class DiagnosisRunView(_ValidatedInventoried):
     #: the run has passed the family-mapped stage.  Never loaded from the
     #: stored artifact.
     family_map: FamilyMap | None = None
+    #: The recorded family multi-select for a focused run, re-validated
+    #: against the re-derived family map on every status read.  ``None`` until
+    #: the person's selection is recorded (and always for guided runs).
+    focus: FocusReceipt | None = None
 
 
 def advance_to(

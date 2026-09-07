@@ -52,6 +52,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStage,
     DiagnosisStateError,
     FamilyMap,
+    FocusReceipt,
     RequiredStep,
     RunIdentity,
     _ValidatedInventoried,
@@ -76,6 +77,7 @@ from capability_exchange.diagnosis.specialists import (
     validate_proposal,
 )
 from capability_exchange.diagnosis.work import (
+    MAX_PROPOSALS_PER_PACKET,
     AnalysisMode,
     WorkAudit,
     WorkPacket,
@@ -84,6 +86,7 @@ from capability_exchange.diagnosis.work import (
     WorkReceipt,
     WorkStatus,
     build_work_queue,
+    focus_primary_role,
 )
 from capability_exchange.reports.store import LensReportStore
 
@@ -296,6 +299,12 @@ class VerifiedCatalogueSlice:
     #: written to or read back from the stored catalogue artifact, so a stored
     #: copy can never launder a different identity set into the derivation.
     signed_identity_keys: tuple[str, ...] = ()
+    #: (family_id, member capability ids) pairs from the signed family
+    #: contract, loader-derived from the signature-verified envelope on every
+    #: load and never read back from a stored artifact.  Focused runs derive
+    #: every packet's catalogue/capability identity slice from exactly this
+    #: set, so nothing host-supplied can enter a slice.
+    signed_family_members: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -348,7 +357,12 @@ class VerifiedCatalogueLoader(Protocol):
 
 
 class ComparisonBuilder(Protocol):
-    """Constructor-injected wrap over ComparisonLedger construction."""
+    """Constructor-injected wrap over ComparisonLedger construction.
+
+    ``focus`` (the validated :class:`FocusReceipt`) is passed by keyword only
+    on focused runs, so comparers written before the mode existed keep their
+    exact signature.
+    """
 
     def compare(
         self,
@@ -454,9 +468,22 @@ class DeterministicDiagnosisEngine:
             # catalogue slice) still shows its stage, while every mutating or
             # map-specific surface keeps failing closed with the typed error.
             family_map = None
-        if family_map is None:
+        try:
+            focus = self._focus_receipt(checkpoint)
+        except DiagnosisStateError:
+            # Same discipline as the map: a tampered focus receipt never
+            # reaches a reader through status, and every mutating or
+            # focus-consuming surface keeps failing closed with the typed
+            # error.
+            focus = None
+        update: dict[str, object] = {}
+        if family_map is not None:
+            update["family_map"] = family_map
+        if focus is not None:
+            update["focus"] = focus
+        if not update:
             return view
-        return view.model_copy(update={"family_map": family_map})
+        return view.model_copy(update=update)
 
     def family_map(self, run_id: str) -> FamilyMap:
         """Re-derive the deterministic family map for one run's read surfaces.
@@ -489,6 +516,228 @@ class DeterministicDiagnosisEngine:
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         return derive(fingerprint=fingerprint, catalogue=catalogue)
+
+    def focus(self, run_id: str, family_ids: Sequence[str]) -> DiagnosisRunView:
+        """Record the person's family multi-select as an engine-minted receipt.
+
+        Lawful only on a focused-analysis run in the window the family map
+        opens (stage ``family-mapped``).  The receipt binds the exact selected
+        family identities, the families explicitly not selected, and the
+        digest of the re-derived family map the choice was made against.  An
+        identical replay is a no-op; a different selection fails closed.
+        """
+
+        with self._runs.exclusive(run_id):
+            return self._focus_locked(run_id, tuple(family_ids))
+
+    def _focus_locked(self, run_id: str, family_ids: tuple[str, ...]) -> DiagnosisRunView:
+        checkpoint = self._load(run_id)
+        if checkpoint.stage is DiagnosisStage.CLOSED:
+            raise DiagnosisStateError("diagnosis is closed; it exposes no mutation port")
+        if self._analysis_mode(checkpoint) is not AnalysisMode.FOCUSED:
+            raise DiagnosisStateError(
+                "a family focus selection is only valid on a focused-analysis run"
+            )
+        if checkpoint.stage in _PRE_FAMILY_MAP_STAGES:
+            raise DiagnosisStateError(
+                "the family selection follows the deterministic family map",
+                required_step=RequiredStep.MAP_FAMILIES,
+            )
+        selection = tuple(sorted(set(family_ids)))
+        if not selection:
+            raise DiagnosisStateError(
+                "a focus selection must name at least one family from the family map"
+            )
+        existing = self._focus_receipt(checkpoint)
+        if existing is not None:
+            if existing.selected_family_ids == selection:
+                # An exact replay of the recorded selection is idempotent.
+                return self._view(checkpoint).model_copy(update={"focus": existing})
+            raise DiagnosisStateError(
+                "a different focus selection is already recorded for this run; "
+                "start a new run to choose differently"
+            )
+        if checkpoint.stage is not DiagnosisStage.FAMILY_MAPPED:
+            raise DiagnosisStateError(
+                "the focus selection window closed when jobs were confirmed; "
+                "start a new run to choose differently"
+            )
+        family_map = self._derived_family_map(checkpoint)
+        if family_map is None:
+            raise DiagnosisStateError("this engine's comparer cannot derive a family map")
+        map_ids = {row.family_id for row in family_map.rows}
+        outside = len(set(selection) - map_ids)
+        if outside:
+            raise DiagnosisStateError(
+                f"the focus selection names {outside} "
+                f"famil{'y' if outside == 1 else 'ies'} outside this run's family map"
+            )
+        catalogue = self._catalogue(checkpoint)
+        members_by_family = dict(catalogue.signed_family_members)
+        unsigned = len([item for item in selection if item not in members_by_family])
+        if unsigned:
+            raise DiagnosisStateError(
+                f"the focus selection names {unsigned} "
+                f"famil{'y' if unsigned == 1 else 'ies'} the signed catalogue "
+                "carries no member contract for"
+            )
+        # The full-coverage rule demands one verdict per member on the
+        # family's primary packet, and a packet response is bounded by the
+        # proposal cap — so a selection whose per-role member load cannot fit
+        # one response is refused now, not wedged later.
+        load_by_role: dict[str, set[str]] = {}
+        for family_id in selection:
+            role = focus_primary_role(family_id)
+            load_by_role.setdefault(role.value, set()).update(members_by_family[family_id])
+        if any(len(members) > MAX_PROPOSALS_PER_PACKET for members in load_by_role.values()):
+            raise DiagnosisStateError(
+                "this focus selection needs more per-member verdicts than one "
+                f"specialist packet may carry ({MAX_PROPOSALS_PER_PACKET}); "
+                "select fewer families"
+            )
+        map_digest = canonical_json_digest(family_map.model_dump(mode="json"))
+        unselected = tuple(sorted(map_ids - set(selection)))
+        receipt = FocusReceipt(
+            run_id=checkpoint.run_id,
+            family_map_digest=map_digest,
+            selected_family_ids=selection,
+            unselected_family_ids=unselected,
+            focus_digest=canonical_json_digest(
+                {
+                    "family_map_digest": map_digest,
+                    "run_id": checkpoint.run_id,
+                    "selected_family_ids": list(selection),
+                    "unselected_family_ids": list(unselected),
+                }
+            ),
+            confirmed_at=self._clock(),
+        )
+        payload = receipt.dump_for_storage()
+        try:
+            refuse_hostile_payload(payload)
+        except HostilePayloadError as exc:
+            raise DiagnosisStateError(
+                "focus receipt carries content the engine refuses to retain"
+            ) from exc
+        artifact = self._put("focus-receipt", payload)
+        updated = checkpoint.model_copy(
+            update={"artifact_digests": (*checkpoint.artifact_digests, artifact)}
+        )
+        self._runs.save(updated, expected_head=checkpoint.canonical_digest())
+        return self._view(updated).model_copy(update={"focus": receipt})
+
+    def _focus_receipt(self, checkpoint: DiagnosisCheckpoint) -> FocusReceipt | None:
+        """Load and re-validate the stored focus receipt, or ``None``.
+
+        The stored artifact is never trusted alone: the receipt must belong to
+        this run and match the family map re-derived from the stored verified
+        inputs — digest and complete selected/unselected partition — or the
+        typed refusal fails the consuming surface closed.
+        """
+
+        payload = self._find_kind(checkpoint, "focus-receipt")
+        if payload is None:
+            return None
+        try:
+            receipt = FocusReceipt.model_validate(payload)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored focus receipt is unreadable") from exc
+        if receipt.run_id != checkpoint.run_id:
+            raise DiagnosisStateError("stored focus receipt does not belong to this run")
+        family_map = self._derived_family_map(checkpoint)
+        if family_map is None:
+            raise DiagnosisStateError("this engine's comparer cannot derive a family map")
+        map_digest = canonical_json_digest(family_map.model_dump(mode="json"))
+        map_ids = tuple(sorted(row.family_id for row in family_map.rows))
+        partition = tuple(
+            sorted((*receipt.selected_family_ids, *receipt.unselected_family_ids))
+        )
+        if receipt.family_map_digest != map_digest or partition != map_ids:
+            raise DiagnosisStateError(
+                "stored focus receipt does not match this run's family map; "
+                "start a new run"
+            )
+        return receipt
+
+    def _require_focus(self, checkpoint: DiagnosisCheckpoint) -> FocusReceipt:
+        """The focus receipt a focused run must hold before specialist work."""
+
+        receipt = self._focus_receipt(checkpoint)
+        if receipt is None:
+            raise DiagnosisStateError(
+                "record the family focus selection with dex-lens diagnosis focus",
+                required_step=RequiredStep.CONFIRM_FOCUS,
+            )
+        return receipt
+
+    def _focus_member_slice(
+        self,
+        focus: FocusReceipt,
+        catalogue: VerifiedCatalogueSlice,
+    ) -> tuple[str, ...]:
+        """The engine-derived identity slice: the union of the selected
+        families' signed member lists, sorted.  Never host-supplied."""
+
+        members_by_family = dict(catalogue.signed_family_members)
+        missing = [
+            item for item in focus.selected_family_ids if item not in members_by_family
+        ]
+        if missing:
+            raise DiagnosisStateError(
+                "stored focus receipt selects a family the signed catalogue "
+                "carries no member contract for; start a new run"
+            )
+        return tuple(
+            sorted(
+                {
+                    member
+                    for family_id in focus.selected_family_ids
+                    for member in members_by_family[family_id]
+                }
+            )
+        )
+
+    def _focus_role_required_members(
+        self,
+        focus: FocusReceipt,
+        catalogue: VerifiedCatalogueSlice,
+        role: SpecialistRole,
+    ) -> frozenset[str]:
+        """Member ids this role's packet must give a verdict, one by one."""
+
+        members_by_family = dict(catalogue.signed_family_members)
+        return frozenset(
+            member
+            for family_id in focus.selected_family_ids
+            if focus_primary_role(family_id) is role
+            for member in members_by_family.get(family_id, ())
+        )
+
+    def _require_focus_coverage(
+        self,
+        checkpoint: DiagnosisCheckpoint,
+        proposals: tuple[ValidatedProposal, ...],
+        *,
+        focus: FocusReceipt,
+    ) -> None:
+        """Refuse a focused run holding a silent not-assessed selected member.
+
+        The founder's rule made mechanical: every member of every selected
+        family carries a verdict — an explicit proposal citation, including a
+        loud dispute — before the run may compare or close.  The typed refusal
+        names the count, never the content.
+        """
+
+        required = set(self._focus_member_slice(focus, self._catalogue(checkpoint)))
+        cited = {item.catalogue_id for item in proposals}
+        missing = len(required - cited)
+        if missing:
+            raise DiagnosisStateError(
+                f"a focused diagnosis cannot continue while {missing} "
+                f"selected-family member{'' if missing == 1 else 's'} "
+                f"hold{'s' if missing == 1 else ''} a silent not-assessed row; "
+                "every member of a selected family needs a verdict"
+            )
 
     def advance(self, run_id: str) -> DiagnosisRunView:
         # Advancing mutates the persisted run, so the whole
@@ -540,7 +789,7 @@ class DeterministicDiagnosisEngine:
         # unbound legacy proposal after comparison would durably retain
         # content no work receipt ever bound, so the refusal is unconditional
         # on the run's mode rather than scoped to the analysis stages.
-        if self._analysis_mode(checkpoint) is AnalysisMode.GUIDED:
+        if self._analysis_mode(checkpoint) is not AnalysisMode.INVENTORY_ONLY:
             raise DiagnosisStateError(
                 "guided analysis accepts specialist responses only through submit_work"
             )
@@ -707,6 +956,20 @@ class DeterministicDiagnosisEngine:
         # uncover tampering.  Such a failure is a run-state error, not a
         # malformed assistant response, so it must never consume a retry.
         context = self._proposal_context_for_packet(checkpoint, packet, queue)
+        # The focused full-coverage rule (engine-owned run state, computed
+        # outside the bounded-attempt block for the same reason): this
+        # packet's role leads zero or more selected families, and its response
+        # must give every member of those families a verdict, one by one.
+        focus_required: frozenset[str] = frozenset()
+        if (
+            self._analysis_mode(checkpoint) is AnalysisMode.FOCUSED
+            and packet.role is not SpecialistRole.SCEPTICAL_RECONCILER
+        ):
+            focus_required = self._focus_role_required_members(
+                self._require_focus(checkpoint),
+                self._catalogue(checkpoint),
+                packet.role,
+            )
         # Aggregate recommendation state is engine-owned run state, so it is
         # also computed outside the bounded-attempt block: a corrupted store
         # stays a run-state error rather than a burned retry.  The packet's
@@ -737,6 +1000,21 @@ class DeterministicDiagnosisEngine:
                     f"a work response may contain at most {packet.max_proposals} proposals"
                 )
             validated = tuple(validate_proposal(item, context) for item in typed)
+            if focus_required:
+                # No sampling inside a chosen family: an accepted family
+                # packet response gives every assigned member a verdict.  The
+                # refusal names the count, never the content, and burns the
+                # bounded attempt exactly like an out-of-slice citation.
+                uncovered = len(
+                    focus_required - {item.catalogue_id for item in validated}
+                )
+                if uncovered:
+                    raise SpecialistProposalError(
+                        f"a focused family packet response leaves {uncovered} "
+                        "selected-family member"
+                        f"{'' if uncovered == 1 else 's'} without a verdict; "
+                        "every member of a selected family is assessed one by one"
+                    )
             if prior_recommendations is not None:
                 prospective = prior_recommendations | {
                     item.candidate_id or ""
@@ -1094,6 +1372,10 @@ class DeterministicDiagnosisEngine:
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         analysis_mode = self._analysis_mode(checkpoint)
+        if analysis_mode is AnalysisMode.FOCUSED:
+            # No receipt, no focused packets: the person's multi-select is the
+            # approval and the typed refusal names the step until it exists.
+            self._require_focus(checkpoint)
         diagnosis_input = DiagnosisInput(
             run_id=checkpoint.run_id,
             engine_version=ENGINE_VERSION,
@@ -1125,6 +1407,11 @@ class DeterministicDiagnosisEngine:
             # rather than emitting an empty queue for a run that was not
             # created in guided mode.
             raise DiagnosisStateError("inventory-only diagnosis runs do not issue specialist work")
+        if mode is AnalysisMode.FOCUSED:
+            # A focused queue may only ever be issued against the recorded
+            # selection: a run whose receipt disappeared between confirmation
+            # and planning fails closed instead of issuing an unsliced queue.
+            self._require_focus(checkpoint)
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         context = self._proposal_context(checkpoint, fingerprint, catalogue)
@@ -1214,7 +1501,7 @@ class DeterministicDiagnosisEngine:
                     "start a new run"
                 )
         mode = self._analysis_mode(checkpoint)
-        if mode is AnalysisMode.GUIDED:
+        if mode is not AnalysisMode.INVENTORY_ONLY:
             if checkpoint.stage is not DiagnosisStage.ANALYSIS_COMPLETED:
                 raise DiagnosisStateError(
                     "guided analysis must be completed before comparison"
@@ -1245,8 +1532,15 @@ class DeterministicDiagnosisEngine:
                 proposals,
                 context=self._proposal_context(checkpoint, fingerprint, catalogue),
             )
+        # The focused gates, both fail-closed: the person's recorded selection
+        # must still match this run's re-derived family map, and every member
+        # of every selected family must carry a verdict before comparison.
+        focus_receipt: FocusReceipt | None = None
+        if mode is AnalysisMode.FOCUSED:
+            focus_receipt = self._require_focus(checkpoint)
+            self._require_focus_coverage(checkpoint, reconciled, focus=focus_receipt)
         work_audit = None
-        if mode is AnalysisMode.GUIDED:
+        if mode is not AnalysisMode.INVENTORY_ONLY:
             audit_payload = self._find_kind(checkpoint, "work-audit")
             if audit_payload is None:
                 # Closing without it scored the run's autonomy as zero and
@@ -1258,12 +1552,18 @@ class DeterministicDiagnosisEngine:
             except (TypeError, ValueError) as exc:
                 raise DiagnosisStateError("stored work audit is unreadable") from exc
         try:
+            # ``focus`` is passed only for focused runs so injected comparers
+            # written before the mode existed keep their exact signature.
+            focus_kwargs: dict[str, object] = (
+                {"focus": focus_receipt} if focus_receipt is not None else {}
+            )
             ledger = self._compare.compare(
                 fingerprint=fingerprint,
                 catalogue=catalogue,
                 jobs=(),
                 proposals=reconciled,
                 work_audit=work_audit,
+                **focus_kwargs,
             )
         except ValidationError as exc:
             # The blanket CLI catch turned this into "not a closed typed
@@ -1323,6 +1623,16 @@ class DeterministicDiagnosisEngine:
         )
 
     def _close(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
+        if self._analysis_mode(checkpoint) is AnalysisMode.FOCUSED:
+            # The founder's rule holds to the last transition: a focused run
+            # never closes while a selected-family member sits silently
+            # not-assessed, even if earlier stages were reached another way.
+            reconciled = self._final_reconciled_proposals(
+                checkpoint, self._work_queue(checkpoint)
+            )
+            self._require_focus_coverage(
+                checkpoint, reconciled, focus=self._require_focus(checkpoint)
+            )
         return self._advance(checkpoint, DiagnosisStage.CLOSED)
 
     def _diagnosis_result(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisResult:
@@ -1396,11 +1706,11 @@ class DeterministicDiagnosisEngine:
             run_id=checkpoint.run_id,
             fingerprint_digest=fingerprint_digest_for(self._fingerprint(checkpoint)),
         )
-        # ``signed_identity_keys`` is deliberately absent from the stored
-        # artifact: it is loader-derived from the signed envelope on every
-        # load, so the equality check covers exactly the stored fields and
-        # authority stays with the derived slice.
-        if stored != replace(derived, signed_identity_keys=()):
+        # ``signed_identity_keys`` and ``signed_family_members`` are
+        # deliberately absent from the stored artifact: both are loader-derived
+        # from the signed envelope on every load, so the equality check covers
+        # exactly the stored fields and authority stays with the derived slice.
+        if stored != replace(derived, signed_identity_keys=(), signed_family_members=()):
             raise DiagnosisStateError(
                 "stored catalogue facts do not match the verified catalogue; "
                 "start a new run"
@@ -1420,6 +1730,23 @@ class DeterministicDiagnosisEngine:
         # RISK-EXTERNAL-PASS-2026-09-07 A1 lesson).  Strength and reciprocal
         # proposals must cite at least one authored observation, directly or
         # through its minted evidence token.
+        # A focused run narrows the catalogue/capability identity slice to the
+        # union of the selected families' signed member lists.  The slice is
+        # engine-derived here on every context build — packet issue, queue
+        # re-derivation, and stored-response re-validation — so a stored queue
+        # or proposal citing anything outside it is refused on load.  Keying on
+        # the validated receipt (mintable only on a focused run) rather than
+        # the persisted mode keeps this pure read usable while a tampered
+        # diagnosis-input artifact fails closed on the mutating surfaces.
+        catalogue_ids = catalogue.catalogue_ids
+        capability_ids = catalogue.capability_ids
+        held_ids = catalogue.unavailable_ids
+        focus = self._focus_receipt(checkpoint)
+        if focus is not None:
+            member_slice = self._focus_member_slice(focus, catalogue)
+            catalogue_ids = member_slice
+            capability_ids = member_slice
+            held_ids = tuple(sorted(set(held_ids) & set(member_slice)))
         signed_keys = frozenset(catalogue.signed_identity_keys)
         evidence_ids: list[str] = []
         observation_ids: list[str] = []
@@ -1444,10 +1771,10 @@ class DeterministicDiagnosisEngine:
             fingerprint_digest=digest,
             catalogue_digest="sha256:" + catalogue.sha256,
             evidence_ids=tuple(evidence_ids),
-            catalogue_ids=catalogue.catalogue_ids,
-            capability_ids=catalogue.capability_ids,
+            catalogue_ids=catalogue_ids,
+            capability_ids=capability_ids,
             observation_ids=tuple(observation_ids),
-            held_ids=catalogue.unavailable_ids,
+            held_ids=held_ids,
             family_contract_present=catalogue.family_contract_present,
             authored_observation_ids=tuple(sorted(authored_observation_ids)),
             authored_evidence_ids=tuple(sorted(authored_evidence_ids)),
@@ -1528,8 +1855,14 @@ class DeterministicDiagnosisEngine:
             queue = WorkQueue.model_validate(payload)
         except (TypeError, ValueError) as exc:
             raise DiagnosisStateError("stored specialist work queue is unreadable") from exc
-        if queue.mode is not AnalysisMode.GUIDED:
+        if queue.mode is AnalysisMode.INVENTORY_ONLY:
             raise DiagnosisStateError("stored specialist work queue has an invalid mode")
+        # The rebuild below re-derives the expected queue with this run's own
+        # context — for a focused run that context carries the engine-derived
+        # member slice — so a stored queue whose packets came from the other
+        # mode (or a different selection) fails the pinned-context comparison.
+        # Every mutating entry point resolves and fail-closes on the run's
+        # persisted mode before reaching here.
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         # Rebuild the expected queue with the question version each stored
@@ -1544,7 +1877,7 @@ class DeterministicDiagnosisEngine:
         try:
             expected = build_work_queue(
                 context=self._proposal_context(checkpoint, fingerprint, catalogue),
-                mode=AnalysisMode.GUIDED,
+                mode=queue.mode,
                 issued_questions={
                     packet.role: packet.question for packet in queue.packets
                 },
