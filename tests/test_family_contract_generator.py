@@ -272,6 +272,84 @@ def test_test_signed_draft_contract_turns_the_dimension_on(
     assert [row.family_id for row in rows] == list(WOW_EXPECTATIONS)
 
 
+def _load_generator_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_family_contract_under_test", _GENERATOR
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_changed_family_content_reopens_founder_review(monkeypatch) -> None:
+    """The recorded approval binds to the content the founder actually approved.
+
+    Replacing meeting-follow-through's member list with another valid signed id
+    yields a family the founder never reviewed. The regenerated draft must NOT
+    stamp it with the dated 2026-09-07 resolution: that family gets open
+    TODO(founder) items again and no resolution, the status says review is
+    reopened, and the every-family-carries-resolution guarantee fails for the
+    mutated draft.
+    """
+
+    module = _load_generator_module()
+    mutated_definition = dict(module._FAMILY_DEFINITIONS["meeting-follow-through"])
+    mutated_definition["members"] = ("backup-restore",)
+    monkeypatch.setitem(
+        module._FAMILY_DEFINITIONS, "meeting-follow-through", mutated_definition
+    )
+
+    raw = module._load_source_envelope_json(_REFERENCE_PATH)
+    draft = module.build_draft(raw, keyring=default_keyring())
+
+    reviews = {item["family_id"]: item for item in draft["founder_review"]}
+    mutated = reviews["meeting-follow-through"]
+    assert mutated["todos"], "changed family must get open founder TODOs back"
+    assert all(todo.startswith("TODO(founder):") for todo in mutated["todos"])
+    assert "resolution" not in mutated, (
+        "a family the founder never saw must not carry his dated approval"
+    )
+    assert "meeting-follow-through" in draft["status"]
+    assert "reopened" in draft["status"].lower()
+    assert "unsigned" in draft["status"]
+
+    untouched = [
+        item for item in draft["founder_review"]
+        if item["family_id"] != "meeting-follow-through"
+    ]
+    assert untouched
+    for item in untouched:
+        assert item["todos"] == [], item["family_id"]
+        assert item["resolution"]["resolved_on"] == "2026-09-07"
+
+    with pytest.raises((AssertionError, KeyError)):
+        test_every_family_carries_the_founders_recorded_resolution(draft)
+
+
+def test_committed_draft_matches_every_pinned_approved_digest() -> None:
+    """The committed draft is exactly the content the founder approved.
+
+    Every family payload must hash to the digest pinned in the generator
+    source next to the recorded resolution, so the approved draft keeps
+    building with all fourteen resolutions intact.
+    """
+
+    module = _load_generator_module()
+    committed = json.loads(_DRAFT_PATH.read_text(encoding="utf-8"))
+    pinned = module._FOUNDER_APPROVED_FAMILY_DIGESTS
+    assert set(pinned) == set(WOW_EXPECTATIONS)
+    for family in committed["capability_families"]:
+        assert (
+            module._family_content_digest(family) == pinned[family["family_id"]]
+        ), family["family_id"]
+    for item in committed["founder_review"]:
+        assert item["todos"] == []
+        assert item["resolution"]["resolved_on"] == "2026-09-07"
+
+
 def test_generator_refuses_an_unverifiable_source(tmp_path: Path) -> None:
     reference = json.loads(_REFERENCE_PATH.read_text(encoding="utf-8"))
     envelope = reference["signed_catalogue"]

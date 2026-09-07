@@ -76,6 +76,58 @@ _FOUNDER_RESOLUTION: dict[str, str] = {
         "complete tool inventories."
     ),
 }
+
+# The approval above is bound to the exact content the founder reviewed: the
+# canonical-JSON sha256 of each family payload as it stood in the draft he
+# approved on 2026-09-07. A family whose regenerated payload still hashes to
+# its pinned digest carries the recorded resolution; a family whose payload
+# differs was never seen by the founder, so it gets open TODO(founder) items
+# again and no resolution until he re-reviews it (then the new digest is
+# pinned here alongside the new resolution).
+_FOUNDER_APPROVED_FAMILY_DIGESTS: dict[str, str] = {
+    "meeting-follow-through": (
+        "sha256:f4bed1f6cbff9f9e86648f2e093569824456a29c76a812b9d7275c4a2fa8979b"
+    ),
+    "living-people-company-context": (
+        "sha256:57d0d639a29bc7bb81778965e32fbb8f5155b4e0b46ade0359b2bf0ea29030f5"
+    ),
+    "durable-task-continuity": (
+        "sha256:cc78a94c2da1331847aae16502ee55531ab6606b72ac53c2e7c83faa1c11ca99"
+    ),
+    "external-task-interoperability": (
+        "sha256:aa3693a47260de8f099a87b394bd207694af3f3ad2fcce88f742d41e696d21de"
+    ),
+    "connected-work-context": (
+        "sha256:3a853f195afa7169cc293209a4b872af6e1b2ae311ed2b357264271667bd7555"
+    ),
+    "pipedrive-pipeline-continuity": (
+        "sha256:e8032ad534e16ae2b48d46caf0df60f63c36e3b2fbc69f554a4ef0180c87243d"
+    ),
+    "daily-weekly-operating-rhythm": (
+        "sha256:87c930c0ed2c417b601d851b28ac4fe6f72ddbb5efc98096906d9788791c0cec"
+    ),
+    "durable-work-memory": (
+        "sha256:579582317dc33ee415777e1ab1bb90491816d361f4901205785ae92089803f31"
+    ),
+    "proactive-health-and-recovery": (
+        "sha256:91a43a6b482c40cb6e2bde0f3c3392893627f27d41a6b0e85b0fb27dc333a7f4"
+    ),
+    "backup-and-restore-confidence": (
+        "sha256:7eed27f40dc574d5dc65dbfc8791a42d13023cc44a152175e6e3cef252ce8805"
+    ),
+    "safe-change-and-rewind": (
+        "sha256:dae78a70e438d20cd284ab600a2e31dd8165b106c90347fe73df563979914416"
+    ),
+    "capability-discovery-and-adoption": (
+        "sha256:e6c88ffefef5a6aab889c9f41193dc06c8baf3d002194faa01d479ef71794893"
+    ),
+    "privacy-safe-feedback-loop": (
+        "sha256:6100954efcb42782d2ea093bc43c7494bd39ea23fa57899dc7894ee4e03a9bcc"
+    ),
+    "career-growth-evidence": (
+        "sha256:e451a2ddaab53e3be0ab7ea7ff4a9ce756c1c19a3a017e7c7cbe5b4041befd84"
+    ),
+}
 _MANUAL_ONLY_FAMILY = "privacy-safe-feedback-loop"
 _MANUAL_ONLY_REASON = (
     "A person must confirm that no private work leaves the machine before "
@@ -282,6 +334,12 @@ def _canonical_json_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def _family_content_digest(family_payload: dict[str, object]) -> str:
+    """sha256: plus 64 hex characters over the family's canonical JSON."""
+
+    return "sha256:" + hashlib.sha256(_canonical_json_bytes(family_payload)).hexdigest()
+
+
 def _load_source_envelope_json(input_path: Path) -> str:
     """Accept either a raw signed envelope or the packaged reference wrapper."""
 
@@ -348,6 +406,7 @@ def _founder_review(
     family_id: str,
     definition: dict[str, Any],
     entries_by_id: dict[str, Any],
+    family_payload: dict[str, object],
 ) -> dict[str, object]:
     todos = [
         (
@@ -372,6 +431,19 @@ def _founder_review(
             "catalogue's MCP inventories are sampled, so tool-level components "
             "would fail verification today."
         )
+    member_basis = _member_basis(tuple(definition["members"]), entries_by_id)
+    # The founder's recorded resolution applies only to the content he actually
+    # approved: a family whose current payload no longer hashes to its pinned
+    # approved digest was never reviewed in this form, so its TODOs reopen and
+    # no resolution is attached.
+    if _family_content_digest(family_payload) != _FOUNDER_APPROVED_FAMILY_DIGESTS.get(
+        family_id
+    ):
+        return {
+            "family_id": family_id,
+            "todos": todos,
+            "member_basis": member_basis,
+        }
     confirmed = [
         "Confirmed(founder): " + todo.removeprefix("TODO(founder): ") for todo in todos
     ]
@@ -379,7 +451,7 @@ def _founder_review(
         "family_id": family_id,
         "todos": [],
         "resolution": {**_FOUNDER_RESOLUTION, "confirmed": confirmed},
-        "member_basis": _member_basis(tuple(definition["members"]), entries_by_id),
+        "member_basis": member_basis,
     }
 
 
@@ -401,9 +473,12 @@ def build_draft(raw_envelope_json: str, *, keyring: KeyRing) -> dict[str, object
         for family_id in WOW_EXPECTATIONS
     ]
     review = [
-        _founder_review(family_id, _FAMILY_DEFINITIONS[family_id], entries_by_id)
-        for family_id in WOW_EXPECTATIONS
+        _founder_review(
+            family_id, _FAMILY_DEFINITIONS[family_id], entries_by_id, family
+        )
+        for family_id, family in zip(WOW_EXPECTATIONS, families, strict=True)
     ]
+    reopened = [item["family_id"] for item in review if item["todos"]]
 
     # Prove the drafted payload closes against the exact source catalogue with
     # the same model the Lens verifier applies to signed bytes. A draft that
@@ -421,17 +496,38 @@ def build_draft(raw_envelope_json: str, *, keyring: KeyRing) -> dict[str, object
         raise FamilyContractDraftError("drafted contract carries no families")
 
     canonical_source = _canonical_json_bytes(json.loads(raw_envelope_json))
+    if reopened:
+        status = (
+            "unsigned-draft; founder review REOPENED for: "
+            + ", ".join(reopened)
+            + " — these families' content differs from the content the founder "
+            "approved on 2026-09-07, so they carry open TODO(founder) items "
+            "and no resolution; this draft must not be signed until the "
+            "founder re-reviews them"
+        )
+        membership_note = (
+            "The founder's 2026-09-07 approval is digest-bound to the exact "
+            "family content he reviewed. The families named in status no "
+            "longer match their approved digest, so their review is reopened "
+            "with open TODO(founder) items; the remaining families still "
+            "carry his recorded resolution."
+        )
+    else:
+        status = _STATUS
+        membership_note = (
+            "Membership was drafted for founder review and approved as drafted "
+            "by the founder on 2026-09-07; each family's founder_review entry "
+            "records that resolution. The resolved capability_families "
+            "collection may now enter Dex Core's catalogue generator and be "
+            "signed."
+        )
     return {
         "capability_families": families,
         "derivation_notes": [
             "Derived from the signature-verified Dex catalogue named in "
             "derived_from and the founder-approved family definitions in "
             + _PLAN_PATH + ".",
-            "Membership was drafted for founder review and approved as drafted "
-            "by the founder on 2026-09-07; each family's founder_review entry "
-            "records that resolution. The resolved capability_families "
-            "collection may now enter Dex Core's catalogue generator and be "
-            "signed.",
+            membership_note,
             "This file is never signed and never published; only Dex Core "
             "signs catalogue bytes.",
         ],
@@ -447,7 +543,7 @@ def build_draft(raw_envelope_json: str, *, keyring: KeyRing) -> dict[str, object
         "draft_contract": "dex-lens-significant-family-contract-draft",
         "draft_version": 1,
         "founder_review": review,
-        "status": _STATUS,
+        "status": status,
     }
 
 

@@ -63,6 +63,14 @@ The family ids must remain exactly the fourteen in
 `capability_exchange.diagnosis.expectations.WOW_EXPECTATIONS` — the Wow Gate
 expectation rows activate only when all fourteen are signed.
 
+The founder's recorded approval is digest-bound: each resolution applies only
+to family content whose canonical-JSON sha256 still matches the approved digest
+pinned in `_FOUNDER_APPROVED_FAMILY_DIGESTS` in the generator. Changing any
+family definition therefore reopens founder review for that family — the
+regenerated draft gives it open `TODO(founder)` items and no resolution until
+the founder re-reviews it and the new digest is pinned alongside a new
+resolution.
+
 ## 3. Carry the resolved families into Dex Core
 
 Core's generator (`scripts/generate-dex-lens-catalog.py` in the Dex repo,
