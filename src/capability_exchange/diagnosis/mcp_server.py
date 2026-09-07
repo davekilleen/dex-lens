@@ -246,7 +246,7 @@ def register_work_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
             except DiagnosisStateError as exc:
                 raise MCPError(
                     code=INVALID_REQUEST,
-                    message=str(exc),
+                    message=_guarded_message(str(exc)),
                     data={
                         "required_step": _required_step(exc),
                         "error": type(exc).__name__,
@@ -329,7 +329,7 @@ def _dump_work(method: Callable[..., StoredResult], *args: object) -> dict[str, 
     except (DiagnosisStateError, WorkQueueError, SpecialistProposalError) as exc:
         raise MCPError(
             code=INVALID_REQUEST,
-            message=str(exc),
+            message=_guarded_message(str(exc)),
             data={
                 "required_step": _required_step(exc)
                 if isinstance(exc, DiagnosisStateError)
@@ -347,11 +347,26 @@ def _dump(method: Callable[..., StoredResult], *args: object) -> dict[str, objec
     except DiagnosisStateError as exc:
         raise MCPError(
             code=INVALID_REQUEST,
-            message=str(exc),
+            message=_guarded_message(str(exc)),
             data={"required_step": _required_step(exc), "error": type(exc).__name__},
         ) from exc
     _refuse_hostile_payload(payload)
     return payload
+
+
+def _guarded_message(text: str) -> str:
+    """Refusal text crosses the wire only when it passes the payload guard.
+
+    ``_dump``/``_dump_work`` guard every successful payload; a refusal message
+    interpolated from run state must clear the same bar, or the wire gets a
+    fixed sentence instead of the offending text.
+    """
+
+    try:
+        refuse_hostile_payload(text)
+    except HostilePayloadError:
+        return "diagnosis refused this step"
+    return text
 
 
 def _required_step(exc: DiagnosisStateError) -> str:

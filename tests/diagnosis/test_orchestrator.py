@@ -353,11 +353,14 @@ def test_each_stage_calls_exactly_its_lawful_dependency(engine: EngineHarness) -
 
     jobs = engine.advance(run_id)
     assert jobs.stage is DiagnosisStage.JOBS_CONFIRMED
-    assert len(engine.catalogue_loader.calls) == 1
+    # Reloading a stored catalogue slice re-derives it from the verified
+    # loader, so every catalogue-consuming stage costs one more load.
+    assert len(engine.catalogue_loader.calls) == 2
     assert engine.comparer.calls == []
 
     compared = engine.advance(run_id)
     assert compared.stage is DiagnosisStage.COMPARED
+    assert len(engine.catalogue_loader.calls) == 3
     assert len(engine.comparer.calls) == 1
     assert engine.report_store.save_result_calls == []
 
@@ -1543,6 +1546,56 @@ def _replace_stored_artifact(
     return engine.run_store.save(
         checkpoint.model_copy(update={"artifact_digests": (*kept, replacement)})
     )
+
+
+PLANTED_LEDGER_KEY = "INVENTED-PRIVATE-ACQUISITION-LABEL"
+
+
+def _closed_run_with_tampered_ledger(
+    engine: EngineHarness, mutate: dict[str, object]
+) -> str:
+    """Close a run, then rewrite its stored ledger artifact with ``mutate``."""
+
+    prepared = engine.prepare(prepare_request())
+    engine.run_to(prepared.run_id, DiagnosisStage.CLOSED)
+    checkpoint = engine.run_store.load(prepared.run_id)
+    stored = engine.engine._find_kind(checkpoint, "ledger")  # noqa: SLF001
+    assert isinstance(stored, dict)
+    _replace_stored_artifact(engine, prepared.run_id, "ledger", {**stored, **mutate})
+    return prepared.run_id
+
+
+def test_tampered_ledger_extra_field_refusal_never_echoes_the_planted_key(
+    engine: EngineHarness,
+) -> None:
+    """A submitted dictionary key must never surface in a typed refusal.
+
+    Pydantic reports the SUBMITTED key as the location of an
+    ``extra_forbidden`` error, so echoing location heads without an allowlist
+    prints attacker-controlled text on every refusal surface.
+    """
+
+    run_id = _closed_run_with_tampered_ledger(engine, {PLANTED_LEDGER_KEY: True})
+
+    with pytest.raises(DiagnosisStateError) as caught:
+        engine.result(run_id)
+
+    message = str(caught.value)
+    assert PLANTED_LEDGER_KEY not in message
+    assert "unknown field" in message
+
+
+def test_wrong_typed_declared_ledger_field_is_still_named(
+    engine: EngineHarness,
+) -> None:
+    """Diagnosability survives the allowlist: declared fields are still named."""
+
+    run_id = _closed_run_with_tampered_ledger(engine, {"catalogue_version": "eighty"})
+
+    with pytest.raises(DiagnosisStateError, match="catalogue_version") as caught:
+        engine.result(run_id)
+
+    assert "eighty" not in str(caught.value)
 
 
 _RECOMMENDATION_FACTORS = RecommendationFactors(

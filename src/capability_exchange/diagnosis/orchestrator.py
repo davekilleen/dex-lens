@@ -6,10 +6,11 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, get_args
 
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from capability_exchange.concierge.consent import (
     LocalScopeConsentAuthority,
@@ -109,30 +110,75 @@ ADAPTER_VERSION = "injected-collector"
 MAX_FACTOR_TUPLES_PER_CANDIDATE = len(SpecialistRole)
 
 
+def _collect_declared_models(
+    annotation: object, into: dict[str, frozenset[str]]
+) -> None:
+    """Register every engine model reachable from one annotation, by name."""
+
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation.__name__ in into:
+            return
+        into[annotation.__name__] = frozenset(annotation.model_fields)
+        for field in annotation.model_fields.values():
+            _collect_declared_models(field.annotation, into)
+        return
+    for argument in get_args(annotation):
+        _collect_declared_models(argument, into)
+
+
+@lru_cache(maxsize=1)
+def _declared_fields_by_model() -> dict[str, frozenset[str]]:
+    """Field-name allowlists for every model a typed refusal may describe.
+
+    The closure is engine-owned: the ledger and run-identity roots plus every
+    model reachable through their declared field annotations.  It mirrors the
+    ``payload_guard`` boundary — a refusal may echo only names declared on
+    these models, never a key taken from a submitted or stored payload.
+    """
+
+    declared: dict[str, frozenset[str]] = {}
+    for root in (ComparisonLedger, RunIdentity):
+        _collect_declared_models(root, declared)
+    return declared
+
+
 def _typed_model_refusal(action: str, exc: ValidationError) -> DiagnosisStateError:
     """Translate a typed-model failure into a named, value-free refusal.
 
     Pydantic's own messages repeat the offending input, which on this path can
-    be specialist or vault text; they are deliberately not consulted.  Only
-    the failing model's name and its field names are quoted, in fixed wording,
-    so a compare failure tells the operator what broke without leaking what it
-    broke on.
+    be specialist or vault text; they are deliberately not consulted.  The
+    location of an ``extra_forbidden`` error is the SUBMITTED dictionary key —
+    attacker-controlled text on a tampered artifact — so locations are not
+    trusted either: only names present in the failing engine model's own
+    declared field set are quoted, in fixed wording, and every other location
+    collapses to a count.  A compare failure therefore tells the operator what
+    broke without leaking what it broke on.
     """
 
-    fields = sorted(
-        {
-            str(error["loc"][0])
-            for error in exc.errors(include_url=False, include_input=False)
-            if error.get("loc")
-        }
-    )
-    named = (
-        f" (failing fields: {', '.join(fields)})"
-        if fields
+    declared = _declared_fields_by_model().get(exc.title, frozenset())
+    named: set[str] = set()
+    unknown = 0
+    for error in exc.errors(include_url=False, include_input=False):
+        location = error.get("loc") or ()
+        if not location:
+            continue
+        head = location[0]
+        if isinstance(head, str) and head in declared:
+            named.add(head)
+        else:
+            unknown += 1
+    parts: list[str] = []
+    if named:
+        parts.append(f"failing fields: {', '.join(sorted(named))}")
+    if unknown:
+        parts.append("an unknown field" if unknown == 1 else f"{unknown} unknown fields")
+    detail = (
+        f" ({'; '.join(parts)})"
+        if parts
         else " (a model-level consistency rule failed)"
     )
     return DiagnosisStateError(
-        f"{action} an invalid {exc.title} value{named}; no conclusion was recorded"
+        f"{action} an invalid {exc.title} value{detail}; no conclusion was recorded"
     )
 
 
@@ -1198,24 +1244,50 @@ class DeterministicDiagnosisEngine:
             raise DiagnosisStateError("stored evidence fingerprint is unreadable") from exc
 
     def _catalogue(self, checkpoint: DiagnosisCheckpoint) -> VerifiedCatalogueSlice:
+        """Reload the catalogue slice, trusting only signature-derived facts.
+
+        The stored artifact is content-addressed but not signed, so every
+        security-relevant fact it carries — ``family_contract_present``
+        included, which alone gates release-distance authority — is re-derived
+        from the pinned signature-verified catalogue via the injected loader.
+        A stored slice that disagrees with that derivation is refused with a
+        typed error carrying no inspected-system content, and only the derived
+        slice ever reaches the engine.
+        """
+
         payload = self._find_kind(checkpoint, "catalogue")
         if payload is None:
             raise DiagnosisStateError(
                 "verified catalogue is missing from this diagnosis checkpoint"
             )
-        return VerifiedCatalogueSlice(
-            version=int(payload["version"]),
-            sha256=str(payload["sha256"]),
-            catalogue_ids=tuple(payload["catalogue_ids"]),
-            capability_ids=tuple(payload["capability_ids"]),
-            unavailable_ids=tuple(payload.get("unavailable_ids") or ()),
-            family_contract_present=bool(payload.get("family_contract_present", False)),
-            core_release=(
-                str(payload["core_release"])
-                if payload.get("core_release") is not None
-                else None
-            ),
+        try:
+            stored = VerifiedCatalogueSlice(
+                version=int(payload["version"]),
+                sha256=str(payload["sha256"]),
+                catalogue_ids=tuple(payload["catalogue_ids"]),
+                capability_ids=tuple(payload["capability_ids"]),
+                unavailable_ids=tuple(payload.get("unavailable_ids") or ()),
+                family_contract_present=bool(payload.get("family_contract_present", False)),
+                core_release=(
+                    str(payload["core_release"])
+                    if payload.get("core_release") is not None
+                    else None
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DiagnosisStateError(
+                "stored catalogue slice is not a closed typed payload"
+            ) from exc
+        derived = self._catalogues.load(
+            run_id=checkpoint.run_id,
+            fingerprint_digest=fingerprint_digest_for(self._fingerprint(checkpoint)),
         )
+        if stored != derived:
+            raise DiagnosisStateError(
+                "stored catalogue facts do not match the verified catalogue; "
+                "start a new run"
+            )
+        return derived
 
     def _proposal_context(
         self,

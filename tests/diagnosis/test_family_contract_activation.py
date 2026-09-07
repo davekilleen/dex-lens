@@ -20,6 +20,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from tests.concierge.test_diagnosis_consent import approved_scope_snapshot as capture_scope
 from tests.concierge.test_diagnosis_consent import invented_root
+from tests.diagnosis.test_orchestrator import _replace_stored_artifact
 from tests.diagnosis.test_significant_family_assessment import (
     _automation,
     _family,
@@ -349,6 +350,41 @@ def test_guided_run_accepts_release_distance_proposal_with_signed_contract(
     )
     assert entry.disposition is Disposition.WORTH_BORROWING
     assert entry.reason == _RELEASE_DISTANCE_REASON
+
+
+def test_tampered_family_contract_flag_cannot_enable_release_distance(
+    tmp_path: Path,
+) -> None:
+    """Flipping only the stored boolean must not grant release-distance authority.
+
+    The stored catalogue artifact is content-addressed but unsigned, so a
+    run-store tamper can rewrite it (and the checkpoint digest) with
+    ``family_contract_present`` flipped to true while the signed envelope
+    still carries ZERO families.  The reload must re-derive that fact from the
+    signature-verified catalogue and refuse the disagreeing stored slice —
+    never accept the proposal the untampered run correctly refused.
+    """
+
+    harness = _GuidedHarness(tmp_path)  # zero families, genuinely test-key signed
+    run_id = harness.start_guided_run()
+    packet = harness.work_to_release_distance_packet(run_id)
+    proposal = harness.release_distance_proposal(packet)
+
+    checkpoint = harness.run_store.load(run_id)
+    stored = harness.engine._find_kind(checkpoint, "catalogue")  # noqa: SLF001
+    assert isinstance(stored, dict)
+    assert stored["family_contract_present"] is False
+    _replace_stored_artifact(
+        harness, run_id, "catalogue", {**stored, "family_contract_present": True}
+    )
+
+    with pytest.raises(
+        DiagnosisStateError, match="do not match the verified catalogue"
+    ) as caught:
+        harness.engine.submit_work(run_id, packet.packet_id, (proposal,))
+
+    assert str(harness.root) not in str(caught.value)
+    assert harness.engine.status(run_id).stage is DiagnosisStage.ANALYSIS_PLANNED
 
 
 def test_guided_run_refuses_release_distance_proposal_without_contract(

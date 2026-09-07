@@ -239,10 +239,10 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
     try:
         return handlers[command](arguments[1:])
     except DiagnosisStateError as exc:
-        print(f"dex-lens: {exc}", file=sys.stderr)
+        print(f"dex-lens: {_guarded_refusal_text(exc)}", file=sys.stderr)
         return 2
     except (WorkQueueError, SpecialistProposalError) as exc:
-        print(f"dex-lens: {exc}", file=sys.stderr)
+        print(f"dex-lens: {_guarded_refusal_text(exc)}", file=sys.stderr)
         return 2
     except ValidationError:
         # Never render a pydantic error here: it repeats the offending input
@@ -263,6 +263,22 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         _record_crash(exc)
         print(_CRASH_SENTENCE, file=sys.stderr)
         return 70
+
+
+def _guarded_refusal_text(exc: Exception) -> str:
+    """Refusal text reaches the screen only when it passes the payload guard.
+
+    The CLI screens every outbound payload; a refusal message interpolated
+    from run state must clear the same bar, or the screen gets a fixed
+    sentence instead of the offending text.
+    """
+
+    message = str(exc)
+    try:
+        refuse_hostile_payload(message)
+    except HostilePayloadError:
+        return "diagnosis refused this step"
+    return message
 
 
 #: Fixed by design: no exception text, no path, ever. A crash on this surface

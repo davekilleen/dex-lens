@@ -285,6 +285,32 @@ def test_required_step_is_never_inferred_from_error_message(message: str) -> Non
 
 
 @pytest.mark.anyio
+async def test_result_refusal_never_echoes_planted_ledger_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A planted stored-ledger key must never reach the MCP error wire."""
+
+    from tests.diagnosis import test_orchestrator as orch
+
+    harness = orch.EngineHarness(tmp_path)
+    monkeypatch.setattr(orch, "_ROOT", harness.root)
+    run_id = orch._closed_run_with_tampered_ledger(
+        harness, {orch.PLANTED_LEDGER_KEY: True}
+    )
+
+    server = build_mcp_server(harness.engine)
+    async with Client(server, raise_exceptions=True) as client:
+        with pytest.raises(MCPError) as caught:
+            await client.call_tool("get_diagnosis_result", {"run_id": run_id})
+
+    error = caught.value
+    rendered = "\n".join(
+        (str(error), error.message, json.dumps(error.data, default=str))
+    )
+    assert orch.PLANTED_LEDGER_KEY not in rendered
+
+
+@pytest.mark.anyio
 async def test_closed_result_bytes_match_direct_engine_not_a_cli() -> None:
     """CLI equality waits for Task 9. This slice compares engine vs MCP only."""
 

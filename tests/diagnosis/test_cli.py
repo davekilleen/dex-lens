@@ -248,6 +248,34 @@ def test_result_json_bytes_match_engine_dump(
     assert capsys.readouterr().out.encode("utf-8") == expected
 
 
+def test_result_refusal_never_echoes_planted_ledger_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A planted stored-ledger key must never reach CLI stderr or stdout.
+
+    The refusal must stay a typed exit-2 message naming only declared model
+    fields, not the attacker-chosen dictionary key the tampered artifact
+    carries.
+    """
+
+    from tests.diagnosis import test_orchestrator as orch
+
+    harness = orch.EngineHarness(tmp_path)
+    monkeypatch.setattr(orch, "_ROOT", harness.root)
+    run_id = orch._closed_run_with_tampered_ledger(
+        harness, {orch.PLANTED_LEDGER_KEY: True}
+    )
+    monkeypatch.setattr(cli, "build_engine", lambda: harness.engine)
+
+    assert diagnosis_main(["result", "--run", run_id, "--format", "json"]) == 2
+
+    captured = capsys.readouterr()
+    assert orch.PLANTED_LEDGER_KEY not in captured.err
+    assert orch.PLANTED_LEDGER_KEY not in captured.out
+    assert captured.out == ""
+    assert captured.err.startswith("dex-lens: ")
+
+
 def test_result_markdown_prints_only_canonical_report(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
