@@ -612,7 +612,7 @@ def test_a_behind_dex_claim_on_a_non_lineage_run_is_refused(tmp_path: Path) -> N
     doctored = markdown + "\nYour setup is at least 3 releases behind Dex.\n"
     errors = job_axis_errors(doctored, result.ledger)
     assert errors
-    assert any("loan" in error for error in errors)
+    assert any("never that the person is behind" in error for error in errors)
 
     stripped = markdown.replace(canonical_job_axis_block(result.ledger), "")
     errors = job_axis_errors(stripped, result.ledger)

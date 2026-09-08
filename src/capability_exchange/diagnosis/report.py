@@ -991,13 +991,13 @@ def canonical_job_axis_block(ledger: ComparisonLedger) -> str:
         return ""
     lines = ["## What your system does about Dex's jobs"]
     lines.append(
-        "The approved snapshot carries no Dex Core release record (Verified: "
-        "Dex's own release file, which every install has at any age), so Dex "
-        "is not installed here. There is no version to diff and no such thing "
-        "as being ‘behind’. The honest comparison is by job: the signed "
-        "jobs Dex organises itself around, and what your system visibly does "
-        "about each — read from your own files. Anything Dex offers for a "
-        "job below is a loan to consider, never a gap you are behind on."
+        "You don't have Dex installed, so nothing here says you are behind "
+        "or out of date — there is no version to compare (Verified: Dex's own "
+        "release file, which every install carries, is not in the approved "
+        "folder). Instead, the comparison is by the work itself: the jobs Dex "
+        "is built around, and what your own system already does for each — "
+        "read from your own files. Where Dex has something for a job, it is "
+        "listed as something you could take, not something you are missing."
     )
     for row in ledger.job_axis:
         pointer = (
@@ -1042,9 +1042,9 @@ def job_axis_errors(report_markdown: str, ledger: ComparisonLedger) -> tuple[str
         quoted = ", ".join(f"'{claim}'" for claim in claims)
         errors.append(
             "drop the release-delta framing: nothing ties this system to Dex, "
-            f"so a claim like {quoted} has nothing to cite. A non-lineage "
-            "comparison is a loan — here is what Dex offers for each job — "
-            "never a delta."
+            f"so a claim like {quoted} has nothing to cite. On a system "
+            "without Dex the report may only say what Dex offers for each "
+            "job, never that the person is behind."
         )
     return tuple(errors)
 
@@ -1125,11 +1125,10 @@ def canonical_release_gap_block(ledger: ComparisonLedger) -> str:
         # file is a dead end — the file cannot exist (AGENTS.md F8). The job
         # axis carries their comparison, framed as a loan.
         lines.append(
-            "Nothing here is behind anything: the approved snapshot carries no "
-            "Dex Core release record, so Dex is not installed on this system. "
-            "There is no version to compare and no distance to report. What "
-            "Dex offers is set out by job below — as a loan to consider, never "
-            "a gap you are behind on."
+            "You don't have Dex installed, so there is no version to compare "
+            "and nothing here says you are behind. What Dex offers is set out "
+            "job by job below — things you could take, not things you are "
+            "missing."
         )
         return "\n".join(lines) + "\n"
     if not ledger.family_entries:

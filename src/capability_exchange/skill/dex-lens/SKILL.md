@@ -1069,10 +1069,12 @@ Before you frame anything as "behind" or "new since yours":
    `since_release` is later is honestly "new since yours"; when you do not, it
    is just "something Dex has", and you must not dress it as a delta.
 4. **Some systems are not Dex at all.** If nothing ties their vault to Dex,
-   there is no version to infer and nothing to diff. The honest framing is not
-   a delta but a loan: "here is Dex's capability surface, here is what your
-   system already does, here are the few things worth borrowing." Say that
-   plainly; do not manufacture a lineage to compare against.
+   there is no version to infer and nothing to diff. Never tell this person
+   they are "behind" — there is nothing to be behind on. Say it plainly:
+   "here is what your system already does, and here is what Dex could do for
+   you that it doesn't." Offers, not gaps. Do not manufacture a lineage to
+   compare against, and never use insider metaphors ("loan", "delta",
+   "lineage") in anything the person reads.
 
 **Write the rejections down.** The report has a section for them, and it is
 not optional: a shortlist with no visible rejections is indistinguishable

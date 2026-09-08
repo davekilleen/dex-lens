@@ -9,6 +9,13 @@ comparison, authorship, coverage, or the report.
 
 ## Claude-specific notes
 
+- **Plain words, always — founder's standing instruction (2026-09-07).** No
+  invented metaphors ("loan", "presence is the claim"), no codenames, no
+  insider shorthand — not in anything a Lens user reads, and not in
+  explanations to Dave. Explain a mechanism as: which file, which check, what
+  it decides, what a person sees. If a sentence needs decoding, rewrite it
+  before sending it.
+
 - `python3` on the PATH lacks this project's dependencies. Use
   `.venv/bin/python` for anything importing `capability_exchange`, including
   `scripts/check_inventory.py`. The path is relative to the repository root,
