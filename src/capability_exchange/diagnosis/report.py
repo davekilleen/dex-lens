@@ -752,18 +752,28 @@ def _map_coverage_lines(
     """The coverage-first voice, or ``None`` when this ledger cannot carry it.
 
     The voice is honest only when the ledger carries real map coverage: every
-    signed family row actually assessed by the deterministic matcher (a
-    ``not-assessed`` row is not coverage), and — when a focused selection is
-    recorded — every selected family named by the map with every one of its
-    members individually examined. A focused ledger that violates its own
-    coverage gate falls back to the confession rather than borrowing the
-    triumphant voice.
+    signed family row actually assessed by the deterministic matcher, and —
+    when a focused selection is recorded — every selected family named by the
+    map with every one of its members individually examined. A focused ledger
+    that violates its own coverage gate falls back to the confession rather
+    than borrowing the triumphant voice.
+
+    A family row carrying ``reserved_for_person_review`` — a claim the ledger
+    validator only admits when the signed catalogue's own assessment is
+    manual-only — is a priced, named fact, not a coverage gap, so it no
+    longer flips the whole story into the confession (which told a person
+    whose every area was assessed that nothing could be said about presence
+    or absence, RISK-FIRST-READ-REPORT-VOICE-2026-09-08). The story counts
+    such families out of "assessed" and names each with its signed reason. A
+    plain ``not-assessed`` row without that flag is not coverage, and keeps
+    the confession as before.
     """
 
     if not ledger.family_entries:
         return None
     if any(
         family.disposition is FamilyAssessmentDisposition.NOT_ASSESSED
+        and not family.reserved_for_person_review
         for family in ledger.family_entries
     ):
         return None
@@ -782,11 +792,31 @@ def _map_coverage_lines(
         if members & not_assessed:
             return None
     area_count = len(ledger.family_entries)
-    lines = [
-        f"All {_count_words(area_count)} signed capability "
-        f"{_plural(area_count, 'area')} of Dex "
-        f"{_plural(area_count, 'was', 'were')} assessed against your system."
-    ]
+    manual_rows = tuple(
+        family
+        for family in ledger.family_entries
+        if family.reserved_for_person_review
+    )
+    assessed_count = area_count - len(manual_rows)
+    if manual_rows:
+        lines = [
+            f"{_count_words(assessed_count).capitalize()} of the "
+            f"{_count_words(area_count)} signed capability "
+            f"{_plural(area_count, 'area')} of Dex "
+            f"{_plural(assessed_count, 'was', 'were')} assessed against "
+            "your system."
+        ]
+        lines.extend(
+            f"{family.title} (`{family.family_id}`) is one the signed "
+            f"catalogue reserves for a person's own review: {family.reason}"
+            for family in manual_rows
+        )
+    else:
+        lines = [
+            f"All {_count_words(area_count)} signed capability "
+            f"{_plural(area_count, 'area')} of Dex "
+            f"{_plural(area_count, 'was', 'were')} assessed against your system."
+        ]
     if selected:
         titles = _joined_titles(
             tuple(
@@ -1407,8 +1437,8 @@ def _family_disposition_phrase(value: str) -> str:
         "overlap-observed": "all published building blocks have exact local overlap",
         "not-recommendable": "this release does not make the family recommendable",
         "postdates-install": (
-            "every building block here arrived after the release your install "
-            "identifies as, so this install cannot carry them"
+            "every building block here arrived after your install's own "
+            "release, so this install cannot carry them"
         ),
     }[value]
 
@@ -1421,12 +1451,21 @@ def _render_family_coverage(ledger: ComparisonLedger) -> str:
     for family in ledger.family_entries:
         matched = len(family.matched_components)
         unresolved = len(family.unresolved_components)
-        unknown = (
-            f"{unresolved} {_plural(unresolved, 'component')} "
-            f"{'remains' if unresolved == 1 else 'remain'} Unknown"
-            if unresolved
-            else "no signed components remain Unknown"
-        )
+        # A family proven un-carryable by release history is evidence of
+        # absence; calling its components "Unknown" in the same breath
+        # contradicted the expectations block one section down.
+        if family.disposition is FamilyAssessmentDisposition.POSTDATES_INSTALL:
+            unknown = (
+                f"{unresolved} {_plural(unresolved, 'component')} "
+                "cannot be on this install"
+            )
+        elif unresolved:
+            unknown = (
+                f"{unresolved} {_plural(unresolved, 'component')} "
+                f"{'remains' if unresolved == 1 else 'remain'} Unknown"
+            )
+        else:
+            unknown = "no signed components remain Unknown"
         lines.append(
             f"- {family.title} (`{family.family_id}`): {matched} exact "
             f"{_plural(matched, 'component')} matched; {unknown}. "
@@ -1697,14 +1736,22 @@ def _render_reciprocal_learning(ledger: ComparisonLedger) -> str:
 
 
 def _render_unique_to_you(ledger: ComparisonLedger) -> str:
-    """List the engine-computed authored, catalogue-unmatched items.
+    """List the engine-computed catalogue-unmatched items, grouped by type.
 
-    Minimal by design: each row is the item's existing ledger identity and
-    kind with the usual evidence pointer.  The list itself is engine-derived
-    (the observation origin axis), so the host can read it aloud but cannot
-    flatter by invention; it is the deterministic candidate list for the
-    reciprocal share-back offers, and nothing is ever shared without the
-    person approving exact words in a separate flow.
+    The list itself is engine-derived (the observation origin axis), so the
+    host can read it aloud but cannot flatter by invention; it is the
+    deterministic candidate list for the reciprocal share-back offers, and
+    nothing is ever shared without the person approving exact words in a
+    separate flow.
+
+    Two voice rules, both founder decisions (2026-09-08, AGENTS.md F7): the
+    section claims possession, never personal authorship — "part of your
+    setup" is true for an item the person wrote, imported, or merely kept
+    running, while "yours alone" praised Dex's own retired stock back to the
+    person on every stale install; and when the run knows the install is
+    behind, it says plainly that some of these may be older Dex, because no
+    local signal can tell.  Items render grouped by what they are: a hundred
+    identical boilerplate rows is a wall, not a map.
     """
 
     if not ledger.unique_to_you:
@@ -1712,23 +1759,38 @@ def _render_unique_to_you(ledger: ComparisonLedger) -> str:
     local_by_id = {entry.observation_id: entry for entry in ledger.local_entries}
     rows = sorted(
         (local_by_id[observation_id] for observation_id in ledger.unique_to_you),
-        key=lambda entry: (entry.identity, entry.kind.value),
+        key=lambda entry: (entry.kind.value, entry.identity),
     )
     count = len(rows)
     lines = [
         "## Unique to you",
         (
             f"{count} {_plural(count, 'item')} in your system "
-            f"{_plural(count, 'matches', 'match')} no signed Dex identity and did "
-            "not arrive with the assistant (engine-derived identity matching, not "
-            "judgement). These are yours alone — and the candidates worth offering "
+            f"{_plural(count, 'matches', 'match')} nothing in today's signed Dex "
+            "catalogue and did not arrive with the assistant (engine-derived "
+            "identity matching, not judgement). They are part of the setup you "
+            "have put together — written by you, brought in from elsewhere, or "
+            "kept running by you — and they are the candidates worth offering "
             "back as ideas, only ever in words you approve first."
         ),
     ]
+    if ledger.version_distance is not None:
+        lines.append(
+            "One caution: your install is behind the catalogue this run "
+            "compared against, so some of these may have shipped with the older "
+            "Dex you installed. Only Dex publishing the identities it used to "
+            "ship would tell exactly which."
+        )
+    by_kind: dict[str, list[str]] = {}
+    for entry in rows:
+        by_kind.setdefault(entry.kind.value, []).append(entry.identity)
     lines.extend(
-        f"- `{entry.identity}` ({entry.kind.value}) — "
-        f"{_render_human_evidence(entry.evidence_references)}"
-        for entry in rows
+        f"- {kind_value}s ({len(identities)}): "
+        + ", ".join(f"`{identity}`" for identity in identities)
+        for kind_value, identities in sorted(by_kind.items())
+    )
+    lines.append(
+        "Each item's exact evidence references are in the full record appendix."
     )
     return "\n".join(lines) + "\n"
 
@@ -1799,12 +1861,49 @@ def _render_human_evidence(references: tuple[str, ...]) -> str:
 
 
 def _render_recommendations(ledger: ComparisonLedger) -> str:
-    return _render_disposition_findings(
-        ledger,
-        heading="Worth borrowing from Dex",
-        dispositions=frozenset({Disposition.WORTH_BORROWING}),
-        empty_message="No Dex addition cleared the evidence bar this time.",
+    """Worth-borrowing findings, minus the ones the ranked list already told.
+
+    A finding that is also a ranked move already carries its full reason and
+    evidence a few lines up; repeating it verbatim here read as noise to the
+    first real reader (RISK-FIRST-READ-REPORT-VOICE-2026-09-08). The section
+    still names those entries so the borrow list stays complete, and findings
+    the ranking does not carry keep their full rendering.
+    """
+
+    titles = {item.capability_id: item.title for item in ledger.capabilities}
+    findings = sorted(
+        (
+            item
+            for item in ledger.entries
+            if item.disposition is Disposition.WORTH_BORROWING
+        ),
+        key=lambda item: item.catalogue_id,
     )
+    lines = ["## Worth borrowing from Dex"]
+    if not findings:
+        lines.append("No Dex addition cleared the evidence bar this time.")
+        return "\n".join(lines) + "\n"
+    ranked_ids = {item.catalogue_id for item in ledger.ranked_recommendations}
+    already_ranked = tuple(
+        item for item in findings if item.catalogue_id in ranked_ids
+    )
+    if already_ranked:
+        named = ", ".join(f"`{item.catalogue_id}`" for item in already_ranked)
+        lines.append(
+            f"Already covered by the ranked moves above: {named}."
+        )
+    for finding in findings:
+        if finding.catalogue_id in ranked_ids:
+            continue
+        title = titles.get(finding.capability_id, finding.capability_id)
+        lines.extend(
+            (
+                f"### {title} (`{finding.catalogue_id}`)",
+                finding.reason,
+                _render_human_evidence(finding.evidence_references),
+            )
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _render_rejections(ledger: ComparisonLedger) -> str:

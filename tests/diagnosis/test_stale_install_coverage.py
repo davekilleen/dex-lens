@@ -124,7 +124,7 @@ def test_a_member_newer_than_the_install_is_not_counted_as_coverage(
     # which is the useful and the honest answer, because the signed lineage
     # proves the capability could not have been there.
     assert row.state is ExpectationState.ABSENT
-    assert "after the release this install identifies as" in row.reason
+    assert "after your install's own release" in row.reason
 
 
 def test_the_absence_is_evidenced_rather_than_merely_unresolved(

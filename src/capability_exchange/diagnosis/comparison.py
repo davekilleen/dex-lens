@@ -12,6 +12,7 @@ from capability_exchange.boundary.serialization import InventoriedModel
 from capability_exchange.catalogue.v2 import (
     CapabilityReferenceV2,
     CatalogueV2,
+    ManualOnlyAssessmentV2,
     McpServerCapabilityEntryV2,
     McpToolReferenceV2,
     NangoProviderReferenceV2,
@@ -353,6 +354,12 @@ class FamilyLedgerEntry(InventoriedModel):
     evidence_references: tuple[str, ...]
     disposition: FamilyAssessmentDisposition
     reason: str = Field(min_length=1, max_length=600)
+    #: True only when the signed catalogue's assessment for this family is
+    #: manual-only. The ledger validator refuses True on any family the
+    #: catalogue does not sign as manual-only, so the coverage voice can trust
+    #: it; a plain ``NOT_ASSESSED`` row without it keeps the confession voice,
+    #: because nothing proves that row was a deliberate reservation.
+    reserved_for_person_review: bool = False
 
     @field_validator(
         "available_member_ids",
@@ -645,6 +652,14 @@ def family_entries_from_assessments(
             "family entries must equal the verified catalogue family identity set",
             tuple(sorted(assessment_by_id)),
         )
+    for item in assessments:
+        if item.reserved_for_person_review and not isinstance(
+            family_by_id[item.family_id].assessment, ManualOnlyAssessmentV2
+        ):
+            raise _model_validation_error(
+                "family entry must preserve exact signed family truth",
+                item.family_id,
+            )
     return tuple(
         FamilyLedgerEntry(
             family_id=assessment.family_id,
@@ -669,6 +684,7 @@ def family_entries_from_assessments(
             evidence_references=assessment.evidence_references,
             disposition=assessment.disposition,
             reason=assessment.reason,
+            reserved_for_person_review=assessment.reserved_for_person_review,
         )
         for assessment in sorted(assessments, key=lambda item: item.family_id)
     )
@@ -702,6 +718,14 @@ def _validate_family_entries(
             and entry.available_member_ids == summary.available_member_ids
             and entry.unavailable_member_ids == summary.unavailable_member_ids
             and entry.recommendable_member_ids == summary.recommendable_member_ids
+            # One-directional on purpose: claiming a reservation the signed
+            # catalogue does not make is refused, while a conservative False
+            # on a manual-only family stays loadable (it only ever renders
+            # the more cautious confession voice).
+            and not (
+                entry.reserved_for_person_review
+                and not isinstance(family.assessment, ManualOnlyAssessmentV2)
+            )
         )
         expected_components = tuple(
             sorted(_signed_component_reference(component) for component in family.components)
@@ -1392,7 +1416,15 @@ def insights_from_proposals(
                     observation_ids=item.observation_ids,
                 )
             )
-        elif len(item.evidence_ids) >= 2:
+        elif (
+            item.kind is not ProposalKind.RECOMMENDATION
+            and item.disposition is not Disposition.WORTH_BORROWING
+            and len(item.evidence_ids) >= 2
+        ):
+            # A recommendation already renders in the ranked moves and the
+            # worth-borrowing findings; repeating its reason a third time as a
+            # "connection" told the first real reader the same thing three
+            # times (RISK-FIRST-READ-REPORT-VOICE-2026-09-08).
             connections.append(
                 GroundedInsight(
                     insight_id=f"connection:{candidate_id}",

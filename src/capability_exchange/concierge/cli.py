@@ -82,8 +82,6 @@ Your assistant does the reading and calls these when it needs them:
     dex-lens share <card>          send one idea card back to Dex, preview first
     dex-lens share-answers --run <id>  offer your run answers to Dave, preview first
     dex-lens newsletter <email>    sign up for heydex.ai updates, preview first
-    dex-lens share-answers --run <id>   send your intake answers to Dave, preview first
-    dex-lens newsletter <email>    sign up for heydex.ai updates, preview first
 
 Add --help to any of them.
 """

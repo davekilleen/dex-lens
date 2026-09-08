@@ -124,6 +124,11 @@ class SignificantFamilyAssessment:
     evidence_references: tuple[str, ...]
     disposition: FamilyAssessmentDisposition
     reason: str
+    #: True only when the signed catalogue's own assessment for this family is
+    #: manual-only. A ``NOT_ASSESSED`` disposition alone does not prove that:
+    #: it is also what a genuinely skipped row carries, and the coverage voice
+    #: must never dress a skip up as "the catalogue reserves this for you".
+    reserved_for_person_review: bool = False
 
 
 @dataclass(frozen=True)
@@ -611,9 +616,9 @@ def _reason_for(
     if disposition is FamilyAssessmentDisposition.POSTDATES_INSTALL:
         return (
             "Every signed component of this family names a capability Dex "
-            "introduced after the release this install identifies as, so this "
-            "install cannot carry it. A local item sharing one of those names "
-            "is an older thing under the same name, not this capability."
+            "introduced after your install's own release, so this install "
+            "cannot carry it. A local item sharing one of those names is an "
+            "older thing under the same name, not this capability."
         )
     if disposition is FamilyAssessmentDisposition.PARTIAL_OVERLAP:
         return (
@@ -695,6 +700,7 @@ def assess_significant_families(
                         FamilyAssessmentDisposition.NOT_ASSESSED,
                         manual_reason=family.assessment.reason,
                     ),
+                    reserved_for_person_review=True,
                 )
             )
             continue

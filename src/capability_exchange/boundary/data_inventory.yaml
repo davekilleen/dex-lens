@@ -1245,6 +1245,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral deterministic assessment result"
 
+  FamilyLedgerEntry.reserved_for_person_review:
+    description: "whether the signed catalogue reserves this family for a person's own review"
+    collection: "copied from the signed family's manual-only assessment mode"
+    derivation: "validator refuses True on any family the catalogue does not sign manual-only"
+    display: "names the reserved family in the coverage story instead of confessing a gap"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "ephemeral signed catalogue fact"
+
   FamilyLedgerEntry.reason:
     description: "bounded one-line explanation for the family disposition"
     collection: "authored by the deterministic assessor from closed state"
