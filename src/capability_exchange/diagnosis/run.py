@@ -19,7 +19,14 @@ __all__ = [
     "ENGINE_VERSION",
     "INPUT_SCHEMA_VERSION",
     "NEXT_ACTION",
+    "INTAKE_NOT_SURE",
+    "INTAKE_PROJECT_LINK",
+    "INTAKE_QUESTION_OPTIONS",
+    "IntakeAnswer",
+    "IntakeReceipt",
     "NEXT_STAGE",
+    "intake_answer_fault",
+    "intake_required_question_ids",
     "ApprovedScopeReceipt",
     "DiagnosisCheckpoint",
     "DiagnosisInput",
@@ -66,6 +73,10 @@ class RequiredStep(StrEnum):
     """Typed next action exposed by the engine and MCP adapter."""
 
     APPROVE_SCOPE = "approve_scope"
+    #: Every run pauses here for the person's own answers about their
+    #: situation.  Not derivable from files, so `advance` can never take this
+    #: step by itself: it refuses, naming the first unanswered question.
+    RECORD_INTAKE = "record_intake"
     CAPTURE_FINGERPRINT = "capture_fingerprint"
     VERIFY_CATALOGUE = "verify_catalogue"
     MAP_FAMILIES = "map_families"
@@ -102,6 +113,7 @@ class DiagnosisStage(StrEnum):
 
     CREATED = "created"
     SCOPE_APPROVED = "scope-approved"
+    INTAKE_RECORDED = "intake-recorded"
     CAPTURED = "captured"
     CATALOGUE_VERIFIED = "catalogue-verified"
     FAMILY_MAPPED = "family-mapped"
@@ -117,7 +129,8 @@ class DiagnosisStage(StrEnum):
 
 _REQUIRED_STEP_BY_STAGE: dict[DiagnosisStage, RequiredStep] = {
     DiagnosisStage.CREATED: RequiredStep.APPROVE_SCOPE,
-    DiagnosisStage.SCOPE_APPROVED: RequiredStep.CAPTURE_FINGERPRINT,
+    DiagnosisStage.SCOPE_APPROVED: RequiredStep.RECORD_INTAKE,
+    DiagnosisStage.INTAKE_RECORDED: RequiredStep.CAPTURE_FINGERPRINT,
     DiagnosisStage.CAPTURED: RequiredStep.VERIFY_CATALOGUE,
     DiagnosisStage.CATALOGUE_VERIFIED: RequiredStep.MAP_FAMILIES,
     DiagnosisStage.FAMILY_MAPPED: RequiredStep.CONFIRM_JOBS,
@@ -140,7 +153,8 @@ def required_step_for_stage(stage: DiagnosisStage) -> RequiredStep:
 
 NEXT_STAGE: dict[DiagnosisStage, DiagnosisStage] = {
     DiagnosisStage.CREATED: DiagnosisStage.SCOPE_APPROVED,
-    DiagnosisStage.SCOPE_APPROVED: DiagnosisStage.CAPTURED,
+    DiagnosisStage.SCOPE_APPROVED: DiagnosisStage.INTAKE_RECORDED,
+    DiagnosisStage.INTAKE_RECORDED: DiagnosisStage.CAPTURED,
     DiagnosisStage.CAPTURED: DiagnosisStage.CATALOGUE_VERIFIED,
     DiagnosisStage.CATALOGUE_VERIFIED: DiagnosisStage.FAMILY_MAPPED,
     DiagnosisStage.FAMILY_MAPPED: DiagnosisStage.JOBS_CONFIRMED,
@@ -157,7 +171,11 @@ NEXT_ACTION: dict[DiagnosisStage, str] = {
     DiagnosisStage.CREATED: (
         "Approve the exact scope in this chat with dex-lens diagnosis approve."
     ),
-    DiagnosisStage.SCOPE_APPROVED: "Capture the consented fingerprint.",
+    DiagnosisStage.SCOPE_APPROVED: (
+        "Answer a few quick questions about your setup with dex-lens "
+        "diagnosis intake."
+    ),
+    DiagnosisStage.INTAKE_RECORDED: "Capture the consented fingerprint.",
     DiagnosisStage.CAPTURED: "Verify the exact catalogue bytes.",
     DiagnosisStage.CATALOGUE_VERIFIED: "Derive the deterministic family map.",
     DiagnosisStage.FAMILY_MAPPED: "Confirm the jobs this diagnosis may use.",
@@ -481,6 +499,165 @@ class ApprovedScopeReceipt(_ValidatedInventoried):
 _FAMILY_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,119}$")
 
 
+
+#: The one answer every intake question accepts. A person who does not know
+#: must never be stuck (the no-exit wedge class in AGENTS.md §4).
+INTAKE_NOT_SURE = "not-sure"
+
+#: Closed option lists for the intake questions. The Convex receiving end
+#: (convex/intake.ts) carries the same lists; tests/share/test_intake_contract.py
+#: pins the two against each other.
+INTAKE_QUESTION_OPTIONS: dict[str, tuple[str, ...]] = {
+    "dex-installed": ("yes", "no", INTAKE_NOT_SURE),
+    "customisation": (
+        "barely-touched",
+        "quite-a-bit",
+        "unrecognisable",
+        INTAKE_NOT_SURE,
+    ),
+    "first-installed": (
+        "last-week",
+        "last-month",
+        "last-3-months",
+        "at-launch",
+        INTAKE_NOT_SURE,
+    ),
+    "last-update": (
+        "last-week",
+        "last-month",
+        "longer-ago",
+        "never",
+        INTAKE_NOT_SURE,
+    ),
+    "from-open-source": ("yes", "no-built-it-myself", INTAKE_NOT_SURE),
+}
+
+#: The one free-text question: where the person's non-Dex system came from.
+INTAKE_PROJECT_LINK = "project-link"
+INTAKE_PROJECT_LINK_MAX_LENGTH = 300
+INTAKE_PROJECT_LINK_PREFIX = "https://"
+
+#: Question order per branch — also the order refusals name missing answers
+#: in, so the message is deterministic.
+INTAKE_DEX_BRANCH: tuple[str, ...] = (
+    "dex-installed",
+    "customisation",
+    "first-installed",
+    "last-update",
+)
+INTAKE_NO_DEX_BRANCH: tuple[str, ...] = (
+    "dex-installed",
+    "from-open-source",
+    "customisation",
+)
+
+
+def intake_required_question_ids(answers: Mapping[str, str]) -> tuple[str, ...]:
+    """The exact questions one person's run requires, from their own answers.
+
+    The branch turns on "dex-installed": a plain "no" takes the questions
+    about their non-Dex system, anything else (yes, or not knowing) takes the
+    Dex questions. The project link is required exactly when they said their
+    system comes from an open-source project.
+    """
+
+    if answers.get("dex-installed") == "no":
+        required = list(INTAKE_NO_DEX_BRANCH)
+        if answers.get("from-open-source") == "yes":
+            required.append(INTAKE_PROJECT_LINK)
+        return tuple(required)
+    return INTAKE_DEX_BRANCH
+
+
+def intake_answer_fault(question_id: str, answer: str) -> str | None:
+    """Why one answer is not acceptable, in plain words, or ``None``."""
+
+    if question_id == INTAKE_PROJECT_LINK:
+        if answer == INTAKE_NOT_SURE:
+            return None
+        if len(answer) > INTAKE_PROJECT_LINK_MAX_LENGTH:
+            return (
+                f"the {INTAKE_PROJECT_LINK} answer is longer than "
+                f"{INTAKE_PROJECT_LINK_MAX_LENGTH} characters"
+            )
+        if not answer.startswith(INTAKE_PROJECT_LINK_PREFIX):
+            return (
+                f"the {INTAKE_PROJECT_LINK} answer must start with "
+                f"{INTAKE_PROJECT_LINK_PREFIX} or be '{INTAKE_NOT_SURE}'"
+            )
+        if any(character.isspace() or ord(character) < 32 for character in answer):
+            return f"the {INTAKE_PROJECT_LINK} answer must be a single plain link"
+        return None
+    options = INTAKE_QUESTION_OPTIONS.get(question_id)
+    if options is None:
+        return f"'{question_id}' is not an intake question"
+    if answer not in options:
+        return (
+            f"'{question_id}' takes one of: " + ", ".join(options)
+        )
+    return None
+
+
+class IntakeAnswer(_ValidatedInventoried):
+    """One question the person answered, exactly as recorded."""
+
+    question_id: str = Field(min_length=1, max_length=40)
+    answer: str = Field(min_length=1, max_length=INTAKE_PROJECT_LINK_MAX_LENGTH)
+
+    @model_validator(mode="after")
+    def _answer_is_one_the_question_takes(self) -> Self:
+        fault = intake_answer_fault(self.question_id, self.answer)
+        if fault is not None:
+            raise ValueError(fault)
+        return self
+
+
+class IntakeReceipt(_ValidatedInventoried):
+    """The engine-minted record of the intake questions and their answers.
+
+    Deterministic on purpose: no clock enters it, so identical answers on the
+    same run always produce byte-identical storage, and two runs' receipts for
+    identical answers differ only in the run they are bound to. Its digest is
+    recomputed from the recorded answers on every validation, so a stored
+    receipt whose answers were edited no longer matches its own digest and is
+    refused rather than trusted.
+    """
+
+    run_id: str = Field(pattern=_RUN_ID.pattern)
+    answers: tuple[IntakeAnswer, ...] = Field(min_length=1, max_length=8)
+    intake_digest: str = Field(pattern=_SHA256.pattern)
+
+    @model_validator(mode="after")
+    def _answers_are_complete_sorted_and_digest_bound(self) -> Self:
+        ids = [item.question_id for item in self.answers]
+        if len(set(ids)) != len(ids):
+            raise ValueError("intake answers must name each question once")
+        if sorted(ids) != ids:
+            raise ValueError("intake answers must be sorted by question")
+        by_id = {item.question_id: item.answer for item in self.answers}
+        required = intake_required_question_ids(by_id)
+        missing = [item for item in required if item not in by_id]
+        if missing:
+            raise ValueError(f"intake answers are missing '{missing[0]}'")
+        extra = sorted(set(by_id) - set(required))
+        if extra:
+            raise ValueError(
+                f"'{extra[0]}' is not one of this run's intake questions"
+            )
+        expected = canonical_json_digest(
+            {
+                "answers": [
+                    {"answer": item.answer, "question_id": item.question_id}
+                    for item in self.answers
+                ],
+                "run_id": self.run_id,
+            }
+        )
+        if expected != self.intake_digest:
+            raise ValueError("intake receipt digest does not match its answers")
+        return self
+
+
 class FocusReceipt(_ValidatedInventoried):
     """Typed record of the person's family multi-select for one focused run.
 
@@ -779,6 +956,9 @@ class DiagnosisRunView(_ValidatedInventoried):
     #: against the re-derived family map on every status read.  ``None`` until
     #: the person's selection is recorded (and always for guided runs).
     focus: FocusReceipt | None = None
+    #: The person's recorded intake answers, re-validated against their own
+    #: digest on every status read.  ``None`` until they answer.
+    intake: IntakeReceipt | None = None
     #: Typed, engine-computed live progress, present only while specialist
     #: work is in flight: packets done/pending, per selected family on a
     #: focused run, elapsed time, and a bounded pace estimate derived from

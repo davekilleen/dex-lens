@@ -54,6 +54,7 @@ EXPECTED_TOOLS = {
     "prepare_diagnosis",
     "get_diagnosis_status",
     "advance_diagnosis",
+    "record_diagnosis_intake",
     "get_diagnosis_family_map",
     "confirm_diagnosis_focus",
     "get_diagnosis_work",
@@ -219,6 +220,7 @@ def build_mcp_server(engine: DiagnosisEngine) -> MCPServer:
     _register_status_tool(server, engine)
     _register_advance_tool(server, engine)
     register_prepare_tool(server, engine)
+    register_intake_tool(server, engine)
     register_family_map_tool(server, engine)
     register_focus_tool(server, engine)
     register_work_tool(server, engine)
@@ -262,6 +264,22 @@ def register_family_map_tool(server: MCPServer, engine: DiagnosisEngine) -> None
                 raise ToolError("family map is not a closed typed payload")
             _refuse_hostile_payload(payload)
             return payload
+
+
+def register_intake_tool(server: MCPServer, engine: DiagnosisEngine) -> None:
+    @server.tool(annotations=_READ_ONLY)
+    def record_diagnosis_intake(
+        run_id: str,
+        answers: dict[str, str],
+    ) -> dict[str, object]:
+        """Record the person's own answers to the intake questions, once."""
+        with _crash_boundary():
+            if not answers or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in answers.items()
+            ):
+                raise ToolError("intake requires question-to-answer text pairs")
+            return _dump(engine.intake, run_id, answers)
 
 
 def register_focus_tool(server: MCPServer, engine: DiagnosisEngine) -> None:

@@ -166,6 +166,15 @@ class RecordingReportStore(LensReportStore):
             self._inside_save_result = False
 
 
+
+#: Harness default answers: the person who does not know.
+NOT_SURE_INTAKE = {
+    "dex-installed": "not-sure",
+    "customisation": "not-sure",
+    "first-installed": "not-sure",
+    "last-update": "not-sure",
+}
+
 class EngineHarness:
     """Real engine plus recording dependencies for Task 8 tests."""
 
@@ -233,6 +242,9 @@ class EngineHarness:
         while view.stage is not stage:
             if view.stage is DiagnosisStage.CREATED:
                 self.approve(run_id)
+            elif view.stage is DiagnosisStage.SCOPE_APPROVED and view.intake is None:
+                view = self.engine.intake(run_id, NOT_SURE_INTAKE)
+                continue
             view = self.advance(run_id)
         return view
 
@@ -339,6 +351,14 @@ def test_each_stage_calls_exactly_its_lawful_dependency(engine: EngineHarness) -
     assert engine.catalogue_loader.calls == []
     assert engine.comparer.calls == []
     assert engine.report_store.save_result_calls == []
+
+    # The person's answers cost no dependency at all: recording them reads
+    # nothing and compares nothing.
+    answered = engine.engine.intake(run_id, NOT_SURE_INTAKE)
+    assert answered.stage is DiagnosisStage.INTAKE_RECORDED
+    assert engine.collector.calls == []
+    assert engine.catalogue_loader.calls == []
+    assert engine.comparer.calls == []
 
     captured = engine.advance(run_id)
     assert captured.stage is DiagnosisStage.CAPTURED

@@ -43,6 +43,9 @@ from capability_exchange.diagnosis.report import (
 from capability_exchange.diagnosis.run import (
     ENGINE_VERSION,
     INPUT_SCHEMA_VERSION,
+    INTAKE_NOT_SURE,
+    INTAKE_PROJECT_LINK,
+    INTAKE_QUESTION_OPTIONS,
     NEXT_ACTION,
     NEXT_STAGE,
     ApprovedScopeReceipt,
@@ -55,6 +58,8 @@ from capability_exchange.diagnosis.run import (
     FamilyDiveState,
     FamilyMap,
     FocusReceipt,
+    IntakeAnswer,
+    IntakeReceipt,
     RequiredStep,
     RunIdentity,
     WorkProgress,
@@ -62,6 +67,8 @@ from capability_exchange.diagnosis.run import (
     advance_inventory_to_compare,
     advance_to,
     canonical_json_digest,
+    intake_answer_fault,
+    intake_required_question_ids,
     progress_headline,
     required_step_for_stage,
 )
@@ -392,6 +399,36 @@ class ComparisonBuilder(Protocol):
     ) -> ComparisonLedger: ...
 
 
+
+def _intake_answer_set_fault(answers: Mapping[str, str]) -> str | None:
+    """Why a submitted answer set is not acceptable, in plain words.
+
+    Deterministic order: unknown questions first (sorted), then a bad answer
+    (branch order), then the first missing question (branch order), then the
+    first question that does not belong to this branch (sorted).
+    """
+
+    known = set(INTAKE_QUESTION_OPTIONS) | {INTAKE_PROJECT_LINK}
+    unknown = sorted(set(answers) - known)
+    if unknown:
+        return f"'{unknown[0]}' is not an intake question"
+    for question_id in sorted(answers):
+        fault = intake_answer_fault(question_id, answers[question_id])
+        if fault is not None:
+            return fault
+    required = intake_required_question_ids(answers)
+    for question_id in required:
+        if question_id not in answers:
+            return (
+                f"'{question_id}' is unanswered; every question takes "
+                f"'{INTAKE_NOT_SURE}' if you do not know"
+            )
+    extra = sorted(set(answers) - set(required))
+    if extra:
+        return f"'{extra[0]}' is not one of this run's intake questions"
+    return None
+
+
 class DeterministicDiagnosisEngine:
     """Owns lawful diagnosis transitions. Dependencies are injected."""
 
@@ -486,6 +523,13 @@ class DeterministicDiagnosisEngine:
             # map-specific surface keeps failing closed with the typed error.
             family_map = None
         try:
+            intake = self._intake_receipt(checkpoint)
+        except DiagnosisStateError:
+            # Same discipline as the map: a tampered intake record never
+            # reaches a reader through status, and every mutating surface
+            # keeps failing closed with the typed error.
+            intake = None
+        try:
             focus = self._focus_receipt(checkpoint)
         except DiagnosisStateError:
             # Same discipline as the map: a tampered focus receipt never
@@ -508,6 +552,8 @@ class DeterministicDiagnosisEngine:
             update["family_map"] = family_map
         if focus is not None:
             update["focus"] = focus
+        if intake is not None:
+            update["intake"] = intake
         if progress is not None:
             update["progress"] = progress
         if not update:
@@ -545,6 +591,124 @@ class DeterministicDiagnosisEngine:
         fingerprint = self._fingerprint(checkpoint)
         catalogue = self._catalogue(checkpoint)
         return derive(fingerprint=fingerprint, catalogue=catalogue)
+
+    def intake(self, run_id: str, answers: Mapping[str, str]) -> DiagnosisRunView:
+        """Record the person's intake answers as an engine-minted receipt.
+
+        Lawful exactly once, at scope approval, before anything beyond the
+        approved folder listing is read. An identical replay is a no-op; a
+        different answer set fails closed — the questions are asked once and
+        answered once, and a change of mind means a new run.
+        """
+
+        with self._runs.exclusive(run_id):
+            return self._intake_locked(run_id, dict(answers))
+
+    def _intake_locked(
+        self, run_id: str, answers: dict[str, str]
+    ) -> DiagnosisRunView:
+        checkpoint = self._load(run_id)
+        if checkpoint.stage is DiagnosisStage.CLOSED:
+            raise DiagnosisStateError("diagnosis is closed; it exposes no mutation port")
+        existing = self._intake_receipt(checkpoint)
+        if existing is not None:
+            recorded = {item.question_id: item.answer for item in existing.answers}
+            if recorded == answers:
+                # An exact replay of the recorded answers is idempotent.
+                return self._view(checkpoint).model_copy(update={"intake": existing})
+            raise DiagnosisStateError(
+                "a different answer set is already recorded for this run; "
+                "start a new run to answer differently"
+            )
+        if checkpoint.stage is DiagnosisStage.CREATED:
+            raise DiagnosisStateError(
+                "the intake questions follow the scope approval",
+                required_step=RequiredStep.APPROVE_SCOPE,
+            )
+        if checkpoint.stage is not DiagnosisStage.SCOPE_APPROVED:
+            raise DiagnosisStateError(
+                "the intake window closed when this run moved on; answers "
+                "shape a run from its start, so record them on a new run"
+            )
+        fault = _intake_answer_set_fault(answers)
+        if fault is not None:
+            raise DiagnosisStateError(fault, required_step=RequiredStep.RECORD_INTAKE)
+        ordered = tuple(
+            IntakeAnswer(question_id=question_id, answer=answers[question_id])
+            for question_id in sorted(answers)
+        )
+        receipt = IntakeReceipt(
+            run_id=checkpoint.run_id,
+            answers=ordered,
+            intake_digest=canonical_json_digest(
+                {
+                    "answers": [
+                        {"answer": item.answer, "question_id": item.question_id}
+                        for item in ordered
+                    ],
+                    "run_id": checkpoint.run_id,
+                }
+            ),
+        )
+        payload = receipt.dump_for_storage()
+        try:
+            refuse_hostile_payload(payload)
+        except HostilePayloadError as exc:
+            raise DiagnosisStateError(
+                "intake answers carry content the engine refuses to retain"
+            ) from exc
+        artifact = self._put("intake-receipt", payload)
+        identity = canonical_json_digest(
+            {"engine_version": ENGINE_VERSION, "intake_digest": receipt.intake_digest}
+        )
+        updated = self._advance(
+            checkpoint,
+            DiagnosisStage.INTAKE_RECORDED,
+            artifacts=(artifact,),
+            input_identity=identity,
+        )
+        return self._view(updated).model_copy(update={"intake": receipt})
+
+    def _intake_receipt(self, checkpoint: DiagnosisCheckpoint) -> IntakeReceipt | None:
+        """Load and re-validate the stored intake receipt, or ``None``.
+
+        The stored artifact is never trusted alone: the receipt recomputes its
+        own digest from its recorded answers inside validation, so an edited
+        answer no longer matches and the consuming surface fails closed.
+        """
+
+        payload = self._find_kind(checkpoint, "intake-receipt")
+        if payload is None:
+            return None
+        try:
+            receipt = IntakeReceipt.model_validate(payload)
+        except (TypeError, ValueError) as exc:
+            raise DiagnosisStateError("stored intake answers are unreadable") from exc
+        if receipt.run_id != checkpoint.run_id:
+            raise DiagnosisStateError(
+                "stored intake answers do not belong to this run"
+            )
+        return receipt
+
+    def _require_intake_answers(
+        self, checkpoint: DiagnosisCheckpoint
+    ) -> DiagnosisCheckpoint:
+        """The advance handler for the intake stage: it can only refuse.
+
+        The answers come from a person, so the engine can never take this
+        step by itself — the refusal names the first unanswered question and
+        the step that records them.
+        """
+
+        receipt = self._intake_receipt(checkpoint)
+        if receipt is not None:  # pragma: no cover - advance() dispatch guard
+            return checkpoint
+        first = intake_required_question_ids({})[0]
+        raise DiagnosisStateError(
+            f"this run needs your answers first: '{first}' is unanswered. "
+            "Record them with dex-lens diagnosis intake",
+            required_step=RequiredStep.RECORD_INTAKE,
+        )
 
     def focus(self, run_id: str, family_ids: Sequence[str]) -> DiagnosisRunView:
         """Record the person's family multi-select as an engine-minted receipt.
@@ -1042,6 +1206,7 @@ class DeterministicDiagnosisEngine:
         target = NEXT_STAGE[checkpoint.stage]
         handlers = {
             DiagnosisStage.SCOPE_APPROVED: self._approve_scope,
+            DiagnosisStage.INTAKE_RECORDED: self._require_intake_answers,
             DiagnosisStage.CAPTURED: self._capture,
             DiagnosisStage.CATALOGUE_VERIFIED: self._verify_catalogue,
             DiagnosisStage.FAMILY_MAPPED: self._map_families,
@@ -1590,6 +1755,9 @@ class DeterministicDiagnosisEngine:
         )
 
     def _capture(self, checkpoint: DiagnosisCheckpoint) -> DiagnosisCheckpoint:
+        # The recorded intake answers are re-validated before anything beyond
+        # the approved listing is read; a tampered record fails closed here.
+        self._intake_receipt(checkpoint)
         receipt = self._require_receipt(checkpoint)
         fingerprint = self._collector.collect(receipt)
         payload = fingerprint.model_dump(mode="json")

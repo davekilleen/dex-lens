@@ -102,7 +102,18 @@ class _BoundConsentSurface:
 _BOUND_SURFACE: _BoundConsentSurface | None = None
 
 _DIAGNOSIS_COMMANDS = frozenset(
-    {"prepare", "approve", "status", "advance", "map", "focus", "work", "submit", "result"}
+    {
+        "prepare",
+        "approve",
+        "status",
+        "advance",
+        "intake",
+        "map",
+        "focus",
+        "work",
+        "submit",
+        "result",
+    }
 )
 
 _HELP = """dex-lens diagnosis — a local, read-only look that waits for your approval.
@@ -241,6 +252,7 @@ def diagnosis_main(argv: list[str] | None = None) -> int:
         "advance": _advance,
         "map": _map,
         "focus": _focus,
+        "intake": _intake,
         "work": _work,
         "submit": _submit,
         "result": _result,
@@ -689,6 +701,46 @@ def _map(argv: list[str]) -> int:
         return 2
     sys.stdout.write(rendered)
     return 0
+
+
+def _intake(argv: list[str]) -> int:
+    parser = _parser(
+        "dex-lens diagnosis intake",
+        "Record the person's own answers to the intake questions, once per run.",
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--answer",
+        action="append",
+        default=[],
+        required=True,
+        metavar="QUESTION=ANSWER",
+        help=(
+            "One answer as question=answer, for example dex-installed=yes. "
+            "May be repeated; every question accepts not-sure."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the canonical run view as JSON on stdout.",
+    )
+    args = parser.parse_args(argv)
+    answers: dict[str, str] = {}
+    for item in args.answer:
+        question, separator, answer = item.partition("=")
+        if not separator or not question or not answer:
+            print(
+                "each --answer takes question=answer, for example "
+                "dex-installed=not-sure",
+                file=sys.stderr,
+            )
+            return 2
+        answers[question] = answer
+    view = build_engine().intake(args.run, answers)
+    # The view carries the recorded answers (closed vocabulary plus the
+    # bounded link), so it clears the same outbound payload guard as status.
+    return _write_guarded_canonical_json(view.dump_for_storage())
 
 
 def _focus(argv: list[str]) -> int:

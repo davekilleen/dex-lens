@@ -223,11 +223,25 @@ class RealComparerHarness:
             authenticated_session_id="local-session",
         )
 
+    #: Harness default: the person who does not know. Tests about the intake
+    #: itself record their own answers before calling run_to.
+    NOT_SURE_INTAKE = {
+        "dex-installed": "not-sure",
+        "customisation": "not-sure",
+        "first-installed": "not-sure",
+        "last-update": "not-sure",
+    }
+
     def run_to(self, run_id: str, stage: DiagnosisStage) -> object:
         view = self.engine.status(run_id)
         while view.stage is not stage:
             if view.stage is DiagnosisStage.CREATED:
                 self.approve(run_id)
+            elif (
+                view.stage is DiagnosisStage.SCOPE_APPROVED and view.intake is None
+            ):
+                view = self.engine.intake(run_id, self.NOT_SURE_INTAKE)
+                continue
             view = self.engine.advance(run_id)
         return view
 

@@ -3661,6 +3661,16 @@ fields:
     deletion: delete-diagnosis-run-state
     audit: "engine-derived map; comparison refuses a stored copy that disagrees with re-derivation"
 
+  DiagnosisRunView.intake:
+    description: "the recorded intake answers carried on the live status view"
+    collection: "reloaded from the digest-bound intake receipt on every status read"
+    derivation: "nested IntakeReceipt; a stored record whose digest no longer matches its answers never reaches this view"
+    display: "lets the assistant quote what the person told us without re-asking"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "view-only projection of the stored receipt"
+
   DiagnosisRunView.focus:
     description: "the recorded family multi-select for a focused run, re-validated against the re-derived family map on every status read"
     collection: "recorded by the engine when the person confirms the family selection"
@@ -3794,6 +3804,66 @@ fields:
     sharing: never
     deletion: not-stored
     audit: "ephemeral engine-derived count"
+
+  IntakeAnswer.question_id:
+    description: "which intake question this answer belongs to, from the closed question list"
+    collection: "chosen by the engine from the fixed intake question table"
+    derivation: "validated against the closed question identifiers; unknown questions are refused"
+    display: "pairs the recorded answer with its question in status and the report"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts inside the digest-bound intake receipt"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed vocabulary only; never free text"
+
+  IntakeAnswer.answer:
+    description: "the option the person chose for one intake question, or their project link"
+    collection: "the person's own answer in chat, recorded through diagnosis intake"
+    derivation: "validated against the question's closed option list; the project link is bounded, https-only free text or not-sure"
+    display: "shown in status and quoted in the report as something the person told us"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts inside the digest-bound intake receipt"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed vocabulary except the bounded project link; no vault content can enter"
+
+  IntakeReceipt.run_id:
+    description: "opaque identity of the diagnosis run these intake answers belong to"
+    collection: "copied from the run checkpoint when the answers are recorded"
+    derivation: "validated as a run-prefixed token; must match the loading run"
+    display: "binds the answers to exactly one run"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound receipt"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "local run handle; no personal path"
+
+  IntakeReceipt.answers:
+    description: "the complete recorded answer set for this run's intake questions"
+    collection: "the person's own answers in chat, recorded once through diagnosis intake"
+    derivation: "one answer per required question for the person's branch, sorted, digest-bound; extra or missing questions are refused"
+    display: "shown in status and framed in the report as what the person told us"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound receipt"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "closed vocabulary plus the bounded project link; recomputed digest refuses edits"
+
+  IntakeReceipt.intake_digest:
+    description: "digest binding this run's recorded intake answers"
+    collection: "computed by the engine over the sorted answers at recording time"
+    derivation: "sha256 of the canonical answers payload; recomputed on every validation"
+    display: "detects a stored answer set that was edited after recording"
+    storage:
+      location: "Dex Lens app storage directory diagnosis-runs/artifacts as a digest-bound receipt"
+      duration: "until the diagnosis-run deletion path runs or the person closes the run"
+    sharing: never
+    deletion: delete-diagnosis-run-state
+    audit: "content-bound digest only"
 
   FocusReceipt.run_id:
     description: "opaque identity of the focused diagnosis run this selection belongs to"

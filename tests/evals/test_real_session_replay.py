@@ -437,6 +437,10 @@ def test_hostile_fingerprint_is_refused_before_any_retention(tmp_path: Path) -> 
     harness.approve()
     approved = harness.engine.advance(replay.run_id)
     assert approved.stage is DiagnosisStage.SCOPE_APPROVED
+    # The capture guard sits after the intake questions now; answering them
+    # keeps this test aimed at the retention refusal it exists for.
+    answered = harness.engine.intake(replay.run_id, dict(harness.intake_answers))
+    assert answered.stage is DiagnosisStage.INTAKE_RECORDED
 
     with pytest.raises(DiagnosisStateError, match="refuses to retain") as caught:
         harness.engine.advance(replay.run_id)
