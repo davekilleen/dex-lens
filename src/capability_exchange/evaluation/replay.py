@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import MappingProxyType
 from typing import Literal
 from unittest.mock import patch
 
@@ -150,8 +151,9 @@ class _FixedComparer:
         jobs: tuple[object, ...],
         proposals: tuple[object, ...],
         work_audit: object | None = None,
+        intake: object | None = None,
     ) -> ComparisonLedger:
-        del fingerprint, catalogue, jobs, proposals, work_audit
+        del fingerprint, catalogue, jobs, proposals, work_audit, intake
         return self.ledger
 
 
@@ -239,11 +241,26 @@ class ReplayHarness:
             self.engine.submit(self.bundle.run_id, proposal)
         self._proposals_submitted = True
 
+    #: Replay default for the intake questions: the person who does not know.
+    #: A bundle exercising intake-specific behaviour records its own answers
+    #: before driving the run.
+    intake_answers: Mapping[str, str] = MappingProxyType(
+        {
+            "dex-installed": "not-sure",
+            "customisation": "not-sure",
+            "first-installed": "not-sure",
+            "last-update": "not-sure",
+        }
+    )
+
     def run_to(self, stage: DiagnosisStage) -> DiagnosisRunView:
         view = self.engine.status(self.bundle.run_id)
         while view.stage is not stage:
             if view.stage is DiagnosisStage.CREATED:
                 self.approve()
+            if view.stage is DiagnosisStage.SCOPE_APPROVED and view.intake is None:
+                view = self.engine.intake(self.bundle.run_id, self.intake_answers)
+                continue
             if (
                 view.stage is DiagnosisStage.CATALOGUE_VERIFIED
                 and self.bundle.proposals
@@ -482,6 +499,25 @@ def run_cli(replay: ReplayBundle) -> bytes:
                 harness.approve()
                 view = _cli_json(["status", "--run", replay.run_id, "--json"])
                 while view["stage"] != DiagnosisStage.CLOSED.value:
+                    if view[
+                        "stage"
+                    ] == DiagnosisStage.SCOPE_APPROVED.value and not view.get("intake"):
+                        view = _cli_json(
+                            [
+                                "intake",
+                                "--run",
+                                replay.run_id,
+                                *(
+                                    part
+                                    for question, answer in sorted(
+                                        harness.intake_answers.items()
+                                    )
+                                    for part in ("--answer", f"{question}={answer}")
+                                ),
+                                "--json",
+                            ]
+                        )
+                        continue
                     if (
                         view["stage"] == DiagnosisStage.CATALOGUE_VERIFIED.value
                         and replay.proposals
@@ -539,6 +575,19 @@ async def _drive_mcp(harness: ReplayHarness, discover: DiscoverOrder) -> bytes:
             )
         )
         while view["stage"] != DiagnosisStage.CLOSED.value:
+            if view["stage"] == DiagnosisStage.SCOPE_APPROVED.value and not view.get(
+                "intake"
+            ):
+                view = _tool_payload(
+                    await client.call_tool(
+                        "record_diagnosis_intake",
+                        {
+                            "run_id": harness.bundle.run_id,
+                            "answers": dict(harness.intake_answers),
+                        },
+                    )
+                )
+                continue
             if (
                 view["stage"] == DiagnosisStage.CATALOGUE_VERIFIED.value
                 and harness.bundle.proposals

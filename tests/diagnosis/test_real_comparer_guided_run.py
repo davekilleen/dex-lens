@@ -86,19 +86,36 @@ _FACTORS = RecommendationFactors(
 _SCEPTICAL_REASON = "The recommendation survives the sceptical evidence check."
 
 
-def _signed_store(catalogue: CatalogueV2) -> SimpleNamespace:
+def _signed_store(
+    catalogue: CatalogueV2, *, core_release: str | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         load_last_verified=lambda **_kwargs: SimpleNamespace(
             catalogue=catalogue,
-            metadata=SimpleNamespace(catalog_version=7),
+            metadata=SimpleNamespace(
+                catalog_version=7, core_release=core_release
+            ),
             _signed_json="invented-signed-catalogue",
         )
     )
 
 
-def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = False) -> (
-    EvidenceFingerprint
-):
+def _fingerprint(
+    observation_count: int = 10,
+    *,
+    differing_skill_copies: bool = False,
+    release_id: str | None = "v1.0.0",
+) -> EvidenceFingerprint:
+    """A guided run's local evidence, on a system Dex is installed on.
+
+    ``release_id`` mints Dex's own release record, which is what makes this a
+    Dex install at all. The harness carried no such record while "Dex is
+    present" was inferred from capability-name overlap instead; that inference
+    is the inversion AGENTS.md F8 records, and a fixture standing in for a Dex
+    install has to carry Dex's own evidence of itself. Pass ``None`` for a
+    system where Dex was never installed.
+    """
+
     attributes: tuple[SafeAttribute, ...] = (
         SafeAttribute(key="source-kind", value="vault-authored"),
     )
@@ -106,6 +123,28 @@ def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = 
         attributes = (
             SafeAttribute(key="copy-count", value="4"),
             SafeAttribute(key="variant-count", value="2"),
+        )
+    release: tuple[Observation, ...] = ()
+    if release_id is not None:
+        release = (
+            Observation(
+                kind=ObservationKind.RELEASE,
+                identity="dex-core",
+                label="Dex Core release",
+                operational_state=OperationalState.IMPLEMENTED,
+                evidence=EvidenceItem(
+                    state=EvidenceState.OBSERVED,
+                    captured_at=NOW,
+                    reference="file-token:CHANGELOG.md",
+                ),
+                provenance={
+                    "source_id": "scope:invented-release",
+                    "source_class": "vault-authored",
+                    "scope_reference": "scope:sha256:" + "c" * 64,
+                    "relative_reference": "CHANGELOG.md",
+                },
+                attributes=(SafeAttribute(key="release-id", value=release_id),),
+            ),
         )
     observations = tuple(
         Observation(
@@ -131,7 +170,7 @@ def _fingerprint(observation_count: int = 10, *, differing_skill_copies: bool = 
     return EvidenceFingerprint(
         adapter_id="invented-local-adapter",
         collected_at=NOW,
-        observations=observations,
+        observations=release + observations,
     )
 
 
@@ -153,10 +192,11 @@ class RealComparerHarness:
         *,
         catalogue: CatalogueV2 | None = None,
         fingerprint: EvidenceFingerprint | None = None,
+        core_release: str | None = None,
     ) -> None:
         self.root = invented_root(tmp_path)
         self.catalogue = catalogue if catalogue is not None else _catalogue()
-        self.store = _signed_store(self.catalogue)
+        self.store = _signed_store(self.catalogue, core_release=core_release)
         self.consent_authority = LocalScopeConsentAuthority(now=lambda: NOW)
         self.collector = RecordingCollector(
             fingerprint if fingerprint is not None else _fingerprint()
@@ -188,11 +228,25 @@ class RealComparerHarness:
             authenticated_session_id="local-session",
         )
 
+    #: Harness default: the person who does not know. Tests about the intake
+    #: itself record their own answers before calling run_to.
+    NOT_SURE_INTAKE = {
+        "dex-installed": "not-sure",
+        "customisation": "not-sure",
+        "first-installed": "not-sure",
+        "last-update": "not-sure",
+    }
+
     def run_to(self, run_id: str, stage: DiagnosisStage) -> object:
         view = self.engine.status(run_id)
         while view.stage is not stage:
             if view.stage is DiagnosisStage.CREATED:
                 self.approve(run_id)
+            elif (
+                view.stage is DiagnosisStage.SCOPE_APPROVED and view.intake is None
+            ):
+                view = self.engine.intake(run_id, self.NOT_SURE_INTAKE)
+                continue
             view = self.engine.advance(run_id)
         return view
 

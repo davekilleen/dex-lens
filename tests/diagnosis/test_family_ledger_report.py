@@ -306,6 +306,7 @@ def test_release_number_without_signed_lineage_does_not_invent_family_changes(
     fingerprint = _fingerprint(
         _observation(ObservationKind.MCP_SERVER, "work-mcp"),
         release,
+        dex_installed=False,
     )
     slice_ = CachedCatalogueLoader(store).load(
         run_id="run:" + "3" * 16,
@@ -341,7 +342,9 @@ def test_signed_skill_lineage_renders_exact_family_changes() -> None:
     release = _observation(ObservationKind.RELEASE, "dex-core").model_copy(
         update={"attributes": (SafeAttribute(key="release-id", value="v1.80.0"),)}
     )
-    fingerprint = _fingerprint(release)
+    fingerprint = _fingerprint(release,
+        dex_installed=False,
+    )
     slice_ = CachedCatalogueLoader(store).load(
         run_id="run:" + "5" * 16,
         fingerprint_digest="sha256:" + "6" * 64,
@@ -359,7 +362,10 @@ def test_signed_skill_lineage_renders_exact_family_changes() -> None:
     assert ledger.version_distance.families[0].introduced_member_ids == ("workflow-skill",)
     assert "## What has changed since your identified Dex release" in rendered
     assert "New signed skill entries: `workflow-skill`." in rendered
-    assert "families without signed lineage are omitted, not treated as unchanged" in rendered
+    assert (
+        "families without a signed release history are omitted, not treated "
+        "as unchanged"
+    ) in rendered
 
 
 def test_version_distance_rejects_forged_release_evidence_on_reload(
@@ -381,7 +387,9 @@ def test_version_distance_rejects_forged_release_evidence_on_reload(
     release = _observation(ObservationKind.RELEASE, "dex-core").model_copy(
         update={"attributes": (SafeAttribute(key="release-id", value="v1.80.0"),)}
     )
-    fingerprint = _fingerprint(release)
+    fingerprint = _fingerprint(release,
+        dex_installed=False,
+    )
     slice_ = CachedCatalogueLoader(store).load(
         run_id="run:" + "7" * 16,
         fingerprint_digest="sha256:" + "8" * 64,
@@ -497,7 +505,10 @@ def test_report_renders_honest_family_coverage_strength_and_reciprocal_value() -
 def test_coverage_summary_exposes_unmatched_local_and_mcp_tool_counts() -> None:
     rendered = _report(_ledger())
 
-    assert "- Local observations: 1 captured; 0 mapped; 1 remains not assessed." in rendered
+    # Two, because a Dex install carries Dex's own release record alongside
+    # the person's work — the fixture default since presence stopped being
+    # inferred from capability-name overlap (AGENTS.md F8).
+    assert "- Local observations: 2 captured; 0 mapped; 2 remain not assessed." in rendered
     assert (
         "- Signed MCP inventory: 1 declared tool across 1 server; 1 complete "
         "inventory; 0 sampled inventories."
@@ -627,7 +638,7 @@ def test_close_names_one_uniquely_best_supported_first_move() -> None:
 def test_report_explains_each_evidence_backed_recommendation() -> None:
     ledger = _ledger(recommend=True)
     rendered = _report(ledger)
-    human_report = rendered.split("## Complete ledger appendix", maxsplit=1)[0]
+    human_report = rendered.split("## Complete record appendix", maxsplit=1)[0]
 
     assert "## Worth borrowing from Dex" in rendered
     assert "### Dex Work Mcp (`dex-work-mcp`)" in rendered

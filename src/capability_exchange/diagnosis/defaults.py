@@ -82,6 +82,7 @@ from capability_exchange.diagnosis.run import (
     DiagnosisStateError,
     FamilyMap,
     FocusReceipt,
+    IntakeReceipt,
 )
 from capability_exchange.diagnosis.run_store import DiagnosisRunStore
 from capability_exchange.diagnosis.significant_families import (
@@ -993,6 +994,7 @@ class UnknownUntilProposedComparer:
         proposals: tuple[ValidatedProposal, ...],
         work_audit: WorkAudit | None = None,
         focus: FocusReceipt | None = None,
+        intake: IntakeReceipt | None = None,
     ) -> ComparisonLedger:
         del jobs
         envelope = _load_diagnosis_envelope(self._store, self._keyring)
@@ -1008,7 +1010,7 @@ class UnknownUntilProposedComparer:
         # job id, not a capability mapping, so letting them near the entry
         # ledger would launder a job claim into a capability disposition.
         signed_keys = signed_identity_keys_for(envelope.catalogue)
-        non_lineage = is_non_lineage(fingerprint, signed_identity_keys=signed_keys)
+        non_lineage = is_non_lineage(fingerprint)
         job_proposals = tuple(
             item for item in proposals if item.kind is ProposalKind.JOB_COVERAGE
         )
@@ -1111,6 +1113,17 @@ class UnknownUntilProposedComparer:
             ),
             focus_unselected_family_ids=(
                 focus.unselected_family_ids if focus is not None else ()
+            ),
+            # The engine-validated intake receipt is the only source of these
+            # answers; the report frames every sentence built on them as the
+            # person's own words, never as evidence.
+            intake_answers=(
+                tuple(
+                    f"{item.question_id}={item.answer}"
+                    for item in intake.answers
+                )
+                if intake is not None
+                else ()
             ),
             job_axis=job_axis,
         )

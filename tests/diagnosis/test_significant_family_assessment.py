@@ -21,6 +21,7 @@ from capability_exchange.diagnosis.observations import (
     Observation,
     ObservationKind,
     OperationalState,
+    SafeAttribute,
 )
 from capability_exchange.diagnosis.significant_families import (
     ComponentMatchBasis,
@@ -222,11 +223,60 @@ def _observation(
     )
 
 
-def _fingerprint(*observations: Observation) -> EvidenceFingerprint:
+#: The release the invented Dex install identifies as. Older than nothing in
+#: these catalogue fixtures, so lineage is established without any member
+#: being disqualified as newer than the install.
+FIXTURE_INSTALL_RELEASE = "v1.0.0"
+
+
+def _dex_release_observation(release_id: str = FIXTURE_INSTALL_RELEASE) -> Observation:
+    """Dex's own record of itself — what makes a system a Dex install."""
+
+    return Observation(
+        kind=ObservationKind.RELEASE,
+        identity="dex-core",
+        label="Dex Core release",
+        operational_state=OperationalState.IMPLEMENTED,
+        evidence=EvidenceItem(
+            state=EvidenceState.OBSERVED,
+            captured_at=NOW,
+            reference="fixture:release:dex-core",
+        ),
+        provenance=PROVENANCE,
+        attributes=(SafeAttribute(key="release-id", value=release_id),),
+    )
+
+
+def _dex_presence_without_version() -> Observation:
+    """Dex is installed here, but its release cannot be read.
+
+    The third population the report has to speak to, and the only one for
+    which asking the person to approve a folder holding a release file makes
+    any sense. A real install reaches this state easily: the version header
+    sits below the window the detector reads.
+    """
+
+    return _dex_release_observation().model_copy(update={"attributes": ()})
+
+
+def _fingerprint(
+    *observations: Observation, dex_installed: bool = True
+) -> EvidenceFingerprint:
+    """Local evidence from a system Dex is installed on, by default.
+
+    Whether Dex is present is now decided by Dex's own release record rather
+    than by capability-name overlap (AGENTS.md F8), so a fixture meaning "a
+    Dex install" has to carry that record. Nearly every fixture here means
+    exactly that and used to convey it only implicitly, through a skill whose
+    name matched a signed capability id. Pass ``dex_installed=False`` for a
+    system where Dex was never installed.
+    """
+
+    release = (_dex_release_observation(),) if dex_installed else ()
     return EvidenceFingerprint(
         adapter_id="synthetic-read-only",
         collected_at=NOW,
-        observations=observations,
+        observations=release + observations,
     )
 
 

@@ -288,6 +288,17 @@ class _GuidedHarness:
         )
         current = self.engine.status(view.run_id)
         while current.stage is not DiagnosisStage.ANALYSIS_PLANNED:
+            if current.stage is DiagnosisStage.SCOPE_APPROVED and current.intake is None:
+                current = self.engine.intake(
+                    view.run_id,
+                    {
+                        "dex-installed": "not-sure",
+                        "customisation": "not-sure",
+                        "first-installed": "not-sure",
+                        "last-update": "not-sure",
+                    },
+                )
+                continue
             current = self.engine.advance(view.run_id)
         return view.run_id
 

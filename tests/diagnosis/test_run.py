@@ -75,6 +75,7 @@ def test_stage_order_is_closed() -> None:
     assert list(DiagnosisStage) == [
         DiagnosisStage.CREATED,
         DiagnosisStage.SCOPE_APPROVED,
+        DiagnosisStage.INTAKE_RECORDED,
         DiagnosisStage.CAPTURED,
         DiagnosisStage.CATALOGUE_VERIFIED,
         DiagnosisStage.FAMILY_MAPPED,

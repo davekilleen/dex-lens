@@ -20,19 +20,41 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-__all__ = ["share_main"]
+from capability_exchange.diagnosis.cli import build_engine
+from capability_exchange.diagnosis.payload_guard import (
+    HostilePayloadError,
+    refuse_hostile_payload,
+)
+from capability_exchange.diagnosis.run import (
+    INTAKE_NOT_SURE,
+    INTAKE_PROJECT_LINK,
+    DiagnosisStage,
+)
+
+__all__ = ["NEWSLETTER_URL", "newsletter_main", "share_answers_main", "share_main"]
 
 #: Where the anonymous channel goes: Dex's intake, and nowhere else.
 INTAKE_URL = "https://heydex.ai/lens/share"
 
 #: Where the named channel goes: a new-issue page the person submits themselves.
 ISSUES_URL = "https://github.com/davekilleen/dex-lens/issues/new"
+
+#: Where a newsletter signup goes, and nowhere else. The address travels in
+#: that one request and is never written into any run artifact or report.
+NEWSLETTER_URL = "https://heydex.ai/lens/newsletter"
+
+#: The intake-answers destination is not baked into the build: it is the
+#: address of Dave's own receiving table, configured by this one environment
+#: variable and by nothing else. Unset means sharing answers is off and
+#: nothing can be sent.
+INTAKE_ANSWERS_URL_VARIABLE = "DEX_LENS_INTAKE_URL"
 
 #: An idea card is a page, not a payload. Anything longer than this has
 #: stopped being a first-principles pattern and started being a document —
@@ -301,3 +323,187 @@ def share_main(argv: list[str] | None = None) -> int:
     if args.to == "github":
         return _github_link(card)
     return _send_heydex(card, args.contact)
+
+
+def _payload_bytes(payload: dict[str, object]) -> bytes:
+    """One canonical form, used for the preview and the send alike.
+
+    The preview and the payload being the same bytes by construction is the
+    whole guarantee; nothing may serialize this twice differently.
+    """
+
+    return json.dumps(
+        payload, ensure_ascii=True, indent=2, sort_keys=True
+    ).encode("utf-8")
+
+
+def _print_fenced(payload_bytes: bytes) -> None:
+    print("---8<---")
+    sys.stdout.write(payload_bytes.decode("utf-8"))
+    print()
+    print("--->8---")
+
+
+def share_answers_main(argv: list[str] | None = None) -> int:
+    """Offer the run's recorded answers to Dave: preview by default.
+
+    Lawful only after the run's report is saved, so the offer can never come
+    before the person has what they came for. The payload is built from the
+    engine-validated answers alone — question ids, chosen options, the project
+    link if one was given, the run's own timestamp, and the Lens version.
+    Nothing read from the person's files can enter it.
+    """
+
+    parser = argparse.ArgumentParser(
+        prog="dex-lens share-answers",
+        description=(
+            "Send the questions you answered at the start of a run to Dave, to "
+            "help improve Dex Lens. Without --yes this prints exactly what "
+            "would be sent and sends nothing."
+        ),
+    )
+    parser.add_argument("--run", required=True, help="Diagnosis run ID.")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help=(
+            "Actually send. Use only after the person has read the exact "
+            "preview and said yes in their own words."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    engine = build_engine()
+    view = engine.status(args.run)
+    if view.stage not in {DiagnosisStage.SAVED, DiagnosisStage.CLOSED}:
+        print(
+            "dex-lens: this offer comes after the report. Save the report "
+            "first; nothing was sent.",
+            file=sys.stderr,
+        )
+        return 2
+    if view.intake is None:
+        print(
+            "dex-lens: this run recorded no answers, so there is nothing to "
+            "share. Nothing was sent.",
+            file=sys.stderr,
+        )
+        return 2
+
+    answers = {item.question_id: item.answer for item in view.intake.answers}
+    link = answers.pop(INTAKE_PROJECT_LINK, None)
+    result = engine.result(args.run)
+    payload: dict[str, object] = {
+        "answers": answers,
+        "project_link": (
+            link if link is not None and link != INTAKE_NOT_SURE else None
+        ),
+        "submitted_at": result.report.run_identity.created_at.isoformat(),
+        "lens_version": _lens_version(),
+    }
+    try:
+        refuse_hostile_payload(payload)
+    except HostilePayloadError:
+        print(
+            "dex-lens: these answers carry content that must not leave this "
+            "machine. Nothing was sent.",
+            file=sys.stderr,
+        )
+        return 2
+    payload_bytes = _payload_bytes(payload)
+
+    if not args.yes:
+        print("This is exactly what would be sent to Dave — nothing else:")
+        _print_fenced(payload_bytes)
+        print(
+            "That is the whole payload: your answers, the run's date, and the "
+            "version of Lens doing the sending. No file names, no folder "
+            "names, nothing read from your files, and no email address."
+        )
+        print("Nothing has been sent. To send it, run again with --yes.")
+        return 0
+
+    destination = os.environ.get(INTAKE_ANSWERS_URL_VARIABLE, "")
+    if not destination.startswith("https://"):
+        print(
+            "dex-lens: no destination is configured for shared answers "
+            f"(set {INTAKE_ANSWERS_URL_VARIABLE}). Nothing was sent.",
+            file=sys.stderr,
+        )
+        return 2
+    _print_fenced(payload_bytes)
+    request = urllib.request.Request(
+        destination,
+        data=payload_bytes,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS):
+            pass
+    except OSError as error:
+        print(f"dex-lens: sending failed ({error}). Try again later.", file=sys.stderr)
+        return 1
+    print("Sent. Thank you — this helps make Dex Lens better.")
+    return 0
+
+
+def newsletter_main(argv: list[str] | None = None) -> int:
+    """Sign one email address up for heydex.ai updates: preview by default.
+
+    Its own command and its own yes, never bundled with anything else. The
+    address travels in this one request and is written into no run artifact,
+    no report, and no shared answers.
+    """
+
+    parser = argparse.ArgumentParser(
+        prog="dex-lens newsletter",
+        description=(
+            "Sign up for heydex.ai updates. Without --yes this prints exactly "
+            "what would be sent and sends nothing."
+        ),
+    )
+    parser.add_argument("email", help="The email address to sign up.")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help=(
+            "Actually sign up. Use only after the person has read the exact "
+            "preview and said yes in their own words."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    email = args.email.strip()
+    if (
+        len(email) > 200
+        or email.count("@") != 1
+        or email.startswith("@")
+        or email.endswith("@")
+        or any(character.isspace() or ord(character) < 32 for character in email)
+    ):
+        print("dex-lens: that does not look like an email address.", file=sys.stderr)
+        return 2
+
+    payload_bytes = _payload_bytes(
+        {"email": email, "lens_version": _lens_version()}
+    )
+    if not args.yes:
+        print("This is exactly what would be sent to heydex.ai — nothing else:")
+        _print_fenced(payload_bytes)
+        print("Nothing has been sent. To sign up, run again with --yes.")
+        return 0
+    request = urllib.request.Request(
+        NEWSLETTER_URL,
+        data=payload_bytes,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS):
+            pass
+    except OSError as error:
+        print(f"dex-lens: signing up failed ({error}). Try again later.", file=sys.stderr)
+        return 1
+    print("Signed up. You can unsubscribe from any email heydex.ai sends.")
+    return 0
