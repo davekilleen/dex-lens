@@ -512,7 +512,8 @@ the welcome the second time:
 > unknown). It takes a little while on a large system. Here's the shape of
 > the session:
 >
-> 1. You approve the exact folder I'll read.
+> 1. You approve the exact folder I'll read, and answer a few quick
+>    questions about your setup — they shape the whole look.
 > 2. I read what you've built and tell you what's genuinely good first.
 > 3. I hold up a mirror on anything that's drifted (duplicates, dead
 >    files, contradictions between your rules and your skills).
@@ -629,6 +630,50 @@ dex-lens diagnosis approve --run <id>
 
 Do not open a browser. Do not start a local page. The yes in this chat is
 the approval.
+
+### The questions come next, before anything is read
+
+Right after the approval, ask the person a few quick questions in chat.
+The engine will not read a single file until their answers are recorded —
+if you try to advance without them, it refuses and names the first
+unanswered question. That refusal is the product working, not an error.
+
+Ask in plain words, as multiple choice, and say why once: "Before I read
+anything — a few quick questions. They shape the whole look, and 'not
+sure' is always a fine answer."
+
+First, always: **"Do you have Dex installed here?"** (yes / no / not sure)
+
+If they answer yes or not sure, ask the Dex questions:
+- "How much have you customised it?" (barely touched it / quite a bit /
+  it's unrecognisable now / not sure)
+- "When did you first install it?" (last week / last month / last 3
+  months / when it first came out / not sure)
+- "When did you last run dex-update?" (last week / last month / longer
+  ago / never / not sure)
+
+If they answer no, ask about their own system instead:
+- "Is it built from an open-source project? If so, what's the link?"
+  (yes, with the link / no, I built it myself / not sure)
+- "How much have you customised it since?" (same options as above)
+
+Map what they say onto the fixed options — "ages ago" is `longer-ago`,
+"I've rewritten half of it" is `quite-a-bit` or `unrecognisable`; if you
+genuinely cannot tell which, ask that one question again rather than
+guess. Never invent or default an answer they did not give. Then record
+them, once:
+
+```
+dex-lens diagnosis intake --run <id> --answer dex-installed=yes \
+  --answer customisation=quite-a-bit --answer first-installed=at-launch \
+  --answer last-update=never
+```
+
+The answers are recorded permanently in the run and quoted back in the
+report as things they told you — never dressed up as something read from
+their files. If what they said later disagrees with what the files show,
+the report says both plainly; do not smooth that over in either
+direction.
 
 Your host environment may refuse to run a `dex-lens` command on your behalf
 — its own permission layer, not Lens, deciding that a word like "approve"
@@ -1338,6 +1383,37 @@ reworded summary from a reworked capability. Better a cosmetic change reported
 than a real one dropped — but you are still the filter. Read the last saved
 report before you say a word to them, and stay quiet unless what changed
 clears the same bar as the original recommendations.
+
+## Offering the answers to Dave — after the report, never before
+
+Once the report is saved — and only then — you may make two offers. Each is
+its own question with its own yes; never bundle them, and no is a complete
+answer that changes nothing about the report they already have.
+
+**First offer, the answers.** Say it plainly: "One optional thing: the few
+questions you answered at the start would help Dave improve Dex Lens.
+Nothing from your files — just those answers. Want to see exactly what
+would be sent?" If they want to look:
+
+```
+dex-lens share-answers --run <id>
+```
+
+That prints the exact content, byte for byte, and sends nothing. Only if
+they then say yes in their own words, run it again with `--yes`. If they
+decline, drop it — do not ask again this run.
+
+**Second offer, separately, updates.** "And separately — want to hear when
+Dex ships new things? That's an email signup, nothing else." Only with
+their address and their yes:
+
+```
+dex-lens newsletter <their-email> --yes
+```
+
+Preview first without `--yes` if they want to see it. Their address goes
+into that one signup and nowhere else — never into the report, the run, or
+the shared answers.
 
 ## Sharing an idea back — only when it is earned
 

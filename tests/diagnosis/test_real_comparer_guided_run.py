@@ -86,11 +86,15 @@ _FACTORS = RecommendationFactors(
 _SCEPTICAL_REASON = "The recommendation survives the sceptical evidence check."
 
 
-def _signed_store(catalogue: CatalogueV2) -> SimpleNamespace:
+def _signed_store(
+    catalogue: CatalogueV2, *, core_release: str | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         load_last_verified=lambda **_kwargs: SimpleNamespace(
             catalogue=catalogue,
-            metadata=SimpleNamespace(catalog_version=7),
+            metadata=SimpleNamespace(
+                catalog_version=7, core_release=core_release
+            ),
             _signed_json="invented-signed-catalogue",
         )
     )
@@ -188,10 +192,11 @@ class RealComparerHarness:
         *,
         catalogue: CatalogueV2 | None = None,
         fingerprint: EvidenceFingerprint | None = None,
+        core_release: str | None = None,
     ) -> None:
         self.root = invented_root(tmp_path)
         self.catalogue = catalogue if catalogue is not None else _catalogue()
-        self.store = _signed_store(self.catalogue)
+        self.store = _signed_store(self.catalogue, core_release=core_release)
         self.consent_authority = LocalScopeConsentAuthority(now=lambda: NOW)
         self.collector = RecordingCollector(
             fingerprint if fingerprint is not None else _fingerprint()
