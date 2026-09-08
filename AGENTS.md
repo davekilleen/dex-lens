@@ -135,6 +135,18 @@ skills. **Lens cannot know locally.** So the honest third class is
 "unattributed", and only a catalogue that publishes Dex's *historical*
 identities can recover real authorship on an old install.
 
+*Annotated 2026-09-08, founder decision.* Downgrading everything unmatched
+to "unattributed" and losing the strengths section was rejected as too
+timid: a person who pulled skills from other repositories still chose them
+and wired them in, and that assembly is theirs. The rule now: unmatched
+items stay in the reverse direction and stay eligible as strengths, but the
+report claims **possession, never personal authorship** ("part of your
+setup, and nothing in today's Dex covers it" — true whether they wrote it,
+imported it, or kept it running), and whenever the run knows the install is
+behind, it says plainly that some of these may be older Dex stock. The full
+fix — telling exactly which — still needs Dex to publish its historical
+identities or per-artifact content digests.
+
 ### F6 — Our fixtures shared the code's assumptions
 *2026-09-07.* Every fixture in this repo was authored by whoever authored the
 detector it feeds, so both carry the same blind spots. Red-first testing

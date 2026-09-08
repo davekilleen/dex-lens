@@ -1392,7 +1392,15 @@ def insights_from_proposals(
                     observation_ids=item.observation_ids,
                 )
             )
-        elif len(item.evidence_ids) >= 2:
+        elif (
+            item.kind is not ProposalKind.RECOMMENDATION
+            and item.disposition is not Disposition.WORTH_BORROWING
+            and len(item.evidence_ids) >= 2
+        ):
+            # A recommendation already renders in the ranked moves and the
+            # worth-borrowing findings; repeating its reason a third time as a
+            # "connection" told the first real reader the same thing three
+            # times (RISK-FIRST-READ-REPORT-VOICE-2026-09-08).
             connections.append(
                 GroundedInsight(
                     insight_id=f"connection:{candidate_id}",

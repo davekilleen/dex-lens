@@ -611,9 +611,9 @@ def _reason_for(
     if disposition is FamilyAssessmentDisposition.POSTDATES_INSTALL:
         return (
             "Every signed component of this family names a capability Dex "
-            "introduced after the release this install identifies as, so this "
-            "install cannot carry it. A local item sharing one of those names "
-            "is an older thing under the same name, not this capability."
+            "introduced after your install's own release, so this install "
+            "cannot carry it. A local item sharing one of those names is an "
+            "older thing under the same name, not this capability."
         )
     if disposition is FamilyAssessmentDisposition.PARTIAL_OVERLAP:
         return (

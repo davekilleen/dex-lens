@@ -123,6 +123,7 @@ JSON goes to stdout. Refusals and human guidance go to stderr.
     dex-lens diagnosis prepare --root <folder>
         [--mode guided-analysis|focused-analysis|inventory-only]
     dex-lens diagnosis approve --run <id>
+    dex-lens diagnosis intake --run <id> --answer QUESTION=ANSWER [...]
     dex-lens diagnosis status --run <id> --json
     dex-lens diagnosis advance --run <id> --json
     dex-lens diagnosis map --run <id> [--json]
@@ -133,8 +134,10 @@ JSON goes to stdout. Refusals and human guidance go to stderr.
 
 prepare records candidate folders and returns a run ID. It does not collect.
 Approval happens in the same chat: show the person the exact folders, wait
-for a clear yes, then run approve. This command cannot sign, send, install,
-repair, or modify the inspected system.
+for a clear yes, then run approve. After approval, record the person's
+answers with intake — the run refuses to read anything until they are
+recorded. This command cannot sign, send, install, repair, or modify the
+inspected system.
 """
 
 
