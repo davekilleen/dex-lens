@@ -151,8 +151,9 @@ class _FixedComparer:
         jobs: tuple[object, ...],
         proposals: tuple[object, ...],
         work_audit: object | None = None,
+        intake: object | None = None,
     ) -> ComparisonLedger:
-        del fingerprint, catalogue, jobs, proposals, work_audit
+        del fingerprint, catalogue, jobs, proposals, work_audit, intake
         return self.ledger
 
 

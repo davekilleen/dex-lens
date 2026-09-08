@@ -362,7 +362,10 @@ def test_signed_skill_lineage_renders_exact_family_changes() -> None:
     assert ledger.version_distance.families[0].introduced_member_ids == ("workflow-skill",)
     assert "## What has changed since your identified Dex release" in rendered
     assert "New signed skill entries: `workflow-skill`." in rendered
-    assert "families without signed lineage are omitted, not treated as unchanged" in rendered
+    assert (
+        "families without a signed release history are omitted, not treated "
+        "as unchanged"
+    ) in rendered
 
 
 def test_version_distance_rejects_forged_release_evidence_on_reload(
@@ -635,7 +638,7 @@ def test_close_names_one_uniquely_best_supported_first_move() -> None:
 def test_report_explains_each_evidence_backed_recommendation() -> None:
     ledger = _ledger(recommend=True)
     rendered = _report(ledger)
-    human_report = rendered.split("## Complete ledger appendix", maxsplit=1)[0]
+    human_report = rendered.split("## Complete record appendix", maxsplit=1)[0]
 
     assert "## Worth borrowing from Dex" in rendered
     assert "### Dex Work Mcp (`dex-work-mcp`)" in rendered

@@ -132,6 +132,7 @@ class RecordingComparer:
         jobs: tuple[object, ...],
         proposals: tuple[ValidatedProposal, ...],
         work_audit: object | None = None,
+        intake: object | None = None,
     ) -> ComparisonLedger:
         self.calls.append(
             {
@@ -471,7 +472,7 @@ def test_failed_reconciliation_never_reaches_saved(
     engine.run_to(prepared.run_id, DiagnosisStage.RENDERED)
     monkeypatch.setattr(
         "capability_exchange.diagnosis.orchestrator.canonical_fact_block",
-        lambda _ledger: "- Ledger digest: sha256:" + "0" * 64 + "\n",
+        lambda _ledger: "- Record digest: sha256:" + "0" * 64 + "\n",
     )
 
     with pytest.raises(DiagnosisStateError, match="ledger-derived facts"):

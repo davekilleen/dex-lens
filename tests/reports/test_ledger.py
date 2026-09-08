@@ -189,6 +189,7 @@ _LEDGER_FIELDS = {
     "workflow_insights",
     "unique_to_you",
     "focus_selected_family_ids",
+    "intake_answers",
     "focus_unselected_family_ids",
     "job_axis",
 }
@@ -555,7 +556,7 @@ class TestReportCheckHoldsTheSavedLedgerToItsRecordedDigest:
         source, ledger_path, _payload = saved_pair
         markdown = source.read_text(encoding="utf-8")
         stale = tmp_path / "stale-report.md"
-        digest_line_start = "- Ledger digest: sha256:"
+        digest_line_start = "- Record digest: sha256:"
         assert digest_line_start in markdown
         position = markdown.index(digest_line_start) + len(digest_line_start)
         stale.write_text(
@@ -573,12 +574,12 @@ class TestReportCheckHoldsTheSavedLedgerToItsRecordedDigest:
     @staticmethod
     def _without_digest_line(source: Path, destination: Path) -> None:
         markdown = source.read_text(encoding="utf-8")
-        assert "- Ledger digest: " in markdown
+        assert "- Record digest: " in markdown
         destination.write_text(
             "\n".join(
                 line
                 for line in markdown.splitlines()
-                if not line.startswith("- Ledger digest: ")
+                if not line.startswith("- Record digest: ")
             )
             + "\n",
             encoding="utf-8",

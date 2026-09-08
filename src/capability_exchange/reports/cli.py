@@ -200,7 +200,7 @@ def _gate(
 #: the one ledger it accounts for, so the ledger offered beside it has to be
 #: that ledger — byte for byte, over every field the digest binds.
 _RECORDED_LEDGER_DIGEST = re.compile(
-    r"^- Ledger digest: (sha256:[0-9a-f]{64})\s*$", re.MULTILINE
+    r"^- (?:Record|Ledger) digest: (sha256:[0-9a-f]{64})\s*$", re.MULTILINE
 )
 
 

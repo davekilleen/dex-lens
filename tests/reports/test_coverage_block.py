@@ -232,7 +232,7 @@ class TestTheCoverageBlockIsLoudAndPlaced:
         # 94 not examined; 6 + 2 sit in named areas, so 86 sit outside and
         # the first few are named with the remainder counted, never hidden.
         assert f"`{_entry_id(29)}`" in block
-        assert "and 78 more in the ledger appendix." in block
+        assert "and 78 more in the full record appendix." in block
 
     def test_the_block_offers_the_follow_up_in_one_plain_sentence(self) -> None:
         block = canonical_coverage_block(_ledger())
@@ -248,7 +248,7 @@ class TestTheCoverageBlockIsLoudAndPlaced:
         assert "no signed capability-family contract" in block.lower()
         assert f"`{_entry_id(21)}`" in block
         assert f"`{_entry_id(28)}`" in block
-        assert "and 86 more in the ledger appendix." in block
+        assert "and 86 more in the full record appendix." in block
 
     def test_the_rendered_report_carries_the_block_near_the_top(self) -> None:
         ledger = _ledger()

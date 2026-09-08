@@ -1965,6 +1965,16 @@ fields:
     deletion: not-stored
     audit: "ephemeral engine-derived unique-to-you candidate identities"
 
+  ComparisonLedger.intake_answers:
+    description: "the person's recorded intake answers as question=answer pairs"
+    collection: "copied at comparison from the engine-validated intake receipt"
+    derivation: "closed question identifiers with closed options or the bounded project link; sorted, one per question; empty for runs recorded before the questions existed"
+    display: "rendered under What you told me, framed as the person's own words"
+    storage: none
+    sharing: never
+    deletion: not-stored
+    audit: "closed vocabulary plus the bounded link; the durable copy lives in the intake receipt"
+
   ComparisonLedger.focus_selected_family_ids:
     description: "family identities the person selected for this focused run"
     collection: "copied at comparison from the engine-validated focus receipt"

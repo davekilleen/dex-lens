@@ -2037,6 +2037,12 @@ class DeterministicDiagnosisEngine:
             focus_kwargs: dict[str, object] = (
                 {"focus": focus_receipt} if focus_receipt is not None else {}
             )
+            # Same shape for the intake answers: only a run that recorded them
+            # passes them, so injected comparers written before the questions
+            # existed keep their exact signature.
+            intake_receipt = self._intake_receipt(checkpoint)
+            if intake_receipt is not None:
+                focus_kwargs["intake"] = intake_receipt
             ledger = self._compare.compare(
                 fingerprint=fingerprint,
                 catalogue=catalogue,

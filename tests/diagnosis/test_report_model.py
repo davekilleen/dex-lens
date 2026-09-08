@@ -231,7 +231,7 @@ def test_canonical_fact_block_is_exact_ledger_projection() -> None:
     summary = LedgerSummary.from_ledger(ledger)
 
     assert block == (
-        f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
+        f"- Record digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
         + "- Local observations: 0 captured; 0 mapped; 0 remain not assessed.\n"
         + "- Signed MCP inventory: 0 declared tools across 0 servers; 0 complete "

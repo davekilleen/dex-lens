@@ -476,6 +476,7 @@ class ReportModel(InventoriedModel):
         return (
             "# Diagnosis\n\n"
             f"{_render_what_was_read(ledger)}"
+            f"\n{_render_what_you_told_me(ledger)}"
             f"\n{canonical_coverage_block(ledger)}"
             f"\n{canonical_release_gap_block(ledger)}"
             f"\n{_render_job_axis(ledger)}"
@@ -721,7 +722,7 @@ def _named_with_remainder(identities: tuple[str, ...]) -> str:
     named = ", ".join(f"`{item}`" for item in identities[:_COVERAGE_NAMED_BOUND])
     remainder = len(identities) - min(len(identities), _COVERAGE_NAMED_BOUND)
     if remainder:
-        return f"{named} and {remainder} more in the ledger appendix"
+        return f"{named} and {remainder} more in the full record appendix"
     return named
 
 
@@ -822,6 +823,101 @@ def _map_coverage_lines(
             "of them is one ask away."
         )
     return tuple(lines)
+
+
+
+#: Plain sentences for each recorded intake answer.  Closed maps, so the
+#: report can only ever say what the option means -- never improvise.
+_INTAKE_SENTENCES: dict[str, dict[str, str]] = {
+    "dex-installed": {
+        "yes": "You told me you have Dex installed.",
+        "no": "You told me you don't have Dex installed.",
+        "not-sure": "You told me you're not sure whether Dex is installed.",
+    },
+    "customisation": {
+        "barely-touched": "You've barely changed the setup since installing it.",
+        "quite-a-bit": "You've customised it quite a bit.",
+        "unrecognisable": (
+            "You've changed it so much it's unrecognisable from a fresh install."
+        ),
+        "not-sure": "You're not sure how much it has been customised.",
+    },
+    "first-installed": {
+        "last-week": "You first installed it within the last week.",
+        "last-month": "You first installed it within the last month.",
+        "last-3-months": "You first installed it within the last three months.",
+        "at-launch": "You first installed it when Dex first came out.",
+        "not-sure": "You're not sure when you first installed it.",
+    },
+    "last-update": {
+        "last-week": "You last updated it within the last week.",
+        "last-month": "You last updated it within the last month.",
+        "longer-ago": "You last updated it more than a month ago.",
+        "never": "You've never updated it.",
+        "not-sure": "You're not sure when it was last updated.",
+    },
+    "from-open-source": {
+        "yes": "Your own system is built from an open-source project.",
+        "no-built-it-myself": "You built your system yourself.",
+        "not-sure": "You're not sure where your system originally came from.",
+    },
+}
+
+
+def _render_what_you_told_me(ledger: ComparisonLedger) -> str:
+    """The person's own answers, framed as theirs -- and any disagreement.
+
+    Every sentence here rests on what the person said, so it says so; the
+    measured claims elsewhere still come only from the signed record and the
+    approved snapshot.  When an answer and the files disagree, both facts are
+    stated side by side and neither silently wins: the disagreement is itself
+    a finding worth their attention.
+    """
+
+    if not ledger.intake_answers:
+        return ""
+    answers = dict(item.partition("=")[::2] for item in ledger.intake_answers)
+    lines = ["## What you told me"]
+    for question_id in (
+        "dex-installed",
+        "customisation",
+        "first-installed",
+        "last-update",
+        "from-open-source",
+    ):
+        answer = answers.get(question_id)
+        if answer is None:
+            continue
+        sentence = _INTAKE_SENTENCES.get(question_id, {}).get(answer)
+        if sentence is not None:
+            lines.append(f"- {sentence}")
+    link = answers.get("project-link")
+    if link and link != "not-sure":
+        lines.append(f"- The project it comes from: {link}")
+    said_dex = answers.get("dex-installed")
+    release_record_present = any(
+        item.kind is ObservationKind.RELEASE and item.identity == "dex-core"
+        for item in ledger.local_entries
+    )
+    if said_dex == "no" and release_record_present:
+        lines.append(
+            "- One thing doesn't line up: you told me you don't have Dex, but "
+            "the approved folder carries Dex's own release record. If this "
+            "setup was inherited or installed for you, that would explain it "
+            "-- worth a look."
+        )
+    if said_dex == "yes" and not release_record_present:
+        lines.append(
+            "- One thing doesn't line up: you told me you have Dex, but I "
+            "couldn't find Dex's release record in the approved folder. It "
+            "may live in a folder you didn't approve, or on another machine."
+        )
+    lines.append(
+        "These answers came from you, not from reading your files. They shape "
+        "how this report speaks; every measured claim still comes from the "
+        "signed record and the approved files alone."
+    )
+    return "\n".join(lines) + "\n"
 
 
 def canonical_coverage_block(ledger: ComparisonLedger) -> str:
@@ -1148,13 +1244,13 @@ def canonical_release_gap_block(ledger: ComparisonLedger) -> str:
         "Unknown. Dex is installed here — the approved snapshot carries its "
         "release record — but no signed release gap was derivable: the "
         "release may not be readable from the snapshot, it may match the "
-        "catalogue's own, the release evidence may conflict, or the signed "
-        "lineage may name no family-level change since it. Nothing here "
+        "catalogue's own, the release evidence may conflict, or Dex's signed "
+        "release history may name no family-level change since it. Nothing here "
         "claims your install is behind or current. A readable Dex Core "
         "release file (a `.dex-version` file or a `CHANGELOG.md` naming its "
         "version) is what establishes it. That is the whole price: approve "
-        "the folder that holds it and run again, and the distance derives "
-        "from signed release lineage alone."
+        "the folder that holds it and run again, and the distance is worked "
+        "out from Dex's own signed release history alone."
     )
     return "\n".join(lines) + "\n"
 
@@ -1182,7 +1278,7 @@ def canonical_fact_block(ledger: ComparisonLedger) -> str:
         len(item.unresolved_components) for item in ledger.family_entries
     )
     return (
-        f"- Ledger digest: {canonical_ledger_digest(ledger)}\n"
+        f"- Record digest: {canonical_ledger_digest(ledger)}\n"
         + summary.canonical_markdown()
         + f"- Local observations: {local_total} captured; {local_mapped} mapped; "
         + f"{local_unassessed} "
@@ -1648,7 +1744,7 @@ def _render_version_distance(ledger: ComparisonLedger) -> str:
             f"the signed catalogue describes {distance.current_version}. The rows below "
             "come only from signed skill `since_release` and `changed_in` fields. They do "
             "not infer release history for MCP servers, scheduled work or engines; families "
-            "without signed lineage are omitted, not treated as unchanged."
+            "without a signed release history are omitted, not treated as unchanged."
         ),
     ]
     for family in sorted(distance.families, key=lambda item: item.family_id):
@@ -1729,7 +1825,7 @@ def _render_what_was_read(ledger: ComparisonLedger) -> str:
         f"{_plural(len(kinds), 'capability type')}.\n"
         f"- {len(ledger.entries)} entries from the exact signed Dex catalogue recorded "
         f"by digest `{ledger.catalogue_sha256}`.\n"
-        "- The complete evidence-bound accounting is in the ledger appendix below.\n"
+        "- The complete evidence-bound accounting is in the full record appendix below.\n"
     )
 
 
@@ -1754,7 +1850,7 @@ def canonical_ledger_appendix(ledger: ComparisonLedger) -> str:
     """
 
     lines = [
-        "## Complete ledger appendix",
+        "## Complete record appendix",
         "<!-- canonical-ledger-appendix -->",
         "### Catalogue entries",
     ]
@@ -1839,7 +1935,7 @@ def ledger_appendix_errors(
 ) -> tuple[str, ...]:
     """Reject missing, duplicated, altered, or reordered appendix rows."""
 
-    marker = "## Complete ledger appendix\n"
+    marker = "## Complete record appendix\n"
     if report_markdown.count(marker) != 1:
         return ("report ledger appendix must contain exactly one complete section",)
     start = report_markdown.find(marker)

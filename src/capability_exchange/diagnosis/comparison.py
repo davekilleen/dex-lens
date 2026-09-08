@@ -772,6 +772,10 @@ class ComparisonLedger(_ValidatedInventoried):
     #: what was never examined by choice.
     focus_selected_family_ids: tuple[str, ...] = ()
     focus_unselected_family_ids: tuple[str, ...] = ()
+    #: The person's recorded intake answers, one "question=answer" entry each,
+    #: sorted by question.  Copied at comparison from the engine-validated
+    #: intake receipt; empty on runs recorded before the questions existed.
+    intake_answers: tuple[str, ...] = ()
     #: The non-lineage job axis: one signed-job row each, sorted by job id.
     #: Non-empty exactly when the engine classified this run non-lineage —
     #: zero signed-identity matches — and structurally incompatible with any
@@ -789,6 +793,28 @@ class ComparisonLedger(_ValidatedInventoried):
             raise ValueError("job axis must name each signed job exactly once")
         if job_ids != sorted(job_ids):
             raise ValueError("job axis rows must be sorted by job identity")
+        return values
+
+    @field_validator("intake_answers")
+    @classmethod
+    def _intake_answers_are_bounded_sorted_pairs(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        questions = []
+        for value in values:
+            question, separator, answer = value.partition("=")
+            if (
+                not separator
+                or re.fullmatch(r"[a-z][a-z0-9-]{0,39}", question) is None
+                or not answer
+                or len(answer) > 300
+            ):
+                raise ValueError("intake answers must be bounded question=answer pairs")
+            questions.append(question)
+        if len(set(questions)) != len(questions):
+            raise ValueError("intake answers must name each question once")
+        if sorted(questions) != questions:
+            raise ValueError("intake answers must be sorted by question")
         return values
 
     @field_validator("focus_selected_family_ids", "focus_unselected_family_ids")
@@ -976,6 +1002,7 @@ class ComparisonLedger(_ValidatedInventoried):
         unique_to_you: tuple[str, ...] | None = None,
         focus_selected_family_ids: tuple[str, ...] | None = None,
         focus_unselected_family_ids: tuple[str, ...] | None = None,
+        intake_answers: tuple[str, ...] | None = None,
         job_axis: tuple[JobCoverageEntry, ...] | None = None,
     ) -> ComparisonLedger:
         """Validate a ledger against the exact verified catalogue identity set.
@@ -1012,6 +1039,7 @@ class ComparisonLedger(_ValidatedInventoried):
                 workflow_insights=workflow_insights,
                 unique_to_you=unique_to_you,
                 focus_selected_family_ids=focus_selected_family_ids,
+                intake_answers=intake_answers,
                 focus_unselected_family_ids=focus_unselected_family_ids,
                 job_axis=job_axis,
             )
@@ -1141,6 +1169,7 @@ class ComparisonLedger(_ValidatedInventoried):
             workflow_insights=workflow_insights or (),
             unique_to_you=unique_to_you or (),
             focus_selected_family_ids=focus_selected_family_ids or (),
+            intake_answers=intake_answers or (),
             focus_unselected_family_ids=focus_unselected_family_ids or (),
             job_axis=exact_job_axis,
         )
@@ -1170,6 +1199,7 @@ class ComparisonLedger(_ValidatedInventoried):
         unique_to_you: tuple[str, ...] | None = None,
         focus_selected_family_ids: tuple[str, ...] | None = None,
         focus_unselected_family_ids: tuple[str, ...] | None = None,
+        intake_answers: tuple[str, ...] | None = None,
         job_axis: tuple[JobCoverageEntry, ...] | None = None,
     ) -> ComparisonLedger:
         """Construct a complete, bidirectional ledger from verified inputs."""
@@ -1279,6 +1309,7 @@ class ComparisonLedger(_ValidatedInventoried):
             workflow_insights=workflow_insights or (),
             unique_to_you=unique_to_you or (),
             focus_selected_family_ids=focus_selected_family_ids or (),
+            intake_answers=intake_answers or (),
             focus_unselected_family_ids=focus_unselected_family_ids or (),
             job_axis=base.job_axis,
         )
