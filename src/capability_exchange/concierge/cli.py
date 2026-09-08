@@ -35,7 +35,7 @@ from capability_exchange.concierge.folder_picker import FolderPickerError, choos
 from capability_exchange.concierge.server import session_for_roots, start_server
 from capability_exchange.diagnosis.cli import diagnosis_main
 from capability_exchange.reports.cli import reports_main
-from capability_exchange.share.cli import share_main
+from capability_exchange.share.cli import newsletter_main, share_answers_main, share_main
 
 
 def _run_diagnosis(args: list[str]) -> int:
@@ -52,6 +52,8 @@ _SUBCOMMANDS = {
     "inventory": inventory_main,
     "reports": reports_main,
     "share": share_main,
+    "share-answers": share_answers_main,
+    "newsletter": newsletter_main,
 }
 
 
@@ -78,6 +80,10 @@ Your assistant does the reading and calls these when it needs them:
     dex-lens diagnosis             a read-only look that waits for local approval
     dex-lens reports               the dated reports past looks left behind
     dex-lens share <card>          send one idea card back to Dex, preview first
+    dex-lens share-answers --run <id>  offer your run answers to Dave, preview first
+    dex-lens newsletter <email>    sign up for heydex.ai updates, preview first
+    dex-lens share-answers --run <id>   send your intake answers to Dave, preview first
+    dex-lens newsletter <email>    sign up for heydex.ai updates, preview first
 
 Add --help to any of them.
 """

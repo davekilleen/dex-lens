@@ -116,3 +116,29 @@ def test_the_receiving_end_gives_an_email_address_no_place_to_land() -> None:
 def test_the_mutation_inserts_into_the_declared_table() -> None:
     source = INTAKE_TS.read_text(encoding="utf-8")
     assert 'ctx.db.insert("intake_submissions"' in source
+
+
+def test_the_engine_and_the_receiving_table_agree_on_every_option() -> None:
+    """The Python question table and the Convex validator carry the same lists.
+
+    This is the cross-pin the earlier tests promised: a drift on either side
+    fails here, so the payload a run offers always validates on Dave's table.
+    """
+
+    from capability_exchange.diagnosis.run import (
+        INTAKE_PROJECT_LINK,
+        INTAKE_PROJECT_LINK_MAX_LENGTH,
+        INTAKE_PROJECT_LINK_PREFIX,
+        INTAKE_QUESTION_OPTIONS,
+    )
+
+    convex_options = _option_questions_in(INTAKE_TS.read_text(encoding="utf-8"))
+    python_options = {
+        question: tuple(options)
+        for question, options in INTAKE_QUESTION_OPTIONS.items()
+    }
+    assert convex_options == python_options
+    source = INTAKE_TS.read_text(encoding="utf-8")
+    assert f'LINK_QUESTION_ID = "{INTAKE_PROJECT_LINK}"' in source
+    assert f"PROJECT_LINK_MAX_LENGTH = {INTAKE_PROJECT_LINK_MAX_LENGTH}" in source
+    assert f'PROJECT_LINK_PREFIX = "{INTAKE_PROJECT_LINK_PREFIX}"' in source
