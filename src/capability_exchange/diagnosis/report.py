@@ -758,17 +758,24 @@ def _map_coverage_lines(
     that violates its own coverage gate falls back to the confession rather
     than borrowing the triumphant voice.
 
-    A ``not-assessed`` family row is minted at exactly one place: a family
-    whose signed assessment is manual-only, where the catalogue itself says a
-    person must review it. That is a priced, named fact, not a coverage gap —
-    so it no longer flips the whole story into the confession (which told a
-    person whose every area was assessed that nothing could be said about
-    presence or absence, RISK-FIRST-READ-REPORT-VOICE-2026-09-08). The story
-    counts such families out of "assessed" and names each with its signed
-    reason.
+    A family row carrying ``reserved_for_person_review`` — a claim the ledger
+    validator only admits when the signed catalogue's own assessment is
+    manual-only — is a priced, named fact, not a coverage gap, so it no
+    longer flips the whole story into the confession (which told a person
+    whose every area was assessed that nothing could be said about presence
+    or absence, RISK-FIRST-READ-REPORT-VOICE-2026-09-08). The story counts
+    such families out of "assessed" and names each with its signed reason. A
+    plain ``not-assessed`` row without that flag is not coverage, and keeps
+    the confession as before.
     """
 
     if not ledger.family_entries:
+        return None
+    if any(
+        family.disposition is FamilyAssessmentDisposition.NOT_ASSESSED
+        and not family.reserved_for_person_review
+        for family in ledger.family_entries
+    ):
         return None
     families_by_id = {family.family_id: family for family in ledger.family_entries}
     selected = ledger.focus_selected_family_ids
@@ -788,7 +795,7 @@ def _map_coverage_lines(
     manual_rows = tuple(
         family
         for family in ledger.family_entries
-        if family.disposition is FamilyAssessmentDisposition.NOT_ASSESSED
+        if family.reserved_for_person_review
     )
     assessed_count = area_count - len(manual_rows)
     if manual_rows:

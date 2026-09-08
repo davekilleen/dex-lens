@@ -16,6 +16,7 @@ without the change it pins.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -316,6 +317,40 @@ def test_a_manual_only_family_does_not_flip_coverage_into_the_confession(
     assert "not examined at all" not in block
     assert "reserves for a person's own review" in block
     assert "Privacy Safe Feedback Loop" in block
+
+
+def test_a_ledger_cannot_claim_a_reservation_the_catalogue_does_not_sign(
+    tmp_path: Path,
+) -> None:
+    """The full-suite run caught the first version of the coverage fix
+    trusting the disposition alone, which would have dressed a genuinely
+    skipped row up as "reserved for your review". The reservation is a typed
+    claim now, and only a family the catalogue signs manual-only may carry
+    it."""
+
+    from pydantic import ValidationError
+
+    from capability_exchange.diagnosis.comparison import (
+        family_entries_from_assessments,
+    )
+    from capability_exchange.diagnosis.significant_families import (
+        assess_significant_families,
+    )
+
+    catalogue = _all_areas_catalogue()
+    fingerprint = write_stale_install(tmp_path / "vault")
+    assessments = assess_significant_families(catalogue, fingerprint)
+    forged = tuple(
+        (
+            replace(item, reserved_for_person_review=True)
+            if item.family_id == HEALTH_FAMILY
+            else item
+        )
+        for item in assessments
+    )
+
+    with pytest.raises(ValidationError, match="exact signed family truth"):
+        family_entries_from_assessments(catalogue, forged)
 
 
 def test_a_postdated_family_row_does_not_call_its_components_unknown(
