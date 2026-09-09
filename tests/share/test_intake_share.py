@@ -262,3 +262,32 @@ def test_the_intake_payload_never_carries_the_email_even_when_both_are_shared(
     intake_request, newsletter_request = opener.requests
     assert email.encode("utf-8") not in intake_request[1]
     assert email.encode("utf-8") in newsletter_request[1]
+
+
+# --- the newsletter goes to the site's one real doorway -------------------------
+
+
+def test_the_newsletter_destination_is_the_site_s_live_subscribe_endpoint() -> None:
+    """Found preparing the 2026-09-09 release: the constant pointed at
+    `heydex.ai/lens/newsletter`, a page that has never existed. The heydex.ai
+    site already has one subscribe doorway its own signup form posts to, it
+    needs no key, and Lens uses exactly that."""
+
+    assert (
+        share_cli.NEWSLETTER_URL
+        == "https://api.heydex.ai/api/newsletter/subscribe"
+    )
+
+
+def test_the_newsletter_payload_is_email_and_source_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """The doorway reads `email` and `source` and nothing else, so that is
+    exactly what Lens sends — the preview promises "nothing else" and must
+    stay literally true."""
+
+    assert share_cli.newsletter_main(["person@example.invalid"]) == 0
+    payload = json.loads(_fenced_bytes(capsys.readouterr().out))
+
+    assert sorted(payload) == ["email", "source"]
+    assert payload["source"] == "dex-lens"
