@@ -2,7 +2,7 @@
 
 This folder is the receiving side of the Lens intake sharing step: when a
 person finishes a Lens run and says yes to sharing their intake answers with
-Dave, the answers land in a Convex table. Two source files define all of it:
+Dave, the answers land in a Convex table. Three source files define all of it:
 
 - `schema.ts` — one table, `intake_submissions`. Each row holds the chosen
   answers, the optional project link, a timestamp, and the Lens version.
@@ -11,6 +11,9 @@ Dave, the answers land in a Convex table. Two source files define all of it:
 - `intake.ts` — one function, `submitIntake`. It checks every answer against
   the fixed question and option lists and refuses anything outside them, then
   inserts one row.
+- `http.ts` — one HTTP route, `POST /lens/intake`. Lens sends a plain JSON
+  POST, and this route is where it lands: it checks the body shape, treats a
+  `null` project link as absent, and calls `submitIntake`.
 
 The contract test `tests/share/test_intake_contract.py` pins the question ids
 and option values in these files, so a change here fails the Python suite
@@ -27,15 +30,23 @@ You need Node.js. From this directory (`convex/`):
 2. `npx convex deploy` — pushes `schema.ts` and `intake.ts` to that project's
    production deployment.
 
-After deploying, the Convex dashboard shows the deployment's URL. Submissions
-appear in the dashboard under the `intake_submissions` table.
+After deploying, the Convex dashboard shows the deployment's name. The URL
+Lens needs is the deployment's HTTP-actions address plus this folder's route:
+
+    https://<deployment-name>.convex.site/lens/intake
+
+Note `.convex.site` — that is the host Convex serves HTTP routes on; the
+`.convex.cloud` address the dashboard shows first is for Convex's own
+clients and a plain POST there will not reach the route. Submissions appear
+in the dashboard under the `intake_submissions` table.
 
 ## Where the URL goes on the Lens side
 
 Exactly one place: the environment variable `DEX_LENS_INTAKE_URL`, set on the
-machine that runs Lens. Lens reads that variable when the person agrees to
-share; if it is unset, there is nowhere to send and nothing is sent. There is
-no other configuration mechanism.
+machine that runs Lens — set it to the full `.convex.site/lens/intake` URL
+above. Lens reads that variable when the person agrees to share; if it is
+unset, there is nowhere to send and nothing is sent. There is no other
+configuration mechanism.
 
 ## What is not in this repository
 

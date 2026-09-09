@@ -46,9 +46,15 @@ INTAKE_URL = "https://heydex.ai/lens/share"
 #: Where the named channel goes: a new-issue page the person submits themselves.
 ISSUES_URL = "https://github.com/davekilleen/dex-lens/issues/new"
 
-#: Where a newsletter signup goes, and nowhere else. The address travels in
-#: that one request and is never written into any run artifact or report.
-NEWSLETTER_URL = "https://heydex.ai/lens/newsletter"
+#: Where a newsletter signup goes, and nowhere else. This is the same
+#: doorway the heydex.ai site's own signup form posts to — it needs no key,
+#: it reads exactly an email and a source label, and the source names Lens
+#: so signups from here are tellable apart. The address travels in that one
+#: request and is never written into any run artifact or report.
+NEWSLETTER_URL = "https://api.heydex.ai/api/newsletter/subscribe"
+
+#: The source label the newsletter doorway stores next to the address.
+NEWSLETTER_SOURCE = "dex-lens"
 
 #: The intake-answers destination is not baked into the build: it is the
 #: address of Dave's own receiving table, configured by this one environment
@@ -486,7 +492,7 @@ def newsletter_main(argv: list[str] | None = None) -> int:
         return 2
 
     payload_bytes = _payload_bytes(
-        {"email": email, "lens_version": _lens_version()}
+        {"email": email, "source": NEWSLETTER_SOURCE}
     )
     if not args.yes:
         print("This is exactly what would be sent to heydex.ai — nothing else:")

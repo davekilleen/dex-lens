@@ -142,3 +142,36 @@ def test_the_engine_and_the_receiving_table_agree_on_every_option() -> None:
     assert f'LINK_QUESTION_ID = "{INTAKE_PROJECT_LINK}"' in source
     assert f"PROJECT_LINK_MAX_LENGTH = {INTAKE_PROJECT_LINK_MAX_LENGTH}" in source
     assert f'PROJECT_LINK_PREFIX = "{INTAKE_PROJECT_LINK_PREFIX}"' in source
+
+
+# --- the HTTP doorway: a plain POST from Lens must have somewhere to land ------
+
+HTTP_TS = REPO_ROOT / "convex" / "http.ts"
+
+
+def test_the_http_doorway_exists_and_routes_the_intake_post() -> None:
+    """Found preparing the 2026-09-09 release: `submitIntake` is a Convex
+    mutation, and Lens sends a plain JSON POST to `DEX_LENS_INTAKE_URL` — with
+    no HTTP route file in `convex/`, that POST had nowhere to land and the
+    whole sharing step would have failed on first live use."""
+
+    assert HTTP_TS.exists(), "convex/http.ts is the doorway the Lens POST needs"
+    source = HTTP_TS.read_text(encoding="utf-8")
+    assert '"/lens/intake"' in source
+    assert '"POST"' in source
+    assert "submitIntake" in source
+    assert "httpRouter" in source
+
+
+def test_the_http_doorway_accepts_the_null_project_link_lens_sends() -> None:
+    """Lens serializes an absent link as JSON `null`; the mutation's optional
+    string argument refuses null, so the doorway must translate null to
+    absent before calling it."""
+
+    source = HTTP_TS.read_text(encoding="utf-8")
+    assert "project_link === null" in source
+
+
+def test_the_readme_tells_dave_the_exact_url_shape_to_configure() -> None:
+    readme = (REPO_ROOT / "convex" / "README.md").read_text(encoding="utf-8")
+    assert ".convex.site/lens/intake" in readme
