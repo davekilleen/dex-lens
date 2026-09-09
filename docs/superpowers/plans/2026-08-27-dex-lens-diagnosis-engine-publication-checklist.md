@@ -1,10 +1,10 @@
 # Dex Lens diagnosis-engine publication checklist
 
-**Status:** Preparing signed Lens v0.1.16. Signed latest is still v0.1.15.
-**Public product:** signed Lens v0.1.15 until `v0.1.16` exists
-**Published commit:** `d009a8d907572ae32880f629d7a311f6fcc377de`
-**Release run:** https://github.com/davekilleen/dex-lens/actions/runs/33167244234
-**GitHub Release:** https://github.com/davekilleen/dex-lens/releases/tag/v0.1.15
+**Status:** Published. Signed latest is v0.1.16.
+**Public product:** signed Lens v0.1.16
+**Published commit:** `0088b0cbbbf912694799762a1f4530d2e0b50be6`
+**Release run:** https://github.com/davekilleen/dex-lens/actions/runs/34335528042
+**GitHub Release:** https://github.com/davekilleen/dex-lens/releases/tag/v0.1.16
 **First-look PR:** https://github.com/davekilleen/dex-lens/pull/50
 **Chat-approve PR:** https://github.com/davekilleen/dex-lens/pull/49
 **Mission Control:** davekilleen/dex-cards#99
@@ -29,11 +29,14 @@ release workflow renders the public installer from the signed manifest.
 
 ## Remaining in this publication
 
-1. Land the v0.1.16 release preparation on `main` as product version
-   `0.1.16`.
-2. Tag `v0.1.16` so the signed installer picks up the new build.
-3. Confirm `releases/latest/download/install.sh` declares
-   `DEX_LENS_VERSION=0.1.16`.
+Nothing. All three steps completed 2026-09-09:
+
+1. The v0.1.16 release preparation landed on `main` (PR #58, `e805bfc`,
+   merged as `0088b0c`).
+2. The `Release Dex Lens` dispatch (`34335528042`) on `0088b0c` succeeded
+   and published GitHub Release `v0.1.16` with its six assets.
+3. `releases/latest/download/install.sh` declares
+   `DEX_LENS_VERSION=0.1.16` (verified by download).
 
 ## Still not done here
 

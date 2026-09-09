@@ -5,8 +5,9 @@ Last updated: 2026-09-09. Plain-language companion to
 
 ## Lens v0.1.16 released, 2026-09-09
 
-Product version on this line is **0.1.16**. Signed public latest remains
-`v0.1.15` until GitHub Release `v0.1.16` exists.
+Signed public latest is **v0.1.16**: GitHub Release `v0.1.16` was published
+2026-09-09 by release run `34335528042` on commit `0088b0c`, and
+`releases/latest/download/install.sh` declares `DEX_LENS_VERSION=0.1.16`.
 
 What v0.1.16 carries, in plain words:
 
