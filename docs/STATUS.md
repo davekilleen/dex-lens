@@ -1,7 +1,35 @@
 # Dex Lens — build and delivery status
 
-Last updated: 2026-09-01. Plain-language companion to
+Last updated: 2026-09-09. Plain-language companion to
 `docs/handoff/HANDOFF.md`, which remains the binding product and safety plan.
+
+## Lens v0.1.16 released, 2026-09-09
+
+Product version on this line is **0.1.16**. Signed public latest remains
+`v0.1.15` until GitHub Release `v0.1.16` exists.
+
+What v0.1.16 carries, in plain words:
+
+- The run asks its intake questions first and records the answers before it
+  reads any file.
+- Whether Dex is installed is decided from Dex's own release evidence on the
+  machine, never from skill names that happen to match the catalogue. The
+  report speaks in one of three voices: Dex is not installed, Dex is
+  installed but its version cannot be read, or Dex is installed at a known
+  version.
+- A capability is reported as missing only when the signed release history
+  proves it was never in the person's install; a matching name alone no
+  longer counts as having it.
+- The report is easier to read: "Unique to you" says these items are part of
+  your setup rather than claiming you wrote them, similar items are grouped
+  into one row instead of repeated line by line, each finding is rendered
+  once, and the coverage section leads with what was assessed and names the
+  families that need manual review.
+- Two new commands, `dex-lens share-answers` and `dex-lens newsletter`,
+  always show a preview first; nothing is sent until the person has read the
+  preview and agreed. The newsletter signup goes to
+  `https://api.heydex.ai/api/newsletter/subscribe`, the same address the
+  heydex.ai site's own signup form uses, and nowhere else.
 
 ## Significant capability coverage contract, 2026-09-01
 
@@ -16,7 +44,7 @@ Core publication is held until this exact Lens contract has been reviewed,
 merged, and released under a tagged Lens version. No Core catalogue signing or
 public catalogue update is enabled by this local implementation.
 
-The unreleased `v0.1.16` candidate also makes the diagnosis report honest at
+The `v0.1.16` release (dated above) also makes the diagnosis report honest at
 the point a person reads it: configuration matches are not described as
 working outcomes, evidence-reviewed strengths and reciprocal lessons are
 shown before the technical ledger, differing copies of the same skill can
@@ -32,9 +60,9 @@ than treated as unchanged; current component matches remain the deciding
 evidence for those classes.
 A consented read-only benchmark against an older full system reached every
 declared outcome family and preserved the inspected checkout unchanged. That
-is development evidence only; Lens `v0.1.15` and live signed catalogue v6
-remain the public releases until the separate review and release gates are
-completed.
+is development evidence only; the review and release gates for `v0.1.16` are
+recorded in the section above, and live signed catalogue v6 remains the
+public reference.
 
 ## First look is the default, 2026-08-28
 
