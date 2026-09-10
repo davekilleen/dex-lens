@@ -572,11 +572,11 @@
     "This file is never signed and never published; only Dex Core signs catalogue bytes."
   ],
   "derived_from": {
-    "canonical_sha256": "c9d79c96250f89f72fe26f1c2a85fa75820b5e3f0cedacea9078bfd667c91164",
-    "catalog_version": 6,
-    "core_release": "v1.97.2",
+    "canonical_sha256": "4afbda1cb30541f20cab83a4fbb825c05a37d68fddfc59778ca00f263acb72ae",
+    "catalog_version": 7,
+    "core_release": "v1.97.15",
     "key_id": "dex-core-lens-1",
-    "produced_at": "2026-08-27T08:37:39Z"
+    "produced_at": "2026-09-10T06:54:03Z"
   },
   "draft_contract": "dex-lens-significant-family-contract-draft",
   "draft_version": 1,
