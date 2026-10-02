@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import URLError
 
@@ -110,6 +110,15 @@ class _Response:
         return self.payload
 
 
+# The live-bridge proof script verifies with the real clock, so these envelopes
+# must carry a validity window around the actual run time, not the verifier
+# fixtures' frozen dates (those expired on 2026-09-10 and turned every
+# real-clock path red). Computed once per process so repeated signings of the
+# same catalogue produce byte-identical envelopes for sha256 comparisons.
+_LIVE_PRODUCED_AT = datetime.now(UTC).replace(microsecond=0)
+_LIVE_EXPIRES_AT = _LIVE_PRODUCED_AT + timedelta(days=30)
+
+
 def _signed_catalogue(
     *,
     version: int = 7,
@@ -123,6 +132,12 @@ def _signed_catalogue(
         Encoding.Raw, PublicFormat.Raw
     )
     envelope = unsigned_envelope(version=version)
+    envelope["metadata"]["produced_at"] = _LIVE_PRODUCED_AT.isoformat().replace(
+        "+00:00", "Z"
+    )
+    envelope["metadata"]["expires_at"] = _LIVE_EXPIRES_AT.isoformat().replace(
+        "+00:00", "Z"
+    )
     if catalogue is not None:
         envelope["catalogue"] = catalogue.model_dump(mode="json")
     if callable(mutate):

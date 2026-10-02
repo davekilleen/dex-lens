@@ -151,13 +151,13 @@ def test_checked_in_live_release_manifest_is_the_exact_complete_catalogue_identi
         Path("docs/pilot/live-catalogue-release.json")
     )
 
-    assert expected.core_release == "v1.97.2"
+    assert expected.core_release == "v1.97.15"
     assert expected.key_id == "dex-core-lens-1"
     assert expected.raw_sha256 == (
-        "2c8fe8524a6c8f7c15043fb261ea8c78d2e05e43e29e54160284b6d7af139a46"
+        "81901fc83febc61b07649a7c831b621afed8876d6e86a41e660b4c5b85165f4e"
     )
-    assert expected.catalog_version == 6
-    assert expected.capability_count == 115
+    assert expected.catalog_version == 7
+    assert expected.capability_count == 117
     assert expected.job_count == 8
     assert len(expected.capability_ids) == expected.capability_count
 

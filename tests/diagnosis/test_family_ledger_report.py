@@ -215,15 +215,15 @@ def test_skills_only_cache_uses_the_verified_bundled_four_class_fallback() -> No
         proposals=(),
     )
 
-    assert slice_.version == 6
+    assert slice_.version == 7
     assert "dex-career-mcp" in slice_.catalogue_ids
     assert {item.catalogue_id for item in ledger.entries} == set(slice_.catalogue_ids)
     assert len(ledger.mcp_tools_by_server) >= 10
-    assert not slice_.family_contract_present
+    assert slice_.family_contract_present
 
 
 def test_expired_bundled_reference_cannot_be_used_for_current_diagnosis() -> None:
-    after_bundled_expiry = datetime(2026, 9, 27, tzinfo=UTC)
+    after_bundled_expiry = datetime(2026, 10, 27, tzinfo=UTC)
 
     with pytest.raises(DiagnosisStateError, match="current diagnosis"):
         defaults._load_bundled_reference(now=after_bundled_expiry)
